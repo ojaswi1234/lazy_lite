@@ -279,6 +279,13 @@ function TermView:on_key_pressed(key)
         table.insert(self.history, cmd)
       end
       self.history_idx = #self.history + 1
+      
+      -- Intercept clear commands to wipe the graphical buffer
+      local lower_cmd = cmd:lower()
+      if lower_cmd == "cls" or lower_cmd == "clear" then
+        self.lines = {}
+      end
+      
       self:run(cmd)
     end
     core.redraw = true
