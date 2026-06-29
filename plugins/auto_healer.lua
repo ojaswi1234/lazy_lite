@@ -4,6 +4,13 @@
 local core = require "core"
 local command = require "core.command"
 
+command.add(nil, {
+  ["auto-healer:approve-fix"] = function()
+    core.log("[Auto-Healer] Approval sent to AI.")
+    command.perform("antigravity:submit", "Yes, I agree with this fix. Please apply it now.")
+  end
+})
+
 -- 1. Hook handled errors (e.g., inside core.try, plugin execution)
 local old_error = core.error
 function core.error(err, ...)
@@ -21,6 +28,10 @@ function core.error(err, ...)
       tostring(err), trace
     )
     
+    core.log("[Auto-Healer] Caught error: %s", tostring(err))
+    core.log("[Auto-Healer] Delegating to AI Sidebar for analysis...")
+    core.log("[Auto-Healer] When ready, run 'Auto Healer: Approve Fix' from the Command Palette to approve.")
+
     local success = command.perform("antigravity:submit", prompt)
     if not success then
       core.command_view:enter("AI Sidebar broken! Run Auto-Healer in background? (y/n)", {
@@ -84,6 +95,11 @@ core.add_thread(function()
       "Activate skill `lite_xl_healer`! The editor CRASHED in my last session with this fatal error:\n\n```\n%s\n```\n\nPlease analyze this, explain the fix to me, and WAIT for my agreement.",
       err_text
     )
+    
+    core.log("[Auto-Healer] Found fatal crash from previous session.")
+    core.log("[Auto-Healer] Delegating to AI Sidebar for analysis...")
+    core.log("[Auto-Healer] When ready, run 'Auto Healer: Approve Fix' from the Command Palette to approve.")
+    
     command.perform("antigravity:submit", prompt)
   end
 end)
