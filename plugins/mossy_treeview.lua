@@ -11,6 +11,19 @@ local TreeView = require "plugins.treeview"
 
 config.treeview_size = 240 * SCALE
 
+local function get_contrast_bg(bg)
+  if type(bg) ~= "table" then return bg end
+  local r, g, b, a = bg[1], bg[2], bg[3], bg[4] or 255
+  local lum = (r * 0.299 + g * 0.587 + b * 0.114)
+  if lum > 128 then
+    -- Light theme: darken by 8%
+    return { math.max(0, math.floor(r * 0.92)), math.max(0, math.floor(g * 0.92)), math.max(0, math.floor(b * 0.92)), a }
+  else
+    -- Dark theme: lighten by 8%
+    return { math.min(255, math.floor(r + (255 - r) * 0.08)), math.min(255, math.floor(g + (255 - g) * 0.08)), math.min(255, math.floor(b + (255 - b) * 0.08)), a }
+  end
+end
+
 -- ── Item draw override ────────────────────────────────────────────────────────
 local orig_draw_item = TreeView.draw_item
 
@@ -59,11 +72,13 @@ end
 local orig_draw = TreeView.draw
 
 function TreeView:draw()
+  local sidebar_bg = get_contrast_bg(style.background)
+  
   -- Full sidebar background
   renderer.draw_rect(
     self.position.x, self.position.y,
     self.size.x,     self.size.y,
-    style.background2
+    sidebar_bg
   )
 
   -- "EXPLORER" header band
