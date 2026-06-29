@@ -59,19 +59,39 @@ end
 
 function TermView:get_name() return "Terminal" end
 
-function TermView:_push(kind, text)
-  -- Strip ANSI escape codes
-  text = text:gsub("\27%[[%d;]*[A-Za-z]", "")
-             :gsub("\r\n", "\n"):gsub("\r", "")
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    table.insert(self.lines, { text = line, kind = kind })
+-- Highly optimized chunk parser that prevents string allocation spam on massive I/O
+function TermView:_push_chunk(kind, chunk)
+  local buf_key = kind .. "_buf"
+  self[buf_key] = (self[buf_key] or "") .. chunk
+  
+  local buf = self[buf_key]
+  local last_nl = 0
+  
+  for i = 1, #buf do
+    if buf:byte(i) == 10 then -- '\n'
+      local line = buf:sub(last_nl + 1, i - 1)
+      if #line > 0 and line:byte(#line) == 13 then -- strip '\r'
+        line = line:sub(1, -2)
+      end
+      if #line > 0 then
+        table.insert(self.lines, { kind = kind, text = line })
+      end
+      last_nl = i
+    end
+  end
+  
+  if last_nl > 0 then
+    self[buf_key] = buf:sub(last_nl + 1)
+    self.scroll_to_bottom = true
   end
   while #self.lines > config.terminal.scrollback do
     table.remove(self.lines, 1)
   end
-  -- Signal update() to snap scroll to bottom
-  self.scroll_to_bottom = true
   core.redraw = true
+end
+
+function TermView:_push(kind, text)
+  self:_push_chunk(kind, text .. "\n")
 end
 
 -- Run a command string asynchronously
@@ -117,25 +137,23 @@ function TermView:update()
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "y", dest, nil, "terminal")
 
-  -- Drain process output
+  -- Drain process output using 64KB chunks for maximum IPC throughput
   if self.proc then
-    -- Drain stdout completely
     while true do
-      local out = self.proc:read_stdout(4096)
+      local out = self.proc:read_stdout(65536)
       if not out or #out == 0 then break end
-      self:_push("out", out)
+      self:_push_chunk("out", out)
     end
     
-    -- Drain stderr completely
     while true do
-      local err = self.proc:read_stderr(4096)
+      local err = self.proc:read_stderr(65536)
       if not err or #err == 0 then break end
-      self:_push("err", err)
+      self:_push_chunk("err", err)
     end
 
     local rc = self.proc:returncode()
     if rc ~= nil then
-      self:_push("info", string.format("[exited: %d]", rc))
+      self:_push_chunk("info", string.format("[exited: %d]\n", rc))
       self.proc = nil
     end
   end

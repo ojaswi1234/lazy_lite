@@ -236,10 +236,10 @@ function AGView:submit(prompt_text)
 
   local cfg  = config.antigravity
   
-  -- Ask agy to read the temp file, avoiding multi-line arguments in process.start which break on Windows.
+  -- Ask agy to read the temp file, using the -f flag to use a smaller, blazing-fast model.
   local safe_prompt = "Read this file and follow the instruction inside: " .. (self.tmpfile or "unknown")
   
-  local p, err, code = process.start({ cfg.cli, "-p", safe_prompt }, {
+  local p, err, code = process.start({ cfg.cli, "-f", "-p", safe_prompt }, {
     stdin  = process.REDIRECT_DISCARD,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
@@ -267,9 +267,9 @@ function AGView:update()
 
   local dirty = false
 
-  -- Drain stdout completely
+  -- Drain stdout completely in large 64KB chunks to maximize IPC throughput
   while true do
-    local out = self.process:read_stdout(4096)
+    local out = self.process:read_stdout(65536)
     if not out or #out == 0 then break end
     self._ai_buf = (self._ai_buf or "") .. out
     dirty = true
@@ -277,7 +277,7 @@ function AGView:update()
   
   -- Drain stderr completely
   while true do
-    local err = self.process:read_stderr(4096)
+    local err = self.process:read_stderr(65536)
     if not err or #err == 0 then break end
     self._ai_buf = (self._ai_buf or "") .. err
     dirty = true
