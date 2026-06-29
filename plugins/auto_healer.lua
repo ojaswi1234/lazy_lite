@@ -39,8 +39,11 @@ function core.error(err, ...)
           if text:lower() == "y" or text:lower() == "yes" then
             core.log("Auto-Healer running in background...")
             local process = require "process"
+            local config = require "core.config"
+            local agy_path = config.antigravity and config.antigravity.cli or "agy"
+            
             -- Run headlessly and output to a new doc
-            local p = process.start({ "agy", "-p", prompt .. " APPLY FIX IMMEDIATELY." }, {
+            local p = process.start({ agy_path, "-f", "-p", prompt .. " APPLY FIX IMMEDIATELY." }, {
               stdout = process.REDIRECT_PIPE,
               stderr = process.REDIRECT_PIPE
             })

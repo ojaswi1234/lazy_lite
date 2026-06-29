@@ -25,26 +25,52 @@ local proc = nil
 local function start_monitor()
   if proc then pcall(function() proc:kill() end) end
   
-  -- Use a long-running powershell process to feed us stats over stdout.
-  -- This avoids the heavy overhead of spawning wmic every 2 seconds.
-  local script = string.format([[
-    $ErrorActionPreference = 'SilentlyContinue'
-    while ($true) {
-      $c = (Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
-      $o = Get-WmiObject Win32_OperatingSystem
-      if ($o) {
-        $m = [math]::Round(($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) / $o.TotalVisibleMemorySize * 100)
-        Write-Host "$c,$m"
+  if PLATFORM == "Windows" then
+    local script = string.format([[
+      $ErrorActionPreference = 'SilentlyContinue'
+      while ($true) {
+        $c = (Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+        $o = Get-WmiObject Win32_OperatingSystem
+        if ($o) {
+          $m = [math]::Round(($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) / $o.TotalVisibleMemorySize * 100)
+          Write-Host "$c,$m"
+        }
+        Start-Sleep -Seconds %d
       }
-      Start-Sleep -Seconds %d
-    }
-  ]], config.resource_monitor.poll_rate)
+    ]], config.resource_monitor.poll_rate)
 
-  proc = process.start({ "powershell", "-NoProfile", "-Command", script }, {
-    stdout = process.REDIRECT_PIPE,
-    stderr = process.REDIRECT_DISCARD,
-    stdin  = process.REDIRECT_DISCARD,
-  })
+    proc = process.start({ "powershell", "-NoProfile", "-Command", script }, {
+      stdout = process.REDIRECT_PIPE,
+      stderr = process.REDIRECT_DISCARD,
+      stdin  = process.REDIRECT_DISCARD,
+    })
+  else
+    local script = string.format([[
+      prev_idle=0; prev_total=0
+      while true; do
+        if [ -f /proc/stat ]; then
+          read cpu user nice system idle rest < /proc/stat
+          total=$((user+nice+system+idle))
+          d_idle=$((idle-prev_idle)); d_total=$((total-prev_total))
+          if [ $d_total -eq 0 ]; then d_total=1; fi
+          cpu_usage=$((100 * (d_total - d_idle) / d_total))
+          prev_idle=$idle; prev_total=$total
+          
+          mem_usage=$(free | awk '/Mem:/ {print int($3/$2 * 100)}')
+          echo "$cpu_usage,$mem_usage"
+        else
+          echo "0,0" # Fallback for unsupported Unix
+        fi
+        sleep %d
+      done
+    ]], config.resource_monitor.poll_rate)
+    
+    proc = process.start({ "bash", "-c", script }, {
+      stdout = process.REDIRECT_PIPE,
+      stderr = process.REDIRECT_DISCARD,
+      stdin  = process.REDIRECT_DISCARD,
+    })
+  end
 end
 
 start_monitor()
