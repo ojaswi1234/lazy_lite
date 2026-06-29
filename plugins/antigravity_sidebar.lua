@@ -94,6 +94,32 @@ local function get_context()
   return name, text
 end
 
+local function get_mention_suggestions(query)
+  local results = {}
+  local q = query:lower()
+  for dir_name, file in core.get_project_files() do
+    if file and file.type == "file" then
+      local path = file.filename
+      if path:lower():find(q, 1, true) then
+        table.insert(results, path)
+        if #results >= 10 then break end
+      end
+    end
+  end
+  return results
+end
+
+function AGView:_update_mentions()
+  local mention_prefix = self.input:match("@([^%s]*)$")
+  if mention_prefix then
+    self.mention_suggestions = get_mention_suggestions(mention_prefix)
+    self.mention_idx = 1
+  else
+    self.mention_suggestions = nil
+  end
+  core.redraw = true
+end
+
 -- Wrap text into lines that fit within max_w pixels using given font
 local function wrap_text(font, text, max_w)
   local lines = {}
@@ -143,6 +169,8 @@ function AGView:new()
   self.tick        = 0
   self.sessions    = {}   -- list of { role, text, lines }
   self._chat_height = 0
+  self.mention_suggestions = nil
+  self.mention_idx = 1
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -181,6 +209,19 @@ function AGView:submit(prompt_text)
     "FILE: %s\n\nCODE:\n```\n%s\n```\n\nINSTRUCTION: %s\n",
     fname or "unknown", ftext or "", prompt_text
   )
+
+  -- Scan for @mentions and append them to the body
+  for mention in prompt_text:gmatch("@([%S]+)") do
+    local mfile = core.project_absolute_path(mention)
+    if mfile then
+      local mf = io.open(mfile, "r")
+      if mf then
+        local mtext = mf:read("*a")
+        mf:close()
+        body = body .. string.format("\n\n---\nREFERENCED FILE: %s\n```\n%s\n```\n", mention, mtext)
+      end
+    end
+  end
 
   self.status   = "running"
   self._ai_buf  = ""  -- accumulate streaming response
@@ -483,16 +524,34 @@ function AGView:draw()
 
   -- Empty state
   if #self.sessions == 0 then
-    local em1 = "No conversation yet."
-    local em2 = "Select code and press a quick"
-    local em3 = "action, or type below."
-    local ems = { em1, em2, em3 }
-    local emy = chat_top + math.floor(chat_h / 2) - #ems * lh_f
-    for _, em in ipairs(ems) do
-      local emw = style.font:get_width(em)
-      renderer.draw_text(style.font, em,
-        x + math.floor((w - emw) / 2), emy, P.fg_muted)
-      emy = emy + lh_f + 2 * SCALE
+    local msg = "To reference specific files in your project, type '@' followed by the file name!\n\n" ..
+                "Example: '@src/main.lua Can you fix the errors in this file?'"
+    local mw = w - 2 * pad
+    for _, line in ipairs(wrap_text(style.font, msg, mw)) do
+      renderer.draw_text(style.font, line, x + pad, ty, P.fg_muted)
+      ty = ty + style.font:get_height() + 2 * SCALE
+    end
+  end
+
+  -- ═══════════════════════════════════════════════════════════════════
+  -- MENTION POPUP
+  -- ═══════════════════════════════════════════════════════════════════
+  if self.mention_suggestions and #self.mention_suggestions > 0 then
+    local pop_w = w - 2 * pad
+    local item_h = style.font:get_height() + 8 * SCALE
+    local pop_h = #self.mention_suggestions * item_h
+    local pop_x = x + pad
+    local pop_y = inp_y - pop_h - 4 * SCALE
+    
+    renderer.draw_rect(pop_x, pop_y, pop_w, pop_h, P.bg_darker)
+    draw_rect_outline(pop_x, pop_y, pop_w, pop_h, P.border)
+    
+    for i, file in ipairs(self.mention_suggestions) do
+      local iy = pop_y + (i - 1) * item_h
+      if i == self.mention_idx then
+        renderer.draw_rect(pop_x, iy, pop_w, item_h, P.bg_btn_hl)
+      end
+      renderer.draw_text(style.font, file, pop_x + 8 * SCALE, iy + 4 * SCALE, P.fg)
     end
   end
 end
@@ -500,10 +559,33 @@ end
 -- ── Input ──────────────────────────────────────────────────────────────────────
 function AGView:on_text_input(text)
   self.input = self.input .. text
+  self:_update_mentions()
   core.redraw = true
 end
 
-function AGView:on_key_pressed(key)
+function AGView:on_key_pressed(key, ...)
+  if self.mention_suggestions and #self.mention_suggestions > 0 then
+    if key == "up" then
+      self.mention_idx = math.max(1, self.mention_idx - 1)
+      core.redraw = true
+      return true
+    elseif key == "down" then
+      self.mention_idx = math.min(#self.mention_suggestions, self.mention_idx + 1)
+      core.redraw = true
+      return true
+    elseif key == "return" or key == "tab" then
+      local choice = self.mention_suggestions[self.mention_idx]
+      self.input = self.input:gsub("@[^%s]*$", "@" .. choice .. " ")
+      self.mention_suggestions = nil
+      core.redraw = true
+      return true
+    elseif key == "escape" then
+      self.mention_suggestions = nil
+      core.redraw = true
+      return true
+    end
+  end
+
   local mods = keymap.modkeys or {}
 
   if key == "return" and not mods["ctrl"] then
@@ -535,6 +617,7 @@ function AGView:on_key_pressed(key)
         i = i - 1
       end
       self.input = text:sub(1, math.max(0, i - 1))
+      self:_update_mentions()
       core.redraw = true
     end
     return true
