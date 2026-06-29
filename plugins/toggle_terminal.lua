@@ -44,6 +44,8 @@ function TermView:new()
   end
   self.is_fullscreen = false
   self.scroll_to_bottom = true
+  self.history = {}
+  self.history_idx = 1
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -273,9 +275,29 @@ function TermView:on_key_pressed(key)
     local cmd = self.input:match("^%s*(.-)%s*$")
     self.input = ""
     if cmd and #cmd > 0 then
+      if self.history[#self.history] ~= cmd then
+        table.insert(self.history, cmd)
+      end
+      self.history_idx = #self.history + 1
       self:run(cmd)
     end
     core.redraw = true
+    return true
+  end
+  if key == "up" then
+    if #self.history > 0 and self.history_idx > 1 then
+      self.history_idx = self.history_idx - 1
+      self.input = self.history[self.history_idx]
+      core.redraw = true
+    end
+    return true
+  end
+  if key == "down" then
+    if #self.history > 0 and self.history_idx <= #self.history then
+      self.history_idx = self.history_idx + 1
+      self.input = self.history[self.history_idx] or ""
+      core.redraw = true
+    end
     return true
   end
   if key == "backspace" then
@@ -293,11 +315,12 @@ function TermView:on_key_pressed(key)
   end
   if key == "ctrl+c" then
     if self.proc then
-      self.proc:terminate()   -- SIGTERM first
+      pcall(function() self.proc:kill() end)
       self.proc = nil
       self:_push("info", "^C (terminated)")
     else
       self.input = ""
+      self:_push("info", "^C")
     end
     core.redraw = true
     return true
@@ -447,6 +470,8 @@ command.add(
     ["terminal:clear"]     = function() instance:on_key_pressed("ctrl+l") end,
     ["terminal:scroll-up"] = function() instance:on_key_pressed("pageup") end,
     ["terminal:scroll-down"] = function() instance:on_key_pressed("pagedown") end,
+    ["terminal:history-up"] = function() instance:on_key_pressed("up") end,
+    ["terminal:history-down"] = function() instance:on_key_pressed("down") end,
   }
 )
 
@@ -458,5 +483,7 @@ keymap.add {
   ["ctrl+l"]    = "terminal:clear",
   ["pageup"]    = "terminal:scroll-up",
   ["pagedown"]  = "terminal:scroll-down",
+  ["up"]        = "terminal:history-up",
+  ["down"]      = "terminal:history-down",
 }
 
