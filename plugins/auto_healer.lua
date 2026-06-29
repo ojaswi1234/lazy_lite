@@ -20,7 +20,38 @@ function core.error(err, ...)
       "Activate skill `lite_xl_healer`! The editor just caught a handled Lua error:\n\n```\n%s\n%s\n```\n\nPlease analyze this, explain the fix to me, and WAIT for my agreement.",
       tostring(err), trace
     )
-    command.perform("antigravity:submit", prompt)
+    
+    local success = command.perform("antigravity:submit", prompt)
+    if not success then
+      core.command_view:enter("AI Sidebar broken! Run Auto-Healer in background? (y/n)", {
+        submit = function(text)
+          if text:lower() == "y" or text:lower() == "yes" then
+            core.log("Auto-Healer running in background...")
+            local process = require "process"
+            -- Run headlessly and output to a new doc
+            local p = process.start({ "agy", "-p", prompt .. " APPLY FIX IMMEDIATELY." }, {
+              stdout = process.REDIRECT_PIPE,
+              stderr = process.REDIRECT_PIPE
+            })
+            if p then
+              local doc = core.open_doc()
+              doc.filename = "Auto-Heal Report.md"
+              core.add_thread(function()
+                while true do
+                  local out = p:read_stdout(2048) or ""
+                  local errout = p:read_stderr(2048) or ""
+                  if #out > 0 or #errout > 0 then
+                    doc:insert(doc:get_selection(), out .. errout)
+                  end
+                  if p:returncode() ~= nil then break end
+                  coroutine.yield(0.1)
+                end
+              end)
+            end
+          end
+        end
+      })
+    end
   end)
 end
 

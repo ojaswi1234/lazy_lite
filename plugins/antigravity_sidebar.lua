@@ -109,16 +109,7 @@ local function get_mention_suggestions(query)
   return results
 end
 
-function AGView:_update_mentions()
-  local mention_prefix = self.input:match("@([^%s]*)$")
-  if mention_prefix then
-    self.mention_suggestions = get_mention_suggestions(mention_prefix)
-    self.mention_idx = 1
-  else
-    self.mention_suggestions = nil
-  end
-  core.redraw = true
-end
+
 
 -- Wrap text into lines that fit within max_w pixels using given font
 local function wrap_text(font, text, max_w)
@@ -179,6 +170,17 @@ function AGView:set_target_size(axis, value)
     self.target_size = math.max(180 * SCALE, value)  -- minimum 180px
     return true
   end
+end
+
+function AGView:_update_mentions()
+  local mention_prefix = self.input:match("@([^%s]*)$")
+  if mention_prefix then
+    self.mention_suggestions = get_mention_suggestions(mention_prefix)
+    self.mention_idx = 1
+  else
+    self.mention_suggestions = nil
+  end
+  core.redraw = true
 end
 
 function AGView:get_name() return "Antigravity" end
