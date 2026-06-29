@@ -382,12 +382,15 @@ function AGView:draw()
     inp_y + input_h - style.font:get_height() - 5 * SCALE,
     P.fg_muted)
 
-  -- Send button
+  -- Send/Stop button
   local send_y = inp_y + input_h + 4 * SCALE
-  local send_bg = self.hover_send and P.bg_send_hl or P.bg_send
+  local send_bg = P.bg_send
+  if self.hover_send then
+    send_bg = self.process and { common.color "#903030" } or P.bg_send_hl
+  end
   renderer.draw_rect(inp_x, send_y, inp_w, send_h, send_bg)
 
-  local send_lbl = self.status == "running" and "  …generating" or "  Send"
+  local send_lbl = self.process and "  Stop Generating" or "  Send"
   renderer.draw_text(style.font, send_lbl,
     inp_x + math.floor((inp_w - style.font:get_width(send_lbl)) / 2),
     send_y + math.floor((send_h - style.font:get_height()) / 2),
@@ -580,11 +583,23 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     if act then self:submit(act.prompt) return true end
   end
 
-  -- Send button
+  -- Send/Stop button
   if self.hover_send then
-    local q = self.input:match("^%s*(.-)%s*$")
-    if q and #q > 0 then self:submit(q) end
-    self.input = ""
+    if self.process then
+      pcall(function() self.process:kill() end)
+      self.process = nil
+      self.status = "idle"
+      if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
+      -- Append a small message indicating it was stopped
+      if self.sessions[#self.sessions] and self.sessions[#self.sessions].role == "ai" then
+        self.sessions[#self.sessions].text = (self.sessions[#self.sessions].text or "") .. "\n\n[Stopped by user]"
+        self.sessions[#self.sessions].lines = nil
+      end
+    else
+      local q = self.input:match("^%s*(.-)%s*$")
+      if q and #q > 0 then self:submit(q) end
+      self.input = ""
+    end
     core.redraw = true
     return true
   end
@@ -641,6 +656,15 @@ command.add(nil, {
   ["antigravity:fix"]      = function() if instance then instance:submit(config.antigravity.actions[3].prompt) end end,
   ["antigravity:tests"]    = function() if instance then instance:submit(config.antigravity.actions[4].prompt) end end,
   ["antigravity:docs"]     = function() if instance then instance:submit(config.antigravity.actions[5].prompt) end end,
+  ["antigravity:submit"]   = function(prompt)
+    if not instance or not instance.visible then
+      command.perform("antigravity:toggle")
+    end
+    if instance then
+      instance:submit(prompt)
+      core.set_active_view(instance)
+    end
+  end,
 })
 
 -- Bind local commands that only activate when AI Sidebar is focused
