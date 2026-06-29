@@ -70,7 +70,18 @@ config.antigravity = {
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 local function get_context()
   local av = core.active_view
+  -- If the sidebar itself is focused, fallback to finding the most recent/first DocView
+  if not av or not av.doc then
+    local views = core.root_view.root_node:get_children()
+    for _, v in ipairs(views) do
+      if v.doc then
+        av = v
+        break
+      end
+    end
+  end
   if not av or not av.doc then return nil, nil end
+  
   local doc  = av.doc
   local name = doc.filename or "untitled"
   local l1, c1, l2, c2 = doc:get_selection()
