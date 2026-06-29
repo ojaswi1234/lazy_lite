@@ -91,21 +91,25 @@ function TitleView:draw()
 
   local icon_w = style.icon_font:get_width("_")
   local controls_width = (icon_w + icon_w) * 3 + icon_w
-  local chart_w = config.resource_monitor.width
   local h = style.font:get_height()
-  
-  -- Position charts to the left of window controls
-  local rx = self.size.x - controls_width - chart_w - 40 * SCALE
   local y = self.position.y + style.padding.y
-  
-  local cw = math.floor(chart_w / 2) - 5 * SCALE
-  local ram_x = rx + cw + 10 * SCALE
-  
   local max_h = h - 2 * SCALE
+  
+  local cw = 40 * SCALE
+  local gap = 15 * SCALE
   local n = config.resource_monitor.history
   local bar_w = cw / n
+  
+  -- Start from the left of the window controls and draw right-to-left
+  local current_x = self.size.x - controls_width - 15 * SCALE
 
-  local function draw_chart(cx, history, current, label, col)
+  local function draw_chart(history, current, label, col)
+    local txt = string.format("%d%% %s", current, label)
+    local tw = style.font:get_width(txt)
+    
+    current_x = current_x - cw
+    local cx = current_x
+    
     -- Background panel
     renderer.draw_rect(cx, y + 2*SCALE, cw, max_h, style.background3 or style.background)
     
@@ -117,13 +121,15 @@ function TitleView:draw()
       renderer.draw_rect(math.floor(bx), y + 2*SCALE + (max_h - bar_h), math.ceil(bar_w), bar_h, col)
     end
     
-    -- Draw Label overlay (small text, right-aligned)
-    local txt = string.format("%d%% %s", current, label)
-    local tw = style.font:get_width(txt)
-    -- Shift text to the left of the chart box
-    renderer.draw_text(style.font, txt, cx - tw - 6*SCALE, y, style.text)
+    -- Text Label
+    current_x = current_x - 6 * SCALE - tw
+    renderer.draw_text(style.font, txt, current_x, y, style.text)
+    
+    -- Add gap for the next block
+    current_x = current_x - gap
   end
 
-  draw_chart(ram_x, ram_history, current_ram, "RAM", { common.color "#FC9867" })
-  draw_chart(rx, cpu_history, current_cpu, "CPU", { common.color "#A9DC76" })
+  -- Draw right-to-left: RAM will be rightmost, CPU will be left of it
+  draw_chart(ram_history, current_ram, "RAM", { common.color "#FC9867" })
+  draw_chart(cpu_history, current_cpu, "CPU", { common.color "#A9DC76" })
 end
