@@ -15,13 +15,11 @@ config.treeview_size = 240 * SCALE
 local orig_draw_item = TreeView.draw_item
 
 function TreeView:draw_item(item, active, hovered, x, y, w, h)
-  local m = style.mossy or {}
-
   -- Row background
   if active then
-    renderer.draw_rect(x, y, w, h, m.active_row or style.selection)
+    renderer.draw_rect(x, y, w, h, style.selection)
   elseif hovered then
-    renderer.draw_rect(x, y, w, h, m.hover_row  or style.line_highlight)
+    renderer.draw_rect(x, y, w, h, style.line_highlight)
   end
 
   -- Indent guides
@@ -29,14 +27,13 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
   local step  = 20 * SCALE
   for d = 1, depth do
     local gx = x + (d - 1) * step + 8 * SCALE
-    renderer.draw_rect(gx, y, 1 * SCALE, h, m.indent_guide or style.divider)
+    renderer.draw_rect(gx, y, 1 * SCALE, h, style.divider)
   end
 
   -- Icon (guard: icon_font may be nil on some builds, fall back to style.font)
   local ifont      = style.icon_font or style.font
   local icon_str   = icons.get(item.name, item.type == "dir", item.expanded)
-  local icon_color = active and (m.active_row_text or style.text)
-                            or  (m.sidebar_text    or style.text)
+  local icon_color = (active or hovered) and style.text or style.dim
   local icon_x     = x + depth * step + 6 * SCALE
 
   renderer.draw_text(
@@ -48,9 +45,7 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
 
   -- Filename
   local name_x     = icon_x + ifont:get_width(icon_str) + 4 * SCALE
-  local text_color = active  and (m.active_row_text or style.text)
-                  or hovered and (m.sidebar_text    or style.text)
-                  or            (m.sidebar_text     or style.text)
+  local text_color = (active or hovered) and style.text or style.dim
 
   renderer.draw_text(
     style.font, item.name,
@@ -64,13 +59,11 @@ end
 local orig_draw = TreeView.draw
 
 function TreeView:draw()
-  local m = style.mossy or {}
-
   -- Full sidebar background
   renderer.draw_rect(
     self.position.x, self.position.y,
     self.size.x,     self.size.y,
-    m.sidebar_bg or style.background2
+    style.background2
   )
 
   -- "EXPLORER" header band
@@ -78,13 +71,13 @@ function TreeView:draw()
   renderer.draw_rect(
     self.position.x, self.position.y,
     self.size.x, hdr_h,
-    m.active_row or style.selection
+    style.background3 or style.selection
   )
   renderer.draw_text(
     style.font, "  EXPLORER",
     self.position.x + 8 * SCALE,
     self.position.y + math.floor((hdr_h - style.font:get_height()) / 2),
-    m.sidebar_muted or style.dim
+    style.text
   )
 
   orig_draw(self)

@@ -6,38 +6,7 @@ local style   = require "core.style"
 local common  = require "core.common"
 local process = require "process"
 
--- ── 1. Override Status View Background ──────────────────────────────────────────
-local old_draw_bg = core.status_view.draw_background
-function core.status_view:draw_background(...)
-  -- Draw the entire bar in our Mossy status background color
-  if style.mossy and style.mossy.status_bg then
-    renderer.draw_rect(0, self.position.y, self.size.x, self.size.y, style.mossy.status_bg)
-    
-    -- Draw a subtle top border
-    renderer.draw_rect(0, self.position.y, self.size.x, 1 * SCALE, { common.color "#4A6A3A" })
-  else
-    old_draw_bg(self, ...)
-  end
-end
 
--- Force text in standard items to contrast well against the dark green bar
--- (By default they use style.text which might be dark in a light theme)
-local old_draw_items = core.status_view.draw_items
-function core.status_view:draw_items(items, ...)
-  if style.mossy and style.mossy.status_text then
-    local contrast_items = {}
-    for i, item in ipairs(items) do
-      if type(item) == "table" and not item.get_width then
-        -- It's a color table, replace it with our status_text color
-        table.insert(contrast_items, style.mossy.status_text)
-      else
-        table.insert(contrast_items, item)
-      end
-    end
-    return old_draw_items(self, contrast_items, ...)
-  end
-  return old_draw_items(self, items, ...)
-end
 
 -- ── 2. Git Branch Indicator ───────────────────────────────────────────────────
 local current_branch = nil
@@ -101,7 +70,7 @@ core.status_view:add_item({
       return {} 
     end
 
-    local fg = style.mossy and style.mossy.status_text or style.text
+    local fg = style.accent or style.text
     
     -- The branch icon (using standard Nerd Font code \xee\x82\xa0 which is U+E0A0)
     -- or just a clear text prefix. We'll use the standard branch icon character.
