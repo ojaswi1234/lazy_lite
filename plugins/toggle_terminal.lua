@@ -42,11 +42,14 @@ function TermView:new()
   if PLATFORM == "Windows" then
     self:_push("info", "Running on Windows — each command uses cmd.exe /c")
   end
+  self.is_fullscreen = false
+  self.scroll_to_bottom = true
 end
 
 -- Called by the node system when the user drags the resize divider
 function TermView:set_target_size(axis, value)
   if axis == "y" then
+    if self.is_fullscreen then self.is_fullscreen = false end
     self.target_size = math.max(config.terminal.min_height * SCALE, value)
     return true
   end
@@ -64,7 +67,8 @@ function TermView:_push(kind, text)
   while #self.lines > config.terminal.scrollback do
     table.remove(self.lines, 1)
   end
-  -- Auto-scroll to bottom
+  -- Signal update() to snap scroll to bottom
+  self.scroll_to_bottom = true
   core.redraw = true
 end
 
@@ -102,6 +106,11 @@ end
 function TermView:update()
   TermView.super.update(self)
 
+  -- Fullscreen overrides target_size
+  if self.is_fullscreen then
+    self.target_size = math.max(config.terminal.target_height * SCALE, core.root_view.size.y - (40 * SCALE))
+  end
+
   -- Size animation (same pattern as built-in treeview)
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "y", dest, nil, "terminal")
@@ -129,12 +138,13 @@ function TermView:update()
     end
   end
 
-  -- Keep scroll pinned to bottom when output arrives
-  if #self.lines > 0 then
+  -- Handle scroll snapping
+  if self.scroll_to_bottom and #self.lines > 0 then
     local lh    = style.code_font:get_height() + 2 * SCALE
     local total = #self.lines * lh
     local inner = math.max(0, self.size.y - 54 * SCALE)
     self.scroll_y = math.max(0, total - inner)
+    self.scroll_to_bottom = false
   end
 end
 
@@ -173,9 +183,28 @@ function TermView:draw()
     y + 2 * SCALE + math.floor((hdr_h - style.font:get_height()) / 2),
     fg)
 
-  local hint = "ctrl+`  to hide"
+  local hint = "ctrl+` to hide"
+  local hint_w = style.font:get_width(hint)
+  
+  -- Button rendering
+  local btn_text = self.is_fullscreen and "RESTORE" or "MAXIMIZE"
+  local btn_w = style.font:get_width(btn_text) + 20 * SCALE
+  local btn_x = x + w - btn_w
+  local btn_y = y + 2 * SCALE
+
+  self.btn_rect = { x = btn_x, y = btn_y, w = btn_w, h = hdr_h }
+  local btn_bg = self.hovered_btn and { common.color "#3B4D36" } or { common.color "#243020" }
+  local btn_fg = self.hovered_btn and fg or col_inf
+
+  renderer.draw_rect(btn_x, btn_y, btn_w, hdr_h, btn_bg)
+  renderer.draw_text(style.font, btn_text,
+    btn_x + 10 * SCALE,
+    btn_y + math.floor((hdr_h - style.font:get_height()) / 2),
+    btn_fg)
+
+  -- Draw hint to the left of the button
   renderer.draw_text(style.font, hint,
-    x + w - style.font:get_width(hint) - 10 * SCALE,
+    btn_x - hint_w - 15 * SCALE,
     y + 2 * SCALE + math.floor((hdr_h - style.font:get_height()) / 2),
     col_inf)
 
@@ -281,21 +310,63 @@ function TermView:on_key_pressed(key)
   if key == "pageup" then
     local lh = style.code_font:get_height() + 2 * SCALE
     self.scroll_y = math.max(0, self.scroll_y - lh * 8)
+    self.scroll_to_bottom = false
     core.redraw = true
     return true
   end
   if key == "pagedown" then
     local lh = style.code_font:get_height() + 2 * SCALE
     self.scroll_y = self.scroll_y + lh * 8
+    self.scroll_to_bottom = false
     core.redraw = true
     return true
   end
   return false
 end
 
+function TermView:on_mouse_pressed(button, x, y, clicks)
+  if button == "left" and self.btn_rect then
+    local bx, by, bw, bh = self.btn_rect.x, self.btn_rect.y, self.btn_rect.w, self.btn_rect.h
+    if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
+      command.perform("terminal:fullscreen")
+      return true
+    end
+  end
+  return false
+end
+
+function TermView:on_mouse_moved(x, y, dx, dy)
+  local hover = false
+  if self.btn_rect then
+    local bx, by, bw, bh = self.btn_rect.x, self.btn_rect.y, self.btn_rect.w, self.btn_rect.h
+    if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
+      hover = true
+    end
+  end
+  if self.hovered_btn ~= hover then
+    self.hovered_btn = hover
+    core.redraw = true
+  end
+end
+
+function TermView:on_mouse_left()
+  if self.hovered_btn then
+    self.hovered_btn = false
+    core.redraw = true
+  end
+end
+
 function TermView:on_mouse_wheel(dy)
   local lh = style.code_font:get_height() + 2 * SCALE
   self.scroll_y = math.max(0, self.scroll_y - dy * lh * 3)
+  
+  -- Clamp scroll
+  local total = #self.lines * lh
+  local inner = math.max(0, self.size.y - 54 * SCALE)
+  local max_scroll = math.max(0, total - inner)
+  self.scroll_y = math.max(0, math.min(max_scroll, self.scroll_y))
+  
+  self.scroll_to_bottom = false
   core.redraw = true
   return true
 end
@@ -342,4 +413,50 @@ command.add(nil, {
       core.set_active_view(instance)
     end
   end,
+
+  ["terminal:fullscreen"] = function()
+    if not instance then instance = TermView() end
+    if not node_built then command.perform("terminal:toggle") end
+    
+    if not instance.visible then
+      instance.visible = true
+      core.set_active_view(instance)
+    end
+
+    instance.is_fullscreen = not instance.is_fullscreen
+    if not instance.is_fullscreen then
+      instance.target_size = config.terminal.target_height * SCALE
+    end
+    core.redraw = true
+  end,
 })
+
+-- Global shortcut for fullscreen
+local keymap = require "core.keymap"
+keymap.add {
+  ["ctrl+shift+`"] = "terminal:fullscreen",
+}
+
+-- Bind local commands that only activate when Terminal is focused
+command.add(
+  function() return core.active_view == instance end,
+  {
+    ["terminal:return"]    = function() instance:on_key_pressed("return") end,
+    ["terminal:backspace"] = function() instance:on_key_pressed("backspace") end,
+    ["terminal:interrupt"] = function() instance:on_key_pressed("ctrl+c") end,
+    ["terminal:clear"]     = function() instance:on_key_pressed("ctrl+l") end,
+    ["terminal:scroll-up"] = function() instance:on_key_pressed("pageup") end,
+    ["terminal:scroll-down"] = function() instance:on_key_pressed("pagedown") end,
+  }
+)
+
+local keymap = require "core.keymap"
+keymap.add {
+  ["return"]    = "terminal:return",
+  ["backspace"] = "terminal:backspace",
+  ["ctrl+c"]    = "terminal:interrupt",
+  ["ctrl+l"]    = "terminal:clear",
+  ["pageup"]    = "terminal:scroll-up",
+  ["pagedown"]  = "terminal:scroll-down",
+}
+

@@ -175,36 +175,26 @@ function AGView:submit(prompt_text)
   self._ai_buf  = ""  -- accumulate streaming response
   self:_add_session("ai", "")  -- placeholder entry
 
-  -- Write to temp file
-  local tmp = os.tmpname() .. "_agy.txt"
+  -- Write to temp file in USERDIR to guarantee absolute path safely
+  local tmp = USERDIR .. "/agy_prompt_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999)) .. ".txt"
   local f   = io.open(tmp, "w")
   if f then f:write(body); f:close(); self.tmpfile = tmp end
 
   local cfg  = config.antigravity
-  local ok, proc
-
-  -- Try --file first (no stdin issues)
-  ok, proc = pcall(process.start, { cfg.cli, "ask", "--file", tmp, "--stream" }, {
+  
+  -- Ask agy to read the temp file, avoiding multi-line arguments in process.start which break on Windows.
+  local safe_prompt = "Read this file and follow the instruction inside: " .. (self.tmpfile or "unknown")
+  
+  local p, err, code = process.start({ cfg.cli, "-p", safe_prompt }, {
+    stdin  = process.REDIRECT_DISCARD,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
 
-  if not (ok and proc) then
-    -- Fallback: --stdin
-    ok, proc = pcall(process.start, { cfg.cli, "ask", "--stdin", "--stream" }, {
-      stdin  = process.REDIRECT_PIPE,
-      stdout = process.REDIRECT_PIPE,
-      stderr = process.REDIRECT_PIPE,
-    })
-    if ok and proc then
-      proc:write(body .. "\n\004")
-    end
-  end
-
-  if ok and proc then
-    self.process = proc
+  if p then
+    self.process = p
   else
-    self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath tried: " .. cfg.cli
+    self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath tried: " .. cfg.cli .. "\nError: " .. tostring(err)
     self.status = "error"
     if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
   end
@@ -221,23 +211,29 @@ function AGView:update()
 
   if not self.process then return end
 
-  local out = self.process:read_stdout()
-  local err = self.process:read_stderr()
   local dirty = false
 
-  for _, chunk in ipairs({ out, err }) do
-    if chunk and #chunk > 0 then
-      self._ai_buf = (self._ai_buf or "") .. chunk
-      -- Update the last AI session entry live
-      if self.sessions[#self.sessions] and self.sessions[#self.sessions].role == "ai" then
-        self.sessions[#self.sessions].text  = self._ai_buf
-        self.sessions[#self.sessions].lines = nil  -- invalidate cache
-      end
-      dirty = true
-    end
+  -- Drain stdout completely
+  while true do
+    local out = self.process:read_stdout(4096)
+    if not out or #out == 0 then break end
+    self._ai_buf = (self._ai_buf or "") .. out
+    dirty = true
+  end
+  
+  -- Drain stderr completely
+  while true do
+    local err = self.process:read_stderr(4096)
+    if not err or #err == 0 then break end
+    self._ai_buf = (self._ai_buf or "") .. err
+    dirty = true
   end
 
   if dirty then
+    if self.sessions[#self.sessions] and self.sessions[#self.sessions].role == "ai" then
+      self.sessions[#self.sessions].text  = self._ai_buf
+      self.sessions[#self.sessions].lines = nil  -- invalidate cache
+    end
     core.redraw = true
   end
 
@@ -517,8 +513,16 @@ function AGView:on_key_pressed(key)
   end
 
   if key == "backspace" then
-    self.input = self.input:sub(1, -2)
-    core.redraw = true
+    local text = self.input
+    if #text > 0 then
+      local i = #text
+      -- Step back over UTF-8 continuation bytes (10xxxxxx)
+      while i > 0 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
+        i = i - 1
+      end
+      self.input = text:sub(1, math.max(0, i - 1))
+      core.redraw = true
+    end
     return true
   end
 
@@ -625,9 +629,35 @@ command.add(nil, {
     core.redraw = true
   end,
 
+  ["antigravity:focus"] = function()
+    command.perform "antigravity:toggle"
+    if instance and instance.visible then
+      core.set_active_view(instance)
+    end
+  end,
+
   ["antigravity:explain"]  = function() if instance then instance:submit(config.antigravity.actions[1].prompt) end end,
   ["antigravity:refactor"] = function() if instance then instance:submit(config.antigravity.actions[2].prompt) end end,
   ["antigravity:fix"]      = function() if instance then instance:submit(config.antigravity.actions[3].prompt) end end,
   ["antigravity:tests"]    = function() if instance then instance:submit(config.antigravity.actions[4].prompt) end end,
   ["antigravity:docs"]     = function() if instance then instance:submit(config.antigravity.actions[5].prompt) end end,
 })
+
+-- Bind local commands that only activate when AI Sidebar is focused
+command.add(
+  function() return core.active_view == instance end,
+  {
+    ["antigravity:return"]    = function() instance:on_key_pressed("return") end,
+    ["antigravity:backspace"] = function() instance:on_key_pressed("backspace") end,
+    ["antigravity:scroll-up"] = function() instance:on_key_pressed("up") end,
+    ["antigravity:scroll-down"] = function() instance:on_key_pressed("down") end,
+  }
+)
+
+local keymap = require "core.keymap"
+keymap.add {
+  ["return"]    = "antigravity:return",
+  ["backspace"] = "antigravity:backspace",
+  ["up"]        = "antigravity:scroll-up",
+  ["down"]      = "antigravity:scroll-down",
+}
