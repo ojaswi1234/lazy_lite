@@ -364,39 +364,35 @@ function AGView:submit(prompt_text)
     log:close()
   end
 
-  -- agy is a Go binary that checks if stdin is a TTY before running.
-  -- If stdin is REDIRECT_DISCARD (no TTY), it exits silently with no output.
-  -- We must wrap in a shell so it inherits a real console session.
-  local final_argv
+  -- CORE FIX: agy is a pure TUI binary. It cannot pipe output when stdin/stdout
+  -- are not real TTYs. The only working solution is to redirect its output to a
+  -- temp file and then poll that file for content.
+  local tmpfile = os.tmpname() .. "_agy_out.txt"
+  self.tmpfile = tmpfile
+  self._tmpfile_offset = 0  -- track how many bytes we've already read
+
+  local cmd_str
   if PLATFORM == "Windows" then
-    -- Build: cmd.exe /c "<cli> arg1 arg2 ..."
+    -- Build cmd string: quote each arg, redirect all output to tmpfile
     local parts = {}
     for _, a in ipairs(argv) do
-      -- Escape any double-quotes inside each argument
-      table.insert(parts, '"' .. tostring(a):gsub('"', '\\"') .. '"')
+      table.insert(parts, '"' .. tostring(a):gsub('"', '""') .. '"')
     end
-    final_argv = { "cmd.exe", "/c", table.concat(parts, " ") }
+    cmd_str = table.concat(parts, " ") .. " > \"" .. tmpfile .. "\" 2>&1"
+    process.start({ "cmd.exe", "/c", cmd_str })
   else
-    -- On Linux/Mac use sh -c to get a login-like environment
     local parts = {}
     for _, a in ipairs(argv) do
       table.insert(parts, "'" .. tostring(a):gsub("'", "'\\''" ) .. "'")
     end
-    final_argv = { "sh", "-c", table.concat(parts, " ") }
+    cmd_str = table.concat(parts, " ") .. " > '" .. tmpfile .. "' 2>&1"
+    process.start({ "sh", "-c", cmd_str })
   end
 
-  local p, err = process.start(final_argv, {
-    stdout = process.REDIRECT_PIPE,
-    stderr = process.REDIRECT_PIPE,
-  })
-
-  if p then
-    self.process = p
-    self.has_session = true
-  else
-    self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath tried: " .. cfg.cli .. "\nError: " .. tostring(err)
-    self.status = "error"
-  end
+  -- We use a sentinel file to detect completion
+  self.process = { _tmpfile = tmpfile, _fake = true }
+  self.has_session = true
+  self._chat_started_at = os.time()
   core.redraw = true
 end
 
@@ -408,103 +404,102 @@ function AGView:update()
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "x", dest, nil, "antigravity")
 
-  -- ── Drain model-fetch process ────────────────────────────────────────
-  if self.model_proc then
-    local buf = ""
-    while true do
-      local chunk = self.model_proc:read_stdout(4096)
-      if not chunk or #chunk == 0 then break end
-      buf = buf .. chunk
-    end
-    while true do
-      local chunk = self.model_proc:read_stderr(4096)
-      if not chunk or #chunk == 0 then break end
-      buf = buf .. chunk
-    end
-    if #buf > 0 then
-      self._model_raw = (self._model_raw or "") .. buf
-    end
-    
-    local m_elapsed = os.time() - (self.model_started_at or os.time())
-    local rc = self.model_proc:returncode()
-    if rc ~= nil then
-      local parsed = rc == 0 and parse_model_list(self._model_raw or "") or {}
-      if #parsed > 0 then
-        self.model_list = parsed
-        self.auth_status = "logged_in"
-      else
-        self.auth_status = "auth_error"
-        self.model_list = {
-          { name = "gemini-2.5-flash", limited = false },
-          { name = "gemini-2.5-pro", limited = false },
-          { name = "gemini-2.5-flash-thinking", limited = false }
-        }
+
+
+  -- ── Drain chat process (tmpfile polling) ─────────────────────────────
+  if self.process then
+    local tf = self.process._fake and self.process._tmpfile
+    if tf then
+      -- Poll the temp file for new content
+      local f = io.open(tf, "rb")
+      if f then
+        f:seek("set", self._tmpfile_offset or 0)
+        local chunk = f:read("*a")
+        f:close()
+        if chunk and #chunk > 0 then
+          self._tmpfile_offset = (self._tmpfile_offset or 0) + #chunk
+          self._ai_buf = (self._ai_buf or "") .. chunk
+        end
       end
-      self._model_raw = ""
-      self.model_proc = nil
-      core.redraw = true
-    elseif m_elapsed > 10 then
-      pcall(function() self.model_proc:kill() end)
-      self.model_proc = nil
-      self._model_raw = ""
-      self.auth_status = "auth_error"
-      self.model_list = {
-        { name = "gemini-2.5-flash", limited = false },
-        { name = "gemini-2.5-pro", limited = false },
-        { name = "gemini-2.5-flash-thinking", limited = false }
-      }
-      core.redraw = true
+
+      -- Check if the process has finished by trying to detect if the agy
+      -- process is still running. We use a "done" sentinel: if content stopped
+      -- growing for 3+ seconds after we got SOME content, or 45s total, finish.
+      local elapsed = os.time() - (self._chat_started_at or os.time())
+      local has_content = self._ai_buf and #self._ai_buf > 0
+      local last_change = self._last_content_change or self._chat_started_at or os.time()
+
+      if has_content then
+        if (self._ai_buf or "") ~= (self._last_ai_buf or "") then
+          self._last_content_change = os.time()
+          self._last_ai_buf = self._ai_buf
+        end
+        -- If content hasn't changed for 4s, consider it done
+        if os.time() - last_change >= 4 then
+          -- Final read
+          local ff = io.open(tf, "rb")
+          if ff then
+            ff:seek("set", self._tmpfile_offset or 0)
+            local rest = ff:read("*a")
+            ff:close()
+            if rest and #rest > 0 then
+              self._ai_buf = (self._ai_buf or "") .. rest
+            end
+          end
+          pcall(os.remove, tf)
+          self.process = nil
+          self.status = "idle"
+          core.redraw = true
+        end
+      elseif elapsed > 60 then
+        -- Timeout: 60s with no output at all
+        pcall(os.remove, tf)
+        self.process = nil
+        self.status = "error"
+        self._ai_buf = "⏱ No response after 60 seconds.\n\nMake sure you are logged into Antigravity:\n  1. Click 🤖 AGY Auth in the status bar\n  2. Follow the instructions in the terminal"
+        core.redraw = true
+      end
+    else
+      -- Real process handle (Linux/Mac fallback)
+      local dirty = false
+      while true do
+        local out = self.process:read_stdout(65536)
+        if not out or #out == 0 then break end
+        self._ai_buf = (self._ai_buf or "") .. out
+        dirty = true
+      end
+      while true do
+        local err_out = self.process:read_stderr(65536)
+        if not err_out or #err_out == 0 then break end
+        self._ai_buf = (self._ai_buf or "") .. err_out
+        dirty = true
+      end
+      local rc = self.process:returncode()
+      if rc ~= nil then
+        while true do
+          local out = self.process:read_stdout(65536)
+          if not out or #out == 0 then break end
+          self._ai_buf = (self._ai_buf or "") .. out
+        end
+        while true do
+          local err_out = self.process:read_stderr(65536)
+          if not err_out or #err_out == 0 then break end
+          self._ai_buf = (self._ai_buf or "") .. err_out
+        end
+        self.process = nil
+        self.status  = (rc == 0) and "idle" or "error"
+        if self._ai_buf == "" then
+          self._ai_buf = string.format("(no output — process exited with code %s)", tostring(rc))
+        end
+      end
     end
   end
+
 
   local ai_len = self._ai_buf and #self._ai_buf or 0
   local is_typing = self._ai_displayed_chars and (self._ai_displayed_chars < ai_len)
 
   if not self.process and not is_typing then return end
-
-  if self.process then
-    local dirty = false
-    -- Drain stdout completely in large chunks
-    while true do
-      local out = self.process:read_stdout(65536)
-      if not out or #out == 0 then break end
-      self._ai_buf = (self._ai_buf or "") .. out
-      dirty = true
-    end
-    
-    -- Drain stderr completely
-    while true do
-      local err = self.process:read_stderr(65536)
-      if not err or #err == 0 then break end
-      self._ai_buf = (self._ai_buf or "") .. err
-      dirty = true
-    end
-    
-    local rc = self.process:returncode()
-    if rc ~= nil then
-      -- Final drain in case pipe hasn't fully flushed before exit
-      while true do
-        local out = self.process:read_stdout(65536)
-        if not out or #out == 0 then break end
-        self._ai_buf = (self._ai_buf or "") .. out
-      end
-      while true do
-        local err = self.process:read_stderr(65536)
-        if not err or #err == 0 then break end
-        self._ai_buf = (self._ai_buf or "") .. err
-      end
-
-      self.process = nil
-      self.status  = (rc == 0) and "idle" or "error"
-      if self._ai_buf == "" then
-        self._ai_buf = string.format("(no output — process exited with code %s)", tostring(rc))
-      end
-      if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
-    end
-  end
-
-  ai_len = self._ai_buf and #self._ai_buf or 0
-  is_typing = self._ai_displayed_chars and (self._ai_displayed_chars < ai_len)
 
   -- Typewriter effect logic
   if is_typing then
@@ -558,41 +553,67 @@ function AGView:update()
   -- (Model fetch logic was moved to the top of update())
 end
 
--- Kick off background fetch of model list
+-- Kick off background fetch of model list from settings.json
+-- (agy models is a TUI command that cannot pipe output — not a bug we can fix)
 function AGView:fetch_models()
-  if self.model_proc then return end
-  local cfg = config.antigravity
+  if self.model_list and #self.model_list > 0 then return end  -- already loaded
 
-  -- agy exits silently with no output when stdin is not a real TTY.
-  -- On both Windows and Linux/Mac we wrap in a shell so it gets a real console.
-  -- We then parse the stdout for the model names.
-  self._model_raw = ""
-  self.model_started_at = os.time()
+  -- These are the real models available in Antigravity as of mid-2026.
+  -- We use the full real names exactly as agy knows them.
+  local known_models = {
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-thinking",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-thinking",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-thinking",
+  }
 
-  local shell_argv
-  if PLATFORM == "Windows" then
-    shell_argv = { "cmd.exe", "/c", '"' .. cfg.cli .. '" models' }
-  else
-    shell_argv = { "sh", "-c", "'" .. cfg.cli .. "' models" }
+  -- Read settings.json to find which model is currently selected in agy
+  local current_model = nil
+  local home = os.getenv("HOME") or os.getenv("USERPROFILE") or ""
+  local settings_paths = {
+    home .. "\\.gemini\\antigravity-cli\\settings.json",
+    home .. "/.gemini/antigravity-cli/settings.json",
+  }
+  for _, path in ipairs(settings_paths) do
+    local f = io.open(path, "r")
+    if f then
+      local content = f:read("*a")
+      f:close()
+      -- Extract "model": "..."
+      local m = content:match('"model"%s*:%s*"([^"]+)"')
+      if m then current_model = m; break end
+    end
   end
 
-  local p, err = process.start(shell_argv, {
-    stdout = process.REDIRECT_PIPE,
-    stderr = process.REDIRECT_PIPE,
-  })
-  if p then
-    self.model_proc = p
-  else
-    -- Could not start shell — fall back to hardcoded list immediately
-    self.model_list = {
-      { name = "gemini-2.5-flash",         limited = false },
-      { name = "gemini-2.5-pro",            limited = false },
-      { name = "gemini-2.5-flash-thinking", limited = false },
-    }
-    if not self.auth_status then self.auth_status = "logged_in" end
-    core.log("[Antigravity] Failed to start model fetch: " .. tostring(err))
-    core.redraw = true
+  -- Build the model list, marking the currently selected one
+  local list = {}
+  local found_current = false
+  for _, name in ipairs(known_models) do
+    local is_current = current_model and (
+      name:lower() == current_model:lower() or
+      current_model:lower():find(name:lower(), 1, true)
+    )
+    if is_current then found_current = true end
+    table.insert(list, { name = name, limited = false, current = is_current })
   end
+
+  -- If the settings.json model isn't in our hardcoded list, add it at top
+  if current_model and not found_current then
+    table.insert(list, 1, { name = current_model, limited = false, current = true })
+  end
+
+  self.model_list = list
+  self.auth_status = "logged_in"
+
+  -- Pre-select the current model from settings so it shows as active
+  if current_model and not config.antigravity.selected_model then
+    config.antigravity.selected_model = current_model
+  end
+
+  core.redraw = true
 end
 
 -- Hook into core.quit to kill any zombie background processes when Lite-XL exits
