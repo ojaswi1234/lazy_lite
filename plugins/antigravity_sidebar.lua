@@ -492,10 +492,18 @@ function AGView:update()
     if #buf > 0 then
       self._model_raw = (self._model_raw or "") .. buf
     end
+    
+    local m_elapsed = os.time() - (self.model_started_at or os.time())
     if self.model_proc:returncode() ~= nil then
       self.model_list = parse_model_list(self._model_raw or "")
       self._model_raw = ""
       self.model_proc = nil
+      core.redraw = true
+    elseif m_elapsed > 10 then
+      -- Timeout: kill zombie model fetch
+      pcall(function() self.model_proc:kill() end)
+      self.model_proc = nil
+      self._model_raw = ""
       core.redraw = true
     end
   end
@@ -505,13 +513,27 @@ end
 function AGView:fetch_models()
   if self.model_proc then return end
   self._model_raw = ""
+  self.model_started_at = os.time()
   local cfg = config.antigravity
   local p = process.start({ cfg.cli, "models" }, {
-    stdin  = process.REDIRECT_DISCARD,
+    stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
-  if p then self.model_proc = p end
+  if p then 
+    self.model_proc = p
+    if p.close_stdin then p:close_stdin() elseif p.write then pcall(function() p:write("") end) end
+  end
+end
+
+-- Hook into core.quit to kill any zombie background processes when Lite-XL exits
+local old_quit = core.quit
+function core.quit(force)
+  if instance then
+    if instance.process then pcall(function() instance.process:kill() end) end
+    if instance.model_proc then pcall(function() instance.model_proc:kill() end) end
+  end
+  return old_quit(force)
 end
 
 -- ── Draw helpers ──────────────────────────────────────────────────────────────
