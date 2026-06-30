@@ -122,6 +122,32 @@ config.antigravity = {
   },
 }
 
+-- ── PTY Bridge helper ─────────────────────────────────────────────────────────
+-- This is the VS Code Copilot approach: spawn agy inside a real pseudoterminal
+-- (Python pywinpty / pty module) so it produces output, then pipe from Python.
+local function get_pty_bridge()
+  -- The bridge lives alongside this plugin file
+  local plugin_dir = USERDIR .. "/plugins"
+  local bridge = plugin_dir .. "/agy_pty_bridge.py"
+  local f = io.open(bridge, "r")
+  if f then f:close(); return bridge end
+  return nil
+end
+
+local function build_pty_argv(cli, args)
+  local bridge = get_pty_bridge()
+  local argv
+  if bridge then
+    argv = { "python", bridge, cli }
+    for _, a in ipairs(args) do table.insert(argv, a) end
+  else
+    -- Fallback: direct invocation (may not produce output on Windows)
+    argv = { cli }
+    for _, a in ipairs(args) do table.insert(argv, a) end
+  end
+  return argv
+end
+
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 local function get_context()
   local av = core.active_view
@@ -364,35 +390,32 @@ function AGView:submit(prompt_text)
     log:close()
   end
 
-  -- CORE FIX: agy is a pure TUI binary. It cannot pipe output when stdin/stdout
-  -- are not real TTYs. The only working solution is to redirect its output to a
-  -- temp file and then poll that file for content.
-  local tmpfile = os.tmpname() .. "_agy_out.txt"
-  self.tmpfile = tmpfile
-  self._tmpfile_offset = 0  -- track how many bytes we've already read
-
-  local cmd_str
-  if PLATFORM == "Windows" then
-    -- Build cmd string: quote each arg, redirect all output to tmpfile
-    local parts = {}
-    for _, a in ipairs(argv) do
-      table.insert(parts, '"' .. tostring(a):gsub('"', '""') .. '"')
-    end
-    cmd_str = table.concat(parts, " ") .. " > \"" .. tmpfile .. "\" 2>&1"
-    process.start({ "cmd.exe", "/c", cmd_str })
+  -- VS Code Copilot approach: route through Python PTY bridge so agy gets a
+  -- real pseudoterminal (ConPTY on Windows) and produces streamed output.
+  -- Python itself CAN pipe, so we use REDIRECT_PIPE on Python's stdout.
+  local bridge = get_pty_bridge()
+  local final_argv
+  if bridge then
+    -- python agy_pty_bridge.py <cli> [args...]
+    final_argv = { "python", bridge }
+    for _, a in ipairs(argv) do table.insert(final_argv, a) end
   else
-    local parts = {}
-    for _, a in ipairs(argv) do
-      table.insert(parts, "'" .. tostring(a):gsub("'", "'\\''" ) .. "'")
-    end
-    cmd_str = table.concat(parts, " ") .. " > '" .. tmpfile .. "' 2>&1"
-    process.start({ "sh", "-c", cmd_str })
+    final_argv = argv
   end
 
-  -- We use a sentinel file to detect completion
-  self.process = { _tmpfile = tmpfile, _fake = true }
-  self.has_session = true
-  self._chat_started_at = os.time()
+  local p, err = process.start(final_argv, {
+    stdout = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_PIPE,
+  })
+
+  if p then
+    self.process = p
+    self.has_session = true
+    self._chat_started_at = os.time()
+  else
+    self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath: " .. cfg.cli .. "\nError: " .. tostring(err)
+    self.status = "error"
+  end
   core.redraw = true
 end
 
@@ -406,92 +429,83 @@ function AGView:update()
 
 
 
-  -- ── Drain chat process (tmpfile polling) ─────────────────────────────
+  -- ── Drain model-fetch process (via PTY bridge) ───────────────────────
+  if self.model_proc then
+    local buf = ""
+    while true do
+      local chunk = self.model_proc:read_stdout(4096)
+      if not chunk or #chunk == 0 then break end
+      buf = buf .. chunk
+    end
+    while true do
+      local chunk = self.model_proc:read_stderr(4096)
+      if not chunk or #chunk == 0 then break end
+      -- stderr is usually noise, skip
+    end
+    if #buf > 0 then
+      self._model_raw = (self._model_raw or "") .. buf
+    end
+
+    local m_elapsed = os.time() - (self.model_started_at or os.time())
+    local rc = self.model_proc:returncode()
+    if rc ~= nil then
+      local parsed = parse_pty_model_list(self._model_raw or "")
+      if #parsed > 0 then
+        self.model_list = parsed
+        self.auth_status = "logged_in"
+      else
+        self:_load_models_from_settings()
+      end
+      self._model_raw = ""
+      self.model_proc = nil
+      core.redraw = true
+    elseif m_elapsed > 15 then
+      pcall(function() self.model_proc:kill() end)
+      self.model_proc = nil
+      self._model_raw = ""
+      self:_load_models_from_settings()
+      core.redraw = true
+    end
+  end
+
+  -- ── Drain chat process (real process handle via PTY bridge) ───────────
   if self.process then
-    local tf = self.process._fake and self.process._tmpfile
-    if tf then
-      -- Poll the temp file for new content
-      local f = io.open(tf, "rb")
-      if f then
-        f:seek("set", self._tmpfile_offset or 0)
-        local chunk = f:read("*a")
-        f:close()
-        if chunk and #chunk > 0 then
-          self._tmpfile_offset = (self._tmpfile_offset or 0) + #chunk
-          self._ai_buf = (self._ai_buf or "") .. chunk
-        end
-      end
+    local dirty = false
+    while true do
+      local out = self.process:read_stdout(65536)
+      if not out or #out == 0 then break end
+      self._ai_buf = (self._ai_buf or "") .. out
+      dirty = true
+    end
+    while true do
+      local out = self.process:read_stderr(65536)
+      if not out or #out == 0 then break end
+      -- stderr from bridge is usually noise, skip adding to chat
+    end
 
-      -- Check if the process has finished by trying to detect if the agy
-      -- process is still running. We use a "done" sentinel: if content stopped
-      -- growing for 3+ seconds after we got SOME content, or 45s total, finish.
-      local elapsed = os.time() - (self._chat_started_at or os.time())
-      local has_content = self._ai_buf and #self._ai_buf > 0
-      local last_change = self._last_content_change or self._chat_started_at or os.time()
-
-      if has_content then
-        if (self._ai_buf or "") ~= (self._last_ai_buf or "") then
-          self._last_content_change = os.time()
-          self._last_ai_buf = self._ai_buf
-        end
-        -- If content hasn't changed for 4s, consider it done
-        if os.time() - last_change >= 4 then
-          -- Final read
-          local ff = io.open(tf, "rb")
-          if ff then
-            ff:seek("set", self._tmpfile_offset or 0)
-            local rest = ff:read("*a")
-            ff:close()
-            if rest and #rest > 0 then
-              self._ai_buf = (self._ai_buf or "") .. rest
-            end
-          end
-          pcall(os.remove, tf)
-          self.process = nil
-          self.status = "idle"
-          core.redraw = true
-        end
-      elseif elapsed > 60 then
-        -- Timeout: 60s with no output at all
-        pcall(os.remove, tf)
-        self.process = nil
-        self.status = "error"
-        self._ai_buf = "⏱ No response after 60 seconds.\n\nMake sure you are logged into Antigravity:\n  1. Click 🤖 AGY Auth in the status bar\n  2. Follow the instructions in the terminal"
-        core.redraw = true
-      end
-    else
-      -- Real process handle (Linux/Mac fallback)
-      local dirty = false
+    local rc = self.process:returncode()
+    if rc ~= nil then
+      -- Final drain
       while true do
         local out = self.process:read_stdout(65536)
         if not out or #out == 0 then break end
         self._ai_buf = (self._ai_buf or "") .. out
-        dirty = true
       end
-      while true do
-        local err_out = self.process:read_stderr(65536)
-        if not err_out or #err_out == 0 then break end
-        self._ai_buf = (self._ai_buf or "") .. err_out
-        dirty = true
+      self.process = nil
+      self.status = (rc == 0) and "idle" or "error"
+      if not self._ai_buf or self._ai_buf == "" then
+        local elapsed = os.time() - (self._chat_started_at or os.time())
+        self._ai_buf = string.format(
+          "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
+          elapsed, tostring(rc))
       end
-      local rc = self.process:returncode()
-      if rc ~= nil then
-        while true do
-          local out = self.process:read_stdout(65536)
-          if not out or #out == 0 then break end
-          self._ai_buf = (self._ai_buf or "") .. out
-        end
-        while true do
-          local err_out = self.process:read_stderr(65536)
-          if not err_out or #err_out == 0 then break end
-          self._ai_buf = (self._ai_buf or "") .. err_out
-        end
-        self.process = nil
-        self.status  = (rc == 0) and "idle" or "error"
-        if self._ai_buf == "" then
-          self._ai_buf = string.format("(no output — process exited with code %s)", tostring(rc))
-        end
-      end
+      core.redraw = true
+    elseif os.time() - (self._chat_started_at or os.time()) > 315 then
+      pcall(function() self.process:kill() end)
+      self.process = nil
+      self.status = "error"
+      self._ai_buf = "⏱ Request timed out after 5 minutes with no response."
+      core.redraw = true
     end
   end
 
@@ -553,66 +567,89 @@ function AGView:update()
   -- (Model fetch logic was moved to the top of update())
 end
 
--- Kick off background fetch of model list from settings.json
--- (agy models is a TUI command that cannot pipe output — not a bug we can fix)
+-- Kick off background fetch of real model list via PTY bridge
 function AGView:fetch_models()
-  if self.model_list and #self.model_list > 0 then return end  -- already loaded
+  if self.model_proc then return end
+  if self.model_list and #self.model_list > 0 then return end
+  local cfg = config.antigravity
 
-  -- These are the real models available in Antigravity as of mid-2026.
-  -- We use the full real names exactly as agy knows them.
-  local known_models = {
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-thinking",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-thinking",
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-5-thinking",
-  }
+  -- Use the PTY bridge so agy gets a real pseudoterminal and outputs the list
+  local bridge = get_pty_bridge()
+  local argv
+  if bridge then
+    argv = { "python", bridge, cfg.cli, "models" }
+  else
+    -- Fallback: try direct (won't work on Windows but at least it tries)
+    argv = { cfg.cli, "models" }
+  end
 
-  -- Read settings.json to find which model is currently selected in agy
-  local current_model = nil
+  self._model_raw = ""
+  self.model_started_at = os.time()
+
+  local p, err = process.start(argv, {
+    stdout = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_PIPE,
+  })
+  if p then
+    self.model_proc = p
+  else
+    -- Bridge failed — load from settings.json as reliable fallback
+    self:_load_models_from_settings()
+  end
+end
+
+-- Parse models from agy output (spinner lines filtered, real model names kept)
+local function parse_pty_model_list(raw)
+  local models = {}
+  local seen = {}
+  for line in (raw .. "\n"):gmatch("([^\r\n]*)\r?\n") do
+    line = line:match("^%s*(.-)%s*$")
+    -- Skip spinner lines, empty lines, and "Fetching" lines
+    if #line > 0
+      and not line:match("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]")
+      and not line:lower():match("fetching")
+      and not line:lower():match("loading")
+      and not seen[line]
+    then
+      seen[line] = true
+      table.insert(models, { name = line, limited = false })
+    end
+  end
+  return models
+end
+
+-- Fallback: load model list from settings.json
+function AGView:_load_models_from_settings()
   local home = os.getenv("HOME") or os.getenv("USERPROFILE") or ""
   local settings_paths = {
     home .. "\\.gemini\\antigravity-cli\\settings.json",
     home .. "/.gemini/antigravity-cli/settings.json",
   }
+  local current_model = nil
   for _, path in ipairs(settings_paths) do
     local f = io.open(path, "r")
     if f then
-      local content = f:read("*a")
-      f:close()
-      -- Extract "model": "..."
+      local content = f:read("*a"); f:close()
       local m = content:match('"model"%s*:%s*"([^"]+)"')
       if m then current_model = m; break end
     end
   end
-
-  -- Build the model list, marking the currently selected one
-  local list = {}
-  local found_current = false
-  for _, name in ipairs(known_models) do
-    local is_current = current_model and (
-      name:lower() == current_model:lower() or
-      current_model:lower():find(name:lower(), 1, true)
-    )
-    if is_current then found_current = true end
-    table.insert(list, { name = name, limited = false, current = is_current })
+  -- Hardcoded known model list as final fallback
+  self.model_list = {
+    { name = "Gemini 3.5 Flash (Medium)",    limited = false },
+    { name = "Gemini 3.5 Flash (High)",      limited = false },
+    { name = "Gemini 3.1 Pro (High)",        limited = false },
+    { name = "Claude Sonnet 4.6 (Thinking)", limited = false },
+    { name = "Claude Opus 4.6 (Thinking)",   limited = false },
+    { name = "GPT-OSS 120B (Medium)",        limited = false },
+  }
+  if current_model then
+    table.insert(self.model_list, 1, { name = current_model, limited = false, current = true })
+    if not config.antigravity.selected_model then
+      config.antigravity.selected_model = current_model
+    end
   end
-
-  -- If the settings.json model isn't in our hardcoded list, add it at top
-  if current_model and not found_current then
-    table.insert(list, 1, { name = current_model, limited = false, current = true })
-  end
-
-  self.model_list = list
   self.auth_status = "logged_in"
-
-  -- Pre-select the current model from settings so it shows as active
-  if current_model and not config.antigravity.selected_model then
-    config.antigravity.selected_model = current_model
-  end
-
   core.redraw = true
 end
 
