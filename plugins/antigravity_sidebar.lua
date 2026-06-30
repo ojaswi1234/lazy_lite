@@ -303,6 +303,14 @@ function AGView:submit(prompt_text)
   if not prompt_text or #prompt_text:match("^%s*(.-)%s*$") == 0 then return end
   prompt_text = prompt_text:match("^%s*(.-)%s*$")
 
+  -- Block execution and prompt login if not authenticated
+  if self.auth_status == "auth_error" then
+    core.error("Antigravity: You are not logged in! Please sign in to chat.")
+    self.input = prompt_text -- restore input so they don't lose their prompt
+    command.perform("antigravity:auth")
+    return
+  end
+
   -- Add user message to chat
   self:_add_session("user", prompt_text)
 
