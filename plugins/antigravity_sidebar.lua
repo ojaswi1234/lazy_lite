@@ -404,6 +404,13 @@ function AGView:update()
     local m_elapsed = os.time() - (self.model_started_at or os.time())
     if self.model_proc:returncode() ~= nil then
       self.model_list = parse_model_list(self._model_raw or "")
+      if #self.model_list == 0 then
+        self.model_list = {
+          { name = "gemini-2.5-flash", limited = false },
+          { name = "gemini-2.5-pro", limited = false },
+          { name = "gemini-2.5-flash-thinking", limited = false }
+        }
+      end
       self._model_raw = ""
       self.model_proc = nil
       core.redraw = true
@@ -411,6 +418,11 @@ function AGView:update()
       pcall(function() self.model_proc:kill() end)
       self.model_proc = nil
       self._model_raw = ""
+      self.model_list = {
+        { name = "gemini-2.5-flash", limited = false },
+        { name = "gemini-2.5-pro", limited = false },
+        { name = "gemini-2.5-flash-thinking", limited = false }
+      }
       core.redraw = true
     end
   end
@@ -522,7 +534,9 @@ function AGView:fetch_models()
   self._model_raw = ""
   self.model_started_at = os.time()
   local cfg = config.antigravity
-  local p = process.start({ cfg.cli, "models" }, {
+  
+  -- Wrap in cmd.exe with < NUL to prevent agy from hanging if it tries to read stdin for auth
+  local p = process.start({ "cmd.exe", "/c", cfg.cli, "models", "<", "NUL" }, {
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
