@@ -362,7 +362,6 @@ function AGView:submit(prompt_text)
   end
 
   local p, err, code = process.start(argv, {
-    stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
@@ -370,11 +369,6 @@ function AGView:submit(prompt_text)
   if p then
     self.process = p
     self.has_session = true
-    if p.close_stdin then
-      p:close_stdin()
-    elseif p.write then
-      pcall(function() p:write("") end)
-    end
   else
     self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath tried: " .. cfg.cli .. "\nError: " .. tostring(err)
     self.status = "error"
@@ -389,6 +383,37 @@ function AGView:update()
   -- Size animation (treeview pattern)
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "x", dest, nil, "antigravity")
+
+  -- ── Drain model-fetch process ────────────────────────────────────────
+  if self.model_proc then
+    local buf = ""
+    while true do
+      local chunk = self.model_proc:read_stdout(4096)
+      if not chunk or #chunk == 0 then break end
+      buf = buf .. chunk
+    end
+    while true do
+      local chunk = self.model_proc:read_stderr(4096)
+      if not chunk or #chunk == 0 then break end
+      buf = buf .. chunk
+    end
+    if #buf > 0 then
+      self._model_raw = (self._model_raw or "") .. buf
+    end
+    
+    local m_elapsed = os.time() - (self.model_started_at or os.time())
+    if self.model_proc:returncode() ~= nil then
+      self.model_list = parse_model_list(self._model_raw or "")
+      self._model_raw = ""
+      self.model_proc = nil
+      core.redraw = true
+    elseif m_elapsed > 10 then
+      pcall(function() self.model_proc:kill() end)
+      self.model_proc = nil
+      self._model_raw = ""
+      core.redraw = true
+    end
+  end
 
   local ai_len = self._ai_buf and #self._ai_buf or 0
   local is_typing = self._ai_displayed_chars and (self._ai_displayed_chars < ai_len)
@@ -415,6 +440,18 @@ function AGView:update()
     
     local rc = self.process:returncode()
     if rc ~= nil then
+      -- Final drain in case pipe hasn't fully flushed before exit
+      while true do
+        local out = self.process:read_stdout(65536)
+        if not out or #out == 0 then break end
+        self._ai_buf = (self._ai_buf or "") .. out
+      end
+      while true do
+        local err = self.process:read_stderr(65536)
+        if not err or #err == 0 then break end
+        self._ai_buf = (self._ai_buf or "") .. err
+      end
+
       self.process = nil
       self.status  = (rc == 0) and "idle" or "error"
       if self._ai_buf == "" then
@@ -476,37 +513,7 @@ function AGView:update()
     core.redraw = true
   end
 
-  -- ── Drain model-fetch process ────────────────────────────────────────
-  if self.model_proc then
-    local buf = ""
-    while true do
-      local chunk = self.model_proc:read_stdout(4096)
-      if not chunk or #chunk == 0 then break end
-      buf = buf .. chunk
-    end
-    while true do
-      local chunk = self.model_proc:read_stderr(4096)
-      if not chunk or #chunk == 0 then break end
-      buf = buf .. chunk
-    end
-    if #buf > 0 then
-      self._model_raw = (self._model_raw or "") .. buf
-    end
-    
-    local m_elapsed = os.time() - (self.model_started_at or os.time())
-    if self.model_proc:returncode() ~= nil then
-      self.model_list = parse_model_list(self._model_raw or "")
-      self._model_raw = ""
-      self.model_proc = nil
-      core.redraw = true
-    elseif m_elapsed > 10 then
-      -- Timeout: kill zombie model fetch
-      pcall(function() self.model_proc:kill() end)
-      self.model_proc = nil
-      self._model_raw = ""
-      core.redraw = true
-    end
-  end
+  -- (Model fetch logic was moved to the top of update())
 end
 
 -- Kick off background fetch of model list
@@ -516,13 +523,11 @@ function AGView:fetch_models()
   self.model_started_at = os.time()
   local cfg = config.antigravity
   local p = process.start({ cfg.cli, "models" }, {
-    stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
   if p then 
     self.model_proc = p
-    if p.close_stdin then p:close_stdin() elseif p.write then pcall(function() p:write("") end) end
   end
 end
 
