@@ -256,6 +256,27 @@ local function parse_model_list(raw)
   return models
 end
 
+-- Parse real model names from agy PTY bridge output
+-- Filters out spinner animation lines and "Fetching..." status lines
+local function parse_pty_model_list(raw)
+  local models = {}
+  local seen = {}
+  for line in (raw .. "\n"):gmatch("([^\r\n]*)\r?\n") do
+    line = line:match("^%s*(.-)%s*$")
+    -- Skip blank, known spinner patterns, and fetching/loading status lines
+    if #line > 0
+      and not line:lower():match("^%s*fetching")
+      and not line:lower():match("^%s*loading")
+      and #line > 3  -- skip single spinner chars like ⠋ ⠙ etc
+      and not seen[line]
+    then
+      seen[line] = true
+      table.insert(models, { name = line, limited = false })
+    end
+  end
+  return models
+end
+
 -- A session is { role="user"|"ai", text=string, lines={} }
 function AGView:new()
   AGView.super.new(self)
