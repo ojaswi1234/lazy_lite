@@ -11,33 +11,86 @@ local View    = require "core.view"
 local common  = require "core.common"
 local process = require "process"
 
--- ── Palette (all pixel-sampled from reference) ────────────────────────────────
-local P = {
-  bg           = { common.color "#E4EAD0" },
-  bg_dark      = { common.color "#D8E4C0" },
-  bg_darker    = { common.color "#C8D8B0" },
-  bg_input     = { common.color "#F0F5E4" },
-  bg_user_msg  = { common.color "#BFD3A7" },
-  bg_ai_msg    = { common.color "#EEF3E2" },
-  bg_btn       = { common.color "#CDD8B4" },
-  bg_btn_hl    = { common.color "#A8C28A" },
-  bg_send      = { common.color "#597450" },
-  bg_send_hl   = { common.color "#4A6A3A" },
-  fg           = { common.color "#405335" },
-  fg_muted     = { common.color "#7A9B6A" },
-  fg_accent    = { common.color "#2D3B28" },
-  fg_user      = { common.color "#2D3B28" },
-  fg_ai        = { common.color "#405335" },
-  fg_code      = { common.color "#4F4C4E" },
-  fg_send      = { common.color "#F0F5E4" },
-  fg_label     = { common.color "#5C6B55" },
-  border       = { common.color "#CDD3BB" },
-  border_input = { common.color "#A8C28A" },
-  dot_idle     = { common.color "#A8AE8C" },
-  dot_run      = { common.color "#5F8C32" },
-  dot_err      = { common.color "#AA383B" },
-  scrollbar    = { common.color "#C5D9A8" },
-}
+-- ── Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) ─
+local function lum(r, g, b) return r*0.299 + g*0.587 + b*0.114 end
+
+local function contrast_bg(base, pct)
+  pct = pct or 0.08
+  if type(base) ~= "table" then return base end
+  local r,g,b,a = base[1],base[2],base[3],base[4] or 255
+  if lum(r,g,b) > 128 then
+    return { math.max(0,math.floor(r*(1-pct))), math.max(0,math.floor(g*(1-pct))), math.max(0,math.floor(b*(1-pct))), a }
+  else
+    return { math.min(255,math.floor(r+(255-r)*pct)), math.min(255,math.floor(g+(255-g)*pct)), math.min(255,math.floor(b+(255-b)*pct)), a }
+  end
+end
+
+local function contrast_fg(bg)
+  if type(bg) ~= "table" then return { 0,0,0,255 } end
+  local r,g,b = bg[1],bg[2],bg[3]
+  if lum(r,g,b) > 128 then
+    -- light bg → near-black tinted text
+    return { math.floor(r*0.15), math.floor(g*0.15), math.floor(b*0.15), 255 }
+  else
+    -- dark bg → near-white tinted text
+    return { math.min(255,math.floor(r+(255-r)*0.85)), math.min(255,math.floor(g+(255-g)*0.85)), math.min(255,math.floor(b+(255-b)*0.85)), 255 }
+  end
+end
+
+local function muted(fg, factor)
+  factor = factor or 0.55
+  return { math.floor(fg[1]*factor), math.floor(fg[2]*factor), math.floor(fg[3]*factor), 255 }
+end
+
+-- Recomputed every draw — automatically tracks theme changes
+local function get_palette()
+  local base = style.background or { 255,255,255,255 }
+  local bg       = contrast_bg(base, 0.08)
+  local bg_dark  = contrast_bg(base, 0.14)
+  local bg_darker= contrast_bg(base, 0.20)
+  local bg_input = contrast_bg(base, 0.04)
+  local fg       = contrast_fg(bg)
+  local fg_muted = muted(fg, 0.55)
+  local fg_accent= muted(fg, 0.80)
+  -- Message bubbles: user slightly darker bg, AI slightly lighter
+  local bg_user  = contrast_bg(base, 0.18)
+  local bg_ai    = contrast_bg(base, 0.06)
+  -- Button colors derived from bg levels
+  local bg_btn   = contrast_bg(base, 0.12)
+  local bg_btnhl = contrast_bg(base, 0.22)
+  -- Send button uses accent (green on light, teal-ish on dark)
+  local sr,sg,sb = base[1],base[2],base[3]
+  local bg_send  = { math.floor(sr*0.35+0.5), math.floor(sg*0.45+0.5), math.floor(sb*0.30+0.5), 255 }
+  local bg_sendhl= { math.max(0,bg_send[1]-15), math.max(0,bg_send[2]-15), math.max(0,bg_send[3]-15), 255 }
+  local fg_send  = contrast_fg(bg_send)
+  local border   = contrast_bg(base, 0.16)
+  return {
+    bg          = bg,
+    bg_dark     = bg_dark,
+    bg_darker   = bg_darker,
+    bg_input    = bg_input,
+    bg_user_msg = bg_user,
+    bg_ai_msg   = bg_ai,
+    bg_btn      = bg_btn,
+    bg_btn_hl   = bg_btnhl,
+    bg_send     = bg_send,
+    bg_send_hl  = bg_sendhl,
+    fg          = fg,
+    fg_muted    = fg_muted,
+    fg_accent   = fg_accent,
+    fg_user     = fg_accent,
+    fg_ai       = fg,
+    fg_code     = fg,
+    fg_send     = fg_send,
+    fg_label    = fg_muted,
+    border      = border,
+    border_input= bg_btnhl,
+    dot_idle    = fg_muted,
+    dot_run     = { 95, 140, 50, 255 },
+    dot_err     = { 170, 56, 59, 255 },
+    scrollbar   = border,
+  }
+end
 
 -- ── Config ────────────────────────────────────────────────────────────────────
 config.antigravity = {
@@ -441,6 +494,9 @@ end
 
 function AGView:draw()
   if self.size.x < 4 then return end
+
+  -- Recompute the full palette from the active theme every frame
+  local P = get_palette()
 
   local x, y = self.position.x, self.position.y
   local w, h  = self.size.x, self.size.y

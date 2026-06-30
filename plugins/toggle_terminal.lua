@@ -18,6 +18,33 @@ config.terminal = {
   scrollback    = 500,   -- max output lines kept
 }
 
+-- ── Dynamic contrast helpers (same logic as mossy_statusbar/treeview) ────────
+local function luminance(r, g, b)
+  return r * 0.299 + g * 0.587 + b * 0.114
+end
+
+local function get_contrast_bg(base)
+  if type(base) ~= "table" then return base end
+  local r, g, b, a = base[1], base[2], base[3], base[4] or 255
+  local lum = luminance(r, g, b)
+  if lum > 128 then
+    return { math.max(0, math.floor(r*0.92)), math.max(0, math.floor(g*0.92)), math.max(0, math.floor(b*0.92)), a }
+  else
+    return { math.min(255, math.floor(r+(255-r)*0.08)), math.min(255, math.floor(g+(255-g)*0.08)), math.min(255, math.floor(b+(255-b)*0.08)), a }
+  end
+end
+
+local function get_contrast_fg(bg)
+  if type(bg) ~= "table" then return { 0,0,0,255 } end
+  local r, g, b = bg[1], bg[2], bg[3]
+  -- If bg is light → use dark text; if bg is dark → use light text
+  if luminance(r, g, b) > 128 then
+    return { math.floor(r*0.2), math.floor(g*0.2), math.floor(b*0.2), 255 }   -- near-black tinted
+  else
+    return { math.min(255,math.floor(r+(255-r)*0.82)), math.min(255,math.floor(g+(255-g)*0.82)), math.min(255,math.floor(b+(255-b)*0.82)), 255 }  -- near-white tinted
+  end
+end
+
 -- ── Colours (read from mossy palette or literal fallback) ─────────────────────
 local function tc(key, fallback)
   if style.mossy and style.mossy[key] then return style.mossy[key] end
@@ -171,13 +198,21 @@ end
 function TermView:draw()
   if self.size.y < 2 then return end  -- fully hidden
 
-  local bg     = tc("terminal_bg",   "#2D3B28")
-  local fg     = tc("terminal_text", "#D4E8C8")
+  -- Derive bg/fg dynamically from the active editor theme (same as statusbar/treeview)
+  local base   = style.background or { 255, 255, 255, 255 }
+  local bg     = get_contrast_bg(base)
+  local fg     = get_contrast_fg(bg)
+  local hdr_bg = get_contrast_bg(bg)   -- one more level for the header strip
+  local inp_bg_dyn = get_contrast_bg(hdr_bg)  -- deepest for input bar
   local col_cmd= { common.color "#8EC07C" }
   local col_err= { common.color "#FB4934" }
-  local col_inf= { common.color "#6B8A60" }
-  local border = tc("status_bg",     "#597450")
-  local inp_bg = { common.color "#243020" }
+  local col_inf
+  do  -- slightly muted version of fg
+    local r,g,b = fg[1],fg[2],fg[3]
+    col_inf = { math.floor(r*0.6+0.5), math.floor(g*0.6+0.5), math.floor(b*0.6+0.5), 255 }
+  end
+  local border = get_contrast_bg(hdr_bg)
+  local inp_bg = inp_bg_dyn
   local x, y, w, h = self.position.x, self.position.y, self.size.x, self.size.y
 
   -- Full background
@@ -188,7 +223,7 @@ function TermView:draw()
 
   -- ── Header ─────────────────────────────────────────────────────────────────
   local hdr_h = 26 * SCALE
-  renderer.draw_rect(x, y + 2 * SCALE, w, hdr_h, { common.color "#243020" })
+  renderer.draw_rect(x, y + 2 * SCALE, w, hdr_h, hdr_bg)
 
   -- Running indicator
   local status_dot = self.proc and "\xe2\x97\x8f " or "\xe2\x97\x8b "
@@ -213,7 +248,7 @@ function TermView:draw()
   local btn_y = y + 2 * SCALE
 
   self.btn_rect = { x = btn_x, y = btn_y, w = btn_w, h = hdr_h }
-  local btn_bg = self.hovered_btn and { common.color "#3B4D36" } or { common.color "#243020" }
+  local btn_bg = self.hovered_btn and get_contrast_bg(hdr_bg) or hdr_bg
   local btn_fg = self.hovered_btn and fg or col_inf
 
   renderer.draw_rect(btn_x, btn_y, btn_w, hdr_h, btn_bg)
