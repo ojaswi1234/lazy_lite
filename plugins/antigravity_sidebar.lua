@@ -236,10 +236,10 @@ function AGView:submit(prompt_text)
 
   local cfg  = config.antigravity
   
-  -- Ask agy to read the temp file, using the -f flag to use a smaller, blazing-fast model.
+  -- Ask agy to read the temp file.
   local safe_prompt = "Read this file and follow the instruction inside: " .. (self.tmpfile or "unknown")
   
-  local p, err, code = process.start({ cfg.cli, "-f", "-p", safe_prompt }, {
+  local p, err, code = process.start({ cfg.cli, "-p", safe_prompt }, {
     stdin  = process.REDIRECT_DISCARD,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,

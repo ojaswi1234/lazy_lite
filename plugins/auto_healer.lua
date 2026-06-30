@@ -43,7 +43,7 @@ function core.error(err, ...)
             local agy_path = config.antigravity and config.antigravity.cli or "agy"
             
             -- Run headlessly and output to a new doc
-            local p = process.start({ agy_path, "-f", "-p", prompt .. " APPLY FIX IMMEDIATELY." }, {
+            local p = process.start({ agy_path, "-p", prompt .. " APPLY FIX IMMEDIATELY." }, {
               stdout = process.REDIRECT_PIPE,
               stderr = process.REDIRECT_PIPE
             })
