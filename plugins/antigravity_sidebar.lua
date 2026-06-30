@@ -57,6 +57,7 @@ config.antigravity = {
   end)(),
 
   target_width = 270,
+  auto_skip_permissions = true,
 
   actions = {
     { label = "Explain",  short = "E", prompt = "Explain what this code does in plain language, line by line." },
@@ -163,6 +164,8 @@ function AGView:new()
   self.mention_suggestions = nil
   self.mention_idx = 1
   self.has_session = false
+  self.warned_slow = false
+  self.started_at  = 0
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -216,8 +219,10 @@ function AGView:submit(prompt_text)
     full_prompt = string.format("Regarding the active file %s: %s", fname, prompt_text)
   end
 
-  self.status   = "running"
-  self._ai_buf  = ""  -- accumulate streaming response
+  self.status       = "running"
+  self._ai_buf      = ""  -- accumulate streaming response
+  self.started_at   = os.time()
+  self.warned_slow  = false
   self:_add_session("ai", "")  -- placeholder entry
 
   local cfg  = config.antigravity
@@ -232,11 +237,29 @@ function AGView:submit(prompt_text)
   table.insert(argv, full_prompt)
 
   -- Pass the project root so the agent can read files natively
-  local project_root = core.project_dir or "."
+  local project_root = core.project_dir
+  if not project_root or project_root == "" then
+    if fname then
+      project_root = fname:match("^(.*)[/\\][^/\\]+$") or "."
+    else
+      project_root = "."
+    end
+  end
   table.insert(argv, "--add-dir")
   table.insert(argv, project_root)
 
+  if cfg.auto_skip_permissions then
+    table.insert(argv, "--dangerously-skip-permissions")
+  end
+
+  local log = io.open(USERDIR .. "/antigravity_debug.log", "a")
+  if log then
+    log:write(os.date() .. "  ARGV: " .. table.concat(argv, " | ") .. "\n")
+    log:close()
+  end
+
   local p, err, code = process.start(argv, {
+    stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
@@ -244,6 +267,11 @@ function AGView:submit(prompt_text)
   if p then
     self.process = p
     self.has_session = true
+    if p.close_stdin then
+      p:close_stdin()
+    elseif p.write then
+      pcall(function() p:write("") end)
+    end
   else
     self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath tried: " .. cfg.cli .. "\nError: " .. tostring(err)
     self.status = "error"
@@ -291,7 +319,18 @@ function AGView:update()
   if rc ~= nil then
     self.process = nil
     self.status  = (rc == 0) and "idle" or "error"
+    if self._ai_buf == "" then
+      self.sessions[#self.sessions].text = string.format("(no output — process exited with code %s)", tostring(rc))
+      self.sessions[#self.sessions].lines = nil
+    end
     if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
+    core.redraw = true
+    return
+  end
+
+  local elapsed = os.time() - (self.started_at or os.time())
+  if elapsed > 20 and self._ai_buf == "" and not self.warned_slow then
+    self.warned_slow = true
     core.redraw = true
   end
 end
