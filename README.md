@@ -8,12 +8,13 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 
 ## ✨ Features
 
-- **Mossy Everforest Theme**: A curated, pixel-perfect sage green light theme. UI contrast dynamically adjusts luminance to perfectly match Light/Dark modes while retaining the same color hue.
+- **Mossy Everforest Theme**: A curated, pixel-perfect sage green light theme. UI contrast dynamically adjusts luminance to perfectly match Light/Dark modes while retaining the same color hue. *All panels (Statusbar, File Explorer, Terminal, and AI Sidebar) seamlessly inherit and shift these colors dynamically in real-time.*
 - **VS Code Layout**: Familiar panel arrangements with a left-side file explorer, bottom terminal, and right-side AI assistant.
 - **Conversational AI Sidebar**: A native AI chat UI powered by the [Antigravity CLI](https://antigravity.dev/). Features:
+  - **Typewriter Output Streaming** — intercepts large piped buffers and smoothly reveals the LLM's response character-by-character with auto-scroll for a seamless streaming experience.
   - **`@`-mention file picker** — type `@` to fuzzy-search and attach any project file. The CLI reads it natively via `--add-dir`, no manual embedding.
   - **Multi-turn memory** — uses `-c` (`--continue`) automatically after the first message so the AI remembers the full conversation.
-  - **Model switcher** — a `⚙ model` pill button in the header opens a live dropdown. Fetches the real model list via `agy models` in the background. Models with exhausted quotas are flagged with a red `⚠`. Switching models resets the session cleanly.
+  - **Model switcher** — a `[M]` pill button in the header opens a live dropdown. Fetches the real model list via `agy models` in the background. Models with exhausted quotas are flagged with a red `(L)`. Switching models resets the session cleanly.
   - **Quick-action pills** — one-click Explain / Refactor / Fix / Tests / Docs actions.
   - **Conversation reset** — `Ctrl+Enter` clears history and starts a fresh session.
 - **Smart Auto-Healer**: Intercepts Lua crashes in real-time and dispatches them to the AI for analysis. Features a `KNOWN_PATTERNS` registry for common, diagnosable issues that get targeted instant fixes — *without wasting AI tokens*. Currently registered patterns:
