@@ -1180,9 +1180,14 @@ core.status_view:add_item({
         text = "🤖 Retry Auth[click here again]"
       end
     end
+    
+    -- Ensure ultra-high contrast for light/dark themes
+    local bg = style.background or {0,0,0,255}
+    local text_color = (lum(bg[1], bg[2], bg[3]) > 128) and {0, 0, 0, 255} or {255, 255, 255, 255}
+
     return {
       style.font,
-      style.text,
+      text_color,
       text
     }
   end,
