@@ -1180,20 +1180,42 @@ core.status_view:add_item({
         text = "🤖 Retry Auth[click here again]"
       end
     end
-    
-    -- Ensure ultra-high contrast for light/dark themes
-    local bg = style.background or {0,0,0,255}
-    local text_color = (lum(bg[1], bg[2], bg[3]) > 128) and {0, 0, 0, 255} or {255, 255, 255, 255}
-
     return {
       style.font,
-      text_color,
+      style.text,
       text
     }
   end,
   command = "antigravity:auth",
   tooltip = "Sign in to Antigravity / Manage Auth"
 })
+
+-- Hook the StatusView draw function to guarantee the entire status bar text is highly contrasted
+local old_sv_draw = StatusView.draw
+function StatusView:draw(...)
+  local old_text = style.text
+  local old_dim = style.dim
+  local old_accent = style.accent
+
+  local bg = style.background2 or {0,0,0,255}
+  
+  -- If background is light, force text to very dark colors
+  if lum(bg[1], bg[2], bg[3]) > 128 then
+    style.text = { 0, 0, 0, 255 }
+    style.dim = { 80, 80, 80, 255 }
+    style.accent = { 0, 50, 150, 255 }
+  -- If background is dark, force text to very light colors
+  else
+    style.text = { 255, 255, 255, 255 }
+    style.dim = { 180, 180, 180, 255 }
+  end
+
+  old_sv_draw(self, ...)
+
+  style.text = old_text
+  style.dim = old_dim
+  style.accent = old_accent
+end
 
 -- Bind local commands that only activate when AI Sidebar is focused
 command.add(
