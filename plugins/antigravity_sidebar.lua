@@ -1157,8 +1157,8 @@ command.add(nil, {
     core.command_view:enter("Sign in to Antigravity (Press Enter to launch browser or paste token)", {
       submit = function(text)
         local cfg = config.antigravity
-        -- Launch a visible terminal for the interactive auth process so the user can see what's happening
-        process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli .. " install" })
+        -- Launch a visible terminal running the bare CLI, which explicitly forces the interactive browser login
+        process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli })
         core.log("Antigravity: Authentication terminal opened. Please follow the instructions in the new window.")
       end
     })
