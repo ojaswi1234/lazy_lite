@@ -162,6 +162,7 @@ function AGView:new()
   self._chat_height = 0
   self.mention_suggestions = nil
   self.mention_idx = 1
+  self.has_session = false
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -206,51 +207,46 @@ function AGView:submit(prompt_text)
   -- Add user message to chat
   self:_add_session("user", prompt_text)
 
-  local fname, ftext = get_context()
-  local body = string.format(
-    "FILE: %s\n\nCODE:\n```\n%s\n```\n\nINSTRUCTION: %s\n",
-    fname or "unknown", ftext or "", prompt_text
-  )
+  local fname = nil
+  local av = core.active_view
+  if av and av.doc then fname = av.doc.filename end
 
-  -- Scan for @mentions and append them to the body
-  for mention in prompt_text:gmatch("@([%S]+)") do
-    local mfile = core.project_absolute_path(mention)
-    if mfile then
-      local mf = io.open(mfile, "r")
-      if mf then
-        local mtext = mf:read("*a")
-        mf:close()
-        body = body .. string.format("\n\n---\nREFERENCED FILE: %s\n```\n%s\n```\n", mention, mtext)
-      end
-    end
+  local full_prompt = prompt_text
+  if fname then
+    full_prompt = string.format("Regarding the active file %s: %s", fname, prompt_text)
   end
 
   self.status   = "running"
   self._ai_buf  = ""  -- accumulate streaming response
   self:_add_session("ai", "")  -- placeholder entry
 
-  -- Write to temp file in USERDIR to guarantee absolute path safely
-  local tmp = USERDIR .. "/agy_prompt_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999)) .. ".txt"
-  local f   = io.open(tmp, "w")
-  if f then f:write(body); f:close(); self.tmpfile = tmp end
-
   local cfg  = config.antigravity
-  
-  -- Ask agy to read the temp file.
-  local safe_prompt = "Read this file and follow the instruction inside: " .. (self.tmpfile or "unknown")
-  
-  local p, err, code = process.start({ cfg.cli, "-p", safe_prompt }, {
-    stdin  = process.REDIRECT_DISCARD,
+  local argv = { cfg.cli }
+
+  -- Continue existing conversation after the first message
+  if self.has_session then
+    table.insert(argv, "-c")
+  end
+
+  table.insert(argv, "-p")
+  table.insert(argv, full_prompt)
+
+  -- Pass the project root so the agent can read files natively
+  local project_root = core.project_dir or "."
+  table.insert(argv, "--add-dir")
+  table.insert(argv, project_root)
+
+  local p, err, code = process.start(argv, {
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
 
   if p then
     self.process = p
+    self.has_session = true
   else
     self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath tried: " .. cfg.cli .. "\nError: " .. tostring(err)
     self.status = "error"
-    if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
   end
   core.redraw = true
 end
@@ -603,9 +599,9 @@ function AGView:on_key_pressed(key, ...)
     self.sessions = {}
     self.input    = ""
     self.status   = "idle"
+    self.has_session = false
     if self.process then pcall(function() self.process:kill() end) end
     self.process  = nil
-    if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
     core.redraw = true
     return true
   end
