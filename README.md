@@ -10,10 +10,18 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 
 - **Mossy Everforest Theme**: A curated, pixel-perfect sage green light theme. UI contrast dynamically adjusts luminance to perfectly match Light/Dark modes while retaining the same color hue.
 - **VS Code Layout**: Familiar panel arrangements with a left-side file explorer, bottom terminal, and right-side AI assistant.
-- **RAG-Powered AI Sidebar**: The AI Assistant now features a native VS Code style **`@`-mention** file picker. Typing `@` opens a live, fuzzy-searchable list of your project files. Selecting a file secretly bundles its *entire code content* directly into the AI's prompt payload (Retrieval-Augmented Generation) without any indexing overhead.
-- **Zero-Touch Auto-Healer**: Intercepts native Lua editor crashes in real-time. If a plugin breaks, it automatically captures the stack trace and prompts you for permission via the Command Palette to let the AI fix it. If the UI is utterly broken, it falls back to a headless diagnostic mode and streams the fix directly into a new text document.
+- **Conversational AI Sidebar**: A native AI chat UI powered by the [Antigravity CLI](https://antigravity.dev/). Features:
+  - **`@`-mention file picker** — type `@` to fuzzy-search and attach any project file. The CLI reads it natively via `--add-dir`, no manual embedding.
+  - **Multi-turn memory** — uses `-c` (`--continue`) automatically after the first message so the AI remembers the full conversation.
+  - **Model switcher** — a `⚙ model` pill button in the header opens a live dropdown. Fetches the real model list via `agy models` in the background. Models with exhausted quotas are flagged with a red `⚠`. Switching models resets the session cleanly.
+  - **Quick-action pills** — one-click Explain / Refactor / Fix / Tests / Docs actions.
+  - **Conversation reset** — `Ctrl+Enter` clears history and starts a fresh session.
+- **Smart Auto-Healer**: Intercepts Lua crashes in real-time and dispatches them to the AI for analysis. Features a `KNOWN_PATTERNS` registry for common, diagnosable issues that get targeted instant fixes — *without wasting AI tokens*. Currently registered patterns:
+  - **`agy` CLI timeout** — detected automatically after 60 seconds of silence. Prompts you to run `agy install` via a single `y` in the Command Palette, which opens the integrated terminal and runs it for you.
+  - Falls back to the generic AI healer for any unknown error.
+- **Auto-Close Brackets**: Automatically closes `{}`, `[]`, `()`, `""`, `''`, and ` `` `. Steps over existing closing pairs instead of duplicating them, wraps highlighted selections when you type a bracket, and smart-deletes empty pairs on Backspace.
 - **Integrated Terminal**: Native command runner featuring VS Code-style `Up`/`Down` command history, visual screen clearing (`cls`/`clear`), and ultra-fast 64KB chunked IPC buffering that will never lag the editor.
-- **Real-Time Resource Monitor**: A gorgeous, animated CPU and RAM sparkline chart injected directly into the top-right of your window titlebar. Uses an asynchronous background WMI PowerShell loop to maintain a 60-second telemetry history at 0% CPU overhead.
+- **Real-Time Resource Monitor**: A gorgeous, animated CPU and RAM sparkline chart injected directly into the top-right of your window titlebar. Cross-platform: uses PowerShell WMI on Windows and `/proc/stat` + `free` on Linux.
 
 ---
 
@@ -24,12 +32,35 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 | <kbd>Ctrl</kbd> + <kbd>B</kbd> | Toggle File Explorer | Global |
 | <kbd>Ctrl</kbd> + <kbd>`</kbd> | Toggle Terminal | Global |
 | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> | Toggle Antigravity AI | Global |
-| <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Clear Chat History | While in AI Sidebar |
+| <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Clear Chat / New Session | While in AI Sidebar |
 | <kbd>Up</kbd> / <kbd>Down</kbd> | Terminal Command History | While in Terminal |
 | <kbd>Ctrl</kbd> + <kbd>C</kbd> | Kill Running Command | While in Terminal |
 | <kbd>Ctrl</kbd> + <kbd>L</kbd> | Clear Output | While in Terminal |
 | <kbd>PageUp</kbd> / <kbd>PageDn</kbd> | Scroll Output | While in Terminal |
 | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | View Logs / Auto-Heal Status | Global |
+
+### Command Palette Actions
+
+| Command | Action |
+| :--- | :--- |
+| `Auto Healer: Approve Fix` | Sends approval to the AI to apply the suggested fix |
+| `Auto Healer: Run agy install` | Opens terminal and runs `agy install` to set up the CLI |
+
+---
+
+## ⚙️ Prerequisites
+
+LazyLite's AI features require the **Antigravity CLI (`agy`)** to be installed and configured.
+
+**Install agy:**
+- Windows: download from [antigravity.dev](https://antigravity.dev/) or follow the official install guide.
+- Linux: `curl -sSL https://antigravity.dev/install.sh | bash`
+
+**First-time setup (required before the AI sidebar will respond):**
+```bash
+agy install
+```
+Run this once in a real terminal. After that, reload Lite-XL and the AI sidebar will work.
 
 ---
 
@@ -64,11 +95,11 @@ Restart Lite-XL once the script completes.
 
 If you wish to remove LazyLite and revert to the default Lite-XL experience, navigate back to the downloaded repository and run the uninstall commands:
 
-- **Windows (PowerShell)**: 
+- **Windows (PowerShell)**:
   ```powershell
   irm .\uninstall.ps1 | iex
   ```
-- **Linux / macOS (Bash)**: 
+- **Linux / macOS (Bash)**:
   ```bash
   bash ./uninstall.sh
   ```
