@@ -169,7 +169,6 @@ end
 -- Wrap text into lines that fit within max_w pixels using given font
 local function wrap_text(font, text, max_w)
   local lines = {}
-  for _, raw in ipairs((text .. "\n"):gmatch("([^\n]*)\n") and {} or {}) do end
   -- simple approach: split on newlines first, then wrap long ones
   for raw_line in (text .. "\n"):gmatch("([^\n]*)\n") do
     if font:get_width(raw_line) <= max_w then
@@ -179,9 +178,25 @@ local function wrap_text(font, text, max_w)
       local cur = ""
       for word in (raw_line .. " "):gmatch("(%S+)%s") do
         local try = cur == "" and word or (cur .. " " .. word)
-        if font:get_width(try) > max_w and #cur > 0 then
-          table.insert(lines, cur)
-          cur = word
+        if font:get_width(try) > max_w then
+          if #cur > 0 then
+            table.insert(lines, cur)
+            cur = word
+          else
+            -- The single word is wider than max_w; character-wrap it
+            local char_cur = ""
+            for i = 1, #word do
+              local char = word:sub(i, i)
+              local char_try = char_cur .. char
+              if font:get_width(char_try) > max_w and #char_cur > 0 then
+                table.insert(lines, char_cur)
+                char_cur = char
+              else
+                char_cur = char_try
+              end
+            end
+            cur = char_cur
+          end
         else
           cur = try
         end
@@ -300,9 +315,10 @@ function AGView:submit(prompt_text)
     full_prompt = string.format("Regarding the active file %s: %s", fname, prompt_text)
   end
 
-  self.status       = "running"
-  self._ai_buf      = ""  -- accumulate streaming response
-  self.started_at   = os.time()
+  self.status               = "running"
+  self._ai_buf              = ""  -- accumulate streaming response
+  self._ai_displayed_chars  = 0   -- typewriter effect
+  self.started_at           = os.time()
   self.warned_slow  = false
   self:_add_session("ai", "")  -- placeholder entry
 
@@ -374,46 +390,57 @@ function AGView:update()
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "x", dest, nil, "antigravity")
 
-  if not self.process then return end
+  local ai_len = self._ai_buf and #self._ai_buf or 0
+  local is_typing = self._ai_displayed_chars and (self._ai_displayed_chars < ai_len)
 
-  local dirty = false
+  if not self.process and not is_typing then return end
 
-  -- Drain stdout completely in large 64KB chunks to maximize IPC throughput
-  while true do
-    local out = self.process:read_stdout(65536)
-    if not out or #out == 0 then break end
-    self._ai_buf = (self._ai_buf or "") .. out
-    dirty = true
+  if self.process then
+    local dirty = false
+    -- Drain stdout completely in large chunks
+    while true do
+      local out = self.process:read_stdout(65536)
+      if not out or #out == 0 then break end
+      self._ai_buf = (self._ai_buf or "") .. out
+      dirty = true
+    end
+    
+    -- Drain stderr completely
+    while true do
+      local err = self.process:read_stderr(65536)
+      if not err or #err == 0 then break end
+      self._ai_buf = (self._ai_buf or "") .. err
+      dirty = true
+    end
+    
+    local rc = self.process:returncode()
+    if rc ~= nil then
+      self.process = nil
+      self.status  = (rc == 0) and "idle" or "error"
+      if self._ai_buf == "" then
+        self._ai_buf = string.format("(no output — process exited with code %s)", tostring(rc))
+      end
+      if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
+    end
   end
-  
-  -- Drain stderr completely
-  while true do
-    local err = self.process:read_stderr(65536)
-    if not err or #err == 0 then break end
-    self._ai_buf = (self._ai_buf or "") .. err
-    dirty = true
-  end
 
-  if dirty then
+  ai_len = self._ai_buf and #self._ai_buf or 0
+  is_typing = self._ai_displayed_chars and (self._ai_displayed_chars < ai_len)
+
+  -- Typewriter effect logic
+  if is_typing then
+    -- Reveal characters (approx 60fps * 30 chars = 1800 chars/sec)
+    self._ai_displayed_chars = math.min(ai_len, self._ai_displayed_chars + 30)
+    
     if self.sessions[#self.sessions] and self.sessions[#self.sessions].role == "ai" then
-      self.sessions[#self.sessions].text  = self._ai_buf
+      self.sessions[#self.sessions].text  = self._ai_buf:sub(1, self._ai_displayed_chars)
       self.sessions[#self.sessions].lines = nil  -- invalidate cache
+      self.scroll_to_bottom = true
     end
     core.redraw = true
   end
 
-  local rc = self.process:returncode()
-  if rc ~= nil then
-    self.process = nil
-    self.status  = (rc == 0) and "idle" or "error"
-    if self._ai_buf == "" then
-      self.sessions[#self.sessions].text = string.format("(no output — process exited with code %s)", tostring(rc))
-      self.sessions[#self.sessions].lines = nil
-    end
-    if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
-    core.redraw = true
-    return
-  end
+  if not self.process then return end
 
   local elapsed = os.time() - (self.started_at or os.time())
   -- Soft warning at 20s
@@ -630,17 +657,23 @@ function AGView:draw()
   -- Placeholder / typed text
   local display    = #self.input > 0 and self.input or "Ask anything about your code."
   local fg_inp     = #self.input > 0 and P.fg or P.fg_muted
-  renderer.draw_text(style.font, display,
-    inp_x + 8 * SCALE,
-    inp_y + 8 * SCALE,
-    fg_inp)
+
+  local max_text_w = inp_w - 16 * SCALE
+  local text_w     = style.font:get_width(display)
+  local tx         = inp_x + 8 * SCALE
+  if core.active_view == self and text_w > max_text_w then
+    tx = tx - (text_w - max_text_w)
+  end
+
+  core.push_clip_rect(inp_x, inp_y, inp_w, input_h)
+  renderer.draw_text(style.font, display, tx, inp_y + 8 * SCALE, fg_inp)
 
   -- Blink cursor
   if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
     local cw = style.font:get_width(self.input)
-    renderer.draw_rect(inp_x + 8 * SCALE + cw, inp_y + 8 * SCALE,
-      2 * SCALE, style.font:get_height(), P.fg_accent)
+    renderer.draw_rect(tx + cw, inp_y + 8 * SCALE, 2 * SCALE, style.font:get_height(), P.fg_accent)
   end
+  core.pop_clip_rect()
 
   -- Hint text bottom-right of input
   local hint = "Enter ↵"
