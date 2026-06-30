@@ -1140,6 +1140,33 @@ command.add(nil, {
       core.set_active_view(instance)
     end
   end,
+  ["antigravity:auth"] = function()
+    core.command_view:enter("Sign in to Antigravity (Press Enter to launch browser or paste token)", {
+      submit = function(text)
+        local cfg = config.antigravity
+        -- Launch a visible terminal for the interactive auth process so the user can see what's happening
+        process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli .. " install" })
+        core.log("Antigravity: Authentication terminal opened. Please follow the instructions in the new window.")
+      end
+    })
+  end,
+})
+
+-- ── Status Bar Item ───────────────────────────────────────────────────────────
+local StatusView = require "core.statusview"
+
+core.status_view:add_item({
+  name = "antigravity:auth",
+  alignment = StatusView.Item.RIGHT,
+  get_item = function()
+    return {
+      style.font,
+      style.text,
+      "🤖 AGY Auth"
+    }
+  end,
+  command = "antigravity:auth",
+  tooltip = "Sign in to Antigravity"
 })
 
 -- Bind local commands that only activate when AI Sidebar is focused
