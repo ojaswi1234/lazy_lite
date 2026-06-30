@@ -403,8 +403,12 @@ function AGView:update()
     
     local m_elapsed = os.time() - (self.model_started_at or os.time())
     if self.model_proc:returncode() ~= nil then
-      self.model_list = parse_model_list(self._model_raw or "")
-      if #self.model_list == 0 then
+      local parsed = parse_model_list(self._model_raw or "")
+      if #parsed > 0 then
+        self.model_list = parsed
+        self.auth_status = "logged_in"
+      else
+        self.auth_status = "auth_error"
         self.model_list = {
           { name = "gemini-2.5-flash", limited = false },
           { name = "gemini-2.5-pro", limited = false },
@@ -418,6 +422,7 @@ function AGView:update()
       pcall(function() self.model_proc:kill() end)
       self.model_proc = nil
       self._model_raw = ""
+      self.auth_status = "auth_error"
       self.model_list = {
         { name = "gemini-2.5-flash", limited = false },
         { name = "gemini-2.5-pro", limited = false },
@@ -1159,14 +1164,22 @@ core.status_view:add_item({
   name = "antigravity:auth",
   alignment = StatusView.Item.RIGHT,
   get_item = function()
+    local text = "🤖 AGY Auth"
+    if instance then
+      if instance.auth_status == "logged_in" then
+        text = "🤖 " .. (os.getenv("USERNAME") or "AGY Connected")
+      elseif instance.auth_status == "auth_error" then
+        text = "🤖 Retry Auth[click here again]"
+      end
+    end
     return {
       style.font,
       style.text,
-      "🤖 AGY Auth"
+      text
     }
   end,
   command = "antigravity:auth",
-  tooltip = "Sign in to Antigravity"
+  tooltip = "Sign in to Antigravity / Manage Auth"
 })
 
 -- Bind local commands that only activate when AI Sidebar is focused
