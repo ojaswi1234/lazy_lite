@@ -56,11 +56,14 @@ command.add(nil, {
 -- instead of sending them to the generic AI healer.
 local KNOWN_PATTERNS = {
   {
-    -- The agy CLI timed out with zero output — almost always means `agy install` needed.
     match   = "%[Antigravity%] CLI timed out",
-    title   = "Antigravity CLI not set up",
-    message = "The Antigravity CLI hung without producing output. This almost always means\n"
-           .. "it needs to be configured first. Options:\n\n"
+    title   = "Antigravity CLI Timeout",
+    message = "The Antigravity CLI timed out after 5 minutes with zero output.\n"
+           .. "Most likely causes:\n"
+           .. "  1. The AI model is taking too long to generate a response.\n"
+           .. "  2. The Antigravity CLI has not been set up yet.\n\n"
+           .. "If you suspect it's a setup issue, you can try running `agy install`.\n"
+           .. "Options:\n"
            .. "  1. Run 'Auto-Healer: Run agy install' from the Command Palette.\n"
            .. "  2. OR open a terminal and run:  agy install\n\n"
            .. "After setup, reload Lite-XL (Ctrl+Shift+R) and try again.",

@@ -443,22 +443,25 @@ function AGView:update()
   if not self.process then return end
 
   local elapsed = os.time() - (self.started_at or os.time())
-  -- Soft warning at 20s
-  if elapsed > 20 and self._ai_buf == "" and not self.warned_slow then
+  -- Soft warning at 45s
+  if elapsed > 45 and self._ai_buf == "" and not self.warned_slow then
     self.warned_slow = true
     core.redraw = true
   end
-  -- Hard kill at 60s — surface a fix message instead of hanging forever
-  if elapsed > 60 and self._ai_buf == "" and self.process then
+  -- Hard kill at 315s (5m15s) — surface a fix message instead of hanging forever
+  -- The agy CLI itself defaults to a 5m wait, so we give it slightly longer.
+  if elapsed > 315 and self._ai_buf == "" and self.process then
     pcall(function() self.process:kill() end)
     self.process = nil
     self.status  = "error"
     local fix_msg = table.concat({
-      "⏱ Request timed out after 60 seconds with no response.",
+      "⏱ Request timed out after 5 minutes with no response.",
       "",
-      "Most likely cause: the Antigravity CLI has not been set up yet.",
-      "Run this command in a terminal to fix it:",
+      "Most likely causes:",
+      "  1. The AI model is taking too long to generate a response.",
+      "  2. The Antigravity CLI is not set up correctly.",
       "",
+      "If it's the latter, run this command in a terminal to fix it:",
       "  agy install",
       "",
       "After setup completes, reload Lite-XL and try again.",
