@@ -1154,12 +1154,33 @@ command.add(nil, {
     end
   end,
   ["antigravity:auth"] = function()
-    core.command_view:enter("Sign in to Antigravity (Press Enter to launch browser or paste token)", {
+    core.command_view:enter("Press Enter to launch Auth Terminal (follow instructions in the new window)", {
       submit = function(text)
         local cfg = config.antigravity
         -- Launch a visible terminal running the bare CLI, which explicitly forces the interactive browser login
         process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli })
         core.log("Antigravity: Authentication terminal opened. Please follow the instructions in the new window.")
+        
+        -- Reset auth status so they aren't permanently blocked from chatting after logging in!
+        if instance then
+          instance.auth_status = "checking"
+          
+          -- Poll in the background to automatically detect when they finish logging in!
+          core.add_thread(function()
+            for i = 1, 30 do -- check for up to 90 seconds
+              coroutine.yield(3)
+              if instance and instance.auth_status ~= "logged_in" then
+                if instance.model_proc then 
+                  pcall(function() instance.model_proc:kill() end)
+                  instance.model_proc = nil 
+                end
+                instance:fetch_models()
+              else
+                break
+              end
+            end
+          end)
+        end
       end
     })
   end,
