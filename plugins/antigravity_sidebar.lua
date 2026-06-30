@@ -474,7 +474,7 @@ function AGView:draw()
 
   -- Status + Model button row (right side of header)
   local status_str = self.status == "running"
-    and (self.warned_slow and "slow…" or "thinking…")
+    and (self.warned_slow and "slow." or "thinking.")
     or  self.status == "error" and "error"
     or  "ready"
   local ss_w = style.font:get_width(status_str)
@@ -489,12 +489,12 @@ function AGView:draw()
   local sel_name  = config.antigravity.selected_model or "model"
   local mfont     = style.font
   local mbtn_max  = w - (title_x - x) - title_w - ss_w - pad * 2 - 16 * SCALE
-  local mbtn_lbl  = "⚙ " .. sel_name
+  local mbtn_lbl  = "[M] " .. sel_name
   while mfont:get_width(mbtn_lbl) > mbtn_max - 10 * SCALE and #mbtn_lbl > 5 do
     mbtn_lbl = mbtn_lbl:sub(1, -2)
   end
-  if sel_name ~= "model" and mfont:get_width("⚙ " .. sel_name) > mbtn_max - 10 * SCALE then
-    mbtn_lbl = mbtn_lbl .. "…"
+  if sel_name ~= "model" and mfont:get_width("[M] " .. sel_name) > mbtn_max - 10 * SCALE then
+    mbtn_lbl = mbtn_lbl .. "."
   end
   local mbtn_w = math.min(mfont:get_width(mbtn_lbl) + 14 * SCALE, mbtn_max)
   local mbtn_h = 18 * SCALE
@@ -511,50 +511,7 @@ function AGView:draw()
 
   cur_y = cur_y + hdr_h
 
-  -- ── Model picker dropdown (floats below header when open) ─────────────────
-  if self.show_model_picker then
-    local item_h = mfont:get_height() + 10 * SCALE
-    local list   = self.model_list
-    local fetch  = #list == 0
-    local rows   = fetch and 1 or #list
-    local pop_h  = rows * item_h + 6 * SCALE
-    local pop_y  = cur_y  -- right below header
-    renderer.draw_rect(x, pop_y, w, pop_h, P.bg_dark)
-    draw_rect_outline(x, pop_y, w, pop_h, P.border)
-
-    self._mpicker_rects = {}
-
-    if fetch then
-      renderer.draw_text(mfont, self.model_proc and "Fetching models…" or "No models found.",
-        x + pad, pop_y + 3 * SCALE + math.floor((item_h - mfont:get_height()) / 2), P.fg_muted)
-    else
-      for i, m in ipairs(list) do
-        local ry = pop_y + 3 * SCALE + (i - 1) * item_h
-        local is_selected = config.antigravity.selected_model == m.name
-        local is_hover    = self.hover_model_idx == i
-        local row_bg = is_selected and P.bg_btn_hl
-                    or is_hover    and P.bg_btn
-                    or nil
-        if row_bg then renderer.draw_rect(x, ry, w, item_h, row_bg) end
-
-        -- Usage warning flag
-        local flag = m.limited and " ⚠" or ""
-        local label = m.name .. flag
-        local fg = m.limited and P.dot_err or (is_selected and P.fg_accent or P.fg)
-        renderer.draw_text(mfont, label, x + pad, ry + math.floor((item_h - mfont:get_height()) / 2), fg)
-
-        -- Checkmark for active
-        if is_selected then
-          renderer.draw_text(mfont, "✓", x + w - pad - mfont:get_width("✓"), ry + math.floor((item_h - mfont:get_height()) / 2), P.dot_run)
-        end
-
-        table.insert(self._mpicker_rects, { x = x, y = ry, w = w, h = item_h, idx = i })
-      end
-    end
-  end
-
-  -- ═══════════════════════════════════════════════════════════════════
-  -- QUICK ACTION PILLS (single row, compact)
+    -- QUICK ACTION PILLS (single row, compact)
   -- ═══════════════════════════════════════════════════════════════════
   local pill_h    = 24 * SCALE
   local pill_gap  = 4 * SCALE
@@ -615,7 +572,7 @@ function AGView:draw()
     core.active_view == self and P.border_input or P.border)
 
   -- Placeholder / typed text
-  local display    = #self.input > 0 and self.input or "Ask anything about your code…"
+  local display    = #self.input > 0 and self.input or "Ask anything about your code."
   local fg_inp     = #self.input > 0 and P.fg or P.fg_muted
   renderer.draw_text(style.font, display,
     inp_x + 8 * SCALE,
@@ -754,6 +711,43 @@ function AGView:draw()
         renderer.draw_rect(pop_x, iy, pop_w, item_h, P.bg_btn_hl)
       end
       renderer.draw_text(style.font, file, pop_x + 8 * SCALE, iy + 4 * SCALE, P.fg)
+    end
+  end
+
+  -- MODEL PICKER DROPDOWN: drawn last to overlay pills and chat
+  if self.show_model_picker then
+    local mf     = style.font
+    local item_h = mf:get_height() + 10 * SCALE
+    local list   = self.model_list
+    local rows   = (#list == 0) and 1 or #list
+    local pop_h  = rows * item_h + 6 * SCALE
+    local pop_y  = y + 40 * SCALE
+    renderer.draw_rect(x, pop_y, w, pop_h, P.bg_dark)
+    draw_rect_outline(x, pop_y, w, pop_h, P.border)
+    self._mpicker_rects = {}
+    if #list == 0 then
+      renderer.draw_text(mf,
+        self.model_proc and "Fetching models..." or "No models found.",
+        x + pad, pop_y + 3 * SCALE + math.floor((item_h - mf:get_height()) / 2), P.fg_muted)
+    else
+      for i, m in ipairs(list) do
+        local ry     = pop_y + 3 * SCALE + (i - 1) * item_h
+        local is_sel = config.antigravity.selected_model == m.name
+        local is_hov = self.hover_model_idx == i
+        local rbg    = is_sel and P.bg_btn_hl or is_hov and P.bg_btn or nil
+        if rbg then renderer.draw_rect(x, ry, w, item_h, rbg) end
+        local flag  = m.limited and " (L)" or ""
+        local label = m.name .. flag
+        local fg    = m.limited and P.dot_err or (is_sel and P.fg_accent or P.fg)
+        renderer.draw_text(mf, label, x + pad,
+          ry + math.floor((item_h - mf:get_height()) / 2), fg)
+        if is_sel then
+          renderer.draw_text(mf, "[v]",
+            x + w - pad - mf:get_width("[v]"),
+            ry + math.floor((item_h - mf:get_height()) / 2), P.dot_run)
+        end
+        table.insert(self._mpicker_rects, { x=x, y=ry, w=w, h=item_h, idx=i })
+      end
     end
   end
 end
