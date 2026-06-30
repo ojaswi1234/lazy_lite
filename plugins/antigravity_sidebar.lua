@@ -303,13 +303,8 @@ function AGView:submit(prompt_text)
   if not prompt_text or #prompt_text:match("^%s*(.-)%s*$") == 0 then return end
   prompt_text = prompt_text:match("^%s*(.-)%s*$")
 
-  -- Block execution and prompt login if not authenticated
-  if self.auth_status == "auth_error" then
-    core.error("Antigravity: You are not logged in! Please sign in to chat.")
-    self.input = prompt_text -- restore input so they don't lose their prompt
-    command.perform("antigravity:auth")
-    return
-  end
+  -- We no longer block execution here. The auth_status is unreliable on Windows due to the CLI's stdin behavior.
+  -- If they are truly unauthenticated, the chat will hang in the background, but they can use the AGY Auth button to fix it.
 
   -- Add user message to chat
   self:_add_session("user", prompt_text)
@@ -1161,23 +1156,17 @@ command.add(nil, {
         process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli })
         core.log("Antigravity: Authentication terminal opened. Please follow the instructions in the new window.")
         
-        -- Reset auth status so they aren't permanently blocked from chatting after logging in!
+        -- Since 'agy models' is fundamentally broken on Windows (hangs/errors on stdin),
+        -- we cannot reliably verify auth status programmatically.
+        -- We will simply assume they successfully logged in after giving them some time.
         if instance then
           instance.auth_status = "checking"
           
-          -- Poll in the background to automatically detect when they finish logging in!
           core.add_thread(function()
-            for i = 1, 30 do -- check for up to 90 seconds
-              coroutine.yield(3)
-              if instance and instance.auth_status ~= "logged_in" then
-                if instance.model_proc then 
-                  pcall(function() instance.model_proc:kill() end)
-                  instance.model_proc = nil 
-                end
-                instance:fetch_models()
-              else
-                break
-              end
+            coroutine.yield(15) -- wait 15 seconds for them to complete the browser login
+            if instance then
+              instance.auth_status = "logged_in"
+              core.redraw = true
             end
           end)
         end
