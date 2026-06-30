@@ -364,7 +364,28 @@ function AGView:submit(prompt_text)
     log:close()
   end
 
-  local p, err, code = process.start(argv, {
+  -- agy is a Go binary that checks if stdin is a TTY before running.
+  -- If stdin is REDIRECT_DISCARD (no TTY), it exits silently with no output.
+  -- We must wrap in a shell so it inherits a real console session.
+  local final_argv
+  if PLATFORM == "Windows" then
+    -- Build: cmd.exe /c "<cli> arg1 arg2 ..."
+    local parts = {}
+    for _, a in ipairs(argv) do
+      -- Escape any double-quotes inside each argument
+      table.insert(parts, '"' .. tostring(a):gsub('"', '\\"') .. '"')
+    end
+    final_argv = { "cmd.exe", "/c", table.concat(parts, " ") }
+  else
+    -- On Linux/Mac use sh -c to get a login-like environment
+    local parts = {}
+    for _, a in ipairs(argv) do
+      table.insert(parts, "'" .. tostring(a):gsub("'", "'\\''" ) .. "'")
+    end
+    final_argv = { "sh", "-c", table.concat(parts, " ") }
+  end
+
+  local p, err = process.start(final_argv, {
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
@@ -405,8 +426,9 @@ function AGView:update()
     end
     
     local m_elapsed = os.time() - (self.model_started_at or os.time())
-    if self.model_proc:returncode() ~= nil then
-      local parsed = parse_model_list(self._model_raw or "")
+    local rc = self.model_proc:returncode()
+    if rc ~= nil then
+      local parsed = rc == 0 and parse_model_list(self._model_raw or "") or {}
       if #parsed > 0 then
         self.model_list = parsed
         self.auth_status = "logged_in"
@@ -539,17 +561,37 @@ end
 -- Kick off background fetch of model list
 function AGView:fetch_models()
   if self.model_proc then return end
+  local cfg = config.antigravity
+
+  -- agy exits silently with no output when stdin is not a real TTY.
+  -- On both Windows and Linux/Mac we wrap in a shell so it gets a real console.
+  -- We then parse the stdout for the model names.
   self._model_raw = ""
   self.model_started_at = os.time()
-  local cfg = config.antigravity
-  
-  -- Wrap in cmd.exe with < NUL to prevent agy from hanging if it tries to read stdin for auth
-  local p = process.start({ "cmd.exe", "/c", cfg.cli, "models", "<", "NUL" }, {
+
+  local shell_argv
+  if PLATFORM == "Windows" then
+    shell_argv = { "cmd.exe", "/c", '"' .. cfg.cli .. '" models' }
+  else
+    shell_argv = { "sh", "-c", "'" .. cfg.cli .. "' models" }
+  end
+
+  local p, err = process.start(shell_argv, {
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
-  if p then 
+  if p then
     self.model_proc = p
+  else
+    -- Could not start shell — fall back to hardcoded list immediately
+    self.model_list = {
+      { name = "gemini-2.5-flash",         limited = false },
+      { name = "gemini-2.5-pro",            limited = false },
+      { name = "gemini-2.5-flash-thinking", limited = false },
+    }
+    if not self.auth_status then self.auth_status = "logged_in" end
+    core.log("[Antigravity] Failed to start model fetch: " .. tostring(err))
+    core.redraw = true
   end
 end
 
@@ -1134,11 +1176,11 @@ command.add(nil, {
     end
   end,
 
-  ["antigravity:explain"]  = function() if instance then instance:submit(config.antigravity.actions[1].prompt) end end,
-  ["antigravity:refactor"] = function() if instance then instance:submit(config.antigravity.actions[2].prompt) end end,
-  ["antigravity:fix"]      = function() if instance then instance:submit(config.antigravity.actions[3].prompt) end end,
-  ["antigravity:tests"]    = function() if instance then instance:submit(config.antigravity.actions[4].prompt) end end,
-  ["antigravity:docs"]     = function() if instance then instance:submit(config.antigravity.actions[5].prompt) end end,
+  ["antigravity:explain"]  = function() command.perform("antigravity:submit", config.antigravity.actions[1].prompt) end,
+  ["antigravity:refactor"] = function() command.perform("antigravity:submit", config.antigravity.actions[2].prompt) end,
+  ["antigravity:fix"]      = function() command.perform("antigravity:submit", config.antigravity.actions[3].prompt) end,
+  ["antigravity:tests"]    = function() command.perform("antigravity:submit", config.antigravity.actions[4].prompt) end,
+  ["antigravity:docs"]     = function() command.perform("antigravity:submit", config.antigravity.actions[5].prompt) end,
   ["antigravity:submit"]   = function(prompt)
     if not instance or not instance.visible then
       command.perform("antigravity:toggle")
@@ -1148,28 +1190,41 @@ command.add(nil, {
       core.set_active_view(instance)
     end
   end,
+  ["antigravity:ask"]      = function()
+    core.command_view:enter("Ask Antigravity", {
+      submit = function(text)
+        command.perform("antigravity:submit", text)
+      end
+    })
+  end,
   ["antigravity:auth"] = function()
     core.command_view:enter("Press Enter to launch Auth Terminal (follow instructions in the new window)", {
       submit = function(text)
         local cfg = config.antigravity
-        -- Launch a visible terminal running the bare CLI, which explicitly forces the interactive browser login
-        process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli })
-        core.log("Antigravity: Authentication terminal opened. Please follow the instructions in the new window.")
-        
-        -- Since 'agy models' is fundamentally broken on Windows (hangs/errors on stdin),
-        -- we cannot reliably verify auth status programmatically.
-        -- We will simply assume they successfully logged in after giving them some time.
-        if instance then
-          instance.auth_status = "checking"
-          
-          core.add_thread(function()
-            coroutine.yield(15) -- wait 15 seconds for them to complete the browser login
-            if instance then
-              instance.auth_status = "logged_in"
-              core.redraw = true
-            end
-          end)
+        if PLATFORM == "Windows" then
+          process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli }, {
+            stdin = process.REDIRECT_DISCARD,
+          })
+        elseif PLATFORM == "Mac OS X" then
+          process.start({ "osascript", "-e", 'tell app "Terminal" to do script "' .. cfg.cli .. '"' }, {
+            stdin = process.REDIRECT_DISCARD,
+          })
+        else
+          pcall(function() process.start({ "x-terminal-emulator", "-e", cfg.cli }, {
+            stdin = process.REDIRECT_DISCARD,
+          }) end)
         end
+        core.log("Antigravity: If a terminal did not open automatically, please open your terminal and manually run: " .. cfg.cli)
+        
+        if not instance then instance = AGView() end
+        instance.auth_status = "checking"
+        
+        core.add_thread(function()
+          coroutine.yield(15) -- wait 15 seconds for them to complete the browser login
+          if instance then
+            instance:fetch_models()
+          end
+        end)
       end
     })
   end,
@@ -1245,3 +1300,18 @@ keymap.add {
   ["up"]        = "antigravity:scroll-up",
   ["down"]      = "antigravity:scroll-down",
 }
+
+local ok, contextmenu = pcall(require, "plugins.contextmenu")
+if ok then
+  local ContextMenu = require "core.contextmenu"
+  contextmenu:register(function(view)
+    return view:is(require("core.docview"))
+  end, {
+    ContextMenu.DIVIDER,
+    { text = "Explain Code with AI",  command = "antigravity:explain" },
+    { text = "Refactor Code with AI", command = "antigravity:refactor" },
+    { text = "Fix Code with AI",      command = "antigravity:fix" },
+    { text = "Generate Unit Tests",   command = "antigravity:tests" },
+    { text = "Generate Documentation",command = "antigravity:docs" },
+  })
+end
