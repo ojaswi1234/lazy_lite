@@ -58,6 +58,7 @@ config.antigravity = {
 
   target_width = 270,
   auto_skip_permissions = true,
+  selected_model = nil,  -- nil means use CLI default
 
   actions = {
     { label = "Explain",  short = "E", prompt = "Explain what this code does in plain language, line by line." },
@@ -143,6 +144,24 @@ local AGView    = View:extend()
 local instance  = nil
 local node_built = false
 
+-- ── Model list parser ─────────────────────────────────────────────────────────
+local function parse_model_list(raw)
+  local models = {}
+  for line in raw:gmatch("([^\n]+)") do
+    line = line:match("^%s*(.-)%s*$")
+    if #line > 0 then
+      local limited = line:lower():match("limit") or line:lower():match("quota")
+                   or line:lower():match("unavail") or line:lower():match("exhausted")
+                   or line:lower():match("exceeded") or line:lower():match("over")
+      local name = line:gsub("%s*%(.*%)%s*$", ""):gsub("%s+$", "")
+      if #name > 0 then
+        table.insert(models, { name = name, limited = limited and true or false })
+      end
+    end
+  end
+  return models
+end
+
 -- A session is { role="user"|"ai", text=string, lines={} }
 function AGView:new()
   AGView.super.new(self)
@@ -166,6 +185,15 @@ function AGView:new()
   self.has_session = false
   self.warned_slow = false
   self.started_at  = 0
+  -- Model picker state
+  self.model_list        = {}    -- [{name,limited}] populated by 'agy models'
+  self.model_proc        = nil   -- background process fetching model list
+  self._model_raw        = ""    -- accumulated stdout from model_proc
+  self.show_model_picker = false -- dropdown open/closed
+  self.hover_model_btn   = false
+  self.hover_model_idx   = nil
+  self._model_rect       = nil
+  self._mpicker_rects    = {}
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -231,6 +259,12 @@ function AGView:submit(prompt_text)
   -- Continue existing conversation after the first message
   if self.has_session then
     table.insert(argv, "-c")
+  end
+
+  -- Inject the user-selected model (if any)
+  if cfg.selected_model then
+    table.insert(argv, "--model")
+    table.insert(argv, cfg.selected_model)
   end
 
   table.insert(argv, "-p")
@@ -333,6 +367,43 @@ function AGView:update()
     self.warned_slow = true
     core.redraw = true
   end
+
+  -- ── Drain model-fetch process ────────────────────────────────────────
+  if self.model_proc then
+    local buf = ""
+    while true do
+      local chunk = self.model_proc:read_stdout(4096)
+      if not chunk or #chunk == 0 then break end
+      buf = buf .. chunk
+    end
+    while true do
+      local chunk = self.model_proc:read_stderr(4096)
+      if not chunk or #chunk == 0 then break end
+      buf = buf .. chunk
+    end
+    if #buf > 0 then
+      self._model_raw = (self._model_raw or "") .. buf
+    end
+    if self.model_proc:returncode() ~= nil then
+      self.model_list = parse_model_list(self._model_raw or "")
+      self._model_raw = ""
+      self.model_proc = nil
+      core.redraw = true
+    end
+  end
+end
+
+-- Kick off background fetch of model list
+function AGView:fetch_models()
+  if self.model_proc then return end
+  self._model_raw = ""
+  local cfg = config.antigravity
+  local p = process.start({ cfg.cli, "models" }, {
+    stdin  = process.REDIRECT_DISCARD,
+    stdout = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_PIPE,
+  })
+  if p then self.model_proc = p end
 end
 
 -- ── Draw helpers ──────────────────────────────────────────────────────────────
@@ -376,17 +447,86 @@ function AGView:draw()
     cur_y + math.floor((hdr_h - (style.big_font or style.font):get_height()) / 2),
     P.fg_accent)
 
-  -- Status label (right side)
-  local status_str = self.status == "running" and "thinking…"
-                  or self.status == "error"   and "error"
-                  or "ready"
+  -- Status + Model button row (right side of header)
+  local status_str = self.status == "running"
+    and (self.warned_slow and "slow…" or "thinking…")
+    or  self.status == "error" and "error"
+    or  "ready"
   local ss_w = style.font:get_width(status_str)
   renderer.draw_text(style.font, status_str,
     x + w - ss_w - pad - 8 * SCALE,
     cur_y + math.floor((hdr_h - style.font:get_height()) / 2),
     self.status == "error" and P.dot_err or P.fg_muted)
 
+  -- Model selector pill button (sits just right of "Antigravity" title)
+  local title_x   = x + pad + dot_r*2 + 6 * SCALE
+  local title_w   = (style.big_font or style.font):get_width("Antigravity")
+  local sel_name  = config.antigravity.selected_model or "model"
+  local mfont     = style.font
+  local mbtn_max  = w - (title_x - x) - title_w - ss_w - pad * 2 - 16 * SCALE
+  local mbtn_lbl  = "⚙ " .. sel_name
+  while mfont:get_width(mbtn_lbl) > mbtn_max - 10 * SCALE and #mbtn_lbl > 5 do
+    mbtn_lbl = mbtn_lbl:sub(1, -2)
+  end
+  if sel_name ~= "model" and mfont:get_width("⚙ " .. sel_name) > mbtn_max - 10 * SCALE then
+    mbtn_lbl = mbtn_lbl .. "…"
+  end
+  local mbtn_w = math.min(mfont:get_width(mbtn_lbl) + 14 * SCALE, mbtn_max)
+  local mbtn_h = 18 * SCALE
+  local mbtn_x = title_x + title_w + 8 * SCALE
+  local mbtn_y = cur_y + math.floor((hdr_h - mbtn_h) / 2)
+  local mbtn_bg = self.hover_model_btn and P.bg_btn_hl or P.bg_btn
+  renderer.draw_rect(mbtn_x, mbtn_y, mbtn_w, mbtn_h, mbtn_bg)
+  draw_rect_outline(mbtn_x, mbtn_y, mbtn_w, mbtn_h, P.border)
+  renderer.draw_text(mfont, mbtn_lbl,
+    mbtn_x + 6 * SCALE,
+    mbtn_y + math.floor((mbtn_h - mfont:get_height()) / 2),
+    P.fg_label)
+  self._model_rect = { x = mbtn_x, y = mbtn_y, w = mbtn_w, h = mbtn_h }
+
   cur_y = cur_y + hdr_h
+
+  -- ── Model picker dropdown (floats below header when open) ─────────────────
+  if self.show_model_picker then
+    local item_h = mfont:get_height() + 10 * SCALE
+    local list   = self.model_list
+    local fetch  = #list == 0
+    local rows   = fetch and 1 or #list
+    local pop_h  = rows * item_h + 6 * SCALE
+    local pop_y  = cur_y  -- right below header
+    renderer.draw_rect(x, pop_y, w, pop_h, P.bg_dark)
+    draw_rect_outline(x, pop_y, w, pop_h, P.border)
+
+    self._mpicker_rects = {}
+
+    if fetch then
+      renderer.draw_text(mfont, self.model_proc and "Fetching models…" or "No models found.",
+        x + pad, pop_y + 3 * SCALE + math.floor((item_h - mfont:get_height()) / 2), P.fg_muted)
+    else
+      for i, m in ipairs(list) do
+        local ry = pop_y + 3 * SCALE + (i - 1) * item_h
+        local is_selected = config.antigravity.selected_model == m.name
+        local is_hover    = self.hover_model_idx == i
+        local row_bg = is_selected and P.bg_btn_hl
+                    or is_hover    and P.bg_btn
+                    or nil
+        if row_bg then renderer.draw_rect(x, ry, w, item_h, row_bg) end
+
+        -- Usage warning flag
+        local flag = m.limited and " ⚠" or ""
+        local label = m.name .. flag
+        local fg = m.limited and P.dot_err or (is_selected and P.fg_accent or P.fg)
+        renderer.draw_text(mfont, label, x + pad, ry + math.floor((item_h - mfont:get_height()) / 2), fg)
+
+        -- Checkmark for active
+        if is_selected then
+          renderer.draw_text(mfont, "✓", x + w - pad - mfont:get_width("✓"), ry + math.floor((item_h - mfont:get_height()) / 2), P.dot_run)
+        end
+
+        table.insert(self._mpicker_rects, { x = x, y = ry, w = w, h = item_h, idx = i })
+      end
+    end
+  end
 
   -- ═══════════════════════════════════════════════════════════════════
   -- QUICK ACTION PILLS (single row, compact)
@@ -701,12 +841,64 @@ function AGView:on_mouse_moved(mx, my, ...)
     self.hover_send = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
   end
 
+  -- Model button hover
+  self.hover_model_btn = false
+  self.hover_model_idx = nil
+  if self._model_rect then
+    local r = self._model_rect
+    self.hover_model_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+  if self.show_model_picker and self._mpicker_rects then
+    for _, r in ipairs(self._mpicker_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_model_idx = r.idx
+        break
+      end
+    end
+  end
+
   core.redraw = true
 end
 
 function AGView:on_mouse_pressed(button, mx, my, clicks)
   AGView.super.on_mouse_pressed(self, button, mx, my, clicks)
   if button ~= "left" then return false end
+
+  -- Model picker button
+  if self._model_rect then
+    local r = self._model_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      self.show_model_picker = not self.show_model_picker
+      if self.show_model_picker and #self.model_list == 0 then
+        self:fetch_models()
+      end
+      core.redraw = true
+      return true
+    end
+  end
+
+  -- Model picker row selection
+  if self.show_model_picker and self._mpicker_rects then
+    for _, r in ipairs(self._mpicker_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        local m = self.model_list[r.idx]
+        if m then
+          config.antigravity.selected_model = m.name
+          self.show_model_picker = false
+          self.has_session = false  -- reset session so next -p doesn't pass -c with old model
+          core.log("Antigravity: switched to model '" .. m.name .. "'")
+        end
+        core.redraw = true
+        return true
+      end
+    end
+  end
+
+  -- Close picker if clicking elsewhere
+  if self.show_model_picker then
+    self.show_model_picker = false
+    core.redraw = true
+  end
 
   -- Quick action pill
   if self.hover_btn then
