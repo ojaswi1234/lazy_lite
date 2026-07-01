@@ -518,7 +518,7 @@ local function _session_lines(self, text, role)
   local pad  = 10 * SCALE
   local w    = self.size.x - 2 * pad - 8 * SCALE
   local font = role == "user" and style.font or style.code_font
-  return wrap_text(font, text, w)
+  return wrap_raw_text(font, text, w)
 end
 
 function AGView:_add_session(role, text)
@@ -1427,7 +1427,7 @@ function AGView:draw()
     local msg = "To reference specific files in your project, type '@' followed by the file name!\n\n" ..
                 "Example: '@src/main.lua Can you fix the errors in this file?'"
     local mw = w - 2 * pad
-    for _, line in ipairs(wrap_text(style.font, msg, mw)) do
+    for _, line in ipairs(wrap_raw_text(style.font, msg, mw)) do
       renderer.draw_text(style.font, line, x + pad, ty, P.fg_muted)
       ty = ty + style.font:get_height() + 2 * SCALE
     end
