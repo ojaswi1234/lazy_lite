@@ -160,7 +160,7 @@ end
 -- ── 1. Hook handled errors ────────────────────────────────────────────────────
 local old_error = core.error
 function core.error(fmt, ...)
-  old_error(fmt, ...)
+  local ret = old_error(fmt, ...)
   local err_str
   if type(fmt) == "string" and select("#", ...) > 0 then
     -- Catch cases where the format fails (e.g. invalid format string)
@@ -172,9 +172,9 @@ function core.error(fmt, ...)
   local trace = debug.traceback("", 2)
 
   -- Prevent infinite loops and ignore non-critical warnings
-  if err_str:find("Too many files in project directory") then return end
-  if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then return end
-  if err_str:find("auto_healer") then return end
+  if err_str:find("Too many files in project directory") then return ret end
+  if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then return ret end
+  if err_str:find("auto_healer") then return ret end
 
   core.add_thread(function()
     coroutine.yield(0.1)
@@ -193,19 +193,12 @@ function core.error(fmt, ...)
           end
         end
       })
-      return  -- Don't escalate to generic AI handler for known patterns
+      return
     end
 
     -- ── Generic AI healer for unknown errors ────────────────────────────────
     local prompt = string.format(
-      "Activate skill `lite_xl_healer`! The editor just caught a handled Lua error:
-
-```
-%s
-%s
-```
-
-Please analyze this, explain the fix to me, and WAIT for my agreement.",
+      "Activate skill `lite_xl_healer`! The editor just caught a handled Lua error:\n\n```\n%s\n%s\n```\n\nPlease analyze this, explain the fix to me, and WAIT for my agreement.",
       err_str, trace
     )
 
@@ -227,6 +220,7 @@ Please analyze this, explain the fix to me, and WAIT for my agreement.",
       })
     end
   end)
+  return ret
 end
 
 -- ── 2. Hook fatal errors ──────────────────────────────────────────────────────
