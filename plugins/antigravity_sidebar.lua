@@ -1209,6 +1209,7 @@ function AGView:draw()
     for _, blk in ipairs(sess.blocks) do
       local blk_lh = blk.is_code and lh_c or lh_f
       local block_font = blk.is_code and style.code_font or style.font
+      
       if blk.is_code and #blk.lines > 0 then
         local b_h = #blk.lines * blk_lh + 8 * SCALE
         if line_y + b_h >= chat_top and line_y <= chat_bot then
@@ -1216,15 +1217,80 @@ function AGView:draw()
           draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.border)
         end
         line_y = line_y + 4 * SCALE
-      end
-      for _, line in ipairs(blk.lines) do
-        if line_y + blk_lh >= chat_top and line_y <= chat_bot then
-          renderer.draw_text(block_font, line, x + pad + msg_pad, line_y, fg_col)
+        
+        local lang = blk.lang or "txt"
+        local synt = syntax.get("dummy." .. lang) or syntax.get(lang)
+        local state = nil
+        
+        for _, line in ipairs(blk.lines) do
+          if line_y + blk_lh >= chat_top and line_y <= chat_bot then
+            local tokens = { "normal", line }
+            if synt then
+              local ok, res1, res2 = pcall(tokenizer.tokenize, synt, line, state)
+              if ok then tokens, state = res1, res2 end
+            end
+            local lx = x + pad + msg_pad
+            for i = 1, #tokens, 2 do
+              local type = tokens[i]
+              local text = tokens[i+1]
+              local col = style.syntax[type] or style.syntax["normal"] or fg_col
+              lx = renderer.draw_text(block_font, text, lx, line_y, col)
+            end
+          else
+            if synt then pcall(function() _, state = tokenizer.tokenize(synt, line, state) end) end
+          end
+          line_y = line_y + blk_lh
         end
-        line_y = line_y + blk_lh
-      end
-      if blk.is_code and #blk.lines > 0 then
         line_y = line_y + 4 * SCALE
+      else
+        for _, line in ipairs(blk.lines) do
+          if line_y + blk_lh >= chat_top and line_y <= chat_bot then
+            local is_header = line:match("^%s*#+%s")
+            local is_list   = line:match("^%s*%-%s") or line:match("^%s*%*%s")
+            local l_col = is_header and P.fg_accent or fg_col
+            local lx = x + pad + msg_pad
+            
+            if is_list then
+              renderer.draw_text(block_font, ""? ", lx, line_y, P.fg_accent)
+              lx = lx + style.font:get_width(""? ")
+            end
+            
+            local parts = {}
+            local s_idx = 1
+            while s_idx <= #line do
+              local b_s, b_e = line:find("%*%*.-%*%*", s_idx)
+              local c_s, c_e = line:find("`.-`", s_idx)
+              
+              local next_s, next_e, ptype
+              if b_s and c_s then
+                if b_s < c_s then next_s, next_e, ptype = b_s, b_e, "bold"
+                else next_s, next_e, ptype = c_s, c_e, "code" end
+              elseif b_s then next_s, next_e, ptype = b_s, b_e, "bold"
+              elseif c_s then next_s, next_e, ptype = c_s, c_e, "code"
+              end
+              
+              if next_s then
+                if next_s > s_idx then
+                  table.insert(parts, { text = line:sub(s_idx, next_s - 1), type = "normal" })
+                end
+                table.insert(parts, { text = line:sub(next_s + (ptype == "bold" and 2 or 1), next_e - (ptype == "bold" and 2 or 1)), type = ptype })
+                s_idx = next_e + 1
+              else
+                table.insert(parts, { text = line:sub(s_idx), type = "normal" })
+                break
+              end
+            end
+            
+            for _, p in ipairs(parts) do
+              if #p.text > 0 then
+                local cfont = (p.type == "code" and style.code_font) or block_font
+                local ccol  = (p.type == "code" and (style.syntax["keyword"] or l_col)) or (p.type == "bold" and P.fg_accent) or l_col
+                lx = renderer.draw_text(cfont, p.text, lx, line_y, ccol)
+              end
+            end
+          end
+          line_y = line_y + blk_lh
+        end
       end
     end
 
