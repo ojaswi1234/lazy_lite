@@ -1251,8 +1251,8 @@ function AGView:draw()
             local lx = x + pad + msg_pad
             
             if is_list then
-              renderer.draw_text(block_font, ""? ", lx, line_y, P.fg_accent)
-              lx = lx + style.font:get_width(""? ")
+              renderer.draw_text(block_font, "• ", lx, line_y, P.fg_accent)
+              lx = lx + style.font:get_width("• ")
             end
             
             local parts = {}
