@@ -395,10 +395,71 @@ function AGView:_add_session(role, text)
   table.insert(self:state().sessions, entry)
 end
 
+function AGView:show_resume_picker()
+  local history_path = (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.gemini/antigravity-cli/history.jsonl"
+  local f = io.open(history_path, "r")
+  if not f then
+    self:_add_session("ai", "Could not find history.jsonl at " .. history_path)
+    self:state().scroll_to_bottom = true
+    core.redraw = true
+    return
+  end
+  
+  local lines = {}
+  for line in f:lines() do table.insert(lines, line) end
+  f:close()
+  
+  local seen = {}
+  local results = {}
+  for i = #lines, 1, -1 do
+    local line = lines[i]
+    local display = line:match('"display"%s*:%s*"([^"]+)"') or line:match('"display"%s*:%s*"(.-)"')
+    local cid = line:match('"conversationId"%s*:%s*"([^"]+)"')
+    if display and cid and not seen[cid] then
+      seen[cid] = true
+      display = display:gsub('\\"', '"'):gsub("\\n", " "):gsub("\\u0026", "&")
+      table.insert(results, { text = display, info = cid:sub(1,8), cid = cid })
+    end
+    if #results >= 50 then break end
+  end
+  
+  if #results == 0 then
+    self:_add_session("ai", "No past conversations found.")
+    self:state().scroll_to_bottom = true
+    core.redraw = true
+    return
+  end
+
+  core.command_view:enter("Select Conversation to Resume", {
+    submit = function(text, item)
+      if item and item.cid then
+        if self:state().process or #self:state().sessions > 0 then
+          self:_add_chat()
+        end
+        self:state().cid = item.cid
+        self:state().has_session = true
+        self:_add_session("ai", "Resumed conversation: " .. item.text .. "\n\nBackend context loaded. You may now continue typing!")
+        self:state().scroll_to_bottom = true
+        core.redraw = true
+      end
+    end,
+    suggest = function(text)
+      return common.fuzzy_match(results, text)
+    end
+  })
+end
+
 function AGView:submit(prompt_text)
   if self:state().process then return end
   if not prompt_text or #prompt_text:match("^%s*(.-)%s*$") == 0 then return end
   prompt_text = prompt_text:match("^%s*(.-)%s*$")
+  
+  if prompt_text:match("^/resume") then
+    self:state().input = ""
+    self:show_resume_picker()
+    return
+  end
+
 
   -- We no longer block execution here. The auth_status is unreliable on Windows due to the CLI's stdin behavior.
   -- If they are truly unauthenticated, the chat will hang in the background, but they can use the AGY Auth button to fix it.
@@ -426,8 +487,11 @@ function AGView:submit(prompt_text)
   local cfg  = config.antigravity
   local argv = { cfg.cli }
 
-  -- Continue existing conversation after the first message
-  if self:state().has_session then
+  -- Continue existing conversation
+  if self:state().cid then
+    table.insert(argv, "--conversation")
+    table.insert(argv, self:state().cid)
+  elseif self:state().has_session then
     table.insert(argv, "-c")
   end
 
