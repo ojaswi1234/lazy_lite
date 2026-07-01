@@ -210,8 +210,7 @@ function TermView:update()
       if rc ~= nil then
         local old_idx = self.active_idx
         self.active_idx = i
-        self:_push_chunk("info", string.format("[exited: %d]
-", rc))
+        self:_push_chunk("info", string.format("[exited: %d]\\n", rc))
         self.active_idx = old_idx
         s.proc = nil
       end

@@ -548,8 +548,7 @@ function AGView:submit(prompt_text)
   if p then
     local old_kill = p.kill
     p.kill = function(self)
-      pcall(function() self:write("KILL
-") end)
+      pcall(function() self:write("KILL\\n") end)
       core.add_thread(function()
         coroutine.yield(0.1)
         pcall(function() old_kill(self) end)

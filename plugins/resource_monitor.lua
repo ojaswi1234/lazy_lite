@@ -22,7 +22,7 @@ local current_cpu = 0
 local current_ram = 0
 
 local function start_monitor()
-  if _G.resource_monitor_proc then pcall(function() _G.resource_monitor_proc:kill() end) end
+  if rawget(_G, "resource_monitor_proc") then pcall(function() rawget(_G, "resource_monitor_proc"):kill() end) end
   
   -- Use a long-running powershell process to feed us stats over stdout.
   -- This avoids the heavy overhead of spawning wmic every 2 seconds.
@@ -39,7 +39,7 @@ local function start_monitor()
     }
   ]], config.resource_monitor.poll_rate)
 
-  _G.resource_monitor_proc = process.start({ "powershell", "-NoProfile", "-Command", script }, {
+  rawset(_G, "resource_monitor_proc", process.start({ "powershell", "-NoProfile", "-Command", script }, {
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_DISCARD,
     stdin  = process.REDIRECT_DISCARD,
@@ -51,8 +51,8 @@ start_monitor()
 local out_buf = ""
 core.add_thread(function()
   while true do
-    if _G.resource_monitor_proc then
-      local chunk = _G.resource_monitor_proc:read_stdout(1024)
+    if rawget(_G, "resource_monitor_proc") then
+      local chunk = rawget(_G, "resource_monitor_proc"):read_stdout(1024)
       if chunk and #chunk > 0 then
         out_buf = out_buf .. chunk
         while out_buf:find("\n") do
@@ -72,7 +72,7 @@ core.add_thread(function()
           end
         end
       end
-      if _G.resource_monitor_proc:returncode() ~= nil then
+      if rawget(_G, "resource_monitor_proc"):returncode() ~= nil then
         start_monitor()
       end
     end
@@ -136,8 +136,8 @@ end
 -- Hook into core.quit to kill the background polling process when Lite-XL exits
 local old_quit = core.quit
 function core.quit(force)
-  if _G.resource_monitor_proc then
-    pcall(function() _G.resource_monitor_proc:kill() end)
+  if rawget(_G, "resource_monitor_proc") then
+    pcall(function() rawget(_G, "resource_monitor_proc"):kill() end)
   end
-  return old_quit(force)
+  if old_quit then return old_quit(force) end
 end

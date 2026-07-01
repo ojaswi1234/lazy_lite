@@ -9,11 +9,11 @@ local system  = require "system"
 local style   = require "core.style"
 
 -- ── Visual Overlay State ──────────────────────────────────────────────────────
-_G.auto_healer_toast = {
+rawset(_G, "auto_healer_toast", {
   active = false,
   start_time = 0,
   error_msg = ""
-}
+})
 
 local function show_healer_toast(msg)
   _G.auto_healer_toast.active = true
