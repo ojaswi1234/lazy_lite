@@ -1635,7 +1635,19 @@ keymap.add {
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
 if ok then
   local ContextMenu = require "core.contextmenu"
-  contextmenu:register("core.docview", {
+  contextmenu:register(function(x, y)
+    local av = core.active_view
+    if not av or not av:extends(require("core.docview")) then return false end
+    if x and y then
+      -- Only show if the right-click is physically inside the document view!
+      if x >= av.position.x and x <= av.position.x + av.size.x and
+         y >= av.position.y and y <= av.position.y + av.size.y then
+        return true
+      end
+      return false
+    end
+    return true
+  end, {
     ContextMenu.DIVIDER,
     { text = "Explain Code with AI",  command = "antigravity:explain" },
     { text = "Refactor Code with AI", command = "antigravity:refactor" },
