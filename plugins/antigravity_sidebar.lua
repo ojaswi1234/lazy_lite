@@ -642,7 +642,7 @@ function AGView:update()
   end
 
   -- ── Drain chat processes (ALL TABS) ───────────────────────────
-  for i, tab in ipairs(self.tabs) do
+  for i, tab in ipairs(self.chats) do
     if tab.process then
       local dirty = false
       while true do
