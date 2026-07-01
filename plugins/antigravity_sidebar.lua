@@ -1028,13 +1028,14 @@ function AGView:draw()
 
   -- Send/Stop button
   local send_y = inp_y + input_h + 4 * SCALE
-  local send_bg = P.bg_send
+  local is_running = self:state().process ~= nil
+  local send_bg = is_running and { common.color "#D94C4C" } or P.bg_send
   if self.hover_send then
-    send_bg = self:state().process and { common.color "#903030" } or P.bg_send_hl
+    send_bg = is_running and { common.color "#F26363" } or P.bg_send_hl
   end
   renderer.draw_rect(inp_x, send_y, inp_w, send_h, send_bg)
 
-  local send_lbl = self:state().process and "  Stop Generating" or "  Send"
+  local send_lbl = is_running and "      [x] STOP GENERATING      " or "  Send"
   renderer.draw_text(style.font, send_lbl,
     inp_x + math.floor((inp_w - style.font:get_width(send_lbl)) / 2),
     send_y + math.floor((send_h - style.font:get_height()) / 2),
@@ -1058,7 +1059,7 @@ function AGView:draw()
     
     local stop_w = 0
     if c.status == "running" then
-      stop_w = style.font:get_width("■") + 8 * SCALE
+      stop_w = style.font:get_width(" [x]") + 8 * SCALE
     end
     
     local tw = style.font:get_width(label) + 16 * SCALE + stop_w
@@ -1070,7 +1071,7 @@ function AGView:draw()
     
     if c.status == "running" then
       local sx = cur_x + tw - stop_w
-      renderer.draw_text(style.font, "■", sx + 4 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), { common.color "#FB4934" })
+      renderer.draw_text(style.font, " [x]", sx, cur_y + math.floor((tab_h - style.font:get_height())/2), { common.color "#FB4934" })
       table.insert(self.tab_stop_rects, { x = sx, y = cur_y, w = stop_w, h = tab_h, idx = i })
     end
     
