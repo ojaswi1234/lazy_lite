@@ -236,6 +236,35 @@ local function wrap_text(font, text, max_w)
   return lines
 end
 
+-- Parse markdown text into blocks for formatted rendering
+local function parse_blocks(text, base_font, code_font, max_w)
+  local blocks = {}
+  local is_code = false
+  local cur_text = ""
+  
+  -- Split by lines to detect ``` blocks
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    if line:match("^%s*```") then
+      if #cur_text > 0 then
+        -- Drop the trailing newline
+        cur_text = cur_text:gsub("\n$", "")
+        table.insert(blocks, { is_code = is_code, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
+      end
+      cur_text = ""
+      is_code = not is_code
+    else
+      cur_text = cur_text .. line .. "\n"
+    end
+  end
+  
+  if #cur_text > 0 then
+    cur_text = cur_text:gsub("\n$", "")
+    table.insert(blocks, { is_code = is_code, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
+  end
+  
+  return blocks
+end
+
 -- ── View ──────────────────────────────────────────────────────────────────────
 local AGView    = View:extend()
 local instance  = nil
@@ -374,6 +403,7 @@ function AGView:submit(prompt_text)
   self.started_at           = os.time()
   self.warned_slow  = false
   self:_add_session("ai", "")  -- placeholder entry
+  self.scroll_to_bottom = true
 
   local cfg  = config.antigravity
   local argv = { cfg.cli }
@@ -546,7 +576,7 @@ function AGView:update()
     
     if self.sessions[#self.sessions] and self.sessions[#self.sessions].role == "ai" then
       self.sessions[#self.sessions].text  = self._ai_buf:sub(1, self._ai_displayed_chars)
-      self.sessions[#self.sessions].lines = nil  -- invalidate cache
+      self.sessions[#self.sessions].blocks = nil  -- invalidate cache
       self.scroll_to_bottom = true
     end
     core.redraw = true
@@ -581,7 +611,7 @@ function AGView:update()
     }, "\n")
     if self.sessions[#self.sessions] then
       self.sessions[#self.sessions].text  = fix_msg
-      self.sessions[#self.sessions].lines = nil
+      self.sessions[#self.sessions].blocks = nil
     end
     -- Notify auto-healer so it can log and potentially offer to run agy install
     core.error("[Antigravity] CLI timed out — agy install may be required.")
@@ -899,16 +929,22 @@ function AGView:draw()
     local bg_col  = is_user and P.bg_user_msg or P.bg_ai_msg
     local fg_col  = is_user and P.fg_user or P.fg_ai
 
-    -- Cache wrapped lines (invalidated when text changes)
-    if not sess.lines or sess._cached_text ~= sess.text then
-      sess.lines = wrap_text(font, sess.text, msg_w - 2 * msg_pad)
+    -- Cache parsed blocks (invalidated when text changes)
+    if not sess.blocks or sess._cached_text ~= sess.text then
+      sess.blocks = parse_blocks(sess.text, style.font, style.code_font, msg_w - 2 * msg_pad)
       sess._cached_text = sess.text
     end
 
-    local msg_h = math.max(lh, #sess.lines * lh) + 2 * msg_pad
+    local msg_h = 2 * msg_pad
+    for _, blk in ipairs(sess.blocks) do
+      local blk_lh = blk.is_code and lh_c or lh_f
+      msg_h = msg_h + #blk.lines * blk_lh
+      if blk.is_code then msg_h = msg_h + 8 * SCALE end
+    end
+    msg_h = math.max(lh_f + 2 * msg_pad, msg_h)
 
     -- Role label
-    if ty + msg_h + lh >= chat_top and ty <= chat_bot then
+    if ty + msg_h + lh_f >= chat_top and ty <= chat_bot then
       local role_lbl = is_user and "You" or "Antigravity"
       renderer.draw_text(style.font, role_lbl,
         x + pad,
@@ -923,13 +959,28 @@ function AGView:draw()
       draw_rect_outline(x + pad, ty, msg_w, msg_h, P.border)
     end
 
-    -- Lines of text inside bubble
+    -- Blocks inside bubble
     local line_y = ty + msg_pad
-    for _, line in ipairs(sess.lines) do
-      if line_y + lh >= chat_top and line_y <= chat_bot then
-        renderer.draw_text(font, line, x + pad + msg_pad, line_y, fg_col)
+    for _, blk in ipairs(sess.blocks) do
+      local blk_lh = blk.is_code and lh_c or lh_f
+      local block_font = blk.is_code and style.code_font or style.font
+      if blk.is_code and #blk.lines > 0 then
+        local b_h = #blk.lines * blk_lh + 8 * SCALE
+        if line_y + b_h >= chat_top and line_y <= chat_bot then
+          renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.bg_darker)
+          draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.border)
+        end
+        line_y = line_y + 4 * SCALE
       end
-      line_y = line_y + lh
+      for _, line in ipairs(blk.lines) do
+        if line_y + blk_lh >= chat_top and line_y <= chat_bot then
+          renderer.draw_text(block_font, line, x + pad + msg_pad, line_y, fg_col)
+        end
+        line_y = line_y + blk_lh
+      end
+      if blk.is_code and #blk.lines > 0 then
+        line_y = line_y + 4 * SCALE
+      end
     end
 
     -- Save bounds for hover/click detection
@@ -957,7 +1008,7 @@ function AGView:draw()
     -- Spinner on last AI message while running
     if self.status == "running" and not is_user
        and sess == self.sessions[#self.sessions]
-       and #sess.lines == 0 then
+       and sess.text == "" then
       local dots = string.rep("•", (math.floor(self.tick / 20) % 4))
       renderer.draw_text(style.font, dots,
         x + pad + msg_pad, ty + msg_pad, P.fg_muted)
@@ -968,6 +1019,13 @@ function AGView:draw()
   end
 
   self.max_scroll = math.max(0, total_h - chat_h)
+  if self.scroll_to_bottom then
+    if self.scroll_y ~= self.max_scroll then
+      self.scroll_y = self.max_scroll
+      core.redraw = true
+    end
+    self.scroll_to_bottom = false
+  end
 
   -- Empty state
   if #self.sessions == 0 then
