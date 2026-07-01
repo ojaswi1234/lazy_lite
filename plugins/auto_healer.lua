@@ -5,7 +5,81 @@
 local core    = require "core"
 local command = require "core.command"
 local process = require "process"
-local config  = require "core.config"
+local system  = require "system"
+local style   = require "core.style"
+
+-- ── Visual Overlay State ──────────────────────────────────────────────────────
+_G.auto_healer_toast = {
+  active = false,
+  start_time = 0,
+  error_msg = ""
+}
+
+local function show_healer_toast(msg)
+  _G.auto_healer_toast.active = true
+  _G.auto_healer_toast.start_time = system.get_time()
+  -- Clean up newlines for a single-line preview
+  local clean = msg:gsub("\n", " ")
+  _G.auto_healer_toast.error_msg = clean:sub(1, 60) .. (#clean > 60 and "..." or "")
+end
+
+local old_root_draw = core.root_view.draw
+function core.root_view:draw()
+  old_root_draw(self)
+  
+  if _G.auto_healer_toast.active then
+    local t = system.get_time()
+    local elapsed = t - _G.auto_healer_toast.start_time
+    
+    -- Auto-hide after 20 seconds to prevent getting stuck
+    if elapsed > 20 then
+      _G.auto_healer_toast.active = false
+      return
+    end
+
+    local font = style.font
+    local w = 450 * SCALE
+    local h = 65 * SCALE
+    local x = (self.size.x - w) / 2
+    local y = self.size.y - h - 50 * SCALE -- Bottom center
+
+    -- Draw main background (dark glass)
+    renderer.draw_rect(x, y, w, h, { 25, 25, 30, 240 })
+
+    -- Pulse effect for the border (Neon Purple/Cyan)
+    local pulse = (math.sin(t * 4) + 1) / 2
+    local r, g, b = 180 + 75 * pulse, 100 + 50 * pulse, 255
+    local border = 2 * SCALE
+    renderer.draw_rect(x, y, w, border, { r, g, b, 255 })
+    renderer.draw_rect(x, y + h - border, w, border, { r, g, b, 255 })
+    renderer.draw_rect(x, y, border, h, { r, g, b, 255 })
+    renderer.draw_rect(x + w - border, y, border, h, { r, g, b, 255 })
+
+    -- Spinner
+    local spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+    local spin_idx = (math.floor(t * 12) % #spinner_chars) + 1
+    
+    renderer.draw_text(font, spinner_chars[spin_idx], x + 15 * SCALE, y + 10 * SCALE, { r, g, b, 255 })
+    
+    -- Title
+    renderer.draw_text(font, "AI Auto-Healer Working", x + 40 * SCALE, y + 10 * SCALE, { 255, 255, 255, 255 })
+    
+    -- Error preview (muted)
+    renderer.draw_text(font, _G.auto_healer_toast.error_msg, x + 15 * SCALE, y + 35 * SCALE, { 160, 160, 170, 255 })
+
+    -- Fake progress bar (asymptotic to 99%)
+    local progress = 0.99 * (1 - math.exp(-elapsed / 4))
+    local bar_w = (w - 30 * SCALE) * progress
+    renderer.draw_rect(x + 15 * SCALE, y + 55 * SCALE, bar_w, 3 * SCALE, { r, g, b, 255 })
+    
+    -- Draw % text
+    local pct_text = string.format("%d%% Diagnosed", math.floor(progress * 100))
+    local pct_w = font:get_width(pct_text)
+    renderer.draw_text(font, pct_text, x + w - 15 * SCALE - pct_w, y + 10 * SCALE, { r, g, b, 255 })
+
+    core.redraw = true
+  end
+end
 
 -- ── Shared helper ─────────────────────────────────────────────────────────────
 local function agy_path()
@@ -38,6 +112,7 @@ end
 command.add(nil, {
   ["auto-healer:approve-fix"] = function()
     core.log("[Auto-Healer] Approval sent to AI.")
+    if _G.auto_healer_toast then _G.auto_healer_toast.active = false end
     command.perform("antigravity:submit", "Yes, I agree with this fix. Please apply it now.")
   end,
 
@@ -123,13 +198,22 @@ function core.error(fmt, ...)
 
     -- ── Generic AI healer for unknown errors ────────────────────────────────
     local prompt = string.format(
-      "Activate skill `lite_xl_healer`! The editor just caught a handled Lua error:\n\n```\n%s\n%s\n```\n\nPlease analyze this, explain the fix to me, and WAIT for my agreement.",
+      "Activate skill `lite_xl_healer`! The editor just caught a handled Lua error:
+
+```
+%s
+%s
+```
+
+Please analyze this, explain the fix to me, and WAIT for my agreement.",
       err_str, trace
     )
 
     core.log("[Auto-Healer] Caught error: %s", err_str)
     core.log("[Auto-Healer] Delegating to AI Sidebar for analysis...")
     core.log("[Auto-Healer] When ready, run 'Auto Healer: Approve Fix' from the Command Palette.")
+
+    show_healer_toast(err_str)
 
     local success = command.perform("antigravity:submit", prompt)
     if not success then
