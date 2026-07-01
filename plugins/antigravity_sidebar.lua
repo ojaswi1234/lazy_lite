@@ -643,76 +643,93 @@ function AGView:update()
 
   -- ── Drain chat processes (ALL TABS) ───────────────────────────
   for i, tab in ipairs(self.chats) do
-    if tab.process then
-      local dirty = false
-      while true do
-        local out = tab.process:read_stdout(65536)
-        if not out or #out == 0 then break end
-        tab._ai_buf = (tab._ai_buf or "") .. out
-        dirty = true
-      end
-      while true do
-        local out = tab.process:read_stderr(65536)
-        if not out or #out == 0 then break end
-      end
+    local is_active_process = tab.process ~= nil
+    local ai_len = tab._ai_buf and #tab._ai_buf or 0
+    local is_typing = tab._ai_displayed_chars and (tab._ai_displayed_chars < ai_len)
 
-      local rc = tab.process:returncode()
-      if rc ~= nil then
-        -- Final drain
+    if is_active_process or is_typing then
+      local dirty = false
+
+      -- Read stdout and stderr if process is alive
+      if is_active_process then
         while true do
           local out = tab.process:read_stdout(65536)
           if not out or #out == 0 then break end
           tab._ai_buf = (tab._ai_buf or "") .. out
-          dirty = true
         end
-        tab.process = nil
-        tab.status = (rc == 0) and "idle" or "error"
-        if not tab._ai_buf or tab._ai_buf == "" then
-          local elapsed = os.time() - (tab._chat_started_at or os.time())
-          tab._ai_buf = string.format(
-            "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
-            elapsed, tostring(rc))
-          dirty = true
+        while true do
+          local out = tab.process:read_stderr(65536)
+          if not out or #out == 0 then break end
         end
-        core.redraw = true
+
+        local rc = tab.process:returncode()
+        if rc ~= nil then
+          -- Final drain
+          while true do
+            local out = tab.process:read_stdout(65536)
+            if not out or #out == 0 then break end
+            tab._ai_buf = (tab._ai_buf or "") .. out
+          end
+          tab.process = nil
+          tab.status = (rc == 0) and "idle" or "error"
+          if not tab._ai_buf or tab._ai_buf == "" then
+            local elapsed = os.time() - (tab._chat_started_at or os.time())
+            tab._ai_buf = string.format(
+              "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
+              elapsed, tostring(rc))
+          end
+          dirty = true
+          core.redraw = true
+        end
+
+        local elapsed = os.time() - (tab._chat_started_at or os.time())
+        
+        -- Soft warning at 45s
+        if tab.process and elapsed > 45 and tab._ai_buf == "" and not tab.warned_slow then
+          tab.warned_slow = true
+          core.redraw = true
+        end
+        
+        -- Hard kill at 315s (5m15s)
+        if tab.process and elapsed > 315 and tab._ai_buf == "" then
+          pcall(function() graceful_kill(tab.process) end)
+          tab.process = nil
+          tab.status  = "error"
+          local fix_msg = table.concat({
+            "⏱ Request timed out after 5 minutes with no response.",
+            "",
+            "Most likely causes:",
+            "  1. The AI model is taking too long to generate a response.",
+            "  2. The Antigravity CLI is not set up correctly.",
+            "",
+            "If it's the latter, run this command in a terminal to fix it:",
+            "  agy install",
+            "",
+            "After setup completes, reload Lite-XL and try again.",
+            "If the problem persists, check: agy models",
+          }, "\n")
+          
+          tab._ai_buf = fix_msg
+          dirty = true
+          core.error("[Antigravity] CLI timed out — agy install may be required.")
+          core.redraw = true
+        end
       end
 
-      local elapsed = os.time() - (tab._chat_started_at or os.time())
-      
-      -- Soft warning at 45s
-      if tab.process and elapsed > 45 and tab._ai_buf == "" and not tab.warned_slow then
-        tab.warned_slow = true
-        core.redraw = true
-      end
-      
-      -- Hard kill at 315s (5m15s)
-      if tab.process and elapsed > 315 and tab._ai_buf == "" then
-        pcall(function() graceful_kill(tab.process) end)
-        tab.process = nil
-        tab.status  = "error"
-        local fix_msg = table.concat({
-          "⏱ Request timed out after 5 minutes with no response.",
-          "",
-          "Most likely causes:",
-          "  1. The AI model is taking too long to generate a response.",
-          "  2. The Antigravity CLI is not set up correctly.",
-          "",
-          "If it's the latter, run this command in a terminal to fix it:",
-          "  agy install",
-          "",
-          "After setup completes, reload Lite-XL and try again.",
-          "If the problem persists, check: agy models",
-        }, "\n")
-        
-        tab._ai_buf = fix_msg
+      -- Re-evaluate length after reading new output
+      ai_len = tab._ai_buf and #tab._ai_buf or 0
+      is_typing = tab._ai_displayed_chars and (tab._ai_displayed_chars < ai_len)
+
+      -- Typewriter effect logic
+      if is_typing then
+        -- Reveal characters chunk by chunk (approx 60fps * 150 chars = 9000 chars/sec)
+        tab._ai_displayed_chars = math.min(ai_len, tab._ai_displayed_chars + 150)
         dirty = true
-        core.error("[Antigravity] CLI timed out — agy install may be required.")
-        core.redraw = true
       end
       
-      -- Update text immediately (Blazing fast, no typewriter delay)
+      -- Update text if dirty
       if dirty and tab.sessions[#tab.sessions] and tab.sessions[#tab.sessions].role == "ai" then
-        tab.sessions[#tab.sessions].text = tab._ai_buf
+        tab.sessions[#tab.sessions].text = tab._ai_buf:sub(1, tab._ai_displayed_chars or 0)
         tab.sessions[#tab.sessions].blocks = nil -- invalidate cache
         tab.scroll_to_bottom = true
         core.redraw = true
