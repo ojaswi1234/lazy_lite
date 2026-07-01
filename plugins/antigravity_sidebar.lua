@@ -1286,10 +1286,11 @@ function AGView:draw()
     local bg_col  = is_user and P.bg_user_msg or P.bg_ai_msg
     local fg_col  = is_user and P.fg_user or P.fg_ai
 
-    -- Cache parsed blocks (invalidated when text changes)
-    if not sess.blocks or sess._cached_text ~= sess.text then
+    -- Cache parsed blocks (invalidated when text or width changes)
+    if not sess.blocks or sess._cached_text ~= sess.text or sess._cached_w ~= msg_w then
       sess.blocks = parse_blocks(sess.text, style.font, style.code_font, msg_w - 2 * msg_pad)
       sess._cached_text = sess.text
+      sess._cached_w = msg_w
     end
 
     local msg_h = 2 * msg_pad
