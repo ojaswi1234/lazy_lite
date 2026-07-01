@@ -5,6 +5,16 @@
 local core    = require "core"
 local config  = require "core.config"
 local style   = require "core.style"
+
+local function graceful_kill(p)
+  if not p then return end
+  pcall(function() p:write("KILL\n") end)
+  core.add_thread(function()
+    coroutine.yield(0.1)
+    pcall(function() p:kill() end)
+  end)
+end
+
 local command = require "core.command"
 local keymap  = require "core.keymap"
 local View    = require "core.view"
@@ -623,7 +633,7 @@ function AGView:update()
       self.model_proc = nil
       core.redraw = true
     elseif m_elapsed > 15 then
-      pcall(function() self.model_proc:kill() end)
+      pcall(function() graceful_kill(self.model_proc) end)
       self.model_proc = nil
       self._model_raw = ""
       self:_load_models_from_settings()
@@ -631,105 +641,84 @@ function AGView:update()
     end
   end
 
-  -- ── Drain chat process (real process handle via PTY bridge) ───────────
-  if self:state().process then
-    local dirty = false
-    while true do
-      local out = self:state().process:read_stdout(65536)
-      if not out or #out == 0 then break end
-      self:state()._ai_buf = (self:state()._ai_buf or "") .. out
-      dirty = true
-    end
-    while true do
-      local out = self:state().process:read_stderr(65536)
-      if not out or #out == 0 then break end
-      -- stderr from bridge is usually noise, skip adding to chat
-    end
-
-    local rc = self:state().process:returncode()
-    if rc ~= nil then
-      -- Final drain
+  -- ── Drain chat processes (ALL TABS) ───────────────────────────
+  for i, tab in ipairs(self.tabs) do
+    if tab.process then
+      local dirty = false
       while true do
-        local out = self:state().process:read_stdout(65536)
+        local out = tab.process:read_stdout(65536)
         if not out or #out == 0 then break end
-        self:state()._ai_buf = (self:state()._ai_buf or "") .. out
+        tab._ai_buf = (tab._ai_buf or "") .. out
+        dirty = true
       end
-      self:state().process = nil
-      self:state().status = (rc == 0) and "idle" or "error"
-      if not self:state()._ai_buf or self:state()._ai_buf == "" then
-        local elapsed = os.time() - (self:state()._chat_started_at or os.time())
-        self:state()._ai_buf = string.format(
-          "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
-          elapsed, tostring(rc))
-      dirty = true
+      while true do
+        local out = tab.process:read_stderr(65536)
+        if not out or #out == 0 then break end
       end
-      core.redraw = true
-    elseif os.time() - (self:state()._chat_started_at or os.time()) > 315 then
-      pcall(function() self:state().process:kill() end)
-      self:state().process = nil
-      self:state().status = "error"
-      self:state()._ai_buf = "⏱ Request timed out after 5 minutes with no response."
-      dirty = true
-      core.redraw = true
+
+      local rc = tab.process:returncode()
+      if rc ~= nil then
+        -- Final drain
+        while true do
+          local out = tab.process:read_stdout(65536)
+          if not out or #out == 0 then break end
+          tab._ai_buf = (tab._ai_buf or "") .. out
+          dirty = true
+        end
+        tab.process = nil
+        tab.status = (rc == 0) and "idle" or "error"
+        if not tab._ai_buf or tab._ai_buf == "" then
+          local elapsed = os.time() - (tab._chat_started_at or os.time())
+          tab._ai_buf = string.format(
+            "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
+            elapsed, tostring(rc))
+          dirty = true
+        end
+        core.redraw = true
+      end
+
+      local elapsed = os.time() - (tab._chat_started_at or os.time())
+      
+      -- Soft warning at 45s
+      if tab.process and elapsed > 45 and tab._ai_buf == "" and not tab.warned_slow then
+        tab.warned_slow = true
+        core.redraw = true
+      end
+      
+      -- Hard kill at 315s (5m15s)
+      if tab.process and elapsed > 315 and tab._ai_buf == "" then
+        pcall(function() graceful_kill(tab.process) end)
+        tab.process = nil
+        tab.status  = "error"
+        local fix_msg = table.concat({
+          "⏱ Request timed out after 5 minutes with no response.",
+          "",
+          "Most likely causes:",
+          "  1. The AI model is taking too long to generate a response.",
+          "  2. The Antigravity CLI is not set up correctly.",
+          "",
+          "If it's the latter, run this command in a terminal to fix it:",
+          "  agy install",
+          "",
+          "After setup completes, reload Lite-XL and try again.",
+          "If the problem persists, check: agy models",
+        }, "\n")
+        
+        tab._ai_buf = fix_msg
+        dirty = true
+        core.error("[Antigravity] CLI timed out — agy install may be required.")
+        core.redraw = true
+      end
+      
+      -- Update text immediately (Blazing fast, no typewriter delay)
+      if dirty and tab.sessions[#tab.sessions] and tab.sessions[#tab.sessions].role == "ai" then
+        tab.sessions[#tab.sessions].text = tab._ai_buf
+        tab.sessions[#tab.sessions].blocks = nil -- invalidate cache
+        tab.scroll_to_bottom = true
+        core.redraw = true
+      end
     end
   end
-
-
-  local ai_len = self:state()._ai_buf and #self:state()._ai_buf or 0
-  local is_typing = self:state()._ai_displayed_chars and (self:state()._ai_displayed_chars < ai_len)
-
-  if not self:state().process and not is_typing then return end
-
-  -- Typewriter effect logic
-  if is_typing then
-    -- Reveal characters (approx 60fps * 30 chars = 1800 chars/sec)
-    self:state()._ai_displayed_chars = math.min(ai_len, self:state()._ai_displayed_chars + 30)
-    
-    if self:state().sessions[#self:state().sessions] and self:state().sessions[#self:state().sessions].role == "ai" then
-      self:state().sessions[#self:state().sessions].text  = self:state()._ai_buf:sub(1, self:state()._ai_displayed_chars)
-      self:state().sessions[#self:state().sessions].blocks = nil  -- invalidate cache
-      self:state().scroll_to_bottom = true
-    end
-    core.redraw = true
-  end
-
-  if not self:state().process then return end
-
-  local elapsed = os.time() - (self:state().started_at or os.time())
-  -- Soft warning at 45s
-  if elapsed > 45 and self:state()._ai_buf == "" and not self:state().warned_slow then
-    self:state().warned_slow = true
-    core.redraw = true
-  end
-  -- Hard kill at 315s (5m15s) — surface a fix message instead of hanging forever
-  -- The agy CLI itself defaults to a 5m wait, so we give it slightly longer.
-  if elapsed > 315 and self:state()._ai_buf == "" and self:state().process then
-    pcall(function() self:state().process:kill() end)
-    self:state().process = nil
-    self:state().status  = "error"
-    local fix_msg = table.concat({
-      "⏱ Request timed out after 5 minutes with no response.",
-      "",
-      "Most likely causes:",
-      "  1. The AI model is taking too long to generate a response.",
-      "  2. The Antigravity CLI is not set up correctly.",
-      "",
-      "If it's the latter, run this command in a terminal to fix it:",
-      "  agy install",
-      "",
-      "After setup completes, reload Lite-XL and try again.",
-      "If the problem persists, check: agy models",
-    }, "\n")
-    if self:state().sessions[#self:state().sessions] then
-      self:state().sessions[#self:state().sessions].text  = fix_msg
-      self:state().sessions[#self:state().sessions].blocks = nil
-    end
-    -- Notify auto-healer so it can log and potentially offer to run agy install
-    core.error("[Antigravity] CLI timed out — agy install may be required.")
-    core.redraw = true
-  end
-
-  -- (Model fetch logic was moved to the top of update())
 end
 
 -- Kick off background fetch of real model list via PTY bridge
@@ -757,14 +746,6 @@ function AGView:fetch_models()
     stderr = process.REDIRECT_PIPE,
   })
   if p then
-    local old_kill = p.kill
-    p.kill = function(self)
-      pcall(function() self:write("KILL\n") end)
-      core.add_thread(function()
-        coroutine.yield(0.1)
-        pcall(function() old_kill(self) end)
-      end)
-    end
     self.model_proc = p
   else
     -- Bridge failed — load from settings.json as reliable fallback
@@ -850,9 +831,9 @@ local old_quit = core.quit
 function core.quit(force)
   if instance then
     for _, c in ipairs(instance.chats) do
-      if c.process then pcall(function() c.process:kill() end) end
+      if c.process then pcall(function() graceful_kill(c.process) end) end
     end
-    if instance.model_proc then pcall(function() instance.model_proc:kill() end) end
+    if instance.model_proc then pcall(function() graceful_kill(instance.model_proc) end) end
   end
   return old_quit(force)
 end
@@ -1348,7 +1329,7 @@ function AGView:on_key_pressed(key, ...)
     self:state().input    = ""
     self:state().status   = "idle"
     self:state().has_session = false
-    if self:state().process then pcall(function() self:state().process:kill() end) end
+    if self:state().process then pcall(function() graceful_kill(self:state().process) end) end
     self:state().process  = nil
     core.redraw = true
     return true
@@ -1467,7 +1448,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   if self.close_btn_rect then
     local r = self.close_btn_rect
     if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-      if self:state().process then pcall(function() self:state().process:kill() end) end
+      if self:state().process then pcall(function() graceful_kill(self:state().process) end) end
       table.remove(self.chats, self.active_idx)
       if self.active_idx > #self.chats then self.active_idx = #self.chats end
       core.redraw = true
@@ -1478,7 +1459,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
       local c = self.chats[r.idx]
       if c and c.process then
-        pcall(function() c.process:kill() end)
+        pcall(function() graceful_kill(c.process) end)
         c.process = nil
         c.status = "idle"
         if c.tmpfile then pcall(os.remove, c.tmpfile); c.tmpfile = nil end
@@ -1548,7 +1529,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   -- Send/Stop button
   if self.hover_send then
     if self:state().process then
-      pcall(function() self:state().process:kill() end)
+      pcall(function() graceful_kill(self:state().process) end)
       self:state().process = nil
       self:state().status = "idle"
       if self:state().tmpfile then pcall(os.remove, self:state().tmpfile); self:state().tmpfile = nil end
