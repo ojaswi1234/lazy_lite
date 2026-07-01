@@ -84,10 +84,17 @@ end
 
 -- ── 1. Hook handled errors ────────────────────────────────────────────────────
 local old_error = core.error
-function core.error(err, ...)
-  old_error(err, ...)
-  local err_str = tostring(err)
-  local trace   = debug.traceback("", 2)
+function core.error(fmt, ...)
+  old_error(fmt, ...)
+  local err_str
+  if type(fmt) == "string" and select("#", ...) > 0 then
+    -- Catch cases where the format fails (e.g. invalid format string)
+    local ok, res = pcall(string.format, fmt, ...)
+    err_str = ok and res or tostring(fmt)
+  else
+    err_str = tostring(fmt)
+  end
+  local trace = debug.traceback("", 2)
 
   -- Prevent infinite loops and ignore non-critical warnings
   if err_str:find("Too many files in project directory") then return end
