@@ -84,4 +84,35 @@ keymap.add {
   ["alt+up"]        = "doc:move-lines-up",
   ["alt+down"]      = "doc:move-lines-down",
 }
+
+-- ── 7. Open CWD when launched without arguments from a project folder ─────────
+local function is_generic_dir(path)
+  local p = path:lower():gsub("\\", "/")
+  local userprofile = (os.getenv("USERPROFILE") or ""):lower():gsub("\\", "/")
+  local exedir = EXEDIR:lower():gsub("\\", "/")
+  
+  if p == userprofile then return true end
+  if p == userprofile .. "/desktop" then return true end
+  if p == userprofile .. "/documents" then return true end
+  if p == userprofile .. "/downloads" then return true end
+  if p == userprofile .. "/onedrive" then return true end
+  if p == userprofile .. "/onedrive/desktop" then return true end
+  if p == userprofile .. "/onedrive/documents" then return true end
+  if p == exedir then return true end
+  if p == "c:/windows/system32" then return true end
+  if p == "c:/windows" then return true end
+  
+  return false
+end
+
+local original_set_project_dir = core.set_project_dir
+function core.set_project_dir(new_dir, change_project_fn)
+  if #ARGS <= 1 then
+    local cwd = system.absolute_path(".")
+    if cwd and cwd ~= new_dir and not is_generic_dir(cwd) then
+      new_dir = cwd
+    end
+  end
+  return original_set_project_dir(new_dir, change_project_fn)
+end
 -- [[ End LazyLite Configuration ]]
