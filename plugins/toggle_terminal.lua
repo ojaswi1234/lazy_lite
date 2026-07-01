@@ -184,24 +184,37 @@ function TermView:update()
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "y", dest, nil, "terminal")
 
-  -- Drain process output using 64KB chunks for maximum IPC throughput
-  if self:state().proc then
-    while true do
-      local out = self:state().proc:read_stdout(65536)
-      if not out or #out == 0 then break end
-      self:_push_chunk("out", out)
-    end
-    
-    while true do
-      local err = self:state().proc:read_stderr(65536)
-      if not err or #err == 0 then break end
-      self:_push_chunk("err", err)
-    end
+  -- Drain ALL process outputs using 64KB chunks for maximum IPC throughput
+  for i, s in ipairs(self.sessions) do
+    if s.proc then
+      while true do
+        local out = s.proc:read_stdout(65536)
+        if not out or #out == 0 then break end
+        -- Need to temporarily set active state for _push_chunk to target right session
+        local old_idx = self.active_idx
+        self.active_idx = i
+        self:_push_chunk("out", out)
+        self.active_idx = old_idx
+      end
+      
+      while true do
+        local err = s.proc:read_stderr(65536)
+        if not err or #err == 0 then break end
+        local old_idx = self.active_idx
+        self.active_idx = i
+        self:_push_chunk("err", err)
+        self.active_idx = old_idx
+      end
 
-    local rc = self:state().proc:returncode()
-    if rc ~= nil then
-      self:_push_chunk("info", string.format("[exited: %d]\n", rc))
-      self:state().proc = nil
+      local rc = s.proc:returncode()
+      if rc ~= nil then
+        local old_idx = self.active_idx
+        self.active_idx = i
+        self:_push_chunk("info", string.format("[exited: %d]
+", rc))
+        self.active_idx = old_idx
+        s.proc = nil
+      end
     end
   end
 

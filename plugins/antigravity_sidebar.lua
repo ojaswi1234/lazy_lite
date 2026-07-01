@@ -539,12 +539,22 @@ function AGView:submit(prompt_text)
     final_argv = argv
   end
 
-  local p, err = process.start(final_argv, {
+    local p, err = process.start(final_argv, {
+    stdin = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
 
   if p then
+    local old_kill = p.kill
+    p.kill = function(self)
+      pcall(function() self:write("KILL
+") end)
+      core.add_thread(function()
+        coroutine.yield(0.1)
+        pcall(function() old_kill(self) end)
+      end)
+    end
     self:state().process = p
     self:state().has_session = true
     self:state()._chat_started_at = os.time()
@@ -724,11 +734,21 @@ function AGView:fetch_models()
   self._model_raw = ""
   self.model_started_at = os.time()
 
-  local p, err = process.start(argv, {
+    local p, err = process.start(argv, {
+    stdin = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
   if p then
+    local old_kill = p.kill
+    p.kill = function(self)
+      pcall(function() self:write("KILL
+") end)
+      core.add_thread(function()
+        coroutine.yield(0.1)
+        pcall(function() old_kill(self) end)
+      end)
+    end
     self.model_proc = p
   else
     -- Bridge failed — load from settings.json as reliable fallback

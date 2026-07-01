@@ -1,4 +1,4 @@
-﻿import sys, os, re
+import sys, os, re, threading
 
 def strip_ansi(text):
     ansi_escape = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -8,6 +8,22 @@ def safe_write(text):
     sys.stdout.buffer.write(text.encode('utf-8', errors='replace'))
     sys.stdout.buffer.flush()
 
+def stdin_watcher(proc):
+    try:
+        for line in sys.stdin:
+            if line.strip() == "KILL":
+                break
+    except Exception:
+        pass
+    finally:
+        if hasattr(proc, 'terminate'):
+            try: proc.terminate()
+            except: pass
+        elif hasattr(proc, 'kill'):
+            try: proc.kill()
+            except: pass
+        os._exit(0)
+
 def run_pty(argv):
     if os.name == 'nt':
         try:
@@ -16,6 +32,9 @@ def run_pty(argv):
             sys.stderr.write("ERROR: pywinpty not installed. Run: pip install pywinpty\n")
             sys.exit(1)
         proc = PtyProcess.spawn(argv, dimensions=(24, 220))
+        
+        threading.Thread(target=stdin_watcher, args=(proc,), daemon=True).start()
+        
         try:
             while proc.isalive():
                 try:
@@ -41,6 +60,9 @@ def run_pty(argv):
         fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 220, 0, 0))
         proc = subprocess.Popen(argv, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, close_fds=True)
         os.close(slave_fd)
+        
+        threading.Thread(target=stdin_watcher, args=(proc,), daemon=True).start()
+        
         try:
             while True:
                 try:
