@@ -618,6 +618,9 @@ function AGView:update()
       if #parsed > 0 then
         self.model_list = parsed
         self.auth_status = "logged_in"
+        if not config.antigravity.selected_model then
+          config.antigravity.selected_model = parsed[1].name
+        end
       else
         self:_load_models_from_settings()
       end
@@ -830,6 +833,9 @@ function AGView:_load_models_from_settings()
     if not config.antigravity.selected_model then
       config.antigravity.selected_model = current_model
     end
+  end
+  if not config.antigravity.selected_model and #self.model_list > 0 then
+    config.antigravity.selected_model = self.model_list[1].name
   end
   self.auth_status = "logged_in"
   core.redraw = true
