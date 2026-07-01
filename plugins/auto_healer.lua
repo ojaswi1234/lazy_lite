@@ -253,7 +253,7 @@ core.add_thread(function()
     os.remove(path)
 
     local prompt = string.format(
-      "Activate skill `lite_xl_healer`! The editor CRASHED in my last session with this fatal error:\n\n```\n%s\n```\n\nPlease analyze this, explain the fix to me, and WAIT for my agreement.",
+      "Activate skill `lite_xl_healer`! The editor CRASHED in my last session with this fatal error:\n\n```\n%s\n```\n\n**Note to AI**: This crash happened in the PREVIOUS session. If you have already deployed a fix that resolves this, simply explain that to me so we don't get confused. Otherwise, please analyze this, explain the fix to me, and WAIT for my agreement.",
       err_text
     )
 
