@@ -290,10 +290,7 @@ end
 
 local function wrap_raw_text(font, text, max_w)
   local lines = {}
-  for raw_line in (text .. "
-"):gmatch("([^
-]*)
-") do
+  for raw_line in (text .. "\n"):gmatch("([^\n]*)\n") do
     if font:get_width(raw_line) <= max_w then
       table.insert(lines, raw_line)
     else
@@ -325,15 +322,11 @@ local function parse_blocks(text, base_font, code_font, max_w)
   local cur_text = ""
   local cur_lang = ""
   
-  for line in (text .. "
-"):gmatch("([^
-]*)
-") do
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     local lang_match = line:match("^%s*```(%w*)")
     if lang_match then
       if #cur_text > 0 then
-        cur_text = cur_text:gsub("
-$", "")
+        cur_text = cur_text:gsub("\n$", "")
         if is_code then
           table.insert(blocks, { type = "code", lang = cur_lang, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
         else
@@ -344,14 +337,12 @@ $", "")
       is_code = not is_code
       if is_code then cur_lang = lang_match end
     else
-      cur_text = cur_text .. line .. "
-"
+      cur_text = cur_text .. line .. "\n"
     end
   end
   
   if #cur_text > 0 then
-    cur_text = cur_text:gsub("
-$", "")
+    cur_text = cur_text:gsub("\n$", "")
     if is_code then
       table.insert(blocks, { type = "code", lang = cur_lang, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
     else
@@ -365,10 +356,7 @@ $", "")
     if blk.type == "code" then
       table.insert(final_blocks, blk)
     else
-      for line in (blk.raw .. "
-"):gmatch("([^
-]*)
-") do
+      for line in (blk.raw .. "\n"):gmatch("([^\n]*)\n") do
         if #line > 0 then
           local header = line:match("^%s*(#+)%s")
           local list = line:match("^%s*[%-%*]%s")
