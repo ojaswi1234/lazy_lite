@@ -5,6 +5,8 @@
 local core    = require "core"
 local config  = require "core.config"
 local style   = require "core.style"
+local tokenizer = require "core.tokenizer"
+local syntax  = require "core.syntax"
 
 local function graceful_kill(p)
   if not p then return end
@@ -251,17 +253,19 @@ local function parse_blocks(text, base_font, code_font, max_w)
   local blocks = {}
   local is_code = false
   local cur_text = ""
+  local cur_lang = ""
   
   -- Split by lines to detect ``` blocks
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-    if line:match("^%s*```") then
+    local lang_match = line:match("^%s*```(%w*)")
+    if lang_match then
       if #cur_text > 0 then
-        -- Drop the trailing newline
         cur_text = cur_text:gsub("\n$", "")
-        table.insert(blocks, { is_code = is_code, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
+        table.insert(blocks, { is_code = is_code, lang = cur_lang, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
       end
       cur_text = ""
       is_code = not is_code
+      if is_code then cur_lang = lang_match end
     else
       cur_text = cur_text .. line .. "\n"
     end
@@ -269,7 +273,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
   
   if #cur_text > 0 then
     cur_text = cur_text:gsub("\n$", "")
-    table.insert(blocks, { is_code = is_code, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
+    table.insert(blocks, { is_code = is_code, lang = cur_lang, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
   end
   
   return blocks
