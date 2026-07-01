@@ -125,8 +125,14 @@ function TermView:_push_chunk(kind, chunk)
     self:state()[buf_key] = buf:sub(last_nl + 1)
     self:state().scroll_to_bottom = true
   end
-  while #self:state().lines > config.terminal.scrollback do
-    table.remove(self:state().lines, 1)
+  local n = #self:state().lines
+  local overflow = n - config.terminal.scrollback
+  if overflow > 0 then
+    local new_lines = {}
+    for i = overflow + 1, n do
+      table.insert(new_lines, self:state().lines[i])
+    end
+    self:state().lines = new_lines
   end
   core.redraw = true
 end
@@ -619,4 +625,15 @@ keymap.add {
   ["up"]        = "terminal:history-up",
   ["down"]      = "terminal:history-down",
 }
+
+-- Hook into core.quit to kill any zombie background processes when Lite-XL exits
+local old_quit = core.quit
+function core.quit(force)
+  if instance then
+    for _, s in ipairs(instance.sessions) do
+      if s.proc then pcall(function() s.proc:kill() end) end
+    end
+  end
+  return old_quit(force)
+end
 

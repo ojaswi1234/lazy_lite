@@ -634,6 +634,7 @@ function AGView:update()
         self:state()._ai_buf = string.format(
           "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
           elapsed, tostring(rc))
+      dirty = true
       end
       core.redraw = true
     elseif os.time() - (self:state()._chat_started_at or os.time()) > 315 then
@@ -641,6 +642,7 @@ function AGView:update()
       self:state().process = nil
       self:state().status = "error"
       self:state()._ai_buf = "⏱ Request timed out after 5 minutes with no response."
+      dirty = true
       core.redraw = true
     end
   end
@@ -793,7 +795,9 @@ end
 local old_quit = core.quit
 function core.quit(force)
   if instance then
-    if instance.process then pcall(function() instance.process:kill() end) end
+    for _, c in ipairs(instance.chats) do
+      if c.process then pcall(function() c.process:kill() end) end
+    end
     if instance.model_proc then pcall(function() instance.model_proc:kill() end) end
   end
   return old_quit(force)
