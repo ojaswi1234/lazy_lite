@@ -208,39 +208,110 @@ end
 
 
 -- Wrap text into lines that fit within max_w pixels using given font
-local function wrap_text(font, text, max_w)
+local function parse_inline(text)
+  local segments = {}
+  local s_idx = 1
+  while s_idx <= #text do
+    local b_s, b_e = text:find("%*%*.-%*%*", s_idx)
+    local c_s, c_e = text:find("`.-`", s_idx)
+    local l_s, l_e = text:find("%[.-%]%([^%)]+%)", s_idx) -- [link](url)
+    
+    local next_s, next_e, type
+    local min_s = math.huge
+    
+    if b_s and b_s < min_s then min_s = b_s; next_s, next_e, type = b_s, b_e, "bold" end
+    if c_s and c_s < min_s then min_s = c_s; next_s, next_e, type = c_s, c_e, "code" end
+    if l_s and l_s < min_s then min_s = l_s; next_s, next_e, type = l_s, l_e, "link" end
+    
+    if next_s then
+      if next_s > s_idx then table.insert(segments, { text = text:sub(s_idx, next_s - 1), type = "normal" }) end
+      
+      local inner_text = text:sub(next_s, next_e)
+      if type == "bold" then
+        table.insert(segments, { text = inner_text:sub(3, -3), type = "bold" })
+      elseif type == "code" then
+        table.insert(segments, { text = inner_text:sub(2, -2), type = "code" })
+      elseif type == "link" then
+        local label, url = inner_text:match("%[(.-)%]%(([^%)]+)%)")
+        -- If the link label itself contains code, e.g. [`code`](url), unwrap it
+        if label:match("^`.-`$") then
+          label = label:sub(2, -2)
+          table.insert(segments, { text = label, type = "code_link", url = url })
+        else
+          table.insert(segments, { text = label, type = "link", url = url })
+        end
+      end
+      s_idx = next_e + 1
+    else
+      table.insert(segments, { text = text:sub(s_idx), type = "normal" })
+      break
+    end
+  end
+  return segments
+end
+
+local function wrap_segments(segments, base_font, code_font, max_w)
   local lines = {}
-  -- simple approach: split on newlines first, then wrap long ones
-  for raw_line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  local cur_line = {}
+  local cur_w = 0
+  
+  local function get_font(type) return (type == "code" or type == "code_link") and code_font or base_font end
+  
+  local function push_word(word, type)
+    local f = get_font(type)
+    local w = f:get_width(word)
+    if cur_w + w > max_w and cur_w > 0 then
+      table.insert(lines, cur_line)
+      cur_line = {}
+      cur_w = 0
+      -- drop leading space on new line if normal text
+      if word == " " then return end
+    end
+    table.insert(cur_line, { text = word, type = type, font = f, width = w })
+    cur_w = cur_w + w
+  end
+
+  for _, seg in ipairs(segments) do
+    if seg.type == "code" or seg.type == "code_link" then
+      -- don't split inline code if possible, just push it whole or split by chunks if truly massive
+      push_word(seg.text, seg.type)
+    else
+      -- split text by spaces but keep the spaces
+      for word in seg.text:gmatch("%S+%s*") do
+        push_word(word, seg.type)
+      end
+      -- capture trailing space if any
+      if seg.text:match("%s$") and not seg.text:match("%S") then push_word(" ", seg.type) end
+    end
+  end
+  if #cur_line > 0 then table.insert(lines, cur_line) end
+  return lines
+end
+
+local function wrap_raw_text(font, text, max_w)
+  local lines = {}
+  for raw_line in (text .. "
+"):gmatch("([^
+]*)
+") do
     if font:get_width(raw_line) <= max_w then
       table.insert(lines, raw_line)
     else
-      -- word-wrap
       local cur = ""
       for word in (raw_line .. " "):gmatch("(%S+)%s") do
         local try = cur == "" and word or (cur .. " " .. word)
         if font:get_width(try) > max_w then
-          if #cur > 0 then
-            table.insert(lines, cur)
-            cur = word
+          if #cur > 0 then table.insert(lines, cur); cur = word
           else
-            -- The single word is wider than max_w; character-wrap it
             local char_cur = ""
             for i = 1, #word do
               local char = word:sub(i, i)
-              local char_try = char_cur .. char
-              if font:get_width(char_try) > max_w and #char_cur > 0 then
-                table.insert(lines, char_cur)
-                char_cur = char
-              else
-                char_cur = char_try
-              end
+              if font:get_width(char_cur .. char) > max_w then table.insert(lines, char_cur); char_cur = char
+              else char_cur = char_cur .. char end
             end
             cur = char_cur
           end
-        else
-          cur = try
-        end
+        else cur = try end
       end
       if #cur > 0 then table.insert(lines, cur) end
     end
@@ -248,35 +319,76 @@ local function wrap_text(font, text, max_w)
   return lines
 end
 
--- Parse markdown text into blocks for formatted rendering
 local function parse_blocks(text, base_font, code_font, max_w)
   local blocks = {}
   local is_code = false
   local cur_text = ""
   local cur_lang = ""
   
-  -- Split by lines to detect ``` blocks
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in (text .. "
+"):gmatch("([^
+]*)
+") do
     local lang_match = line:match("^%s*```(%w*)")
     if lang_match then
       if #cur_text > 0 then
-        cur_text = cur_text:gsub("\n$", "")
-        table.insert(blocks, { is_code = is_code, lang = cur_lang, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
+        cur_text = cur_text:gsub("
+$", "")
+        if is_code then
+          table.insert(blocks, { type = "code", lang = cur_lang, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
+        else
+          table.insert(blocks, { type = "text", raw = cur_text })
+        end
       end
       cur_text = ""
       is_code = not is_code
       if is_code then cur_lang = lang_match end
     else
-      cur_text = cur_text .. line .. "\n"
+      cur_text = cur_text .. line .. "
+"
     end
   end
   
   if #cur_text > 0 then
-    cur_text = cur_text:gsub("\n$", "")
-    table.insert(blocks, { is_code = is_code, lang = cur_lang, lines = wrap_text(is_code and code_font or base_font, cur_text, max_w) })
+    cur_text = cur_text:gsub("
+$", "")
+    if is_code then
+      table.insert(blocks, { type = "code", lang = cur_lang, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
+    else
+      table.insert(blocks, { type = "text", raw = cur_text })
+    end
   end
   
-  return blocks
+  -- post-process text blocks line by line for headers and lists
+  local final_blocks = {}
+  for _, blk in ipairs(blocks) do
+    if blk.type == "code" then
+      table.insert(final_blocks, blk)
+    else
+      for line in (blk.raw .. "
+"):gmatch("([^
+]*)
+") do
+        if #line > 0 then
+          local header = line:match("^%s*(#+)%s")
+          local list = line:match("^%s*[%-%*]%s")
+          local level = header and #header or 0
+          
+          -- strip header symbols for parsing
+          if header then line = line:gsub("^%s*#+%s", "") end
+          
+          local segments = parse_inline(line)
+          -- adjust fonts for headers
+          local f = (level > 0) and (style.big_font or base_font) or base_font
+          local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("• ") or 0))
+          table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
+        else
+          table.insert(final_blocks, { type = "empty" })
+        end
+      end
+    end
+  end
+  return final_blocks
 end
 
 -- ── View ──────────────────────────────────────────────────────────────────────
@@ -1182,19 +1294,22 @@ function AGView:draw()
 
     local msg_h = 2 * msg_pad
     for _, blk in ipairs(sess.blocks) do
-      local blk_lh = blk.is_code and lh_c or lh_f
-      msg_h = msg_h + #blk.lines * blk_lh
-      if blk.is_code then msg_h = msg_h + 8 * SCALE end
+      if blk.type == "code" then
+        msg_h = msg_h + #blk.raw_lines * lh_c + 8 * SCALE
+      elseif blk.type == "empty" then
+        msg_h = msg_h + lh_f
+      elseif blk.type == "paragraph" then
+        local f = (blk.level > 0) and (style.big_font or style.font) or style.font
+        local lh = f:get_height() + 2 * SCALE
+        msg_h = msg_h + #blk.wrapped_lines * lh
+      end
     end
     msg_h = math.max(lh_f + 2 * msg_pad, msg_h)
 
     -- Role label
     if ty + msg_h + lh_f >= chat_top and ty <= chat_bot then
       local role_lbl = is_user and "You" or "Antigravity"
-      renderer.draw_text(style.font, role_lbl,
-        x + pad,
-        math.max(chat_top, math.min(ty, chat_bot - style.font:get_height())),
-        P.fg_muted)
+      renderer.draw_text(style.font, role_lbl, x + pad, math.max(chat_top, math.min(ty, chat_bot - style.font:get_height())), P.fg_muted)
     end
     ty = ty + style.font:get_height() + 2 * SCALE
 
@@ -1207,11 +1322,8 @@ function AGView:draw()
     -- Blocks inside bubble
     local line_y = ty + msg_pad
     for _, blk in ipairs(sess.blocks) do
-      local blk_lh = blk.is_code and lh_c or lh_f
-      local block_font = blk.is_code and style.code_font or style.font
-      
-      if blk.is_code and #blk.lines > 0 then
-        local b_h = #blk.lines * blk_lh + 8 * SCALE
+      if blk.type == "code" and #blk.raw_lines > 0 then
+        local b_h = #blk.raw_lines * lh_c + 8 * SCALE
         if line_y + b_h >= chat_top and line_y <= chat_bot then
           renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.bg_darker)
           draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.border)
@@ -1222,8 +1334,8 @@ function AGView:draw()
         local synt = syntax.get("dummy." .. lang) or syntax.get(lang)
         local state = nil
         
-        for _, line in ipairs(blk.lines) do
-          if line_y + blk_lh >= chat_top and line_y <= chat_bot then
+        for _, line in ipairs(blk.raw_lines) do
+          if line_y + lh_c >= chat_top and line_y <= chat_bot then
             local tokens = { "normal", line }
             if synt then
               local ok, res1, res2 = pcall(tokenizer.tokenize, synt, line, state)
@@ -1233,63 +1345,46 @@ function AGView:draw()
             for i = 1, #tokens, 2 do
               local type = tokens[i]
               local text = tokens[i+1]
-              local col = style.syntax[type] or style.syntax["normal"] or fg_col
-              lx = renderer.draw_text(block_font, text, lx, line_y, col)
+              local col = style.syntax[type] or style.syntax["normal"] or P.fg_ai
+              lx = renderer.draw_text(style.code_font, text, lx, line_y, col)
             end
           else
             if synt then pcall(function() _, state = tokenizer.tokenize(synt, line, state) end) end
           end
-          line_y = line_y + blk_lh
+          line_y = line_y + lh_c
         end
         line_y = line_y + 4 * SCALE
-      else
-        for _, line in ipairs(blk.lines) do
-          if line_y + blk_lh >= chat_top and line_y <= chat_bot then
-            local is_header = line:match("^%s*#+%s")
-            local is_list   = line:match("^%s*%-%s") or line:match("^%s*%*%s")
-            local l_col = is_header and P.fg_accent or fg_col
+        
+      elseif blk.type == "empty" then
+        line_y = line_y + lh_f
+        
+      elseif blk.type == "paragraph" then
+        local f = (blk.level > 0) and (style.big_font or style.font) or style.font
+        local lh = f:get_height() + 2 * SCALE
+        local l_col = (blk.level > 0) and P.fg_accent or fg_col
+        
+        for l_idx, w_line in ipairs(blk.wrapped_lines) do
+          if line_y + lh >= chat_top and line_y <= chat_bot then
             local lx = x + pad + msg_pad
-            
-            if is_list then
-              renderer.draw_text(block_font, "• ", lx, line_y, P.fg_accent)
-              lx = lx + style.font:get_width("• ")
+            if blk.list and l_idx == 1 then
+              renderer.draw_text(f, "• ", lx, line_y, P.fg_accent)
+              lx = lx + f:get_width("• ")
+            elseif blk.list then
+              lx = lx + f:get_width("• ")
             end
             
-            local parts = {}
-            local s_idx = 1
-            while s_idx <= #line do
-              local b_s, b_e = line:find("%*%*.-%*%*", s_idx)
-              local c_s, c_e = line:find("`.-`", s_idx)
+            for _, seg in ipairs(w_line) do
+              local cfont = seg.font
+              local ccol = l_col
+              if seg.type == "code" or seg.type == "code_link" then ccol = style.syntax["keyword"] or P.fg_accent
+              elseif seg.type == "bold" then ccol = P.fg_accent
+              elseif seg.type == "link" then ccol = style.syntax["function"] or P.fg_accent end
               
-              local next_s, next_e, ptype
-              if b_s and c_s then
-                if b_s < c_s then next_s, next_e, ptype = b_s, b_e, "bold"
-                else next_s, next_e, ptype = c_s, c_e, "code" end
-              elseif b_s then next_s, next_e, ptype = b_s, b_e, "bold"
-              elseif c_s then next_s, next_e, ptype = c_s, c_e, "code"
-              end
-              
-              if next_s then
-                if next_s > s_idx then
-                  table.insert(parts, { text = line:sub(s_idx, next_s - 1), type = "normal" })
-                end
-                table.insert(parts, { text = line:sub(next_s + (ptype == "bold" and 2 or 1), next_e - (ptype == "bold" and 2 or 1)), type = ptype })
-                s_idx = next_e + 1
-              else
-                table.insert(parts, { text = line:sub(s_idx), type = "normal" })
-                break
-              end
-            end
-            
-            for _, p in ipairs(parts) do
-              if #p.text > 0 then
-                local cfont = (p.type == "code" and style.code_font) or block_font
-                local ccol  = (p.type == "code" and (style.syntax["keyword"] or l_col)) or (p.type == "bold" and P.fg_accent) or l_col
-                lx = renderer.draw_text(cfont, p.text, lx, line_y, ccol)
-              end
+              renderer.draw_text(cfont, seg.text, lx, line_y, ccol)
+              lx = lx + seg.width
             end
           end
-          line_y = line_y + blk_lh
+          line_y = line_y + lh
         end
       end
     end
