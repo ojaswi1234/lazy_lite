@@ -1493,9 +1493,7 @@ keymap.add {
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
 if ok then
   local ContextMenu = require "core.contextmenu"
-  contextmenu:register(function(view)
-    return view:is(require("core.docview"))
-  end, {
+  contextmenu:register("core.docview", {
     ContextMenu.DIVIDER,
     { text = "Explain Code with AI",  command = "antigravity:explain" },
     { text = "Refactor Code with AI", command = "antigravity:refactor" },
