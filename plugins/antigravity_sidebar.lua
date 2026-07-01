@@ -10,6 +10,7 @@ local keymap  = require "core.keymap"
 local View    = require "core.view"
 local common  = require "core.common"
 local process = require "process"
+local system  = require "system"
 
 -- ── Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) ─
 local function lum(r, g, b) return r*0.299 + g*0.587 + b*0.114 end
@@ -887,6 +888,7 @@ function AGView:draw()
   local lh_c = style.code_font:get_height() + 2 * SCALE
   local ty    = chat_top + 4 * SCALE - self.scroll_y
   local total_h = 0
+  self._copy_rects = {}
 
   for _, sess in ipairs(self.sessions) do
     local is_user = sess.role == "user"
@@ -928,6 +930,28 @@ function AGView:draw()
         renderer.draw_text(font, line, x + pad + msg_pad, line_y, fg_col)
       end
       line_y = line_y + lh
+    end
+
+    -- Save bounds for hover/click detection
+    local bubble_x, bubble_y = x + pad, ty
+    local bubble_w, bubble_h = msg_w, msg_h
+    table.insert(self._copy_rects, {
+      x = bubble_x, y = bubble_y, w = bubble_w, h = bubble_h, text = sess.text, idx = _
+    })
+
+    -- Draw copy button if hovered
+    if self.hover_copy_idx == _ then
+      local copy_txt = self.copy_flash_idx == _ and "Copied!" or "Copy"
+      local c_w = style.font:get_width(copy_txt) + 12 * SCALE
+      local c_h = style.font:get_height() + 8 * SCALE
+      local c_x = bubble_x + bubble_w - c_w - 6 * SCALE
+      local c_y = bubble_y + 6 * SCALE
+      
+      if c_y + c_h >= chat_top and c_y <= chat_bot then
+        renderer.draw_rect(c_x, c_y, c_w, c_h, P.bg_btn_hl)
+        draw_rect_outline(c_x, c_y, c_w, c_h, P.border)
+        renderer.draw_text(style.font, copy_txt, c_x + 6 * SCALE, c_y + 4 * SCALE, P.fg)
+      end
     end
 
     -- Spinner on last AI message while running
@@ -1124,6 +1148,16 @@ function AGView:on_mouse_moved(mx, my, ...)
     self.hover_send = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
   end
 
+  self.hover_copy_idx = nil
+  if self._copy_rects then
+    for _, r in ipairs(self._copy_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_copy_idx = r.idx
+        break
+      end
+    end
+  end
+
   -- Model button hover
   self.hover_model_btn = false
   self.hover_model_idx = nil
@@ -1187,6 +1221,22 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   if self.hover_btn then
     local act = config.antigravity.actions[self.hover_btn]
     if act then self:submit(act.prompt) return true end
+  end
+
+  -- Copy button click
+  if self.hover_copy_idx and self._copy_rects then
+    for _, r in ipairs(self._copy_rects) do
+      if r.idx == self.hover_copy_idx then
+        system.set_clipboard(r.text)
+        self.copy_flash_idx = r.idx
+        core.add_thread(function()
+          coroutine.yield(1)
+          if self.copy_flash_idx == r.idx then self.copy_flash_idx = nil; core.redraw = true end
+        end)
+        core.redraw = true
+        return true
+      end
+    end
   end
 
   -- Send/Stop button

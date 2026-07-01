@@ -89,7 +89,8 @@ function core.error(err, ...)
   local err_str = tostring(err)
   local trace   = debug.traceback("", 2)
 
-  -- Prevent infinite loops
+  -- Prevent infinite loops and ignore non-critical warnings
+  if err_str:find("Too many files in project directory") then return end
   if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then return end
   if err_str:find("auto_healer") then return end
 
