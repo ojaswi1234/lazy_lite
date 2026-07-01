@@ -73,7 +73,9 @@ function core.root_view:draw()
     renderer.draw_rect(x + 15 * SCALE, y + 55 * SCALE, bar_w, 3 * SCALE, { r, g, b, 255 })
     
     -- Draw % text
-    local pct_text = string.format("%d%% Diagnosed", math.floor(progress * 100))
+    local fixed_pct = math.floor(progress * 100)
+    local flawed_pct = 100 - fixed_pct
+    local pct_text = string.format("%d%% Fixed | %d%% Flawed", fixed_pct, flawed_pct)
     local pct_w = font:get_width(pct_text)
     renderer.draw_text(font, pct_text, x + w - 15 * SCALE - pct_w, y + 10 * SCALE, { r, g, b, 255 })
 
@@ -114,6 +116,12 @@ command.add(nil, {
     core.log("[Auto-Healer] Approval sent to AI.")
     if _G.auto_healer_toast then _G.auto_healer_toast.active = false end
     command.perform("antigravity:submit", "Yes, I agree with this fix. Please apply it now.")
+  end,
+
+  ["auto-healer:scan-workspace"] = function()
+    core.log("[Auto-Healer] Initiating workspace scan...")
+    show_healer_toast("Auto-Healer is analyzing the workspace for issues.")
+    command.perform("antigravity:submit", "Scan the entire project workspace for hidden bugs, inconsistencies, and issues that could cause it to hang or become non-responsive. Provide a report and prioritize fixing them.")
   end,
 
   -- Manual trigger to run 'agy install' via integrated terminal

@@ -33,7 +33,7 @@ local function start_monitor()
       $o = Get-WmiObject Win32_OperatingSystem
       if ($o) {
         $m = [math]::Round(($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) / $o.TotalVisibleMemorySize * 100)
-        Write-Host "$c,$m"
+        Write-Output "$c,$m"
       }
       Start-Sleep -Seconds %d
     }
@@ -43,7 +43,7 @@ local function start_monitor()
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_DISCARD,
     stdin  = process.REDIRECT_DISCARD,
-  })
+  }))
 end
 
 start_monitor()

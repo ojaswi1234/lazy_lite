@@ -1,0 +1,8 @@
+[ExitCode]
+0
+[Delay]
+0
+[Stdout]
+Hello World from Mock CLI!
+[Stderr]
+This is error output.

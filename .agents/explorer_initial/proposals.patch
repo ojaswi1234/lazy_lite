@@ -1,0 +1,75 @@
+diff --git a/plugins/antigravity_sidebar.lua b/plugins/antigravity_sidebar.lua
+index 1000000..2000000 100644
+--- a/plugins/antigravity_sidebar.lua
++++ b/plugins/antigravity_sidebar.lua
+@@ -367,2 +367,3 @@ function AGView:submit(prompt_text)
+   local p, err, code = process.start(argv, {
++    stdin  = process.REDIRECT_DISCARD,
+     stdout = process.REDIRECT_PIPE,
+@@ -540,19 +541,10 @@ end
+ function AGView:fetch_models()
+   if self.model_proc then return end
+   local cfg = config.antigravity
+ 
+-  if PLATFORM == "Windows" then
+-    -- On Windows, 'agy models' is fundamentally bugged when run in the background (hangs on stdin).
+-    -- So we just instantly load the fallback hardcoded list to avoid crashing or hanging.
+-    self.model_list = {
+-      { name = "gemini-2.5-flash", limited = false },
+-      { name = "gemini-2.5-pro", limited = false },
+-      { name = "gemini-2.5-flash-thinking", limited = false }
+-    }
+-    if not self.auth_status then self.auth_status = "logged_in" end
+-    core.redraw = true
+-    return
+-  end
+-
+   -- On Linux/Mac, background fetches work perfectly!
+   self._model_raw = ""
+   self.model_started_at = os.time()
+   
+   local p = process.start({ cfg.cli, "models" }, {
++    stdin  = process.REDIRECT_DISCARD,
+     stdout = process.REDIRECT_PIPE,
+@@ -1151,14 +1143,22 @@ command.add(nil, {
+-  ["antigravity:explain"]  = function() if instance then instance:submit(config.antigravity.actions[1].prompt) end end,
+-  ["antigravity:refactor"] = function() if instance then instance:submit(config.antigravity.actions[2].prompt) end end,
+-  ["antigravity:fix"]      = function() if instance then instance:submit(config.antigravity.actions[3].prompt) end end,
+-  ["antigravity:tests"]    = function() if instance then instance:submit(config.antigravity.actions[4].prompt) end end,
+-  ["antigravity:docs"]     = function() if instance then instance:submit(config.antigravity.actions[5].prompt) end end,
++  ["antigravity:explain"]  = function() command.perform("antigravity:submit", config.antigravity.actions[1].prompt) end,
++  ["antigravity:refactor"] = function() command.perform("antigravity:submit", config.antigravity.actions[2].prompt) end,
++  ["antigravity:fix"]      = function() command.perform("antigravity:submit", config.antigravity.actions[3].prompt) end,
++  ["antigravity:tests"]    = function() command.perform("antigravity:submit", config.antigravity.actions[4].prompt) end,
++  ["antigravity:docs"]     = function() command.perform("antigravity:submit", config.antigravity.actions[5].prompt) end,
+   ["antigravity:submit"]   = function(prompt)
+     if not instance or not instance.visible then
+       command.perform("antigravity:toggle")
+     end
+     if instance then
+       instance:submit(prompt)
+       core.set_active_view(instance)
+     end
+   end,
++  ["antigravity:ask"]      = function()
++    core.command_view:enter("Ask Antigravity", {
++      submit = function(text)
++        command.perform("antigravity:submit", text)
++      end
++    })
++  end,
+ })
+@@ -1267,0 +1268,13 @@ end
++-- Register context menu items if the contextmenu plugin is available
++local ok, contextmenu = pcall(require, "plugins.contextmenu")
++if ok then
++  local ContextMenu = require "core.contextmenu"
++  contextmenu:register("core.docview", {
++    ContextMenu.DIVIDER,
++    { text = "Explain Code with AI",  command = "antigravity:explain" },
++    { text = "Refactor Code with AI", command = "antigravity:refactor" },
++    { text = "Fix Code with AI",      command = "antigravity:fix" },
++    { text = "Generate Unit Tests",   command = "antigravity:tests" },
++    { text = "Generate Documentation",command = "antigravity:docs" },
++  })
++end

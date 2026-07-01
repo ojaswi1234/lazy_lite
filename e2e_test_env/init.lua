@@ -1,5 +1,12 @@
--- [[ LazyLite Configuration ]]
--- Do not reorder these blocks. Dependencies matter.
+-- E2E Test Suite Init for Lite-XL
+local f = io.open(USERDIR .. "/test_boot.txt", "w")
+if f then
+  f:write("Booted!")
+  f:close()
+end
+
+package.path = package.path .. ";C:/Users/ojasw/Documents/LiteXL-Mossy-Setup/?.lua;C:/Users/ojasw/Documents/LiteXL-Mossy-Setup/?/init.lua"
+
 local core    = require "core"
 local config  = require "core.config"
 local style   = require "core.style"
@@ -34,7 +41,6 @@ config.tab_type               = "soft"
 config.indent_size            = 4
 config.line_limit             = 120
 config.highlight_current_line = true
-config.mouse_wheel_scroll     = 50 * SCALE
 config.blink_period           = 0.5
 config.draw_whitespace        = false
 config.max_undos              = 10000
@@ -57,12 +63,13 @@ config.plugins.wordcount      = false
 local function safe_require(mod)
   local ok, err = pcall(require, mod)
   if not ok then
-    core.warn("Failed to load %s: %s", mod, tostring(err))
-    local f = io.open(USERDIR .. "/error_log.txt", "a")
+    local log_path = USERDIR .. "/../init_errors.log"
+    local f = io.open(log_path, "a")
     if f then
       f:write("Failed to load " .. mod .. ": " .. tostring(err) .. "\n")
       f:close()
     end
+    core.warn("Failed to load " .. mod .. ": " .. tostring(err))
   end
 end
 
@@ -70,11 +77,19 @@ safe_require "plugins.mossy_icons"
 safe_require "plugins.mossy_treeview"
 safe_require "plugins.toggle_terminal"
 safe_require "plugins.antigravity_sidebar"
-safe_require "plugins.auto_healer"
 safe_require "plugins.mossy_statusbar"
-safe_require "plugins.resource_monitor"
+safe_require "plugins.auto_healer"
 
--- ── 6. Keybindings ────────────────────────────────────────────────────────────
+-- ── 6. Redirect Antigravity CLI to Mock ───────────────────────────────────────
+if config.antigravity then
+  config.antigravity.cli = USERDIR .. "/mock_agy.exe"
+  config.antigravity.auto_skip_permissions = true
+  print("[E2E Init] Redirected config.antigravity.cli to: " .. config.antigravity.cli)
+else
+  print("[E2E Init] ERROR: config.antigravity not found!")
+end
+
+-- ── 7. Keybindings ────────────────────────────────────────────────────────────
 keymap.add {
   ["ctrl+`"]        = "terminal:toggle",
   ["ctrl+shift+a"]  = "antigravity:toggle",
@@ -91,39 +106,7 @@ keymap.add {
   ["ctrl+shift+k"]  = "doc:delete-lines",
   ["alt+up"]        = "doc:move-lines-up",
   ["alt+down"]      = "doc:move-lines-down",
-  ["ctrl+shift+r"]  = "core:restart",
 }
 
-config.borderless = true
-
--- ── 7. Open CWD when launched without arguments from a project folder ─────────
-local function is_generic_dir(path)
-  local p = path:lower():gsub("\\", "/")
-  local userprofile = (os.getenv("USERPROFILE") or ""):lower():gsub("\\", "/")
-  local exedir = EXEDIR:lower():gsub("\\", "/")
-  
-  if p == userprofile then return true end
-  if p == userprofile .. "/desktop" then return true end
-  if p == userprofile .. "/documents" then return true end
-  if p == userprofile .. "/downloads" then return true end
-  if p == userprofile .. "/onedrive" then return true end
-  if p == userprofile .. "/onedrive/desktop" then return true end
-  if p == userprofile .. "/onedrive/documents" then return true end
-  if p == exedir then return true end
-  if p == "c:/windows/system32" then return true end
-  if p == "c:/windows" then return true end
-  
-  return false
-end
-
-local original_set_project_dir = core.set_project_dir
-function core.set_project_dir(new_dir, change_project_fn)
-  if #ARGS <= 1 then
-    local cwd = system.absolute_path(".")
-    if cwd and cwd ~= new_dir and not is_generic_dir(cwd) then
-      new_dir = cwd
-    end
-  end
-  return original_set_project_dir(new_dir, change_project_fn)
-end
--- [[ End LazyLite Configuration ]]
+-- ── 8. Start E2E Simulator/Runner ─────────────────────────────────────────────
+safe_require "plugins.e2e_simulator"

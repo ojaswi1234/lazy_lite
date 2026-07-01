@@ -303,7 +303,25 @@ local function parse_pty_model_list(raw)
       and not seen[line]
     then
       seen[line] = true
-      table.insert(models, { name = line, limited = false })
+      local name = line
+      local usage = nil
+      local limited = false
+      
+      -- Parse usage e.g. "Gemini 1.5 Pro (50/50)"
+      local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
+      if base_name and u1 and u2 then
+        name = base_name
+        usage = u1 .. "/" .. u2
+        limited = (tonumber(u1) >= tonumber(u2))
+      else
+        base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
+        if base_name and u1 and u2 then
+          name = base_name
+          usage = u1 .. "/" .. u2
+          limited = (tonumber(u1) >= tonumber(u2))
+        end
+      end
+      table.insert(models, { name = name, usage = usage, limited = limited })
     end
   end
   return models
@@ -741,8 +759,7 @@ function AGView:fetch_models()
   if p then
     local old_kill = p.kill
     p.kill = function(self)
-      pcall(function() self:write("KILL
-") end)
+      pcall(function() self:write("KILL\n") end)
       core.add_thread(function()
         coroutine.yield(0.1)
         pcall(function() old_kill(self) end)
@@ -769,7 +786,25 @@ function parse_pty_model_list(raw)
       and not seen[line]
     then
       seen[line] = true
-      table.insert(models, { name = line, limited = false })
+      local name = line
+      local usage = nil
+      local limited = false
+      
+      -- Parse usage e.g. "Gemini 1.5 Pro (50/50)"
+      local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
+      if base_name and u1 and u2 then
+        name = base_name
+        usage = u1 .. "/" .. u2
+        limited = (tonumber(u1) >= tonumber(u2))
+      else
+        base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
+        if base_name and u1 and u2 then
+          name = base_name
+          usage = u1 .. "/" .. u2
+          limited = (tonumber(u1) >= tonumber(u2))
+        end
+      end
+      table.insert(models, { name = name, usage = usage, limited = limited })
     end
   end
   return models
@@ -1015,17 +1050,33 @@ function AGView:draw()
   -- ═══════════════════════════════════════════════════════════════════
     local tab_h = 24 * SCALE
   self.tab_rects = {}
+  self.tab_stop_rects = {}
   local cur_x = x + pad
   for i, c in ipairs(self.chats) do
     local label = tostring(i)
-    local tw = style.font:get_width(label) + 16 * SCALE
+    if c.status == "running" then
+      label = "working..."
+    end
+    
+    local stop_w = 0
+    if c.status == "running" then
+      stop_w = style.font:get_width("■") + 8 * SCALE
+    end
+    
+    local tw = style.font:get_width(label) + 16 * SCALE + stop_w
     local tab_bg = (i == self.active_idx) and P.bg_btn_hl or P.bg
     local tab_fg = (i == self.active_idx) and P.fg or P.fg_muted
     
     renderer.draw_rect(cur_x, cur_y, tw, tab_h, tab_bg)
     renderer.draw_text(style.font, label, cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), tab_fg)
     
-    table.insert(self.tab_rects, { x = cur_x, y = cur_y, w = tw, h = tab_h, idx = i })
+    if c.status == "running" then
+      local sx = cur_x + tw - stop_w
+      renderer.draw_text(style.font, "■", sx + 4 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), { common.color "#FB4934" })
+      table.insert(self.tab_stop_rects, { x = sx, y = cur_y, w = stop_w, h = tab_h, idx = i })
+    end
+    
+    table.insert(self.tab_rects, { x = cur_x, y = cur_y, w = tw - stop_w, h = tab_h, idx = i })
     cur_x = cur_x + tw + 2 * SCALE
   end
   
@@ -1052,6 +1103,7 @@ function AGView:draw()
 
   -- Clip: draw a bg rect to mask overflow
   renderer.draw_rect(x, chat_top, w, chat_h, P.bg)
+  core.push_clip_rect(x, chat_top, w, chat_h)
 
   local lh_f = style.font:get_height() + 2 * SCALE
   local lh_c = style.code_font:get_height() + 2 * SCALE
@@ -1176,6 +1228,7 @@ function AGView:draw()
       ty = ty + style.font:get_height() + 2 * SCALE
     end
   end
+  core.pop_clip_rect()
 
   -- ═══════════════════════════════════════════════════════════════════
   -- MENTION POPUP
@@ -1221,12 +1274,24 @@ function AGView:draw()
         local is_hov = self.hover_model_idx == i
         local rbg    = is_sel and P.bg_btn_hl or is_hov and P.bg_btn or nil
         if rbg then renderer.draw_rect(x, ry, w, item_h, rbg) end
-        local flag  = m.limited and " (L)" or ""
-        local label = m.name .. flag
+        
+        if m.limited then
+          -- red corner wrapper / border if usage is over limit
+          draw_rect_outline(x, ry, w, item_h, P.dot_err)
+        end
+        
+        local label = m.name
         local fg    = m.limited and P.dot_err or (is_sel and P.fg_accent or P.fg)
         renderer.draw_text(mf, label, x + pad,
           ry + math.floor((item_h - mf:get_height()) / 2), fg)
-        if is_sel then
+          
+        if m.usage then
+          local usage_w = mf:get_width(m.usage)
+          local ufg = m.limited and P.dot_err or P.fg_muted
+          renderer.draw_text(mf, m.usage,
+            x + w - pad - usage_w,
+            ry + math.floor((item_h - mf:get_height()) / 2), ufg)
+        elseif is_sel then
           renderer.draw_text(mf, "[v]",
             x + w - pad - mf:get_width("[v]"),
             ry + math.floor((item_h - mf:get_height()) / 2), P.dot_run)
@@ -1409,6 +1474,24 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
       return true
     end
   end
+  for _, r in ipairs(self.tab_stop_rects or {}) do
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      local c = self.chats[r.idx]
+      if c and c.process then
+        pcall(function() c.process:kill() end)
+        c.process = nil
+        c.status = "idle"
+        if c.tmpfile then pcall(os.remove, c.tmpfile); c.tmpfile = nil end
+        if c.sessions[#c.sessions] and c.sessions[#c.sessions].role == "ai" then
+          c.sessions[#c.sessions].text = (c.sessions[#c.sessions].text or "") .. "\n\n[Stopped by user]"
+          c.sessions[#c.sessions].lines = nil
+        end
+        core.redraw = true
+        return true
+      end
+    end
+  end
+
   for _, r in ipairs(self.tab_rects or {}) do
     if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
       self.active_idx = r.idx
@@ -1658,19 +1741,7 @@ keymap.add {
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
 if ok then
   local ContextMenu = require "core.contextmenu"
-  contextmenu:register(function(x, y)
-    local av = core.active_view
-    if not av or not av:extends(require("core.docview")) then return false end
-    if x and y then
-      -- Only show if the right-click is physically inside the document view!
-      if x >= av.position.x and x <= av.position.x + av.size.x and
-         y >= av.position.y and y <= av.position.y + av.size.y then
-        return true
-      end
-      return false
-    end
-    return true
-  end, {
+  contextmenu:register("core.docview", {
     ContextMenu.DIVIDER,
     { text = "Explain Code with AI",  command = "antigravity:explain" },
     { text = "Refactor Code with AI", command = "antigravity:refactor" },

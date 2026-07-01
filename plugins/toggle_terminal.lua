@@ -340,6 +340,7 @@ function TermView:draw()
   local text_y = out_top + 4 * SCALE - self:state().scroll_y
   local text_x = x + 10 * SCALE
 
+  core.push_clip_rect(x, out_top, w, out_h)
   for _, ln in ipairs(self:state().lines) do
     if text_y + lh >= out_top and text_y <= out_bot then
       local col = ln.kind == "cmd"  and col_cmd
@@ -351,6 +352,7 @@ function TermView:draw()
     text_y = text_y + lh
     if text_y > out_bot + lh then break end
   end
+  core.pop_clip_rect()
 
   -- Divider above input
   renderer.draw_rect(x, out_bot + 1 * SCALE, w, 1 * SCALE, border)
