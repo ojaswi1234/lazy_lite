@@ -95,7 +95,44 @@ function TreeView:draw()
     style.text
   )
 
+  -- Draw "Open Folder" button icon
+  local btn_w = 24 * SCALE
+  local btn_x = self.position.x + self.size.x - btn_w - 4 * SCALE
+  local ifont = style.icon_font or style.font
+  local icon = "" -- folder icon
+  
+  local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
+  local hovered = (mx >= btn_x and mx <= btn_x + btn_w and my >= self.position.y and my <= self.position.y + hdr_h)
+
+  if hovered then
+    renderer.draw_rect(btn_x, self.position.y + 2 * SCALE, btn_w, hdr_h - 4 * SCALE, style.line_highlight)
+  end
+
+  local iw = ifont:get_width(icon)
+  renderer.draw_text(
+    ifont, icon,
+    btn_x + (btn_w - iw) / 2,
+    self.position.y + math.floor((hdr_h - ifont:get_height()) / 2),
+    hovered and style.text or style.dim
+  )
+
   orig_draw(self)
+end
+local orig_on_mouse_pressed = TreeView.on_mouse_pressed
+
+function TreeView:on_mouse_pressed(button, x, y, clicks)
+  local hdr_h = 28 * SCALE
+  if button == "left" and y >= self.position.y and y <= self.position.y + hdr_h then
+    local btn_w = 24 * SCALE
+    local btn_x = self.position.x + self.size.x - btn_w - 4 * SCALE
+    if x >= btn_x and x <= btn_x + btn_w then
+      command.perform("core:change-project-folder")
+      return true
+    end
+  end
+  if orig_on_mouse_pressed then
+    return orig_on_mouse_pressed(self, button, x, y, clicks)
+  end
 end
 
 -- ── Commands ──────────────────────────────────────────────────────────────────
