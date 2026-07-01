@@ -477,10 +477,47 @@ function AGView:show_resume_picker()
   })
 end
 
-function AGView:submit(prompt_text)
-  if self:state().process then return end
-  if not prompt_text or #prompt_text:match("^%s*(.-)%s*$") == 0 then return end
-  prompt_text = prompt_text:match("^%s*(.-)%s*$")
+function AGView:submit(prompt)
+  if not prompt or prompt == "" then return end
+  
+  if prompt == "/help" then
+    self:state().has_session = true
+    self:state().status = "idle"
+    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/usage` - Show model usage\n\n(Type any other prompt to chat with the AI)"
+    table.insert(self:state().sessions, { role = "user", text = prompt })
+    table.insert(self:state().sessions, { role = "ai", text = help_text })
+    core.redraw = true
+    return
+  elseif prompt == "/usage" then
+    self:state().status = "running"
+    self:state().has_session = true
+    table.insert(self:state().sessions, { role = "user", text = prompt })
+    table.insert(self:state().sessions, { role = "ai", text = "" })
+    
+    local cfg = config.antigravity
+    local argv = { cfg.cli, "usage" }
+    if PLATFORM == "Windows" then
+      argv = { "cmd.exe", "/c", cfg.cli, "usage" }
+    end
+    
+    local p, err = process.start(argv, {
+      stdin = process.REDIRECT_PIPE,
+      stdout = process.REDIRECT_PIPE,
+      stderr = process.REDIRECT_PIPE,
+      cwd = core.project_dir
+    })
+    
+    if p then
+      self:state().process = p
+      self:state()._chat_started_at = os.time()
+    else
+      self:state().sessions[#self:state().sessions].text = "Error: " .. tostring(err)
+      self:state().status = "error"
+    end
+    core.redraw = true
+    return
+  end
+  local prompt_text = prompt:match("^%s*(.-)%s*$")
   
   if prompt_text:match("^/resume") then
     self:state().input = ""
@@ -790,11 +827,22 @@ function parse_pty_model_list(raw)
         usage = u1 .. "/" .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
-        base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
-        if base_name and u1 and u2 then
-          name = base_name
-          usage = u1 .. "/" .. u2
-          limited = (tonumber(u1) >= tonumber(u2))
+        local base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
+        if not base_name2 then
+          base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)%%[^%]%)]*[%]%)]?%s*$")
+        end
+        if base_name2 and pct then
+          name = base_name2
+          usage = pct .. "%"
+          -- Force red badge if the usage string specifically contains '0%' (as requested)
+          limited = (tonumber(pct) == 0) or (tonumber(pct) >= 100)
+        else
+          base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
+          if base_name and u1 and u2 then
+            name = base_name
+            usage = u1 .. "/" .. u2
+            limited = (tonumber(u1) >= tonumber(u2))
+          end
         end
       end
       table.insert(models, { name = name, usage = usage, limited = limited })
@@ -1107,6 +1155,12 @@ function AGView:draw()
   local ty    = chat_top + 4 * SCALE - self:state().scroll_y
   local total_h = 0
   self._copy_rects = {}
+
+    if #self:state().sessions == 0 then
+      local msg = "Type /help for commands"
+      local w_msg = style.font:get_width(msg)
+      renderer.draw_text(style.font, msg, x + math.floor((w - w_msg) / 2), chat_top + math.floor(chat_h / 2) - self:state().scroll_y, P.fg_muted)
+    end
 
   for _, sess in ipairs(self:state().sessions) do
     local is_user = sess.role == "user"
