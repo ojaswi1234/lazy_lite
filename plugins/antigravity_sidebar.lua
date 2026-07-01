@@ -316,22 +316,12 @@ function AGView:new()
   self.target_size = config.antigravity.target_width * SCALE
   self.size.x      = 0
   self.scrollable  = true
-  self.input       = ""
-  self.status      = "idle"
-  self.process     = nil
-  self.tmpfile     = nil
-  self.scroll_y    = 0
-  self.max_scroll  = 0
-  self.hover_btn   = nil
-  self.hover_send  = false
-  self.tick        = 0
-  self.sessions    = {}   -- list of { role, text, lines }
-  self._chat_height = 0
-  self.mention_suggestions = nil
-  self.mention_idx = 1
-  self.has_session = false
-  self.warned_slow = false
-  self.started_at  = 0
+  self.chats = {}
+  self.active_idx = 0
+  self.hover_btn = nil
+  self.hover_send = false
+  self.tick = 0
+  self:_add_chat()
   -- Model picker state
   self.model_list        = {}    -- [{name,limited}] populated by 'agy models'
   self.model_proc        = nil   -- background process fetching model list
@@ -352,17 +342,45 @@ function AGView:set_target_size(axis, value)
 end
 
 function AGView:_update_mentions()
-  local mention_prefix = self.input:match("@([^%s]*)$")
+  local mention_prefix = self:state().input:match("@([^%s]*)$")
   if mention_prefix then
-    self.mention_suggestions = get_mention_suggestions(mention_prefix)
-    self.mention_idx = 1
+    self:state().mention_suggestions = get_mention_suggestions(mention_prefix)
+    self:state().mention_idx = 1
   else
-    self.mention_suggestions = nil
+    self:state().mention_suggestions = nil
   end
   core.redraw = true
 end
 
 function AGView:get_name() return "Antigravity" end
+
+function AGView:state()
+  return self.chats[self.active_idx]
+end
+
+function AGView:_add_chat()
+  local c = {
+    input = "",
+    status = "idle",
+    process = nil,
+    tmpfile = nil,
+    scroll_y = 0,
+    max_scroll = 0,
+    sessions = {},
+    has_session = false,
+    warned_slow = false,
+    started_at = 0,
+    _chat_started_at = 0,
+    _ai_buf = "",
+    _ai_displayed_chars = 0,
+    mention_suggestions = nil,
+    mention_idx = 1,
+    scroll_to_bottom = true,
+  }
+  table.insert(self.chats, c)
+  self.active_idx = #self.chats
+end
+
 
 local function _session_lines(self, text, role)
   local pad  = 10 * SCALE
@@ -374,11 +392,11 @@ end
 function AGView:_add_session(role, text)
   local entry = { role = role, text = text, lines = {} }
   -- compute wrapped lines lazily in draw (size might not be set yet)
-  table.insert(self.sessions, entry)
+  table.insert(self:state().sessions, entry)
 end
 
 function AGView:submit(prompt_text)
-  if self.process then return end
+  if self:state().process then return end
   if not prompt_text or #prompt_text:match("^%s*(.-)%s*$") == 0 then return end
   prompt_text = prompt_text:match("^%s*(.-)%s*$")
 
@@ -397,19 +415,19 @@ function AGView:submit(prompt_text)
     full_prompt = string.format("Regarding the active file %s: %s", fname, prompt_text)
   end
 
-  self.status               = "running"
-  self._ai_buf              = ""  -- accumulate streaming response
-  self._ai_displayed_chars  = 0   -- typewriter effect
-  self.started_at           = os.time()
-  self.warned_slow  = false
+  self:state().status               = "running"
+  self:state()._ai_buf              = ""  -- accumulate streaming response
+  self:state()._ai_displayed_chars  = 0   -- typewriter effect
+  self:state().started_at           = os.time()
+  self:state().warned_slow  = false
   self:_add_session("ai", "")  -- placeholder entry
-  self.scroll_to_bottom = true
+  self:state().scroll_to_bottom = true
 
   local cfg  = config.antigravity
   local argv = { cfg.cli }
 
   -- Continue existing conversation after the first message
-  if self.has_session then
+  if self:state().has_session then
     table.insert(argv, "-c")
   end
 
@@ -463,12 +481,12 @@ function AGView:submit(prompt_text)
   })
 
   if p then
-    self.process = p
-    self.has_session = true
-    self._chat_started_at = os.time()
+    self:state().process = p
+    self:state().has_session = true
+    self:state()._chat_started_at = os.time()
   else
-    self.sessions[#self.sessions].text = "ERROR: could not start agy CLI.\nPath: " .. cfg.cli .. "\nError: " .. tostring(err)
-    self.status = "error"
+    self:state().sessions[#self:state().sessions].text = "ERROR: could not start agy CLI.\nPath: " .. cfg.cli .. "\nError: " .. tostring(err)
+    self:state().status = "error"
   end
   core.redraw = true
 end
@@ -523,79 +541,79 @@ function AGView:update()
   end
 
   -- ── Drain chat process (real process handle via PTY bridge) ───────────
-  if self.process then
+  if self:state().process then
     local dirty = false
     while true do
-      local out = self.process:read_stdout(65536)
+      local out = self:state().process:read_stdout(65536)
       if not out or #out == 0 then break end
-      self._ai_buf = (self._ai_buf or "") .. out
+      self:state()._ai_buf = (self:state()._ai_buf or "") .. out
       dirty = true
     end
     while true do
-      local out = self.process:read_stderr(65536)
+      local out = self:state().process:read_stderr(65536)
       if not out or #out == 0 then break end
       -- stderr from bridge is usually noise, skip adding to chat
     end
 
-    local rc = self.process:returncode()
+    local rc = self:state().process:returncode()
     if rc ~= nil then
       -- Final drain
       while true do
-        local out = self.process:read_stdout(65536)
+        local out = self:state().process:read_stdout(65536)
         if not out or #out == 0 then break end
-        self._ai_buf = (self._ai_buf or "") .. out
+        self:state()._ai_buf = (self:state()._ai_buf or "") .. out
       end
-      self.process = nil
-      self.status = (rc == 0) and "idle" or "error"
-      if not self._ai_buf or self._ai_buf == "" then
-        local elapsed = os.time() - (self._chat_started_at or os.time())
-        self._ai_buf = string.format(
+      self:state().process = nil
+      self:state().status = (rc == 0) and "idle" or "error"
+      if not self:state()._ai_buf or self:state()._ai_buf == "" then
+        local elapsed = os.time() - (self:state()._chat_started_at or os.time())
+        self:state()._ai_buf = string.format(
           "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
           elapsed, tostring(rc))
       end
       core.redraw = true
-    elseif os.time() - (self._chat_started_at or os.time()) > 315 then
-      pcall(function() self.process:kill() end)
-      self.process = nil
-      self.status = "error"
-      self._ai_buf = "⏱ Request timed out after 5 minutes with no response."
+    elseif os.time() - (self:state()._chat_started_at or os.time()) > 315 then
+      pcall(function() self:state().process:kill() end)
+      self:state().process = nil
+      self:state().status = "error"
+      self:state()._ai_buf = "⏱ Request timed out after 5 minutes with no response."
       core.redraw = true
     end
   end
 
 
-  local ai_len = self._ai_buf and #self._ai_buf or 0
-  local is_typing = self._ai_displayed_chars and (self._ai_displayed_chars < ai_len)
+  local ai_len = self:state()._ai_buf and #self:state()._ai_buf or 0
+  local is_typing = self:state()._ai_displayed_chars and (self:state()._ai_displayed_chars < ai_len)
 
-  if not self.process and not is_typing then return end
+  if not self:state().process and not is_typing then return end
 
   -- Typewriter effect logic
   if is_typing then
     -- Reveal characters (approx 60fps * 30 chars = 1800 chars/sec)
-    self._ai_displayed_chars = math.min(ai_len, self._ai_displayed_chars + 30)
+    self:state()._ai_displayed_chars = math.min(ai_len, self:state()._ai_displayed_chars + 30)
     
-    if self.sessions[#self.sessions] and self.sessions[#self.sessions].role == "ai" then
-      self.sessions[#self.sessions].text  = self._ai_buf:sub(1, self._ai_displayed_chars)
-      self.sessions[#self.sessions].blocks = nil  -- invalidate cache
-      self.scroll_to_bottom = true
+    if self:state().sessions[#self:state().sessions] and self:state().sessions[#self:state().sessions].role == "ai" then
+      self:state().sessions[#self:state().sessions].text  = self:state()._ai_buf:sub(1, self:state()._ai_displayed_chars)
+      self:state().sessions[#self:state().sessions].blocks = nil  -- invalidate cache
+      self:state().scroll_to_bottom = true
     end
     core.redraw = true
   end
 
-  if not self.process then return end
+  if not self:state().process then return end
 
-  local elapsed = os.time() - (self.started_at or os.time())
+  local elapsed = os.time() - (self:state().started_at or os.time())
   -- Soft warning at 45s
-  if elapsed > 45 and self._ai_buf == "" and not self.warned_slow then
-    self.warned_slow = true
+  if elapsed > 45 and self:state()._ai_buf == "" and not self:state().warned_slow then
+    self:state().warned_slow = true
     core.redraw = true
   end
   -- Hard kill at 315s (5m15s) — surface a fix message instead of hanging forever
   -- The agy CLI itself defaults to a 5m wait, so we give it slightly longer.
-  if elapsed > 315 and self._ai_buf == "" and self.process then
-    pcall(function() self.process:kill() end)
-    self.process = nil
-    self.status  = "error"
+  if elapsed > 315 and self:state()._ai_buf == "" and self:state().process then
+    pcall(function() self:state().process:kill() end)
+    self:state().process = nil
+    self:state().status  = "error"
     local fix_msg = table.concat({
       "⏱ Request timed out after 5 minutes with no response.",
       "",
@@ -609,9 +627,9 @@ function AGView:update()
       "After setup completes, reload Lite-XL and try again.",
       "If the problem persists, check: agy models",
     }, "\n")
-    if self.sessions[#self.sessions] then
-      self.sessions[#self.sessions].text  = fix_msg
-      self.sessions[#self.sessions].blocks = nil
+    if self:state().sessions[#self:state().sessions] then
+      self:state().sessions[#self:state().sessions].text  = fix_msg
+      self:state().sessions[#self:state().sessions].blocks = nil
     end
     -- Notify auto-healer so it can log and potentially offer to run agy install
     core.error("[Antigravity] CLI timed out — agy install may be required.")
@@ -749,8 +767,8 @@ function AGView:draw()
   renderer.draw_rect(x, cur_y + hdr_h - 1, w, 1, P.border)
 
   -- Status dot
-  local dot_col = self.status == "running" and P.dot_run
-               or self.status == "error"   and P.dot_err
+  local dot_col = self:state().status == "running" and P.dot_run
+               or self:state().status == "error"   and P.dot_err
                or P.dot_idle
   local dot_r = 5 * SCALE
   renderer.draw_rect(x + pad, cur_y + math.floor(hdr_h/2) - dot_r, dot_r*2, dot_r*2, dot_col)
@@ -762,15 +780,15 @@ function AGView:draw()
     P.fg_accent)
 
   -- Status + Model button row (right side of header)
-  local status_str = self.status == "running"
-    and (self.warned_slow and "slow." or "thinking.")
-    or  self.status == "error" and "error"
+  local status_str = self:state().status == "running"
+    and (self:state().warned_slow and "slow." or "thinking.")
+    or  self:state().status == "error" and "error"
     or  "ready"
   local ss_w = style.font:get_width(status_str)
   renderer.draw_text(style.font, status_str,
     x + w - ss_w - pad - 8 * SCALE,
     cur_y + math.floor((hdr_h - style.font:get_height()) / 2),
-    self.status == "error" and P.dot_err or P.fg_muted)
+    self:state().status == "error" and P.dot_err or P.fg_muted)
 
   -- Model selector pill button (sits just right of "Antigravity" title)
   local title_x   = x + pad + dot_r*2 + 6 * SCALE
@@ -861,8 +879,8 @@ function AGView:draw()
     core.active_view == self and P.border_input or P.border)
 
   -- Placeholder / typed text
-  local display    = #self.input > 0 and self.input or "Ask anything about your code."
-  local fg_inp     = #self.input > 0 and P.fg or P.fg_muted
+  local display    = #self:state().input > 0 and self:state().input or "Ask anything about your code."
+  local fg_inp     = #self:state().input > 0 and P.fg or P.fg_muted
 
   local max_text_w = inp_w - 16 * SCALE
   local text_w     = style.font:get_width(display)
@@ -876,7 +894,7 @@ function AGView:draw()
 
   -- Blink cursor
   if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
-    local cw = style.font:get_width(self.input)
+    local cw = style.font:get_width(self:state().input)
     renderer.draw_rect(tx + cw, inp_y + 8 * SCALE, 2 * SCALE, style.font:get_height(), P.fg_accent)
   end
   core.pop_clip_rect()
@@ -892,11 +910,11 @@ function AGView:draw()
   local send_y = inp_y + input_h + 4 * SCALE
   local send_bg = P.bg_send
   if self.hover_send then
-    send_bg = self.process and { common.color "#903030" } or P.bg_send_hl
+    send_bg = self:state().process and { common.color "#903030" } or P.bg_send_hl
   end
   renderer.draw_rect(inp_x, send_y, inp_w, send_h, send_bg)
 
-  local send_lbl = self.process and "  Stop Generating" or "  Send"
+  local send_lbl = self:state().process and "  Stop Generating" or "  Send"
   renderer.draw_text(style.font, send_lbl,
     inp_x + math.floor((inp_w - style.font:get_width(send_lbl)) / 2),
     send_y + math.floor((send_h - style.font:get_height()) / 2),
@@ -908,6 +926,40 @@ function AGView:draw()
   -- ═══════════════════════════════════════════════════════════════════
   -- CHAT HISTORY (scrollable, between quick-actions and input)
   -- ═══════════════════════════════════════════════════════════════════
+    local tab_h = 24 * SCALE
+  self.tab_rects = {}
+  local cur_x = x + pad
+  for i, c in ipairs(self.chats) do
+    local label = tostring(i)
+    local tw = style.font:get_width(label) + 16 * SCALE
+    local tab_bg = (i == self.active_idx) and P.bg_btn_hl or P.bg
+    local tab_fg = (i == self.active_idx) and P.fg or P.fg_muted
+    
+    renderer.draw_rect(cur_x, cur_y, tw, tab_h, tab_bg)
+    renderer.draw_text(style.font, label, cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), tab_fg)
+    
+    table.insert(self.tab_rects, { x = cur_x, y = cur_y, w = tw, h = tab_h, idx = i })
+    cur_x = cur_x + tw + 2 * SCALE
+  end
+  
+  -- "+" button
+  local pw = style.font:get_width("+") + 16 * SCALE
+  renderer.draw_rect(cur_x, cur_y, pw, tab_h, P.bg)
+  renderer.draw_text(style.font, "+", cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), P.fg_muted)
+  self.add_btn_rect = { x = cur_x, y = cur_y, w = pw, h = tab_h }
+  cur_x = cur_x + pw + 2 * SCALE
+  
+  -- "x" button (close active)
+  if #self.chats > 1 then
+    local xw = style.font:get_width("x") + 16 * SCALE
+    renderer.draw_rect(cur_x, cur_y, xw, tab_h, P.bg)
+    renderer.draw_text(style.font, "x", cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), { common.color "#FB4934" })
+    self.close_btn_rect = { x = cur_x, y = cur_y, w = xw, h = tab_h }
+  else
+    self.close_btn_rect = nil
+  end
+  
+  cur_y = cur_y + tab_h + 4 * SCALE
   local chat_top = cur_y
   local chat_h   = chat_bot - chat_top
 
@@ -916,11 +968,11 @@ function AGView:draw()
 
   local lh_f = style.font:get_height() + 2 * SCALE
   local lh_c = style.code_font:get_height() + 2 * SCALE
-  local ty    = chat_top + 4 * SCALE - self.scroll_y
+  local ty    = chat_top + 4 * SCALE - self:state().scroll_y
   local total_h = 0
   self._copy_rects = {}
 
-  for _, sess in ipairs(self.sessions) do
+  for _, sess in ipairs(self:state().sessions) do
     local is_user = sess.role == "user"
     local font    = is_user and style.font or style.code_font
     local lh      = is_user and lh_f or lh_c
@@ -1006,8 +1058,8 @@ function AGView:draw()
     end
 
     -- Spinner on last AI message while running
-    if self.status == "running" and not is_user
-       and sess == self.sessions[#self.sessions]
+    if self:state().status == "running" and not is_user
+       and sess == self:state().sessions[#self:state().sessions]
        and sess.text == "" then
       local dots = string.rep("•", (math.floor(self.tick / 20) % 4))
       renderer.draw_text(style.font, dots,
@@ -1018,17 +1070,17 @@ function AGView:draw()
     total_h = total_h + style.font:get_height() + 2 * SCALE + msg_h + 6 * SCALE
   end
 
-  self.max_scroll = math.max(0, total_h - chat_h)
-  if self.scroll_to_bottom then
-    if self.scroll_y ~= self.max_scroll then
-      self.scroll_y = self.max_scroll
+  self:state().max_scroll = math.max(0, total_h - chat_h)
+  if self:state().scroll_to_bottom then
+    if self:state().scroll_y ~= self:state().max_scroll then
+      self:state().scroll_y = self:state().max_scroll
       core.redraw = true
     end
-    self.scroll_to_bottom = false
+    self:state().scroll_to_bottom = false
   end
 
   -- Empty state
-  if #self.sessions == 0 then
+  if #self:state().sessions == 0 then
     local msg = "To reference specific files in your project, type '@' followed by the file name!\n\n" ..
                 "Example: '@src/main.lua Can you fix the errors in this file?'"
     local mw = w - 2 * pad
@@ -1041,19 +1093,19 @@ function AGView:draw()
   -- ═══════════════════════════════════════════════════════════════════
   -- MENTION POPUP
   -- ═══════════════════════════════════════════════════════════════════
-  if self.mention_suggestions and #self.mention_suggestions > 0 then
+  if self:state().mention_suggestions and #self:state().mention_suggestions > 0 then
     local pop_w = w - 2 * pad
     local item_h = style.font:get_height() + 8 * SCALE
-    local pop_h = #self.mention_suggestions * item_h
+    local pop_h = #self:state().mention_suggestions * item_h
     local pop_x = x + pad
     local pop_y = inp_y - pop_h - 4 * SCALE
     
     renderer.draw_rect(pop_x, pop_y, pop_w, pop_h, P.bg_darker)
     draw_rect_outline(pop_x, pop_y, pop_w, pop_h, P.border)
     
-    for i, file in ipairs(self.mention_suggestions) do
+    for i, file in ipairs(self:state().mention_suggestions) do
       local iy = pop_y + (i - 1) * item_h
-      if i == self.mention_idx then
+      if i == self:state().mention_idx then
         renderer.draw_rect(pop_x, iy, pop_w, item_h, P.bg_btn_hl)
       end
       renderer.draw_text(style.font, file, pop_x + 8 * SCALE, iy + 4 * SCALE, P.fg)
@@ -1100,29 +1152,29 @@ end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
 function AGView:on_text_input(text)
-  self.input = self.input .. text
+  self:state().input = self:state().input .. text
   self:_update_mentions()
   core.redraw = true
 end
 
 function AGView:on_key_pressed(key, ...)
-  if self.mention_suggestions and #self.mention_suggestions > 0 then
+  if self:state().mention_suggestions and #self:state().mention_suggestions > 0 then
     if key == "up" then
-      self.mention_idx = math.max(1, self.mention_idx - 1)
+      self:state().mention_idx = math.max(1, self:state().mention_idx - 1)
       core.redraw = true
       return true
     elseif key == "down" then
-      self.mention_idx = math.min(#self.mention_suggestions, self.mention_idx + 1)
+      self:state().mention_idx = math.min(#self:state().mention_suggestions, self:state().mention_idx + 1)
       core.redraw = true
       return true
     elseif key == "return" or key == "tab" then
-      local choice = self.mention_suggestions[self.mention_idx]
-      self.input = self.input:gsub("@[^%s]*$", "@" .. choice .. " ")
-      self.mention_suggestions = nil
+      local choice = self:state().mention_suggestions[self:state().mention_idx]
+      self:state().input = self:state().input:gsub("@[^%s]*$", "@" .. choice .. " ")
+      self:state().mention_suggestions = nil
       core.redraw = true
       return true
     elseif key == "escape" then
-      self.mention_suggestions = nil
+      self:state().mention_suggestions = nil
       core.redraw = true
       return true
     end
@@ -1131,34 +1183,34 @@ function AGView:on_key_pressed(key, ...)
   local mods = keymap.modkeys or {}
 
   if key == "return" and not mods["ctrl"] then
-    local q = self.input:match("^%s*(.-)%s*$")
+    local q = self:state().input:match("^%s*(.-)%s*$")
     if q and #q > 0 then self:submit(q) end
-    self.input = ""
+    self:state().input = ""
     core.redraw = true
     return true
   end
 
   if key == "return" and mods["ctrl"] then
     -- Ctrl+Enter: clear chat
-    self.sessions = {}
-    self.input    = ""
-    self.status   = "idle"
-    self.has_session = false
-    if self.process then pcall(function() self.process:kill() end) end
-    self.process  = nil
+    self:state().sessions = {}
+    self:state().input    = ""
+    self:state().status   = "idle"
+    self:state().has_session = false
+    if self:state().process then pcall(function() self:state().process:kill() end) end
+    self:state().process  = nil
     core.redraw = true
     return true
   end
 
   if key == "backspace" then
-    local text = self.input
+    local text = self:state().input
     if #text > 0 then
       local i = #text
       -- Step back over UTF-8 continuation bytes (10xxxxxx)
       while i > 0 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
         i = i - 1
       end
-      self.input = text:sub(1, math.max(0, i - 1))
+      self:state().input = text:sub(1, math.max(0, i - 1))
       self:_update_mentions()
       core.redraw = true
     end
@@ -1166,12 +1218,12 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "up" then
-    self.scroll_y = math.max(0, self.scroll_y - (style.font:get_height() + 2 * SCALE) * 3)
+    self:state().scroll_y = math.max(0, self:state().scroll_y - (style.font:get_height() + 2 * SCALE) * 3)
     core.redraw = true
     return true
   end
   if key == "down" then
-    self.scroll_y = math.min(self.max_scroll, self.scroll_y + (style.font:get_height() + 2 * SCALE) * 3)
+    self:state().scroll_y = math.min(self:state().max_scroll, self:state().scroll_y + (style.font:get_height() + 2 * SCALE) * 3)
     core.redraw = true
     return true
   end
@@ -1252,6 +1304,32 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     end
   end
 
+  if self.add_btn_rect then
+    local r = self.add_btn_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      self:_add_chat()
+      core.redraw = true
+      return true
+    end
+  end
+  if self.close_btn_rect then
+    local r = self.close_btn_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      if self:state().process then pcall(function() self:state().process:kill() end) end
+      table.remove(self.chats, self.active_idx)
+      if self.active_idx > #self.chats then self.active_idx = #self.chats end
+      core.redraw = true
+      return true
+    end
+  end
+  for _, r in ipairs(self.tab_rects or {}) do
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      self.active_idx = r.idx
+      core.redraw = true
+      return true
+    end
+  end
+
   -- Model picker row selection
   if self.show_model_picker and self._mpicker_rects then
     for _, r in ipairs(self._mpicker_rects) do
@@ -1260,7 +1338,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         if m then
           config.antigravity.selected_model = m.name
           self.show_model_picker = false
-          self.has_session = false  -- reset session so next -p doesn't pass -c with old model
+          self:state().has_session = false  -- reset session so next -p doesn't pass -c with old model
           core.log("Antigravity: switched to model '" .. m.name .. "'")
         end
         core.redraw = true
@@ -1299,20 +1377,20 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
 
   -- Send/Stop button
   if self.hover_send then
-    if self.process then
-      pcall(function() self.process:kill() end)
-      self.process = nil
-      self.status = "idle"
-      if self.tmpfile then pcall(os.remove, self.tmpfile); self.tmpfile = nil end
+    if self:state().process then
+      pcall(function() self:state().process:kill() end)
+      self:state().process = nil
+      self:state().status = "idle"
+      if self:state().tmpfile then pcall(os.remove, self:state().tmpfile); self:state().tmpfile = nil end
       -- Append a small message indicating it was stopped
-      if self.sessions[#self.sessions] and self.sessions[#self.sessions].role == "ai" then
-        self.sessions[#self.sessions].text = (self.sessions[#self.sessions].text or "") .. "\n\n[Stopped by user]"
-        self.sessions[#self.sessions].lines = nil
+      if self:state().sessions[#self:state().sessions] and self:state().sessions[#self:state().sessions].role == "ai" then
+        self:state().sessions[#self:state().sessions].text = (self:state().sessions[#self:state().sessions].text or "") .. "\n\n[Stopped by user]"
+        self:state().sessions[#self:state().sessions].lines = nil
       end
     else
-      local q = self.input:match("^%s*(.-)%s*$")
+      local q = self:state().input:match("^%s*(.-)%s*$")
       if q and #q > 0 then self:submit(q) end
-      self.input = ""
+      self:state().input = ""
     end
     core.redraw = true
     return true
@@ -1322,7 +1400,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
 end
 
 function AGView:on_mouse_wheel(dy)
-  self.scroll_y = math.max(0, math.min(self.max_scroll, self.scroll_y - dy * (style.font:get_height() + 2 * SCALE) * 3))
+  self:state().scroll_y = math.max(0, math.min(self:state().max_scroll, self:state().scroll_y - dy * (style.font:get_height() + 2 * SCALE) * 3))
   core.redraw = true
   return true
 end
