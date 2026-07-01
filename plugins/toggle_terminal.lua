@@ -83,9 +83,10 @@ function TermView:add_session()
   }
   table.insert(self.sessions, s)
   self.active_idx = #self.sessions
-  self:_push("info", "Terminal " .. self.active_idx .. " ready. Type a command and press Enter.")
   if PLATFORM == "Windows" then
-    self:_push("info", "Running on Windows — each command uses cmd.exe /c")
+    self:_push("info", "Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n")
+  else
+    self:_push("info", "Terminal " .. self.active_idx .. " ready.")
   end
 end
 
@@ -143,14 +144,17 @@ end
 
 -- Run a command string asynchronously
 function TermView:run(cmd_str)
+  -- If a process is already running, send input to stdin
   if self:state().proc then
-    self:_push("err", "A command is already running. Wait for it to finish.")
+    self:_push("cmd", cmd_str)
+    pcall(function() self:state().proc:write(cmd_str .. "\n") end)
     return
   end
-  self:_push("cmd", "> " .. cmd_str)
 
-  -- Build argv
-  -- On Windows, passing the command as a single string to cmd /c works best for complex args
+  local prompt = "PS " .. core.project_dir .. ">"
+  if PLATFORM ~= "Windows" then prompt = core.project_dir .. "$" end
+  self:_push("cmd", prompt .. " " .. cmd_str)
+
   local argv
   if PLATFORM == "Windows" then
     argv = { "cmd.exe", "/c", cmd_str }
@@ -160,6 +164,7 @@ function TermView:run(cmd_str)
   end
 
   local p, err, code = process.start(argv, {
+    stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
     cwd    = core.project_dir
@@ -177,7 +182,7 @@ function TermView:update()
 
   -- Fullscreen overrides target_size
   if self.is_fullscreen then
-    self.target_size = math.max(config.terminal.target_height * SCALE, core.root_view.size.y - (40 * SCALE))
+    self.target_size = math.max(config.terminal.target_height * SCALE, core.root_view.size.y - (80 * SCALE))
   end
 
   -- Size animation (same pattern as built-in treeview)
@@ -221,7 +226,7 @@ function TermView:update()
   if self:state().scroll_to_bottom and #self:state().lines > 0 then
     local lh    = style.code_font:get_height() + 2 * SCALE
     local total = #self:state().lines * lh
-    local inner = math.max(0, self.size.y - 54 * SCALE)
+    local inner = math.max(0, self.size.y - 20 * SCALE)
     self:state().scroll_y = math.max(0, total - inner)
     self:state().scroll_to_bottom = false
   end
@@ -330,10 +335,9 @@ function TermView:draw()
   -- Divider
   renderer.draw_rect(x, y + hdr_h + 2 * SCALE, w, 1 * SCALE, border)
 
-  -- ── Scrollable output ───────────────────────────────────────────────────────
-  local inp_h   = 28 * SCALE
+  -- ── Seamless Terminal Output & Input ──────────────────────────────────────────
   local out_top = y + hdr_h + 3 * SCALE
-  local out_bot = y + h - inp_h - 4 * SCALE
+  local out_bot = y + h - 2 * SCALE
   local out_h   = out_bot - out_top
 
   local lh     = style.code_font:get_height() + 2 * SCALE
@@ -341,46 +345,41 @@ function TermView:draw()
   local text_x = x + 10 * SCALE
 
   core.push_clip_rect(x, out_top, w, out_h)
+  
+  -- Render all historical lines
   for _, ln in ipairs(self:state().lines) do
     if text_y + lh >= out_top and text_y <= out_bot then
-      local col = ln.kind == "cmd"  and col_cmd
+      local col = ln.kind == "cmd"  and fg
                or ln.kind == "err"  and col_err
                or ln.kind == "info" and col_inf
                or fg
       renderer.draw_text(style.code_font, ln.text, text_x, text_y, col)
     end
     text_y = text_y + lh
-    if text_y > out_bot + lh then break end
   end
+
+  -- Render the live input line at the bottom
+  if text_y <= out_bot then
+    local prompt = self:state().proc and "" or ("PS " .. core.project_dir .. "> ")
+    if not self:state().proc and PLATFORM ~= "Windows" then prompt = core.project_dir .. "$ " end
+    
+    local prompt_w = style.code_font:get_width(prompt)
+    
+    if prompt ~= "" then
+      renderer.draw_text(style.code_font, prompt, text_x, text_y, col_cmd)
+    end
+
+    local display_input = self:state().input
+    renderer.draw_text(style.code_font, display_input, text_x + prompt_w, text_y, fg)
+
+    -- Cursor
+    if core.active_view == self then
+      local cx = text_x + prompt_w + style.code_font:get_width(display_input)
+      renderer.draw_rect(cx, text_y, 2 * SCALE, style.code_font:get_height(), { common.color "#A9DC76" })
+    end
+  end
+  
   core.pop_clip_rect()
-
-  -- Divider above input
-  renderer.draw_rect(x, out_bot + 1 * SCALE, w, 1 * SCALE, border)
-
-  -- ── Input bar ───────────────────────────────────────────────────────────────
-  local inp_y = y + h - inp_h
-  renderer.draw_rect(x, inp_y, w, inp_h, inp_bg)
-
-  local prompt = "> "
-  local prompt_w = style.code_font:get_width(prompt)
-  renderer.draw_text(style.code_font, prompt,
-    text_x, inp_y + math.floor((inp_h - style.code_font:get_height()) / 2),
-    col_cmd)
-
-  local display_input = self:state().input
-  renderer.draw_text(style.code_font, display_input,
-    text_x + prompt_w,
-    inp_y + math.floor((inp_h - style.code_font:get_height()) / 2),
-    fg)
-
-  -- Cursor
-  if core.active_view == self then
-    local cx = text_x + prompt_w + style.code_font:get_width(display_input)
-    renderer.draw_rect(cx,
-      inp_y + math.floor((inp_h - style.code_font:get_height()) / 2),
-      2 * SCALE, style.code_font:get_height(),
-      { common.color "#A9DC76" })
-  end
 end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
@@ -538,7 +537,7 @@ function TermView:on_mouse_wheel(dy)
   
   -- Clamp scroll
   local total = #self:state().lines * lh
-  local inner = math.max(0, self.size.y - 54 * SCALE)
+  local inner = math.max(0, self.size.y - 20 * SCALE)
   local max_scroll = math.max(0, total - inner)
   self:state().scroll_y = math.max(0, math.min(max_scroll, self:state().scroll_y))
   
