@@ -1168,7 +1168,6 @@ function AGView:draw()
 
   for _, sess in ipairs(self:state().sessions) do
     local is_user = sess.role == "user"
-    local font    = is_user and style.font or style.code_font
     local lh      = is_user and lh_f or lh_c
     local msg_pad = 8 * SCALE
     local msg_w   = w - 2 * pad - 4 * SCALE
