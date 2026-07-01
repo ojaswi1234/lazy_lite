@@ -148,6 +148,8 @@ local function build_pty_argv(cli, args)
   return argv
 end
 
+local parse_pty_model_list
+
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 local function get_context()
   local av = core.active_view
@@ -620,7 +622,7 @@ function AGView:fetch_models()
 end
 
 -- Parse models from agy output (spinner lines filtered, real model names kept)
-local function parse_pty_model_list(raw)
+function parse_pty_model_list(raw)
   local models = {}
   local seen = {}
   for line in (raw .. "\n"):gmatch("([^\r\n]*)\r?\n") do

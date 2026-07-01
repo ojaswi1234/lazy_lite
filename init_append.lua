@@ -63,6 +63,7 @@ safe_require "plugins.mossy_icons"
 safe_require "plugins.mossy_treeview"
 safe_require "plugins.toggle_terminal"
 safe_require "plugins.antigravity_sidebar"
+safe_require "plugins.auto_healer"
 safe_require "plugins.mossy_statusbar"
 
 -- ── 6. Keybindings ────────────────────────────────────────────────────────────

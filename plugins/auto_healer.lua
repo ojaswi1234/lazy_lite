@@ -14,6 +14,7 @@ end
 
 local function run_headless(prompt)
   local p = process.start({ agy_path(), "-p", prompt, "--dangerously-skip-permissions" }, {
+    stdin = process.REDIRECT_DISCARD,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
