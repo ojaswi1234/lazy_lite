@@ -1467,6 +1467,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     local r = self.close_btn_rect
     if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
       if self:state().process then pcall(function() graceful_kill(self:state().process) end) end
+      if self:state().tmpfile then pcall(os.remove, self:state().tmpfile) end
       table.remove(self.chats, self.active_idx)
       if self.active_idx > #self.chats then self.active_idx = #self.chats end
       core.redraw = true
