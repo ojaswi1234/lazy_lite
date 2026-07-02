@@ -4,6 +4,7 @@ local core    = require "core"
 local config  = require "core.config"
 local style   = require "core.style"
 local keymap  = require "core.keymap"
+local common  = require "core.common"
 
 -- ── 1. Color scheme ───────────────────────────────────────────────────────────
 core.reload_module("colors.everforest_lite_xl")
