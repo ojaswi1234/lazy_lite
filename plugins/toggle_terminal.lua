@@ -79,6 +79,7 @@ function TermView:add_session()
     proc = nil,
     history = {},
     history_idx = 1,
+    selection = nil,
     scroll_to_bottom = true,
   }
   table.insert(self.sessions, s)
@@ -232,6 +233,48 @@ function TermView:update()
   end
 end
 
+
+local function sort_positions(l1, c1, l2, c2)
+  if l1 < l2 then return l1, c1, l2, c2 end
+  if l1 > l2 then return l2, c2, l1, c1 end
+  if c1 <= c2 then return l1, c1, l2, c2 else return l2, c2, l1, c1 end
+end
+
+function TermView:resolve_position(x, y)
+  local hdr_h = 26 * SCALE
+  local out_top = self.position.y + hdr_h + 3 * SCALE
+  local lh = style.code_font:get_height() + 2 * SCALE
+  local text_y_start = out_top + 4 * SCALE - self:state().scroll_y
+  local line_idx = math.floor((y - text_y_start) / lh) + 1
+  line_idx = common.clamp(line_idx, 1, #self:state().lines + 1)
+  
+  local text_x_start = self.position.x + 10 * SCALE
+  local x_offset = x - text_x_start
+  if x_offset < 0 then return line_idx, 1 end
+  
+  local text = ""
+  if line_idx <= #self:state().lines then
+    text = self:state().lines[line_idx].text
+  else
+    local prompt = self:state().proc and "" or (core.project_dir .. "> ")
+    if not self:state().proc and PLATFORM ~= "Windows" then prompt = core.project_dir .. "$ " end
+    text = prompt .. self:state().input
+  end
+  
+  local current_w = 0
+  local i = 1
+  for char in common.utf8_chars(text) do
+    local w = style.code_font:get_width(char)
+    if current_w + w >= x_offset then
+       if x_offset <= current_w + (w / 2) then return line_idx, i end
+       return line_idx, i + #char
+    end
+    current_w = current_w + w
+    i = i + #char
+  end
+  return line_idx, #text + 1
+end
+
 function TermView:draw()
   if self.size.y < 2 then return end  -- fully hidden
 
@@ -344,12 +387,28 @@ function TermView:draw()
   local text_y = out_top + 4 * SCALE - self:state().scroll_y
   local text_x = x + 10 * SCALE
 
+
+  local sel = self:state().selection
+  local sel_l1, sel_c1, sel_l2, sel_c2
+  if sel then sel_l1, sel_c1, sel_l2, sel_c2 = sort_positions(sel.l1, sel.c1, sel.l2, sel.c2) end
+
   core.push_clip_rect(x, out_top, w, out_h)
+
   
   -- Render all historical lines
-  for _, ln in ipairs(self:state().lines) do
+  for i, ln in ipairs(self:state().lines) do
     if text_y + lh >= out_top and text_y <= out_bot then
+      if sel and i >= sel_l1 and i <= sel_l2 then
+         local txt = ln.text
+         local col1 = (i == sel_l1) and sel_c1 or 1
+         local col2 = (i == sel_l2) and sel_c2 or (#txt + 1)
+         local x1 = text_x + style.code_font:get_width(txt:sub(1, col1 - 1))
+         local sw = style.code_font:get_width(txt:sub(col1, col2 - 1))
+         if i < sel_l2 and col2 == #txt + 1 then sw = sw + style.code_font:get_width(" ") end
+         renderer.draw_rect(x1, text_y, sw, lh, style.selection or {255, 255, 255, 60})
+      end
       local col = ln.kind == "cmd"  and fg
+
                or ln.kind == "err"  and col_err
                or ln.kind == "info" and col_inf
                or fg
@@ -370,6 +429,16 @@ function TermView:draw()
     end
 
     local display_input = self:state().input
+    local line_idx = #self:state().lines + 1
+    if sel and line_idx >= sel_l1 and line_idx <= sel_l2 then
+       local full_txt = prompt .. display_input
+       local col1 = (line_idx == sel_l1) and sel_c1 or 1
+       local col2 = (line_idx == sel_l2) and sel_c2 or (#full_txt + 1)
+       local x1 = text_x + style.code_font:get_width(full_txt:sub(1, col1 - 1))
+       local sw = style.code_font:get_width(full_txt:sub(col1, col2 - 1))
+       renderer.draw_rect(x1, text_y, sw, lh, style.selection or {255, 255, 255, 60})
+    end
+
     renderer.draw_text(style.code_font, display_input, text_x + prompt_w, text_y, fg)
 
     -- Cursor
@@ -472,8 +541,19 @@ function TermView:on_key_pressed(key)
   return false
 end
 
+
 function TermView:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
+    local hdr_h = 26 * SCALE
+    local out_top = self.position.y + hdr_h + 3 * SCALE
+    if y > out_top then
+      local l, c = self:resolve_position(x, y)
+      self:state().selection = { l1 = l, c1 = c, l2 = l, c2 = c }
+      self.dragging_selection = true
+      core.redraw = true
+      return true
+    end
+
     if self.btn_rect then
       local bx, by, bw, bh = self.btn_rect.x, self.btn_rect.y, self.btn_rect.w, self.btn_rect.h
       if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
@@ -510,7 +590,16 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
   return false
 end
 
+
 function TermView:on_mouse_moved(x, y, dx, dy)
+  if self.dragging_selection then
+    local l, c = self:resolve_position(x, y)
+    self:state().selection.l2 = l
+    self:state().selection.c2 = c
+    core.redraw = true
+    return true
+  end
+
   local hover = false
   if self.btn_rect then
     local bx, by, bw, bh = self.btn_rect.x, self.btn_rect.y, self.btn_rect.w, self.btn_rect.h
@@ -529,6 +618,19 @@ function TermView:on_mouse_left()
     self.hovered_btn = false
     core.redraw = true
   end
+end
+
+
+function TermView:on_mouse_released(button, x, y)
+  if button == "left" and self.dragging_selection then
+    self.dragging_selection = false
+    if self:state().selection and self:state().selection.l1 == self:state().selection.l2 and self:state().selection.c1 == self:state().selection.c2 then
+      self:state().selection = nil
+    end
+    core.redraw = true
+    return true
+  end
+  return false
 end
 
 function TermView:on_mouse_wheel(dy)
@@ -589,6 +691,27 @@ command.add(nil, {
     end
   end,
 
+  
+  ["terminal:copy"] = function()
+    if not instance or not instance.visible or not instance:state().selection then return end
+    local sel = instance:state().selection
+    local l1, c1, l2, c2 = sort_positions(sel.l1, sel.c1, sel.l2, sel.c2)
+    local res = {}
+    for i = l1, l2 do
+      local txt = ""
+      if i <= #instance:state().lines then txt = instance:state().lines[i].text
+      else
+        local prompt = instance:state().proc and "" or (core.project_dir .. "> ")
+        if not instance:state().proc and PLATFORM ~= "Windows" then prompt = core.project_dir .. "$ " end
+        txt = prompt .. instance:state().input
+      end
+      local sc = (i == l1) and c1 or 1
+      local ec = (i == l2) and c2 - 1 or #txt
+      table.insert(res, txt:sub(sc, ec))
+    end
+    system.set_clipboard(table.concat(res, "\n"))
+  end,
+
   ["terminal:fullscreen"] = function()
     if not instance then instance = TermView() end
     if not node_built then command.perform("terminal:toggle") end
@@ -610,6 +733,10 @@ command.add(nil, {
 local keymap = require "core.keymap"
 keymap.add {
   ["ctrl+shift+`"] = "terminal:fullscreen",
+}
+
+keymap.add {
+  ["ctrl+shift+c"] = "terminal:copy",
 }
 
 -- Bind local commands that only activate when Terminal is focused
