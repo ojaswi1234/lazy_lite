@@ -567,33 +567,62 @@ function AGView:show_resume_picker()
   
   local seen = {}
   local results = {}
+  
+  -- Parse conversation metadata for accurate titles, steps, and agents
+  local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
+  local cache_path = base_dir .. "/.gemini/antigravity-cli/cache/conversation_metadata.json"
+  local cache_f = io.open(cache_path, "r")
+  local meta = {}
+  if cache_f then
+    local current_cid = nil
+    for line in cache_f:lines() do
+      local cid = line:match('"(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)"%s*:%s*{')
+      if cid then
+        current_cid = cid
+        meta[current_cid] = { preview = "", steps = 0, agent = "" }
+      elseif current_cid then
+        local preview = line:match('"Preview"%s*:%s*"([^"]*)"')
+        if preview then meta[current_cid].preview = preview:gsub('\\"', '"'):gsub("\\n", " "):gsub("\\u0026", "&") end
+        
+        local steps = line:match('"NumSteps"%s*:%s*(%d+)')
+        if steps then meta[current_cid].steps = tonumber(steps) end
+        
+        local agent = line:match('"AgentName"%s*:%s*"([^"]*)"')
+        if agent then meta[current_cid].agent = agent end
+      end
+    end
+    cache_f:close()
+  end
+
   for i = #lines, 1, -1 do
     local line = lines[i]
-    local display = line:match('"display"%s*:%s*"([^"]+)"') or line:match('"display"%s*:%s*"(.-)"')
     local cid = line:match('"conversationId"%s*:%s*"([^"]+)"')
     local ts = line:match('"timestamp"%s*:%s*(%d+)')
-    if display and cid and not seen[cid] then
+    local m = meta[cid]
+    
+    if cid and m and not seen[cid] then
       seen[cid] = true
-      display = display:gsub('\\"', '"'):gsub("\\n", " "):gsub("\\u0026", "&")
       
-      -- Extract skill name if present
-      local skill = display:match("Activate skill `([^`]+)`") or ""
-      
-      -- Truncate title
-      local title = display
-      if #title > 60 then title = title:sub(1, 57) .. "..." end
-      
-      -- Compute steps by counting transcript lines
-      local steps = 0
-      local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
-      local t_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. cid .. "/.system_generated/logs/transcript.jsonl"
-      local tf = io.open(t_path, "r")
-      if tf then
-        for _ in tf:lines() do steps = steps + 1 end
-        tf:close()
+      -- Extract details from metadata
+      local title = m.preview
+      if title == "" then
+        -- fallback to prompt
+        title = line:match('"display"%s*:%s*"([^"]+)"') or line:match('"display"%s*:%s*"(.-)"') or cid
+        title = title:gsub('\\"', '"'):gsub("\\n", " "):gsub("\\u0026", "&")
       end
       
-      -- Compute time ago
+      if title:match("^%[CURRENT%]") then
+         -- keep as is or strip if you prefer, but user liked it
+      elseif line:match("%[CURRENT%]") then
+         title = "[CURRENT] " .. title
+      end
+
+      if #title > 60 then title = title:sub(1, 57) .. "..." end
+      
+      local skill = m.agent
+      local steps = m.steps
+      
+      -- Compute time ago from transcript timestamp
       local time_ago = ""
       if ts then
         local diff = os.time() - math.floor(tonumber(ts) / 1000)
