@@ -571,10 +571,50 @@ function AGView:show_resume_picker()
     local line = lines[i]
     local display = line:match('"display"%s*:%s*"([^"]+)"') or line:match('"display"%s*:%s*"(.-)"')
     local cid = line:match('"conversationId"%s*:%s*"([^"]+)"')
+    local ts = line:match('"timestamp"%s*:%s*(%d+)')
     if display and cid and not seen[cid] then
       seen[cid] = true
       display = display:gsub('\\"', '"'):gsub("\\n", " "):gsub("\\u0026", "&")
-      table.insert(results, { text = display, info = cid:sub(1,8), cid = cid })
+      
+      -- Extract skill name if present
+      local skill = display:match("Activate skill `([^`]+)`") or ""
+      
+      -- Truncate title
+      local title = display
+      if #title > 60 then title = title:sub(1, 57) .. "..." end
+      
+      -- Compute steps by counting transcript lines
+      local steps = 0
+      local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
+      local t_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. cid .. "/.system_generated/logs/transcript.jsonl"
+      local tf = io.open(t_path, "r")
+      if tf then
+        for _ in tf:lines() do steps = steps + 1 end
+        tf:close()
+      end
+      
+      -- Compute time ago
+      local time_ago = ""
+      if ts then
+        local diff = os.time() - math.floor(tonumber(ts) / 1000)
+        if diff < 0 then diff = 0 end
+        if diff < 60 then time_ago = diff .. "s ago"
+        elseif diff < 3600 then time_ago = math.floor(diff / 60) .. "m ago"
+        elseif diff < 86400 then time_ago = math.floor(diff / 3600) .. "h ago"
+        else time_ago = math.floor(diff / 86400) .. "d ago" end
+      else
+        time_ago = cid:sub(1,8) -- fallback
+      end
+      
+      -- Format info string for CommandView right-aligned display
+      local info_str
+      if skill == "" then
+        info_str = string.format("%d steps      %s", steps, time_ago)
+      else
+        info_str = string.format("%s      %d steps      %s", skill, steps, time_ago)
+      end
+      
+      table.insert(results, { text = title, info = info_str, cid = cid })
     end
     if #results >= 50 then break end
   end
@@ -611,7 +651,7 @@ function AGView:submit(prompt)
   if prompt == "/help" then
     self:state().has_session = true
     self:state().status = "idle"
-    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/usage` - Show model usage\n\n(Type any other prompt to chat with the AI)"
+    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation\n\n(Type any other prompt to chat with the AI)"
     table.insert(self:state().sessions, { role = "user", text = prompt })
     table.insert(self:state().sessions, { role = "ai", text = help_text })
     core.redraw = true
