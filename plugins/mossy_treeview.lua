@@ -117,6 +117,15 @@ function TreeView:draw()
   )
 
   orig_draw(self)
+  
+  if self.is_dragging and self.dnd_item then
+    local ifont2 = style.icon_font or style.font
+    local icon_str2 = icons.get(self.dnd_item.name, self.dnd_item.type == "dir", false)
+    local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
+    local c_alpha = {255, 255, 255, 180}
+    renderer.draw_text(ifont2, icon_str2, mx + 10, my + 10, c_alpha)
+    renderer.draw_text(style.font, self.dnd_item.name, mx + 10 + ifont2:get_width(icon_str2) + 4, my + 10, c_alpha)
+  end
 end
 local orig_on_mouse_pressed = TreeView.on_mouse_pressed
 
@@ -130,8 +139,75 @@ function TreeView:on_mouse_pressed(button, x, y, clicks)
       return true
     end
   end
+  
+  if button == "left" then
+    self.dnd_start_x = x
+    self.dnd_start_y = y
+    self.dnd_item = self.hovered_item
+    self.is_dragging = false
+  end
+
   if orig_on_mouse_pressed then
     return orig_on_mouse_pressed(self, button, x, y, clicks)
+  end
+end
+
+local orig_on_mouse_moved = TreeView.on_mouse_moved
+function TreeView:on_mouse_moved(x, y, dx, dy)
+  local res = orig_on_mouse_moved and orig_on_mouse_moved(self, x, y, dx, dy)
+  
+  if self.dnd_item and core.root_view.mouse.buttons.left then
+    if not self.is_dragging then
+      if math.abs(x - self.dnd_start_x) > 5 or math.abs(y - self.dnd_start_y) > 5 then
+        self.is_dragging = true
+      end
+    end
+  else
+    self.dnd_item = nil
+    self.is_dragging = false
+  end
+  
+  return res
+end
+
+local orig_on_mouse_released = TreeView.on_mouse_released
+function TreeView:on_mouse_released(button, x, y)
+  if button == "left" and self.is_dragging and self.dnd_item then
+    local target = self.hovered_item
+    if target and target ~= self.dnd_item then
+      -- Compute destination path
+      local dest_dir = target.abs_filename
+      if target.type ~= "dir" then
+        dest_dir = common.dirname(target.abs_filename)
+      end
+      
+      -- Avoid moving a directory inside itself or its children
+      local src_abs = self.dnd_item.abs_filename
+      if dest_dir:sub(1, #src_abs) ~= src_abs then
+        local dest_path = dest_dir .. PATHSEP .. self.dnd_item.name
+        if dest_path ~= src_abs then
+          local ok, err = os.rename(src_abs, dest_path)
+          if ok then
+            core.log("Moved %s to %s", self.dnd_item.name, dest_path)
+            -- update open docs if moved
+            for _, doc in ipairs(core.docs) do
+              if doc.abs_filename and doc.abs_filename:sub(1, #src_abs) == src_abs then
+                local new_doc_path = dest_path .. doc.abs_filename:sub(#src_abs + 1)
+                doc:set_filename(doc.filename, new_doc_path)
+              end
+            end
+          else
+            core.error("Failed to move %s: %s", self.dnd_item.name, err)
+          end
+        end
+      end
+    end
+    self.dnd_item = nil
+    self.is_dragging = false
+  end
+  
+  if orig_on_mouse_released then
+    return orig_on_mouse_released(self, button, x, y)
   end
 end
 

@@ -40,7 +40,7 @@ config.draw_whitespace        = false
 config.max_undos              = 10000
 config.file_size_limit        = 10
 config.ignore_files           = {
-  "^%.git", "^node_modules", "^__pycache__", "^%.env$", "^%.DS_Store",
+  "^node_modules", "^__pycache__", "^%.DS_Store",
 }
 
 -- ── 4. Built-in plugins ───────────────────────────────────────────────────────
