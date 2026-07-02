@@ -27,6 +27,28 @@ local system  = require "system"
 -- ── Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) ─
 local function lum(r, g, b) return r*0.299 + g*0.587 + b*0.114 end
 
+local function utf8_prev(text, i)
+  if not i or i <= 0 then return 0 end
+  i = i - 1
+  while i > 0 do
+    local b = text:byte(i + 1)
+    if not b or b < 0x80 or b >= 0xC0 then break end
+    i = i - 1
+  end
+  return i
+end
+
+local function utf8_next(text, i)
+  if not i or i >= #text then return #text end
+  i = i + 1
+  while i < #text do
+    local b = text:byte(i + 1)
+    if not b or b < 0x80 or b >= 0xC0 then break end
+    i = i + 1
+  end
+  return i
+end
+
 local function contrast_bg(base, pct)
   pct = pct or 0.08
   if type(base) ~= "table" then return base end
@@ -463,6 +485,7 @@ function AGView:new()
   self.hover_model_idx   = nil
   self._model_rect       = nil
   self._mpicker_rects    = {}
+  self.temp_files        = {}
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -493,6 +516,7 @@ end
 function AGView:_add_chat()
   local c = {
     input = "",
+    cursor = 0,
     status = "idle",
     process = nil,
     tmpfile = nil,
@@ -1001,6 +1025,11 @@ function core.quit(force)
       if c.process then pcall(function() graceful_kill(c.process) end) end
     end
     if instance.model_proc then pcall(function() graceful_kill(instance.model_proc) end) end
+    if instance.temp_files then
+      for _, fpath in ipairs(instance.temp_files) do
+        os.remove(fpath)
+      end
+    end
   end
   return old_quit(force)
 end
@@ -1153,10 +1182,11 @@ function AGView:draw()
   local fg_inp     = #self:state().input > 0 and P.fg or P.fg_muted
 
   local max_text_w = inp_w - 16 * SCALE
-  local text_w     = style.font:get_width(display)
+  local cursor_idx = self:state().cursor or #self:state().input
+  local cursor_x   = style.font:get_width(self:state().input:sub(1, cursor_idx))
   local tx         = inp_x + 8 * SCALE
-  if core.active_view == self and text_w > max_text_w then
-    tx = tx - (text_w - max_text_w)
+  if core.active_view == self and cursor_x > max_text_w then
+    tx = tx - (cursor_x - max_text_w)
   end
 
   core.push_clip_rect(inp_x, inp_y, inp_w, input_h)
@@ -1164,7 +1194,8 @@ function AGView:draw()
 
   -- Blink cursor
   if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
-    local cw = style.font:get_width(self:state().input)
+    local cw = #self:state().input > 0 and cursor_x or style.font:get_width(display)
+    if #self:state().input == 0 then cw = 0 end
     renderer.draw_rect(tx + cw, inp_y + 8 * SCALE, 2 * SCALE, style.font:get_height(), P.fg_accent)
   end
   core.pop_clip_rect()
@@ -1508,7 +1539,38 @@ end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
 function AGView:on_text_input(text)
-  self:state().input = self:state().input .. text
+  local c = self:state().cursor or #self:state().input
+  local before = self:state().input:sub(1, c)
+  local after = self:state().input:sub(c + 1)
+  self:state().input = before .. text .. after
+  self:state().cursor = c + #text
+  self:_update_mentions()
+  core.redraw = true
+end
+
+function AGView:on_paste(text)
+  if not text then return end
+  local is_long = #text > 1000 or select(2, text:gsub("\n", "")) > 10
+  local paste_txt = text
+  if is_long then
+    local tmp_dir = USERDIR .. "/tempfiles"
+    pcall(system.mkdir, tmp_dir)
+    local filename = os.date("pasted_text_%Y%m%d_%H%M%S.txt")
+    local filepath = tmp_dir .. "/" .. filename
+    local f = io.open(filepath, "w")
+    if f then
+      f:write(text)
+      f:close()
+      table.insert(self.temp_files, filepath)
+      core.log("Saved long paste to %s", filename)
+      paste_txt = " @" .. filename .. " "
+    end
+  end
+  local c = self:state().cursor or #self:state().input
+  local before = self:state().input:sub(1, c)
+  local after = self:state().input:sub(c + 1)
+  self:state().input = before .. paste_txt .. after
+  self:state().cursor = c + #paste_txt
   self:_update_mentions()
   core.redraw = true
 end
@@ -1531,6 +1593,21 @@ function AGView:on_key_pressed(key, ...)
       return true
     elseif key == "escape" then
       self:state().mention_suggestions = nil
+      core.redraw = true
+      return true
+    end
+  end
+
+  if key == "escape" then
+    if self:state().process or self:state().status == "running" then
+      if self:state().process then
+        pcall(function() graceful_kill(self:state().process) end)
+        self:state().process = nil
+      end
+      self:state()._ai_buf = (self:state()._ai_buf or "") .. "\n\n*[Stopped by user]*"
+      self:state()._ai_displayed_chars = #(self:state()._ai_buf)
+      self:state().status = "idle"
+      core.log("Chat generation stopped by user.")
       core.redraw = true
       return true
     end
@@ -1559,17 +1636,47 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "backspace" then
-    local text = self:state().input
-    if #text > 0 then
-      local i = #text
-      -- Step back over UTF-8 continuation bytes (10xxxxxx)
-      while i > 0 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
-        i = i - 1
-      end
-      self:state().input = text:sub(1, math.max(0, i - 1))
+    local c = self:state().cursor or #self:state().input
+    if c > 0 then
+      local prev_c = utf8_prev(self:state().input, c)
+      local before = self:state().input:sub(1, prev_c)
+      local after = self:state().input:sub(c + 1)
+      self:state().input = before .. after
+      self:state().cursor = prev_c
       self:_update_mentions()
       core.redraw = true
     end
+    return true
+  end
+
+  if key == "delete" then
+    local c = self:state().cursor or #self:state().input
+    if c < #self:state().input then
+      local next_c = utf8_next(self:state().input, c)
+      local before = self:state().input:sub(1, c)
+      local after = self:state().input:sub(next_c + 1)
+      self:state().input = before .. after
+      self:_update_mentions()
+      core.redraw = true
+    end
+    return true
+  end
+
+  if key == "left" then
+    self:state().cursor = utf8_prev(self:state().input, self:state().cursor or #self:state().input)
+    core.redraw = true
+    return true
+  elseif key == "right" then
+    self:state().cursor = utf8_next(self:state().input, self:state().cursor or #self:state().input)
+    core.redraw = true
+    return true
+  elseif key == "home" then
+    self:state().cursor = 0
+    core.redraw = true
+    return true
+  elseif key == "end" then
+    self:state().cursor = #self:state().input
+    core.redraw = true
     return true
   end
 
@@ -1667,6 +1774,40 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
       core.redraw = true
       return true
     end
+  end
+
+  -- Check if clicked inside input
+  local pad = 16 * SCALE
+  local chat_bot = self.size.y - (style.font:get_height() + 16 * SCALE) - 10 * SCALE - pad
+  local inp_y = chat_bot + pad
+  local input_h = style.font:get_height() + 16 * SCALE
+  if my >= inp_y and my <= inp_y + input_h then
+    local inp_x = self.position.x + pad
+    local inp_w = self.size.x - 2 * pad
+    local tx = inp_x + 8 * SCALE
+    if core.active_view == self then
+      local max_text_w = inp_w - 16 * SCALE
+      local cursor_idx = self:state().cursor or #self:state().input
+      local cursor_x = style.font:get_width(self:state().input:sub(1, cursor_idx))
+      if cursor_x > max_text_w then tx = tx - (cursor_x - max_text_w) end
+    end
+    local click_x = mx - tx
+    local best_cursor = 0
+    local min_dist = math.abs(click_x)
+    local i = 0
+    while i < #self:state().input do
+      local next_i = utf8_next(self:state().input, i)
+      local char_w = style.font:get_width(self:state().input:sub(1, next_i))
+      local dist = math.abs(char_w - click_x)
+      if dist < min_dist then
+        min_dist = dist
+        best_cursor = next_i
+      end
+      i = next_i
+    end
+    self:state().cursor = best_cursor
+    core.redraw = true
+    return true
   end
   if self.close_btn_rect then
     local r = self.close_btn_rect
@@ -1932,15 +2073,30 @@ command.add(
     ["antigravity:backspace"] = function() instance:on_key_pressed("backspace") end,
     ["antigravity:scroll-up"] = function() instance:on_key_pressed("up") end,
     ["antigravity:scroll-down"] = function() instance:on_key_pressed("down") end,
+    ["antigravity:escape"]    = function() instance:on_key_pressed("escape") end,
+    ["antigravity:paste"]     = function() instance:on_paste(system.get_clipboard()) end,
+    ["antigravity:delete"]    = function() instance:on_key_pressed("delete") end,
+    ["antigravity:cursor-left"]  = function() instance:on_key_pressed("left") end,
+    ["antigravity:cursor-right"] = function() instance:on_key_pressed("right") end,
+    ["antigravity:cursor-home"]  = function() instance:on_key_pressed("home") end,
+    ["antigravity:cursor-end"]   = function() instance:on_key_pressed("end") end,
   }
 )
 
 local keymap = require "core.keymap"
 keymap.add {
-  ["return"]    = "antigravity:return",
-  ["backspace"] = "antigravity:backspace",
-  ["up"]        = "antigravity:scroll-up",
-  ["down"]      = "antigravity:scroll-down",
+  ["return"]    = { "antigravity:return", "command:submit", "doc:newline", "dialog:select" },
+  ["backspace"] = { "antigravity:backspace", "doc:backspace" },
+  ["up"]        = { "antigravity:scroll-up", "command:select-previous", "doc:move-to-previous-line", "command:select-previous-char" },
+  ["down"]      = { "antigravity:scroll-down", "command:select-next", "doc:move-to-next-line", "command:select-next-char" },
+  ["escape"]    = { "antigravity:escape", "command:escape", "core:cancel", "doc:select-none", "dialog:close" },
+  ["ctrl+v"]    = { "antigravity:paste", "core:paste" },
+  ["cmd+v"]     = { "antigravity:paste", "core:paste" },
+  ["delete"]    = { "antigravity:delete", "doc:delete", "command:delete" },
+  ["left"]      = { "antigravity:cursor-left", "doc:move-to-previous-char", "command:select-previous-char" },
+  ["right"]     = { "antigravity:cursor-right", "doc:move-to-next-char", "command:select-next-char" },
+  ["home"]      = { "antigravity:cursor-home", "doc:move-to-start-of-line" },
+  ["end"]       = { "antigravity:cursor-end", "doc:move-to-end-of-line" },
 }
 
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
