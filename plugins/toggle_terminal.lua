@@ -11,6 +11,18 @@ local common  = require "core.common"
 local View    = require "core.view"
 local process = require "process"
 
+local shells = {}
+if PLATFORM == "Windows" then
+  table.insert(shells, { name = "Command Prompt", cmd = {"cmd.exe", "/c"}, prompt_prefix = "" })
+  table.insert(shells, { name = "PowerShell", cmd = {"powershell.exe", "-NoProfile", "-Command"}, prompt_prefix = "PS " })
+else
+  local function has_cmd(c) return os.execute("command -v " .. c .. " >/dev/null 2>&1") == 0 end
+  if has_cmd("bash") then table.insert(shells, { name = "bash", cmd = {"bash", "-c"}, prompt_prefix = "" }) end
+  if has_cmd("zsh") then table.insert(shells, { name = "zsh", cmd = {"zsh", "-c"}, prompt_prefix = "" }) end
+  table.insert(shells, { name = "sh", cmd = {"sh", "-c"}, prompt_prefix = "" })
+end
+
+
 -- ── Config ────────────────────────────────────────────────────────────────────
 config.terminal = {
   target_height = 220,
@@ -63,7 +75,7 @@ function TermView:new()
   self.size.y       = 0      -- start collapsed; animate on first show
   self.sessions = {}
   self.active_idx = 0
-  self:add_session()
+  self:add_session(shells[1])
   self.is_fullscreen = false
 end
 
@@ -71,7 +83,8 @@ function TermView:state()
   return self.sessions[self.active_idx]
 end
 
-function TermView:add_session()
+function TermView:add_session(shell_opts)
+  shell_opts = shell_opts or shells[1]
   local s = {
     lines = {},
     input = "",
@@ -81,14 +94,12 @@ function TermView:add_session()
     history_idx = 1,
     selection = nil,
     scroll_to_bottom = true,
+    shell = shell_opts,
   }
   table.insert(self.sessions, s)
   self.active_idx = #self.sessions
-  if PLATFORM == "Windows" then
-    self:_push("info", "Windows Command Prompt\n")
-  else
-    self:_push("info", "Terminal " .. self.active_idx .. " ready.")
-  end
+  self:_push("info", shell_opts.name .. "
+")
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -152,17 +163,13 @@ function TermView:run(cmd_str)
     return
   end
 
-  local prompt = core.project_dir .. ">"
-  if PLATFORM ~= "Windows" then prompt = core.project_dir .. "$" end
-  self:_push("cmd", prompt .. " " .. cmd_str)
+  local s = self:state()
+  local prompt_str = s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and ">" or "$")
+  self:_push("cmd", prompt_str .. " " .. cmd_str)
 
-  local argv
-  if PLATFORM == "Windows" then
-    argv = { "cmd.exe", "/c", cmd_str }
-  else
-    local sh = os.getenv("SHELL") or "/bin/sh"
-    argv = { sh, "-c", cmd_str }
-  end
+  local argv = {}
+  for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
+  table.insert(argv, cmd_str)
 
   local p, err, code = process.start(argv, {
     stdin  = process.REDIRECT_PIPE,
@@ -256,8 +263,8 @@ function TermView:resolve_position(x, y)
   if line_idx <= #self:state().lines then
     text = self:state().lines[line_idx].text
   else
-    local prompt = self:state().proc and "" or (core.project_dir .. "> ")
-    if not self:state().proc and PLATFORM ~= "Windows" then prompt = core.project_dir .. "$ " end
+    local s = self:state()
+    local prompt = s.proc and "" or (s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ "))
     text = prompt .. self:state().input
   end
   
@@ -338,7 +345,14 @@ function TermView:draw()
   renderer.draw_rect(cur_x, y + 2 * SCALE, pw, hdr_h, hdr_bg)
   renderer.draw_text(style.font, "+", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), col_inf)
   self.add_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = pw, h = hdr_h }
-  cur_x = cur_x + pw + 2 * SCALE
+    cur_x = cur_x + pw + 2 * SCALE
+    
+    -- "v" dropdown button
+    local vw = style.font:get_width("v") + 16 * SCALE
+    renderer.draw_rect(cur_x, y + 2 * SCALE, vw, hdr_h, hdr_bg)
+    renderer.draw_text(style.font, "v", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), col_inf)
+    self.dropdown_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = vw, h = hdr_h }
+    cur_x = cur_x + vw + 2 * SCALE
   
   -- "x" button (close active)
   if #self.sessions > 1 then
@@ -419,8 +433,8 @@ function TermView:draw()
 
   -- Render the live input line at the bottom
   if text_y <= out_bot then
-    local prompt = self:state().proc and "" or (core.project_dir .. "> ")
-    if not self:state().proc and PLATFORM ~= "Windows" then prompt = core.project_dir .. "$ " end
+    local s = self:state()
+    local prompt = s.proc and "" or (s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ "))
     
     local prompt_w = style.code_font:get_width(prompt)
     
@@ -564,8 +578,25 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
     if self.add_btn_rect then
       local r = self.add_btn_rect
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
-        self:add_session()
+        self:add_session(self:state().shell)
         core.redraw = true
+        return true
+      end
+    end
+    if self.dropdown_btn_rect then
+      local r = self.dropdown_btn_rect
+      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+        core.command_view:enter("Select Shell", {
+          submit = function(text, item)
+            self:add_session(item.shell)
+            core.redraw = true
+          end,
+          suggest = function(text)
+            local res = {}
+            for _, sh in ipairs(shells) do table.insert(res, { text = sh.name, shell = sh }) end
+            return res
+          end
+        })
         return true
       end
     end
@@ -701,8 +732,8 @@ command.add(nil, {
       local txt = ""
       if i <= #instance:state().lines then txt = instance:state().lines[i].text
       else
-        local prompt = instance:state().proc and "" or (core.project_dir .. "> ")
-        if not instance:state().proc and PLATFORM ~= "Windows" then prompt = core.project_dir .. "$ " end
+        local s = instance:state()
+        local prompt = s.proc and "" or (s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ "))
         txt = prompt .. instance:state().input
       end
       local sc = (i == l1) and c1 or 1
