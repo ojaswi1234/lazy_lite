@@ -39,6 +39,7 @@ config.blink_period           = 0.5
 config.draw_whitespace        = false
 config.max_undos              = 10000
 config.file_size_limit        = 10
+config.max_project_files      = 100000
 config.ignore_files           = {
   "^node_modules", "^__pycache__", "^%.DS_Store",
 }
