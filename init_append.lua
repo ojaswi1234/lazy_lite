@@ -117,14 +117,15 @@ local function is_generic_dir(path)
   return false
 end
 
+local STARTUP_CWD = system.absolute_path(".")
+
 local original_add_project_directory = core.add_project_directory
 function core.add_project_directory(path)
   if #ARGS <= 1 and not core._cwd_handled then
     core._cwd_handled = true
-    local cwd = system.absolute_path(".")
-    if cwd and cwd ~= path and not is_generic_dir(cwd) then
-      path = cwd
-      core.set_project_dir(cwd)
+    if STARTUP_CWD and STARTUP_CWD ~= path and not is_generic_dir(STARTUP_CWD) then
+      path = STARTUP_CWD
+      core.set_project_dir(STARTUP_CWD)
     end
   end
   return original_add_project_directory(path)
