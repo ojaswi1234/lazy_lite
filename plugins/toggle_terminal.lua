@@ -84,7 +84,7 @@ function TermView:add_session()
   table.insert(self.sessions, s)
   self.active_idx = #self.sessions
   if PLATFORM == "Windows" then
-    self:_push("info", "Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n")
+    self:_push("info", "Windows Command Prompt\n")
   else
     self:_push("info", "Terminal " .. self.active_idx .. " ready.")
   end
@@ -151,7 +151,7 @@ function TermView:run(cmd_str)
     return
   end
 
-  local prompt = "PS " .. core.project_dir .. ">"
+  local prompt = core.project_dir .. ">"
   if PLATFORM ~= "Windows" then prompt = core.project_dir .. "$" end
   self:_push("cmd", prompt .. " " .. cmd_str)
 
@@ -360,7 +360,7 @@ function TermView:draw()
 
   -- Render the live input line at the bottom
   if text_y <= out_bot then
-    local prompt = self:state().proc and "" or ("PS " .. core.project_dir .. "> ")
+    local prompt = self:state().proc and "" or (core.project_dir .. "> ")
     if not self:state().proc and PLATFORM ~= "Windows" then prompt = core.project_dir .. "$ " end
     
     local prompt_w = style.code_font:get_width(prompt)
