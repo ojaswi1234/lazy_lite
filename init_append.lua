@@ -126,6 +126,19 @@ function core.add_project_directory(path)
     if STARTUP_CWD and STARTUP_CWD ~= path and not is_generic_dir(STARTUP_CWD) then
       path = STARTUP_CWD
       core.set_project_dir(STARTUP_CWD)
+      
+      -- Update recent projects so restarts (Ctrl+Shift+R) remember this directory
+      local recents = core.recent_projects
+      local dirname = common.normalize_volume(STARTUP_CWD)
+      if recents and dirname then
+        for i, v in ipairs(recents) do
+          if v == dirname then
+            table.remove(recents, i)
+            break
+          end
+        end
+        table.insert(recents, 1, dirname)
+      end
     end
   end
   return original_add_project_directory(path)
