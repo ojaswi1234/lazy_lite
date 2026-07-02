@@ -117,14 +117,28 @@ local function is_generic_dir(path)
   return false
 end
 
-local original_set_project_dir = core.set_project_dir
-function core.set_project_dir(new_dir, change_project_fn)
-  if #ARGS <= 1 then
+local original_add_project_directory = core.add_project_directory
+function core.add_project_directory(path)
+  if #ARGS <= 1 and not core._cwd_handled then
+    core._cwd_handled = true
     local cwd = system.absolute_path(".")
-    if cwd and cwd ~= new_dir and not is_generic_dir(cwd) then
-      new_dir = cwd
+    if cwd and cwd ~= path and not is_generic_dir(cwd) then
+      path = cwd
+      core.set_project_dir(cwd)
     end
   end
-  return original_set_project_dir(new_dir, change_project_fn)
+  return original_add_project_directory(path)
 end
+
+-- Patch to prevent statusview crash when project_files is nil
+local orig_statusview_update = core.statusview.update
+function core.statusview:update(...)
+  if core.project_files == nil then
+    core.project_files = {}
+  end
+  if orig_statusview_update then
+    return orig_statusview_update(self, ...)
+  end
+end
+
 -- [[ End LazyLite Configuration ]]
