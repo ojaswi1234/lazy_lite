@@ -22,10 +22,10 @@ $agyInstalled = Get-Command "agy" -ErrorAction SilentlyContinue
 $installAgySidebar = $true
 
 if (-not $agyInstalled) {
-    $installAgy = Read-Host "Antigravity CLI (agy) is not installed. Do you want to install it automatically using pip? (Y/N)"
+    $installAgy = Read-Host "Antigravity CLI (agy) is not installed. Do you want to install it automatically using the official installer? (Y/N)"
     if ($installAgy -match "^[yY]") {
         Write-Host "Installing Antigravity CLI..."
-        pip install antigravity-cli
+        irm https://antigravity.google/cli/install.ps1 | iex
         $installAgySidebar = $true
     } else {
         Write-Host ""

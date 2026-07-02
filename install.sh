@@ -29,10 +29,10 @@ fi
 # 2. Check Antigravity CLI
 INSTALL_AGY_SIDEBAR=true
 if ! command -v agy &> /dev/null; then
-    read -p "Antigravity CLI (agy) is not installed. Do you want to install it automatically using pip? (y/n): " install_agy
+    read -p "Antigravity CLI (agy) is not installed. Do you want to install it automatically using the official installer? (y/n): " install_agy
     if [[ "$install_agy" =~ ^[Yy]$ ]]; then
         echo "Installing Antigravity CLI..."
-        pip install antigravity-cli || pip3 install antigravity-cli
+        curl -fsSL https://antigravity.google/cli/install.sh | bash
     else
         echo ""
         echo "Note: You have chosen not to install the Antigravity CLI. The AI sidebar will not be added to your Lite-XL setup,"
