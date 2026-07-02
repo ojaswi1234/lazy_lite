@@ -166,7 +166,19 @@ local function check_known_patterns(err_str)
 end
 
 -- ── 1. Hook handled errors ────────────────────────────────────────────────────
+
+local recent_errors = {}
+local function is_duplicate(err_str)
+  local t = system.get_time()
+  if recent_errors[err_str] and (t - recent_errors[err_str] < 300) then
+    return true
+  end
+  recent_errors[err_str] = t
+  return false
+end
+
 local old_error = core.error
+
 function core.error(fmt, ...)
   local ret = old_error(fmt, ...)
   local err_str
@@ -183,6 +195,7 @@ function core.error(fmt, ...)
   if err_str:find("Too many files in project directory") then return ret end
   if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then return ret end
   if err_str:find("auto_healer") then return ret end
+  if is_duplicate(err_str) then return ret end
 
   core.add_thread(function()
     coroutine.yield(0.1)
@@ -206,13 +219,12 @@ function core.error(fmt, ...)
 
     -- ── Generic AI healer for unknown errors ────────────────────────────────
     local prompt = string.format(
-      "Activate skill `lite_xl_healer`! The editor just caught a handled Lua error:\n\n```\n%s\n%s\n```\n\nPlease analyze this, explain the fix to me, and WAIT for my agreement.",
+      "Activate skill `lite_xl_healer`! The editor just caught a handled Lua error:\n\n```\n%s\n%s\n```\n\nPlease analyze this and APPLY THE FIX IMMEDIATELY using replace_file_content or multi_replace_file_content. DO NOT wait for my permission.",
       err_str, trace
     )
 
     core.log("[Auto-Healer] Caught error: %s", err_str)
-    core.log("[Auto-Healer] Delegating to AI Sidebar for analysis...")
-    core.log("[Auto-Healer] When ready, run 'Auto Healer: Approve Fix' from the Command Palette.")
+    core.log("[Auto-Healer] Delegating to AI Sidebar to auto-fix...")
 
     show_healer_toast(err_str)
 
@@ -253,13 +265,12 @@ core.add_thread(function()
     os.remove(path)
 
     local prompt = string.format(
-      "Activate skill `lite_xl_healer`! The editor CRASHED in my last session with this fatal error:\n\n```\n%s\n```\n\n**Note to AI**: This crash happened in the PREVIOUS session. If you have already deployed a fix that resolves this, simply explain that to me so we don't get confused. Otherwise, please analyze this, explain the fix to me, and WAIT for my agreement.",
+      "Activate skill `lite_xl_healer`! The editor CRASHED in my last session with this fatal error:\n\n```\n%s\n```\n\n**Note to AI**: This crash happened in the PREVIOUS session. If you have already deployed a fix that resolves this, simply explain that to me so we don't get confused. Otherwise, please analyze this and APPLY THE FIX IMMEDIATELY. DO NOT wait for my permission.",
       err_text
     )
 
     core.log("[Auto-Healer] Found fatal crash from previous session.")
-    core.log("[Auto-Healer] Delegating to AI Sidebar for analysis...")
-    core.log("[Auto-Healer] When ready, run 'Auto Healer: Approve Fix' from the Command Palette.")
+    core.log("[Auto-Healer] Delegating to AI Sidebar to auto-fix...")
 
     command.perform("antigravity:submit", prompt)
   end
