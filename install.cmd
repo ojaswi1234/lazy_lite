@@ -58,7 +58,24 @@ for %%f in ("%SRC_DIR%plugins\*.lua") do (
 
 copy /y "%SRC_DIR%colors\*.lua" "%CONFIG_DIR%\colors\" >nul 2>nul
 copy /y "%SRC_DIR%fonts\*.ttf" "%CONFIG_DIR%\fonts\" >nul 2>nul
-copy /y "%SRC_DIR%init.lua" "%CONFIG_DIR%\init.lua" >nul 2>nul
+echo Copied plugins, fonts, and color scheme.
+
+set "INIT_FILE=%CONFIG_DIR%\init.lua"
+set "MARKER=-- [[ LazyLite Configuration ]]"
+
+if not exist "%INIT_FILE%" (
+    type "%SRC_DIR%init_append.lua" >> "%INIT_FILE%"
+    echo Appended LazyLite configuration to init.lua
+) else (
+    findstr /c:"%MARKER%" "%INIT_FILE%" >nul 2>nul
+    if !errorlevel! neq 0 (
+        echo. >> "%INIT_FILE%"
+        type "%SRC_DIR%init_append.lua" >> "%INIT_FILE%"
+        echo Appended LazyLite configuration to init.lua
+    ) else (
+        echo Configuration already present in init.lua
+    )
+)
 
 echo Installation complete! Open Lite-XL to see the new Mossy Configuration.
 pause
