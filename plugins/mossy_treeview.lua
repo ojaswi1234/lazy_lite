@@ -156,7 +156,7 @@ local orig_on_mouse_moved = TreeView.on_mouse_moved
 function TreeView:on_mouse_moved(x, y, dx, dy)
   local res = orig_on_mouse_moved and orig_on_mouse_moved(self, x, y, dx, dy)
   
-  if self.dnd_item and core.root_view.mouse.buttons.left then
+  if self.dnd_item then
     if not self.is_dragging then
       if math.abs(x - self.dnd_start_x) > 5 or math.abs(y - self.dnd_start_y) > 5 then
         self.is_dragging = true
@@ -183,7 +183,8 @@ function TreeView:on_mouse_released(button, x, y)
       
       -- Avoid moving a directory inside itself or its children
       local src_abs = self.dnd_item.abs_filename
-      if dest_dir:sub(1, #src_abs) ~= src_abs then
+      local src_prefix = src_abs .. PATHSEP
+      if dest_dir ~= src_abs and dest_dir:sub(1, #src_prefix) ~= src_prefix then
         local dest_path = dest_dir .. PATHSEP .. self.dnd_item.name
         if dest_path ~= src_abs then
           local ok, err = os.rename(src_abs, dest_path)
@@ -191,9 +192,13 @@ function TreeView:on_mouse_released(button, x, y)
             core.log("Moved %s to %s", self.dnd_item.name, dest_path)
             -- update open docs if moved
             for _, doc in ipairs(core.docs) do
-              if doc.abs_filename and doc.abs_filename:sub(1, #src_abs) == src_abs then
-                local new_doc_path = dest_path .. doc.abs_filename:sub(#src_abs + 1)
-                doc:set_filename(doc.filename, new_doc_path)
+              if doc.abs_filename then
+                if doc.abs_filename == src_abs or doc.abs_filename:sub(1, #src_prefix) == src_prefix then
+                  local new_doc_path = dest_path .. doc.abs_filename:sub(#src_abs + 1)
+                  -- For the relative filename, we let Lite XL re-normalize it by passing nil or a new name
+                  -- but using doc.filename might be invalid. We can just use the basename or nil.
+                  doc:set_filename(nil, new_doc_path)
+                end
               end
             end
           else
