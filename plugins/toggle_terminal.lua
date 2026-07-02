@@ -98,8 +98,7 @@ function TermView:add_session(shell_opts)
   }
   table.insert(self.sessions, s)
   self.active_idx = #self.sessions
-  self:_push("info", shell_opts.name .. "
-")
+  self:_push("info", shell_opts.name .. "\\n")
 end
 
 -- Called by the node system when the user drags the resize divider
