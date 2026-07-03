@@ -150,7 +150,7 @@ if status_view then
       local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
       return { color, text }
     end,
-    on_click = function()
+    command = function()
       modal.active = not modal.active
       if modal.active then
         check_auth()

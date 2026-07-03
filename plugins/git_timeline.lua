@@ -144,7 +144,7 @@ if status_view then
       local color = timeline_view and style.accent or style.text
       return { color, " Commits" }
     end,
-    on_click = function()
+    command = function()
       command.perform("git-timeline:toggle")
     end
   })
