@@ -134,17 +134,42 @@ local function stop_codespace(cs)
   end)
 end
 
+local function run_cmd_sync(args)
+  local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE})
+  if not p then return false, "Failed to start process" end
+  local out = ""
+  while p:returncode() == nil do
+    local chunk = p:read_stdout(4096) or ""
+    local err_chunk = p:read_stderr(4096) or ""
+    out = out .. chunk .. err_chunk
+    coroutine.yield(0.1)
+  end
+  out = out .. (p:read_stdout(4096) or "") .. (p:read_stderr(4096) or "")
+  return p:returncode() == 0, out
+end
+
 local function connect_codespace(cs)
-  modal.state = "loading"
-  modal.loading_msg = "Preparing remote workspace..."
-  core.redraw = true
+  if cs.state ~= "Available" then
+    modal.state = "loading"
+    modal.loading_msg = "Waking up " .. cs.name .. " (takes 30-60s)..."
+    core.redraw = true
+  else
+    modal.state = "loading"
+    modal.loading_msg = "Preparing remote workspace..."
+    core.redraw = true
+  end
 
   local repo_name = cs.repo:match("[^/]+$") or cs.repo
 
   core.add_thread(function()
     -- 1. Tar on remote
-    local p1 = process.start({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", "cd /workspaces/"..repo_name.." && tar -czf /tmp/shadow.tar.gz --exclude=node_modules --exclude=.git --exclude=dist --exclude=build ."})
-    while p1:returncode() == nil do coroutine.yield(0.1) end
+    local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", "cd /workspaces/"..repo_name.." && tar -czf /tmp/shadow.tar.gz --exclude=node_modules --exclude=.git --exclude=dist --exclude=build ."})
+    if not success then
+      core.error("Failed to tar remote files: " .. tostring(err))
+      modal.state = "list"
+      core.redraw = true
+      return
+    end
 
     -- 2. Download
     modal.loading_msg = "Downloading to Shadow Workspace..."
@@ -154,18 +179,27 @@ local function connect_codespace(cs)
     local_dir = local_dir .. PATHSEP .. cs.name
     system.mkdir(local_dir)
     
-    local p2 = process.start({"gh", "cs", "cp", "remote:/tmp/shadow.tar.gz", local_dir .. PATHSEP .. "shadow.tar.gz", "-c", cs.name})
-    while p2:returncode() == nil do coroutine.yield(0.1) end
+    success, err = run_cmd_sync({"gh", "cs", "cp", "remote:/tmp/shadow.tar.gz", local_dir .. PATHSEP .. "shadow.tar.gz", "-c", cs.name})
+    if not success then
+      core.error("Failed to download workspace: " .. tostring(err))
+      modal.state = "list"
+      core.redraw = true
+      return
+    end
 
     -- 3. Extract
     modal.loading_msg = "Extracting files..."
     core.redraw = true
-    local p3 = process.start({"tar", "-xzf", local_dir .. PATHSEP .. "shadow.tar.gz", "-C", local_dir})
-    while p3:returncode() == nil do coroutine.yield(0.1) end
+    success, err = run_cmd_sync({"tar", "-xzf", local_dir .. PATHSEP .. "shadow.tar.gz", "-C", local_dir})
+    if not success then
+      core.error("Failed to extract workspace: " .. tostring(err))
+    end
     os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
 
     modal.active = false
-    core.project_directories = {}
+    while #core.project_directories > 0 do
+      core.remove_project_directory(core.project_directories[1].name)
+    end
     core.add_project_directory(local_dir)
     core.set_project_dir(local_dir)
     core.active_codespace = { name = cs.name, repo = repo_name, start_time = system.get_time() }
