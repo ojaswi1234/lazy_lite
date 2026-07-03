@@ -18,16 +18,18 @@ core.active_codespace = nil
 local function hook_lsp_for_codespace(cs_name, repo_name)
   local lspconfig_ok, lspconfig = pcall(require, "plugins.lsp.config")
   if not lspconfig_ok then return end
-  for name, config in pairs(lspconfig) do
-    if type(config) == "table" and config.command and not config.orig_command then
-      config.orig_command = config.command
-      local cmd_str = table.concat(config.command, " ")
-      config.command = {
+  for _, cfg in pairs(lspconfig) do
+    if type(cfg) == "table" and cfg.command then
+      -- Restore original before re-hooking (handles reconnect to different codespace)
+      if cfg.orig_command then
+        cfg.command = cfg.orig_command
+      end
+      cfg.orig_command = cfg.command
+      local cmd_str = table.concat(cfg.orig_command, " ")
+      cfg.command = {
         "python",
         USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "remote_lsp_proxy.py",
-        cs_name,
-        repo_name,
-        cmd_str
+        cs_name, repo_name, cmd_str, USERDIR
       }
     end
   end
@@ -46,25 +48,31 @@ local function unhook_lsp()
   pcall(function() command.perform("lsp:restart") end)
 end
 
+local GH_ASYNC_TIMEOUT = 30
+
 local function run_gh_async(args, on_complete)
   core.add_thread(function()
     local p = process.start(args, {
       stdout = process.REDIRECT_PIPE,
       stderr = process.REDIRECT_PIPE
     })
-    if not p then 
-      if on_complete then on_complete(false, "") end
-      return 
+    if not p then
+      if on_complete then on_complete(false, "Failed to start gh process") end
+      return
     end
-    
     local out = ""
+    local started = system.get_time()
     while p:returncode() == nil do
       out = out .. (p:read_stdout(2048) or "")
       out = out .. (p:read_stderr(2048) or "")
+      if system.get_time() - started > GH_ASYNC_TIMEOUT then
+        pcall(function() p:kill() end)
+        if on_complete then on_complete(false, "gh command timed out after " .. GH_ASYNC_TIMEOUT .. "s") end
+        return
+      end
       coroutine.yield(0.1)
     end
-    out = out .. (p:read_stdout(2048) or "")
-    out = out .. (p:read_stderr(2048) or "")
+    out = out .. (p:read_stdout(2048) or "") .. (p:read_stderr(2048) or "")
     if on_complete then on_complete(p:returncode() == 0, out) end
   end)
 end
@@ -76,12 +84,14 @@ local function fetch_codespaces()
   run_gh_async({"gh", "cs", "list", "--json", "name,repository,state"}, function(success, out)
     if success then
       modal.codespaces = {}
-      for obj in out:gmatch("%{.-%}") do
-        local name = obj:match('"name"%s*:%s*"([^"]+)"')
-        local repo = obj:match('"repository"%s*:%s*"([^"]+)"')
+      -- Flatten newlines so patterns match across lines; %b{} handles nested braces
+      local flat = out:gsub("[\r\n]", " ")
+      for obj in flat:gmatch("%b{}") do
+        local name  = obj:match('"name"%s*:%s*"([^"]+)"')
+        local repo  = obj:match('"repository"%s*:%s*"([^"]+)"')
         local state = obj:match('"state"%s*:%s*"([^"]+)"')
         if name and repo then
-          table.insert(modal.codespaces, {name=name, repo=repo, state=state})
+          table.insert(modal.codespaces, {name=name, repo=repo, state=state or "Unknown"})
         end
       end
       if #modal.codespaces > 0 then
@@ -225,6 +235,10 @@ local function connect_codespace(cs)
     success, err = run_cmd_sync({"tar", "-xzf", local_dir .. PATHSEP .. "shadow.tar.gz", "-C", local_dir})
     if not success then
       core.error("%s", "Failed to extract workspace: " .. tostring(err))
+      os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
+      modal.state = "list"
+      core.redraw = true
+      return
     end
     os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
 
@@ -402,16 +416,39 @@ function core.on_event(type, ...)
         modal.selected_index = math.min(#modal.codespaces, modal.selected_index + 1)
         core.redraw = true; return true
       elseif key == "backspace" and modal.state == "auth" then
-        modal.token_input = modal.token_input:sub(1, -2)
+        local text = modal.token_input
+        if #text > 0 then
+          local i = #text
+          while i > 0 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
+            i = i - 1
+          end
+          modal.token_input = text:sub(1, math.max(0, i - 1))
+        end
         core.redraw = true; return true
       elseif key == "return" then
         if modal.state == "auth" and #modal.token_input > 0 then
           modal.state = "loading"
           modal.loading_msg = "Logging in..."
           core.redraw = true
-          -- Echo token into gh auth login
           core.add_thread(function()
-            local success, err = run_cmd_sync({"cmd.exe", "/c", "echo " .. modal.token_input .. " | gh auth login --with-token"})
+            -- Write token to temp file to avoid shell injection and cross-platform issues
+            local tmp = os.tmpname()
+            local f = io.open(tmp, "w")
+            if not f then
+              modal.state = "auth"
+              core.error("Failed to create temp file for auth token")
+              return
+            end
+            f:write(modal.token_input)
+            f:close()
+            local argv
+            if PLATFORM == "Windows" then
+              argv = {"cmd.exe", "/c", "type \"" .. tmp .. "\" | gh auth login --with-token"}
+            else
+              argv = {"sh", "-c", "cat " .. tmp .. " | gh auth login --with-token"}
+            end
+            local success, err = run_cmd_sync(argv)
+            pcall(os.remove, tmp)
             if success then
               fetch_codespaces()
             else

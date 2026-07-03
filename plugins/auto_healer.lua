@@ -155,6 +155,36 @@ local KNOWN_PATTERNS = {
     command = "auto-healer:run-agy-install",
     cmd_label = "Run agy install now",
   },
+  {
+    match   = "Failed to tar remote files",
+    title   = "Codespace SSH Tar Failed",
+    message = "The remote tar command failed. Common causes:\n"
+           .. "  1. The codespace is still waking up — wait 30s and reconnect.\n"
+           .. "  2. The `gh` CLI SSH RPC failed (ArgumentNullException) — this is\n"
+           .. "     a known gh CLI bug on Windows with single-quoted shell commands.\n"
+           .. "  3. The remote_dir path is wrong or the codespace has no /workspaces.\n"
+           .. "Fix: Open the Codespaces modal, disconnect, and reconnect.",
+    command = nil,
+    cmd_label = nil,
+  },
+  {
+    match   = "Failed to download workspace",
+    title   = "Codespace Download Failed",
+    message = "Could not copy the tar archive from the remote codespace.\n"
+           .. "Check your network connection and that `gh cs cp` is available.\n"
+           .. "Run `gh cs list` in a terminal to verify the codespace is Available.",
+    command = nil,
+    cmd_label = nil,
+  },
+  {
+    match   = "Failed to sync .* to Codespace",
+    title   = "Codespace File Sync Failed",
+    message = "A file save could not be synced to the remote codespace.\n"
+           .. "The local shadow copy is up-to-date but the remote is behind.\n"
+           .. "Reconnect the codespace to force a full re-sync.",
+    command = nil,
+    cmd_label = nil,
+  },
 }
 
 local function check_known_patterns(err_str)
@@ -204,17 +234,18 @@ function core.error(fmt, ...)
     -- ── Check for known fixable patterns first ──────────────────────────────
     local known = check_known_patterns(err_str)
     if known then
-      core.log("[Auto-Healer] Known issue detected: %s", known.title)
+      core.log("[Auto-Healer] Known issue: %s", known.title)
       core.log("[Auto-Healer] %s", known.message)
-      core.log("[Auto-Healer] To fix: run '%s' from the Command Palette.", known.command)
-      -- Also show in command view for instant visibility
-      core.command_view:enter("[Auto-Healer] " .. known.title .. " — run '" .. known.cmd_label .. "'? (y/n)", {
-        submit = function(text)
-          if text:lower() == "y" or text:lower() == "yes" then
-            command.perform(known.command)
+      if known.command then
+        core.log("[Auto-Healer] To fix: run '%s' from the Command Palette.", known.command)
+        core.command_view:enter("[Auto-Healer] " .. known.title .. " — run '" .. known.cmd_label .. "'? (y/n)", {
+          submit = function(text)
+            if text:lower() == "y" or text:lower() == "yes" then
+              command.perform(known.command)
+            end
           end
-        end
-      })
+        })
+      end
       return
     end
 

@@ -11,7 +11,16 @@ codespace_name = sys.argv[1]
 repo_name = sys.argv[2]
 lsp_cmd = sys.argv[3]
 
-local_uri = f"file:///C:/Users/ojasw/.config/lite-xl/codespaces/{codespace_name}".replace("\\", "/")
+import os, platform
+if len(sys.argv) > 4:
+    _userdir = sys.argv[4]
+else:
+    _home = os.environ.get("USERPROFILE") or os.environ.get("HOME", "")
+    _userdir = os.path.join(_home, ".config", "lite-xl")
+local_uri = ("file:///" + _userdir.replace("\\", "/") + "/codespaces/" + codespace_name).replace("//", "/").replace("file:/", "file:///")
+# Normalise drive letter to lowercase on Windows (LSP clients emit lowercase)
+if platform.system() == "Windows" and len(local_uri) > 11:
+    local_uri = local_uri[:8] + local_uri[8].lower() + local_uri[9:]
 remote_uri = f"file:///workspaces/{repo_name}"
 
 # Spawn the Language Server remotely via GitHub CLI
@@ -76,6 +85,31 @@ def stream_remote_to_local():
             sys.stdout.buffer.flush()
     except Exception:
         pass
+
+import json, atexit
+
+def _kill_gh():
+    try:
+        gh_proc.kill()
+    except Exception:
+        pass
+
+atexit.register(_kill_gh)
+
+# Wrap stream_remote_to_local to notify IDE on disconnect
+_orig_s2l = stream_remote_to_local
+def stream_remote_to_local():
+    _orig_s2l()
+    # Server died — send a window/showMessage so the LSP client knows
+    try:
+        note = json.dumps({"jsonrpc":"2.0","method":"window/showMessage",
+                           "params":{"type":1,"message":"[lazy_lite] Remote LSP session ended. Reconnect your Codespace."}})
+        hdr = f"Content-Length: {len(note)}\r\n\r\n"
+        sys.stdout.buffer.write(hdr.encode() + note.encode())
+        sys.stdout.buffer.flush()
+    except Exception:
+        pass
+    _kill_gh()
 
 t1 = threading.Thread(target=stream_local_to_remote, daemon=True)
 t2 = threading.Thread(target=stream_remote_to_local, daemon=True)
