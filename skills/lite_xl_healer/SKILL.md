@@ -44,3 +44,10 @@ When diagnosing bugs in Lite XL, keep the following architectural quirks in mind
 
 4. **Plugin Version Mismatches:**
    Lite XL 2.1 introduces strict version tagging. If a plugin throws a "version mismatch error", it is likely missing the version tag. You can fix this by prepending exactly -- mod-version: 3 to the absolute top of the plugin's file (e.g., init.lua).
+
+## Diagnosis & Research Strategy
+If the traceback points to an unknown function or an API you are unfamiliar with:
+1. **Search the Codebase:** Use grep_search to find where the function is defined across the core or plugins directories.
+2. **Read the Implementations:** Use iew_file to read the function signatures and internal logic before attempting to use them. For example, if core.add_project_directory is failing, read its implementation in core/init.lua to see what arguments it expects.
+3. **Trace the Flow:** If a UI component (like a modal or list) is overflowing or crashing, search for draw or mousepressed handlers and trace how dimensions (w, h) are calculated dynamically.
+4. **Do Not Guess:** Lite XL's engine has very specific ways of handling inputs, drawing primitives, and managing coroutines. If you are stuck, read C:\Program Files\Lite XL\data\core\init.lua for global definitions.
