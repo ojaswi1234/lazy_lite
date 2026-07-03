@@ -110,20 +110,24 @@ local function check_auth()
   end)
 end
 local function stop_codespace(cs)
+  if cs.state ~= "Available" then
+    core.log_quiet("Codespace is already offline.")
+    return
+  end
+  
   modal.state = "loading"
   modal.loading_msg = "Shutting down " .. cs.name .. "..."
   core.redraw = true
-  core.add_thread(function()
-    local p = process.start({"gh", "cs", "stop", "-c", cs.name})
-    while p:returncode() == nil do coroutine.yield(0.1) end
-    if p:returncode() == 0 then
+  
+  run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
+    if success or (out and out:find("is not running")) then
       if core.active_codespace and core.active_codespace.name == cs.name then
         core.active_codespace = nil
         unhook_lsp()
       end
       fetch_codespaces()
     else
-      core.error("Failed to stop Codespace")
+      core.error("Failed to stop Codespace: " .. tostring(out))
       modal.state = "list"
       core.redraw = true
     end
