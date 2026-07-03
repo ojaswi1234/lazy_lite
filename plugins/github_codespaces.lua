@@ -60,9 +60,11 @@ local function run_gh_async(args, on_complete)
     local out = ""
     while p:returncode() == nil do
       out = out .. (p:read_stdout(2048) or "")
+      out = out .. (p:read_stderr(2048) or "")
       coroutine.yield(0.1)
     end
     out = out .. (p:read_stdout(2048) or "")
+    out = out .. (p:read_stderr(2048) or "")
     if on_complete then on_complete(p:returncode() == 0, out) end
   end)
 end
@@ -127,7 +129,7 @@ local function stop_codespace(cs)
       end
       fetch_codespaces()
     else
-      core.error("Failed to stop Codespace: " .. tostring(out))
+      core.error("%s", "Failed to stop Codespace: " .. tostring(out))
       modal.state = "list"
       core.redraw = true
     end
@@ -139,12 +141,28 @@ local function run_cmd_sync(args)
   if not p then return false, "Failed to start process" end
   local out = ""
   while p:returncode() == nil do
-    local chunk = p:read_stdout(4096) or ""
-    local err_chunk = p:read_stderr(4096) or ""
-    out = out .. chunk .. err_chunk
+    while true do
+      local chunk = p:read_stdout(4096)
+      if not chunk or chunk == "" then break end
+      out = out .. chunk
+    end
+    while true do
+      local chunk = p:read_stderr(4096)
+      if not chunk or chunk == "" then break end
+      out = out .. chunk
+    end
     coroutine.yield(0.1)
   end
-  out = out .. (p:read_stdout(4096) or "") .. (p:read_stderr(4096) or "")
+  while true do
+    local chunk = p:read_stdout(4096)
+    if not chunk or chunk == "" then break end
+    out = out .. chunk
+  end
+  while true do
+    local chunk = p:read_stderr(4096)
+    if not chunk or chunk == "" then break end
+    out = out .. chunk
+  end
   return p:returncode() == 0, out
 end
 
@@ -162,10 +180,21 @@ local function connect_codespace(cs)
   local repo_name = cs.repo:match("[^/]+$") or cs.repo
 
   core.add_thread(function()
+    -- 0. Get remote workspace directory (robust against SSH warnings)
+    local pwd_success, pwd_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"})
+    local remote_dir = "/workspaces/" .. repo_name
+    if pwd_success and pwd_out then
+      for line in pwd_out:gmatch("[^\r\n]+") do
+        if line:match("^/") then remote_dir = line end
+      end
+    end
+
     -- 1. Tar on remote
-    local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", "cd /workspaces/"..repo_name.." && tar -czf /tmp/shadow.tar.gz --exclude=node_modules --exclude=.git --exclude=dist --exclude=build ."})
+    local abs_shadow_path = remote_dir .. "/shadow.tar.gz"
+    local tar_script = "'tar -czf " .. abs_shadow_path .. " --exclude=node_modules --exclude=.git --exclude=dist --exclude=build . || [ $? -eq 1 ]'"
+    local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
     if not success then
-      core.error("Failed to tar remote files: " .. tostring(err))
+      core.error("Failed to tar remote files: %s", tostring(err))
       modal.state = "list"
       core.redraw = true
       return
@@ -179,30 +208,31 @@ local function connect_codespace(cs)
     local_dir = local_dir .. PATHSEP .. cs.name
     system.mkdir(local_dir)
     
-    success, err = run_cmd_sync({"gh", "cs", "cp", "remote:/tmp/shadow.tar.gz", local_dir .. PATHSEP .. "shadow.tar.gz", "-c", cs.name})
+    success, err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_dir .. PATHSEP .. "shadow.tar.gz", "-c", cs.name})
     if not success then
-      core.error("Failed to download workspace: " .. tostring(err))
+      core.error("%s", "Failed to download workspace: " .. tostring(err))
       modal.state = "list"
       core.redraw = true
       return
     end
 
     -- 3. Extract
+    -- Cleanup remote tarball
+    run_gh_async({"gh", "cs", "ssh", "-c", cs.name, "--", "rm", "-f", abs_shadow_path})
+    
     modal.loading_msg = "Extracting files..."
     core.redraw = true
     success, err = run_cmd_sync({"tar", "-xzf", local_dir .. PATHSEP .. "shadow.tar.gz", "-C", local_dir})
     if not success then
-      core.error("Failed to extract workspace: " .. tostring(err))
+      core.error("%s", "Failed to extract workspace: " .. tostring(err))
     end
     os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
 
     modal.active = false
-    while #core.project_directories > 0 do
-      core.remove_project_directory(core.project_directories[1].name)
-    end
+    core.project_directories = {}
     core.add_project_directory(local_dir)
     core.set_project_dir(local_dir)
-    core.active_codespace = { name = cs.name, repo = repo_name, start_time = system.get_time() }
+    core.active_codespace = { name = cs.name, repo = repo_name, remote_dir = remote_dir, start_time = system.get_time() }
     if _G.restart_resource_monitor then _G.restart_resource_monitor() end
     hook_lsp_for_codespace(cs.name, repo_name)
     core.redraw = true
@@ -214,17 +244,17 @@ local Doc = require "core.doc"
 local old_save = Doc.save
 function Doc:save(...)
   local res = old_save(self, ...)
-  if core.active_codespace and core.project_dir and self.abs_filename:find(core.project_dir, 1, true) then
+  if core.active_codespace and core.project_dir and self.abs_filename:find(core.project_dir, 1, true) == 1 then
     local rel_path = self.abs_filename:sub(#core.project_dir + 2)
     rel_path = rel_path:gsub("\\", "/")
     core.add_thread(function()
       core.log_quiet("Syncing %s to Codespace...", rel_path)
-      local p = process.start({"gh", "cs", "cp", self.abs_filename, "remote:/workspaces/"..core.active_codespace.repo.."/"..rel_path, "-c", core.active_codespace.name})
-      while p:returncode() == nil do coroutine.yield(0.1) end
-      if p:returncode() == 0 then
+      local remote_path = core.active_codespace.remote_dir and (core.active_codespace.remote_dir.."/"..rel_path) or ("/workspaces/"..core.active_codespace.repo.."/"..rel_path)
+      local success, err = run_cmd_sync({"gh", "cs", "cp", self.abs_filename, "remote:"..remote_path, "-c", core.active_codespace.name})
+      if success then
         core.log_quiet("Successfully synced %s", rel_path)
       else
-        core.error("Failed to sync %s to Codespace", rel_path)
+        core.error("Failed to sync %s to Codespace: %s", rel_path, tostring(err))
       end
     end)
   end
@@ -381,9 +411,8 @@ function core.on_event(type, ...)
           core.redraw = true
           -- Echo token into gh auth login
           core.add_thread(function()
-            local p = process.start({"cmd.exe", "/c", "echo " .. modal.token_input .. " | gh auth login --with-token"})
-            while p:returncode() == nil do coroutine.yield(0.1) end
-            if p:returncode() == 0 then
+            local success, err = run_cmd_sync({"cmd.exe", "/c", "echo " .. modal.token_input .. " | gh auth login --with-token"})
+            if success then
               fetch_codespaces()
             else
               modal.state = "auth"
