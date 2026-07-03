@@ -600,11 +600,11 @@ function AGView:show_resume_picker()
     local ts = line:match('"timestamp"%s*:%s*(%d+)')
     local m = meta[cid]
     
-    if cid and m and not seen[cid] then
+    if cid and not seen[cid] then
       seen[cid] = true
       
-      -- Extract details from metadata
-      local title = m.preview
+      -- Extract details from metadata or fallback
+      local title = m and m.preview or ""
       if title == "" then
         -- fallback to prompt
         title = line:match('"display"%s*:%s*"([^"]+)"') or line:match('"display"%s*:%s*"(.-)"') or cid
@@ -619,8 +619,8 @@ function AGView:show_resume_picker()
 
       if #title > 60 then title = title:sub(1, 57) .. "..." end
       
-      local skill = m.agent
-      local steps = m.steps
+      local skill = m and m.agent or ""
+      local steps = m and m.steps or 0
       
       -- Compute time ago from transcript timestamp
       local time_ago = ""
@@ -645,7 +645,7 @@ function AGView:show_resume_picker()
       
       table.insert(results, { text = title, info = info_str, cid = cid })
     end
-    if #results >= 50 then break end
+    if #results >= 1000 then break end
   end
   
   if #results == 0 then
