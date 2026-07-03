@@ -888,8 +888,13 @@ command.add(is_resume_picker, {
       else
         os.execute('rm -rf "' .. brain_path .. '"')
       end
-      core.log("Deleted conversation: " .. item.text)
-      if instance then instance:show_resume_picker() end
+        core.log("Deleted conversation: " .. item.text)
+        if instance then
+          local current_text = core.command_view:get_text()
+          core.command_view:exit()
+          instance:show_resume_picker()
+          core.command_view:set_text(current_text)
+        end
     end
   end,
   ["antigravity:toggle-pin-conversation"] = function()
@@ -920,7 +925,12 @@ command.add(is_resume_picker, {
         for c, _ in pairs(pinned) do f:write(c .. "\n") end
         f:close()
       end
-      if instance then instance:show_resume_picker() end
+      if instance then
+        local current_text = core.command_view:get_text()
+        core.command_view:exit()
+        instance:show_resume_picker()
+        core.command_view:set_text(current_text)
+      end
     end
   end
 })
