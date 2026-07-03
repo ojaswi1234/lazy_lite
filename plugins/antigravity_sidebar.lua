@@ -466,7 +466,7 @@ end
 -- A session is { role="user"|"ai", text=string, lines={} }
 function AGView:new()
   AGView.super.new(self)
-  self.visible     = true
+  self.visible     = false
   self.target_size = config.antigravity.target_width * SCALE
   self.size.x      = 0
   self.scrollable  = true

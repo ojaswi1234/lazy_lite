@@ -38,8 +38,8 @@ function core.root_view:draw()
     end
 
     local font = style.font
-    local w = 450 * SCALE
-    local h = 65 * SCALE
+    local w = 550 * SCALE
+    local h = 80 * SCALE
     local x = (self.size.x - w) / 2
     local y = self.size.y - h - 50 * SCALE -- Bottom center
 
@@ -59,26 +59,26 @@ function core.root_view:draw()
     local spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
     local spin_idx = (math.floor(t * 12) % #spinner_chars) + 1
     
-    renderer.draw_text(font, spinner_chars[spin_idx], x + 15 * SCALE, y + 10 * SCALE, { r, g, b, 255 })
+    renderer.draw_text(font, spinner_chars[spin_idx], x + 15 * SCALE, y + 15 * SCALE, { r, g, b, 255 })
     
     -- Title
     local title_font = style.big_font or font
-    renderer.draw_text(title_font, "AI Auto-Healer Working", x + 40 * SCALE, y + 10 * SCALE, { 255, 255, 255, 255 })
+    renderer.draw_text(title_font, "AI Auto-Healer Working", x + 40 * SCALE, y + 15 * SCALE, { 255, 255, 255, 255 })
     
     -- Error preview (muted)
-    renderer.draw_text(font, _G.auto_healer_toast.error_msg, x + 15 * SCALE, y + 35 * SCALE, { 160, 160, 170, 255 })
+    renderer.draw_text(font, _G.auto_healer_toast.error_msg, x + 15 * SCALE, y + 42 * SCALE, { 160, 160, 170, 255 })
 
     -- Fake progress bar (asymptotic to 99%)
     local progress = 0.99 * (1 - math.exp(-elapsed / 4))
     local bar_w = (w - 30 * SCALE) * progress
-    renderer.draw_rect(x + 15 * SCALE, y + 55 * SCALE, bar_w, 3 * SCALE, { r, g, b, 255 })
+    renderer.draw_rect(x + 15 * SCALE, y + 65 * SCALE, bar_w, 4 * SCALE, { r, g, b, 255 })
     
     -- Draw % text
     local fixed_pct = math.floor(progress * 100)
     local flawed_pct = 100 - fixed_pct
     local pct_text = string.format("%d%% Fixed | %d%% Flawed", fixed_pct, flawed_pct)
     local pct_w = font:get_width(pct_text)
-    renderer.draw_text(font, pct_text, x + w - 15 * SCALE - pct_w, y + 10 * SCALE, { r, g, b, 255 })
+    renderer.draw_text(font, pct_text, x + w - 15 * SCALE - pct_w, y + 15 * SCALE, { r, g, b, 255 })
 
     core.redraw = true
   end
