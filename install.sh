@@ -10,16 +10,9 @@ if ! command -v lite-xl &> /dev/null; then
     read -p "Lite-XL is not installed. Do you want to install it automatically? (y/n): " install_lite
     if [[ "$install_lite" =~ ^[Yy]$ ]]; then
         echo "Installing Lite-XL..."
-        if command -v apt-get &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y lite-xl || echo "Please install lite-xl manually."
-        elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm lite-xl
-        elif command -v brew &> /dev/null; then
-            brew install lite-xl
-        else
-            echo "Unsupported package manager. Please install Lite-XL manually."
-            exit 1
-        fi
+        curl -L -o LiteXL-setup.exe https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
+        chmod +x LiteXL-setup.exe
+        ./LiteXL-setup.exe
     else
         echo "Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting."
         exit 1

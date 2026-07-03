@@ -7,10 +7,12 @@ Write-Host "---------------------------------------"
 # 1. Check Lite-XL
 $liteXlInstalled = Get-Command "lite-xl" -ErrorAction SilentlyContinue
 if (-not $liteXlInstalled) {
-    $installLite = Read-Host "Lite-XL is not installed. Do you want to install it automatically using winget? (Y/N)"
+    $installLite = Read-Host "Lite-XL is not installed. Do you want to install it automatically? (Y/N)"
     if ($installLite -match "^[yY]") {
         Write-Host "Installing Lite-XL..."
-        winget install -e --id lite-xl.lite-xl
+        $installer = "LiteXL-setup.exe"
+        irm https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe -OutFile $installer
+        Start-Process -FilePath $installer -Wait
     } else {
         Write-Host "Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting."
         exit

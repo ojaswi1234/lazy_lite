@@ -10,10 +10,11 @@ echo ---------------------------------------
 :: 1. Check Lite-XL
 where lite-xl >nul 2>nul
 if %errorlevel% neq 0 (
-    set /p "install_lite=Lite-XL is not installed. Do you want to install it automatically using winget? (y/n): "
+    set /p "install_lite=Lite-XL is not installed. Do you want to install it automatically? (y/n): "
     if /i "!install_lite!"=="y" (
         echo Installing Lite-XL...
-        winget install -e --id lite-xl.lite-xl
+        curl -L -o LiteXL-setup.exe https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
+        LiteXL-setup.exe
     ) else (
         echo Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting.
         exit /b 1
