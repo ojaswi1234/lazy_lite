@@ -193,7 +193,35 @@ function core.root_view:draw()
   renderer.draw_text(title_font, "GitHub Codespaces Integration", x + 30 * SCALE, y + 20 * SCALE, { 255, 255, 255, 255 })
   
   if modal.state == "loading" then
-    renderer.draw_text(style.font, modal.loading_msg, x + 30 * SCALE, y + 60 * SCALE, { 200, 200, 200, 255 })
+      local t = system.get_time()
+      local cx, cy = x + w / 2, y + h / 2
+      
+      -- Pulse effect on GitHub icon
+      local pulse = (math.sin(t * 5) + 1) / 2
+      local alpha = 100 + (155 * pulse)
+      local icon_font = style.icon_big_font or style.big_font or style.font
+      local iw = icon_font:get_width("")
+      renderer.draw_text(icon_font, "", cx - iw/2, cy - 40 * SCALE, {style.accent[1], style.accent[2], style.accent[3], alpha})
+      
+      -- Loading text with animated dots
+      local dots = string.rep(".", math.floor(t * 3) % 4)
+      local msg = (modal.loading_msg or "Loading") .. dots
+      local tw = style.font:get_width(msg)
+      renderer.draw_text(style.font, msg, cx - tw/2, cy + 20 * SCALE, {220, 220, 220, 255})
+      
+      -- Sleek indeterminate progress bar
+      local bar_w = 200 * SCALE
+      local bar_h = 2 * SCALE
+      local bar_x = cx - bar_w / 2
+      local bar_y = cy + 50 * SCALE
+      renderer.draw_rect(bar_x, bar_y, bar_w, bar_h, {40, 40, 45, 255})
+      
+      local thumb_w = 60 * SCALE
+      local offset = (math.sin(t * 4) + 1) / 2 * (bar_w - thumb_w)
+      renderer.draw_rect(bar_x + offset, bar_y, thumb_w, bar_h, style.accent)
+      
+      -- Force continuous redraw for smooth 60fps animation
+      core.redraw = true
   
   elseif modal.state == "auth" then
     renderer.draw_text(style.font, "Please authenticate with GitHub to view your codespaces.", x + 30 * SCALE, y + 60 * SCALE, { 200, 200, 200, 255 })
