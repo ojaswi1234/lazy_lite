@@ -17,11 +17,11 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
   - **Model switcher** — a `[M]` pill button in the header opens a live dropdown. Fetches the real model list via `agy models` in the background. Models with exhausted quotas are flagged with a red `(L)`. Switching models resets the session cleanly.
   - **Quick-action pills** — one-click Explain / Refactor / Fix / Tests / Docs actions.
   - **Conversation reset** — `Ctrl+Enter` clears history and starts a fresh session.
-- **Smart Auto-Healer**: Intercepts Lua crashes in real-time and dispatches them to the AI for analysis. Features a `KNOWN_PATTERNS` registry for common, diagnosable issues that get targeted instant fixes — *without wasting AI tokens*. Currently registered patterns:
+- **Smart Auto-Healer**: Intercepts Lua crashes in real-time and dispatches them to the AI for analysis. Features error debouncing to prevent spam and true autonomous healing (the AI applies fixes directly without waiting for manual approval). It also has a `KNOWN_PATTERNS` registry for common, diagnosable issues that get targeted instant fixes — *without wasting AI tokens*. Currently registered patterns:
   - **`agy` CLI timeout** — detected automatically after 60 seconds of silence. Prompts you to run `agy install` via a single `y` in the Command Palette, which opens the integrated terminal and runs it for you.
   - Falls back to the generic AI healer for any unknown error.
 - **Auto-Close Brackets**: Automatically closes `{}`, `[]`, `()`, `""`, `''`, and ` `` `. Steps over existing closing pairs instead of duplicating them, wraps highlighted selections when you type a bracket, and smart-deletes empty pairs on Backspace.
-- **Integrated Terminal**: Native command runner featuring VS Code-style `Up`/`Down` command history, visual screen clearing (`cls`/`clear`), and ultra-fast 64KB chunked IPC buffering that will never lag the editor.
+- **Integrated Terminal**: Native command runner featuring a shell selector dropdown (cmd/powershell/bash), bold headlined titles, robust cursor movement, full text selection with the mouse, clipboard copying via `Ctrl+Shift+C`, VS Code-style `Up`/`Down` command history, visual screen clearing (`cls`/`clear`), and ultra-fast 64KB chunked IPC buffering that will never lag the editor.
 - **Real-Time Resource Monitor**: A gorgeous, animated CPU and RAM sparkline chart injected directly into the top-right of your window titlebar. Cross-platform: uses PowerShell WMI on Windows and `/proc/stat` + `free` on Linux.
 
 ---
@@ -36,6 +36,7 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 | <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Clear Chat / New Session | While in AI Sidebar |
 | <kbd>Up</kbd> / <kbd>Down</kbd> | Terminal Command History | While in Terminal |
 | <kbd>Ctrl</kbd> + <kbd>C</kbd> | Kill Running Command | While in Terminal |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> | Copy Selected Text | While in Terminal |
 | <kbd>Ctrl</kbd> + <kbd>L</kbd> | Clear Output | While in Terminal |
 | <kbd>PageUp</kbd> / <kbd>PageDn</kbd> | Scroll Output | While in Terminal |
 | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | View Logs / Auto-Heal Status | Global |
@@ -51,17 +52,13 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 
 ## ⚙️ Prerequisites
 
-LazyLite's AI features require the **Antigravity CLI (`agy`)** to be installed and configured.
-
-**Install agy:**
-- Windows: download from [antigravity.dev](https://antigravity.dev/) or follow the official install guide.
-- Linux: `curl -sSL https://antigravity.dev/install.sh | bash`
+LazyLite's AI features require the **Antigravity CLI (`agy`)** to be installed and configured. The setup scripts will automatically prompt you to install Lite-XL (v2.1.8) and the Antigravity CLI using official installers if they are not detected on your system.
 
 **First-time setup (required before the AI sidebar will respond):**
 ```bash
 agy install
 ```
-Run this once in a real terminal. After that, reload Lite-XL and the AI sidebar will work.
+Run this once in a real terminal (or the integrated terminal). After that, reload Lite-XL and the AI sidebar will work.
 
 ---
 
