@@ -551,25 +551,28 @@ function AGView:_add_session(role, text)
   table.insert(self:state().sessions, entry)
 end
 
+local function parse_iso_timestamp(str)
+  if not str then return nil end
+  local y, m, d, h, min, s = str:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)Z")
+  if y then
+    return os.time({year=y, month=m, day=d, hour=h, min=min, sec=s})
+  end
+  return nil
+end
+
 function AGView:show_resume_picker()
-  local history_path = (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.gemini/antigravity-cli/history.jsonl"
-  local f = io.open(history_path, "r")
-  if not f then
-    self:_add_session("ai", "Could not find history.jsonl at " .. history_path)
+  local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
+  local brain_path = base_dir .. "/.gemini/antigravity-cli/brain"
+  
+  local files = system.list_dir(brain_path)
+  if not files then
+    self:_add_session("ai", "Could not find brain directory at " .. brain_path)
     self:state().scroll_to_bottom = true
     core.redraw = true
     return
   end
   
-  local lines = {}
-  for line in f:lines() do table.insert(lines, line) end
-  f:close()
-  
-  local seen = {}
-  local results = {}
-  
   -- Parse conversation metadata for accurate titles, steps, and agents
-  local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
   local cache_path = base_dir .. "/.gemini/antigravity-cli/cache/conversation_metadata.json"
   local cache_f = io.open(cache_path, "r")
   local meta = {}
@@ -594,60 +597,78 @@ function AGView:show_resume_picker()
     cache_f:close()
   end
 
-  for i = #lines, 1, -1 do
-    local line = lines[i]
-    local cid = line:match('"conversationId"%s*:%s*"([^"]+)"')
-    local ts = line:match('"timestamp"%s*:%s*(%d+)')
-    local m = meta[cid]
-    
-    if cid and not seen[cid] then
-      seen[cid] = true
-      
-      -- Extract details from metadata or fallback
-      local title = m and m.preview or ""
-      if title == "" then
-        -- fallback to prompt
-        title = line:match('"display"%s*:%s*"([^"]+)"') or line:match('"display"%s*:%s*"(.-)"') or cid
-        title = title:gsub('\\"', '"'):gsub("\\n", " "):gsub("\\u0026", "&")
-      end
-      
-      if title:match("^%[CURRENT%]") then
-         -- keep as is or strip if you prefer, but user liked it
-      elseif line:match("%[CURRENT%]") then
-         title = "[CURRENT] " .. title
-      end
+  local results = {}
+  local active_cid = self:state().cid
 
-      if #title > 60 then title = title:sub(1, 57) .. "..." end
-      
-      local skill = m and m.agent or ""
-      local steps = m and m.steps or 0
-      
-      -- Compute time ago from transcript timestamp
-      local time_ago = ""
-      if ts then
-        local diff = os.time() - math.floor(tonumber(ts) / 1000)
-        if diff < 0 then diff = 0 end
-        if diff < 60 then time_ago = diff .. "s ago"
-        elseif diff < 3600 then time_ago = math.floor(diff / 60) .. "m ago"
-        elseif diff < 86400 then time_ago = math.floor(diff / 3600) .. "h ago"
-        else time_ago = math.floor(diff / 86400) .. "d ago" end
-      else
-        time_ago = cid:sub(1,8) -- fallback
+  for _, name in ipairs(files) do
+    local cid = name:match("^(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)$")
+    if cid then
+      local path = brain_path .. "/" .. cid .. "/.system_generated/logs/transcript.jsonl"
+      local tf = io.open(path, "r")
+      if tf then
+        local title = ""
+        local created_at = ""
+        local has_user_input = false
+        
+        for line in tf:lines() do
+          if not has_user_input and line:find('"type":"USER_INPUT"') then
+            has_user_input = true
+            local content = line:match('"content"%s*:%s*"(.*)"%s*}')
+            if content then
+              local req = content:match("<USER_REQUEST>%s*(.-)%s*</USER_REQUEST>")
+              title = req or content
+              title = title:gsub("\\n", " "):gsub('\\"', '"'):gsub("\\u0026", "&")
+              title = title:match("^%s*(.-)%s*$")
+            end
+            created_at = line:match('"created_at"%s*:%s*"([^"]+)"')
+            break
+          end
+        end
+        tf:close()
+        
+        if title == "" then
+          title = cid
+        end
+        
+        if active_cid == cid then
+          title = "[CURRENT] " .. title
+        end
+        
+        if #title > 60 then title = title:sub(1, 57) .. "..." end
+        
+        local m = meta[cid]
+        local skill = m and m.agent or ""
+        local steps = m and m.steps or 0
+        
+        -- Compute time ago from transcript timestamp
+        local time_ago = ""
+        local ts = parse_iso_timestamp(created_at)
+        if ts then
+          local diff = os.time() - ts
+          if diff < 0 then diff = 0 end
+          if diff < 60 then time_ago = diff .. "s ago"
+          elseif diff < 3600 then time_ago = math.floor(diff / 60) .. "m ago"
+          elseif diff < 86400 then time_ago = math.floor(diff / 3600) .. "h ago"
+          else time_ago = math.floor(diff / 86400) .. "d ago" end
+        else
+          time_ago = cid:sub(1,8)
+        end
+        
+        local info_str
+        if skill == "" then
+          info_str = string.format("%d steps      %s", steps, time_ago)
+        else
+          info_str = string.format("%s      %d steps      %s", skill, steps, time_ago)
+        end
+        
+        table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0 })
       end
-      
-      -- Format info string for CommandView right-aligned display
-      local info_str
-      if skill == "" then
-        info_str = string.format("%d steps      %s", steps, time_ago)
-      else
-        info_str = string.format("%s      %d steps      %s", skill, steps, time_ago)
-      end
-      
-      table.insert(results, { text = title, info = info_str, cid = cid })
     end
-    if #results >= 1000 then break end
   end
   
+  -- Sort results by timestamp (newest first)
+  table.sort(results, function(a, b) return a.time > b.time end)
+
   if #results == 0 then
     self:_add_session("ai", "No past conversations found.")
     self:state().scroll_to_bottom = true
@@ -669,7 +690,17 @@ function AGView:show_resume_picker()
       end
     end,
     suggest = function(text)
-      return common.fuzzy_match(results, text)
+      if text == "" then return results end
+      local res = {}
+      for _, item in ipairs(results) do
+        local score = system.fuzzy_match(item.text, text, true)
+        if score then
+          item._score = score
+          table.insert(res, item)
+        end
+      end
+      table.sort(res, function(a, b) return (a._score or 0) > (b._score or 0) end)
+      return res
     end
   })
 end
