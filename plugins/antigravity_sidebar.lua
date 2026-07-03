@@ -600,6 +600,17 @@ function AGView:show_resume_picker()
   local results = {}
   local active_cid = self:state().cid
 
+  local pinned_path = base_dir .. "/.gemini/antigravity-cli/pinned_cids.txt"
+  local pinned = {}
+  local pf = io.open(pinned_path, "r")
+  if pf then
+    for line in pf:lines() do
+      local c = line:match("^%s*(.-)%s*$")
+      if c and c ~= "" then pinned[c] = true end
+    end
+    pf:close()
+  end
+
   for _, name in ipairs(files) do
     local cid = name:match("^(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)$")
     if cid then
@@ -662,13 +673,22 @@ function AGView:show_resume_picker()
           info_str = string.format("%s      %d steps      %s", skill, steps, time_ago)
         end
         
-        table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0 })
+        local is_pinned = pinned[cid]
+        if is_pinned then
+          title = "📌 " .. title
+        end
+        
+        table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0, pinned = is_pinned })
       end
     end
   end
   
-  -- Sort results by timestamp (newest first)
-  table.sort(results, function(a, b) return a.time > b.time end)
+  -- Sort results by pinned status, then timestamp (newest first)
+  table.sort(results, function(a, b) 
+    if a.pinned and not b.pinned then return true end
+    if b.pinned and not a.pinned then return false end
+    return a.time > b.time 
+  end)
 
   if #results == 0 then
     self:_add_session("ai", "No past conversations found.")
@@ -677,7 +697,7 @@ function AGView:show_resume_picker()
     return
   end
 
-  core.command_view:enter("Select Conversation to Resume", {
+  core.command_view:enter("Select Conversation to Resume (Ctrl+P: Pin, Ctrl+Del: Delete)", {
     submit = function(text, item)
       if item and item.cid then
         if self:state().process or #self:state().sessions > 0 then
@@ -849,6 +869,63 @@ function AGView:submit(prompt)
   end
   core.redraw = true
 end
+
+local function is_resume_picker()
+  return core.active_view == core.command_view and core.command_view.label == "Select Conversation to Resume (Ctrl+P: Pin, Ctrl+Del: Delete)"
+end
+
+command.add(is_resume_picker, {
+  ["antigravity:delete-conversation"] = function()
+    local item = core.command_view.suggestions[core.command_view.suggestion_idx]
+    if item and item.cid then
+      local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
+      local brain_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. item.cid
+      if PLATFORM == "Windows" then
+        os.execute('rmdir /S /Q "' .. brain_path .. '"')
+      else
+        os.execute('rm -rf "' .. brain_path .. '"')
+      end
+      core.log("Deleted conversation: " .. item.text)
+      if instance then instance:show_resume_picker() end
+    end
+  end,
+  ["antigravity:toggle-pin-conversation"] = function()
+    local item = core.command_view.suggestions[core.command_view.suggestion_idx]
+    if item and item.cid then
+      local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
+      local pinned_path = base_dir .. "/.gemini/antigravity-cli/pinned_cids.txt"
+      local pinned = {}
+      local f = io.open(pinned_path, "r")
+      if f then
+        for line in f:lines() do
+          local c = line:match("^%s*(.-)%s*$")
+          if c and c ~= "" then pinned[c] = true end
+        end
+        f:close()
+      end
+      
+      if pinned[item.cid] then
+        pinned[item.cid] = nil
+        core.log("Unpinned conversation.")
+      else
+        pinned[item.cid] = true
+        core.log("Pinned conversation.")
+      end
+      
+      f = io.open(pinned_path, "w")
+      if f then
+        for c, _ in pairs(pinned) do f:write(c .. "\n") end
+        f:close()
+      end
+      if instance then instance:show_resume_picker() end
+    end
+  end
+})
+
+keymap.add({
+  ["ctrl+delete"] = "antigravity:delete-conversation",
+  ["ctrl+p"]      = "antigravity:toggle-pin-conversation"
+})
 
 function AGView:update()
   AGView.super.update(self)
