@@ -2220,8 +2220,10 @@ core.status_view:add_item({
       end
     end
     return {
-      style.font,
       style.text,
+      style.icon_font,
+      "?",
+      style.font,
       text
     }
   end,
@@ -2302,3 +2304,4 @@ if ok then
     { text = "Generate Documentation",command = "antigravity:docs" },
   })
 end
+

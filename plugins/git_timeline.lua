@@ -41,10 +41,14 @@ function GitTimelineView:update_commits()
     
     local out = ""
     while p:returncode() == nil do
-      out = out .. (p:read_stdout(1024) or "")
-      coroutine.yield(0.1)
+      out = out .. (p:read_stdout(4096) or "")
+      coroutine.yield(0.05)
     end
-    out = out .. (p:read_stdout(1024) or "")
+    while true do
+      local chunk = p:read_stdout(4096) or ""
+      if chunk == "" then break end
+      out = out .. chunk
+    end
     
     self.commits = {}
     for line in out:gmatch("[^\r\n]+") do

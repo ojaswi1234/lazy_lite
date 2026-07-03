@@ -72,14 +72,15 @@ local function start_monitor()
   end
 end
 
-_G.restart_resource_monitor = start_monitor
+rawset(_G, "restart_resource_monitor", start_monitor)
 start_monitor()
 
 local out_buf = ""
 core.add_thread(function()
   while true do
-    if rawget(_G, "resource_monitor_proc") then
-      local chunk = rawget(_G, "resource_monitor_proc"):read_stdout(1024)
+    local p = rawget(_G, "resource_monitor_proc")
+    if p then
+      local chunk = p:read_stdout(1024)
       if chunk and #chunk > 0 then
         out_buf = out_buf .. chunk
         while out_buf:find("\n") do
@@ -99,7 +100,13 @@ core.add_thread(function()
           end
         end
       end
-      if rawget(_G, "resource_monitor_proc"):returncode() ~= nil then
+      if p:returncode() ~= nil then
+        local out = ""
+        while true do
+          local data = p:read_stdout(4096)
+          if not data or data == "" then break end
+          out = out .. data
+        end
         start_monitor()
       end
     end
