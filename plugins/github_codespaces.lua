@@ -15,6 +15,37 @@ local modal = {
 
 core.active_codespace = nil
 
+local function hook_lsp_for_codespace(cs_name, repo_name)
+  local lspconfig_ok, lspconfig = pcall(require, "plugins.lsp.config")
+  if not lspconfig_ok then return end
+  for name, config in pairs(lspconfig) do
+    if type(config) == "table" and config.command and not config.orig_command then
+      config.orig_command = config.command
+      local cmd_str = table.concat(config.command, " ")
+      config.command = {
+        "python",
+        USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "remote_lsp_proxy.py",
+        cs_name,
+        repo_name,
+        cmd_str
+      }
+    end
+  end
+  pcall(function() command.perform("lsp:restart") end)
+end
+
+local function unhook_lsp()
+  local lspconfig_ok, lspconfig = pcall(require, "plugins.lsp.config")
+  if not lspconfig_ok then return end
+  for name, config in pairs(lspconfig) do
+    if type(config) == "table" and config.orig_command then
+      config.command = config.orig_command
+      config.orig_command = nil
+    end
+  end
+  pcall(function() command.perform("lsp:restart") end)
+end
+
 local function run_gh_async(args, on_complete)
   core.add_thread(function()
     local p = process.start(args, {
@@ -88,6 +119,7 @@ local function stop_codespace(cs)
     if p:returncode() == 0 then
       if core.active_codespace and core.active_codespace.name == cs.name then
         core.active_codespace = nil
+        unhook_lsp()
       end
       fetch_codespaces()
     else
@@ -134,6 +166,7 @@ local function connect_codespace(cs)
     core.set_project_dir(local_dir)
     core.active_codespace = { name = cs.name, repo = repo_name, start_time = system.get_time() }
     if _G.restart_resource_monitor then _G.restart_resource_monitor() end
+    hook_lsp_for_codespace(cs.name, repo_name)
     core.redraw = true
   end)
 end
