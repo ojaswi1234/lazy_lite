@@ -700,7 +700,7 @@ function AGView:show_resume_picker()
     return
   end
 
-  core.command_view:enter("Select Conversation to Resume (Ctrl+P: Pin, Ctrl+Del: Delete)", {
+  core.command_view:enter("Select Conversation to Resume", {
     submit = function(text, item)
       if item and item.cid then
         if self:state().process or #self:state().sessions > 0 then
@@ -874,7 +874,7 @@ function AGView:submit(prompt)
 end
 
 local function is_resume_picker()
-  return core.active_view == core.command_view and core.command_view.label == "Select Conversation to Resume (Ctrl+P: Pin, Ctrl+Del: Delete)"
+  return core.active_view == core.command_view and core.command_view.label == "Select Conversation to Resume"
 end
 
 command.add(is_resume_picker, {
@@ -2291,4 +2291,75 @@ if ok then
     { text = "Generate Unit Tests",   command = "antigravity:tests" },
     { text = "Generate Documentation",command = "antigravity:docs" },
   })
+end
+
+local old_cv_draw = core.command_view.draw
+core.command_view.draw = function(self)
+  old_cv_draw(self)
+  if is_resume_picker() and self.state.show_suggestions then
+    core.root_view:defer_draw(function()
+      local lh = self:get_suggestion_line_height()
+      local dh = style.divider_size
+      local first = math.max(self.suggestions_offset, 1)
+      local last = math.min(self.suggestions_offset + 10, #self.suggestions)
+      local x = self.position.x
+      local w = self.size.x
+      
+      for i=first, last do
+        local item = self.suggestions[i]
+        local y = self.position.y - (i - first + 1) * lh - dh
+        
+        local btn_w = 60
+        local btn_x = x + w - (btn_w * 2) - style.padding.x
+        
+        local bg_color = (i == self.suggestion_idx) and style.line_highlight or style.background3
+        renderer.draw_rect(btn_x, y, btn_w * 2, lh, bg_color)
+        
+        local pin_color = item.pinned and style.accent or style.text
+        common.draw_text(self:get_font(), pin_color, item.pinned and "[Unpin]" or "[Pin]", "center", btn_x, y, btn_w, lh)
+        
+        local del_color = style.error or style.text
+        common.draw_text(self:get_font(), del_color, "[Del]", "center", btn_x + btn_w, y, btn_w, lh)
+      end
+    end)
+  end
+end
+
+local old_mouse_pressed = core.root_view.on_mouse_pressed
+core.root_view.on_mouse_pressed = function(self, button, x, y, clicks)
+  if is_resume_picker() and core.command_view.state.show_suggestions then
+    local cv = core.command_view
+    local lh = cv:get_suggestion_line_height()
+    local dh = style.divider_size
+    local h = math.ceil(cv.suggestions_height)
+    local ry = cv.position.y - h - dh
+    
+    if y >= ry and y <= ry + h then
+      local first = math.max(cv.suggestions_offset, 1)
+      local last = math.min(cv.suggestions_offset + 10, #cv.suggestions)
+      
+      for i=first, last do
+        local item_y = cv.position.y - (i - first + 1) * lh - dh
+        if y >= item_y and y < item_y + lh then
+          local btn_w = 60
+          local btn_x = cv.position.x + cv.size.x - (btn_w * 2) - style.padding.x
+          
+          if x >= btn_x and x < btn_x + btn_w then
+            cv.suggestion_idx = i
+            command.perform("antigravity:toggle-pin-conversation")
+            return true
+          elseif x >= btn_x + btn_w and x < btn_x + btn_w * 2 then
+            cv.suggestion_idx = i
+            command.perform("antigravity:delete-conversation")
+            return true
+          else
+            cv.suggestion_idx = i
+            cv:submit()
+            return true
+          end
+        end
+      end
+    end
+  end
+  return old_mouse_pressed(self, button, x, y, clicks)
 end
