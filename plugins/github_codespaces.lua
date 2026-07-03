@@ -110,6 +110,8 @@ local function connect_codespace(cs)
     os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
 
     modal.active = false
+    core.project_directories = {}
+    core.add_project_directory(local_dir)
     core.set_project_dir(local_dir)
     core.active_codespace = { name = cs.name, repo = repo_name, start_time = system.get_time() }
     if _G.restart_resource_monitor then _G.restart_resource_monitor() end

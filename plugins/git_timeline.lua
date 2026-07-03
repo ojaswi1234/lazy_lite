@@ -28,7 +28,7 @@ function GitTimelineView:update_commits()
     if core.active_codespace then
       cmd = {"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", "cd /workspaces/"..core.active_codespace.repo.." && git log --graph --pretty=format:'%h %s' -n 50"}
     else
-      local p_dir = core.project_dirs and core.project_dirs[1] and core.project_dirs[1].name or ""
+      local p_dir = core.project_dir or ""
       cmd = {"git", "-C", p_dir, "log", "--graph", "--pretty=format:%h %s", "-n", "50"}
     end
     
