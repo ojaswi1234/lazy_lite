@@ -9,6 +9,47 @@ local PATHSEP = PATHSEP or package.config:sub(1,1)
 local USERDIR = USERDIR or core.userdir or (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.config/lite-xl"
 local STOP_ICON = "ï"
 
+
+local state = {
+  codespace_name = nil,
+  ssh_lock = nil
+}
+
+local function with_ssh_lock(fn)
+  while state.ssh_lock do
+    coroutine.yield(0.1)
+  end
+  state.ssh_lock = true
+  local success, err = pcall(fn)
+  state.ssh_lock = nil
+  if not success then error(err) end
+  return err -- pcall returns success, result
+end
+
+local old_set_project_dir = core.set_project_dir
+function core.set_project_dir(...)
+  state.codespace_name = nil
+  return old_set_project_dir(...)
+end
+
+local function resolve_active_codespace(basename)
+  if state.codespace_name then return state.codespace_name end
+  local success, out = run_cmd_sync({"gh", "cs", "list", "--json", "name,repository", "-q", ".[] | select(.repository.name==\"" .. basename .. "\") | .name"})
+  if success and out and out ~= "" then
+    local names = {}
+    for line in out:gmatch("[^\r\n]+") do table.insert(names, line) end
+    if #names == 1 then
+      state.codespace_name = names[1]
+      return names[1]
+    elseif #names > 1 then
+      -- Fallback to first if multiple; ideally prompt via CommandView
+      state.codespace_name = names[1]
+      return names[1]
+    end
+  end
+  return nil
+end
+
 local modal = {
   active = false,
   state = "auth", -- "auth", "loading", "list"
@@ -196,13 +237,14 @@ local function connect_codespace(cs)
   local repo_name = cs.repo:match("[^/]+$") or cs.repo
 
   core.add_thread(function()
-    -- 0. Get remote workspace directory (robust against SSH login shells that 'cd ~')
-    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", "ls -d /workspaces/* | head -n 1"})
+    -- 0. Get remote workspace directory
+    local dir_success, dir_out
+    with_ssh_lock(function()
+      dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"})
+    end)
     local remote_dir = "/workspaces/" .. repo_name
-    if dir_success and dir_out then
-      for line in dir_out:gmatch("[^\r\n]+") do
-        if line:match("^/workspaces/") then remote_dir = line end
-      end
+    if dir_success and dir_out and dir_out ~= "" then
+      remote_dir = dir_out:match("[^\r\n]+") or remote_dir
     end
 
     -- 1. Tar on remote
