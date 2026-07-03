@@ -190,18 +190,18 @@ local function connect_codespace(cs)
   local repo_name = cs.repo:match("[^/]+$") or cs.repo
 
   core.add_thread(function()
-    -- 0. Get remote workspace directory (robust against SSH warnings)
-    local pwd_success, pwd_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"})
+    -- 0. Get remote workspace directory (robust against SSH login shells that 'cd ~')
+    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", "'ls -d /workspaces/* | head -n 1'"})
     local remote_dir = "/workspaces/" .. repo_name
-    if pwd_success and pwd_out then
-      for line in pwd_out:gmatch("[^\r\n]+") do
-        if line:match("^/") then remote_dir = line end
+    if dir_success and dir_out then
+      for line in dir_out:gmatch("[^\r\n]+") do
+        if line:match("^/workspaces/") then remote_dir = line end
       end
     end
 
     -- 1. Tar on remote
     local abs_shadow_path = remote_dir .. "/shadow.tar.gz"
-    local tar_script = "'tar -czf " .. abs_shadow_path .. " --exclude=node_modules --exclude=.git --exclude=dist --exclude=build . || [ $? -eq 1 ]'"
+    local tar_script = "'cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude=node_modules --exclude=.git --exclude=dist --exclude=build . || [ $? -eq 1 ]'"
     local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
     if not success then
       core.error("Failed to tar remote files: %s", tostring(err))
