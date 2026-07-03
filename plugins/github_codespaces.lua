@@ -264,7 +264,7 @@ function core.on_event(type, ...)
         return true
       end
     elseif type == "mousepressed" then
-      local mx, my, button = ...
+      local button, mx, my = ...
       local w, h = 600 * SCALE, 400 * SCALE
       local px = (core.root_view.size.x - w) / 2
       local py = (core.root_view.size.y - h) / 2
