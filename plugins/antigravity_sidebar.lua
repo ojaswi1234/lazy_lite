@@ -615,6 +615,7 @@ function AGView:show_resume_picker()
             has_user_input = true
             local content = line:match('"content"%s*:%s*"(.*)"%s*}')
             if content then
+              if #content > 2000 then content = content:sub(1, 2000) end
               local req = content:match("<USER_REQUEST>%s*(.-)%s*</USER_REQUEST>")
               title = req or content
               title = title:gsub("\\n", " "):gsub('\\"', '"'):gsub("\\u0026", "&")
