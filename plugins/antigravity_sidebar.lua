@@ -642,10 +642,6 @@ function AGView:show_resume_picker()
           title = cid
         end
         
-        if title:find("lite_xl_healer") or title:find("The editor CRASHED") then
-          title = "🚨 [Auto-Healer] Crash Report"
-        end
-        
         if active_cid == cid then
           title = "[CURRENT] " .. title
         end
@@ -677,12 +673,15 @@ function AGView:show_resume_picker()
           info_str = string.format("%s      %d steps      %s", skill, steps, time_ago)
         end
         
-        local is_pinned = pinned[cid]
-        if is_pinned then
-          title = "📌 " .. title
+        local is_auto_healer = (skill == "lite_xl_healer") or title:find("lite_xl_healer") or title:find("The editor CRASHED")
+        if not is_auto_healer then
+          local is_pinned = pinned[cid]
+          if is_pinned then
+            title = "📌 " .. title
+          end
+          
+          table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0, pinned = is_pinned })
         end
-        
-        table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0, pinned = is_pinned })
       end
     end
   end
