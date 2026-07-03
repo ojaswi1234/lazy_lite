@@ -142,6 +142,14 @@ command.add(nil, {
 -- instead of sending them to the generic AI healer.
 local KNOWN_PATTERNS = {
   {
+    match   = "No such file or directory",
+    title   = "Codespace Archive Missing",
+    message = "Remote archive missing — re-running prepare_remote_archive()",
+    command = nil,
+    cmd_label = nil,
+    auto_retry = { once = true, action = "prepare_remote_archive" },
+  },
+  {
     match   = "%[Antigravity%] CLI timed out",
     title   = "Antigravity CLI Timeout",
     message = "The Antigravity CLI timed out after 5 minutes with zero output.\n"
@@ -210,9 +218,23 @@ local function is_duplicate(err_str)
 end
 
 local old_error = core.error
+local _healer_in_error = false
 
 function core.error(fmt, ...)
+  if _healer_in_error then
+    return old_error(fmt, ...)
+  end
+  _healer_in_error = true
+
   local ret = old_error(fmt, ...)
+  
+  -- Handle clock skew (Group E.4)
+  if type(fmt) == "string" and (fmt:find("token expired") or fmt:find("gh auth status")) then
+    if os.time() < 1767225600 then -- 2026-01-01
+      core.warn("System clock skew detected! Please fix your clock.")
+    end
+  end
+
   local err_str
   if type(fmt) == "string" and select("#", ...) > 0 then
     -- Catch cases where the format fails (e.g. invalid format string)
@@ -274,6 +296,7 @@ function core.error(fmt, ...)
       })
     end
   end)
+  _healer_in_error = false
   return ret
 end
 
