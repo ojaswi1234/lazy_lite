@@ -3,6 +3,7 @@
 -- Also detects specific known failure patterns (e.g. agy CLI not set up) and auto-heals them.
 
 local core    = require "core"
+local config = require "core.config"
 local command = require "core.command"
 local process = require "process"
 local system  = require "system"
@@ -189,7 +190,7 @@ local KNOWN_PATTERNS = {
 
 local function check_known_patterns(err_str)
   for _, p in ipairs(KNOWN_PATTERNS) do
-    if err_str:find(p.match) then
+    if err_str:find(p.match, 1, true) then
       return p
     end
   end
@@ -234,6 +235,7 @@ function core.error(fmt, ...)
     -- ── Check for known fixable patterns first ──────────────────────────────
     local known = check_known_patterns(err_str)
     if known then
+      show_healer_toast(known.message)
       core.log("[Auto-Healer] Known issue: %s", known.title)
       core.log("[Auto-Healer] %s", known.message)
       if known.command then

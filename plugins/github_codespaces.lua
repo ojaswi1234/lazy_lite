@@ -3,6 +3,11 @@ local core = require "core"
 local command = require "core.command"
 local common = require "core.common"
 local style = require "core.style"
+local process = require "process"
+local system = require "system"
+local PATHSEP = PATHSEP or package.config:sub(1,1)
+local USERDIR = USERDIR or core.userdir or (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.config/lite-xl"
+local STOP_ICON = "ï"
 
 local modal = {
   active = false,
@@ -24,13 +29,14 @@ local function hook_lsp_for_codespace(cs_name, repo_name)
       if cfg.orig_command then
         cfg.command = cfg.orig_command
       end
-      cfg.orig_command = cfg.command
-      local cmd_str = table.concat(cfg.orig_command, " ")
-      cfg.command = {
-        "python",
-        USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "remote_lsp_proxy.py",
-        cs_name, repo_name, cmd_str, USERDIR
-      }
+      local proxy_script = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "remote_lsp_proxy.py"
+      if system.get_file_info(proxy_script) then
+        cfg.orig_command = cfg.command
+        local cmd_str = table.concat(cfg.orig_command, " ")
+        cfg.command = { "python", proxy_script, cs_name, repo_name, cmd_str, USERDIR }
+      else
+        core.error("Missing LSP proxy: %s", proxy_script)
+      end
     end
   end
   pcall(function() command.perform("lsp:restart") end)
@@ -191,7 +197,7 @@ local function connect_codespace(cs)
 
   core.add_thread(function()
     -- 0. Get remote workspace directory (robust against SSH login shells that 'cd ~')
-    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", "'ls -d /workspaces/* | head -n 1'"})
+    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", "ls -d /workspaces/* | head -n 1"})
     local remote_dir = "/workspaces/" .. repo_name
     if dir_success and dir_out then
       for line in dir_out:gmatch("[^\r\n]+") do
@@ -201,7 +207,7 @@ local function connect_codespace(cs)
 
     -- 1. Tar on remote
     local abs_shadow_path = remote_dir .. "/shadow.tar.gz"
-    local tar_script = "'cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude=node_modules --exclude=.git --exclude=dist --exclude=build . || [ $? -eq 1 ]'"
+    local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude=node_modules --exclude=.git --exclude=dist --exclude=build --exclude=.venv --exclude=venv --exclude=target --exclude=.idea --exclude=.vscode --exclude=vendor --exclude=__pycache__ --exclude=.pytest_cache . || true"
     local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
     if not success then
       core.error("Failed to tar remote files: %s", tostring(err))
@@ -243,11 +249,14 @@ local function connect_codespace(cs)
     os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
 
     modal.active = false
-    core.project_directories = {}
+    if #core.project_directories > 0 then
+      for i = #core.project_directories, 1, -1 do core.remove_project_directory(core.project_directories[i]) end
+    end
     core.add_project_directory(local_dir)
     core.set_project_dir(local_dir)
     core.active_codespace = { name = cs.name, repo = repo_name, remote_dir = remote_dir, start_time = system.get_time() }
-    if _G.restart_resource_monitor then _G.restart_resource_monitor() end
+    local rm_ok, rm = pcall(require, "plugins.resource_monitor")
+    if rm_ok and type(rm.restart) == "function" then rm.restart() end
     hook_lsp_for_codespace(cs.name, repo_name)
     core.redraw = true
   end)
@@ -258,9 +267,11 @@ local Doc = require "core.doc"
 local old_save = Doc.save
 function Doc:save(...)
   local res = old_save(self, ...)
-  if core.active_codespace and core.project_dir and self.abs_filename:find(core.project_dir, 1, true) == 1 then
+  if core.active_codespace and core.project_dir and self.abs_filename and self.abs_filename:find(core.project_dir, 1, true) == 1 then
     local rel_path = self.abs_filename:sub(#core.project_dir + 2)
     rel_path = rel_path:gsub("\\", "/")
+    if self._codespace_syncing then return res end
+    self._codespace_syncing = true
     core.add_thread(function()
       core.log_quiet("Syncing %s to Codespace...", rel_path)
       local remote_path = core.active_codespace.remote_dir and (core.active_codespace.remote_dir.."/"..rel_path) or ("/workspaces/"..core.active_codespace.repo.."/"..rel_path)
@@ -270,6 +281,7 @@ function Doc:save(...)
       else
         core.error("Failed to sync %s to Codespace: %s", rel_path, tostring(err))
       end
+      self._codespace_syncing = false
     end)
   end
   return res
@@ -401,6 +413,7 @@ end
 local old_on_event = core.on_event
 function core.on_event(type, ...)
   if modal.active then
+    if type == "resized" then core.redraw = true end
     if type == "textinput" and modal.state == "auth" then
       modal.token_input = modal.token_input .. (...)
       core.redraw = true; return true
@@ -431,31 +444,17 @@ function core.on_event(type, ...)
           modal.loading_msg = "Logging in..."
           core.redraw = true
           core.add_thread(function()
-            -- Write token to temp file to avoid shell injection and cross-platform issues
-            local tmp = os.tmpname()
-            local f = io.open(tmp, "w")
-            if not f then
-              modal.state = "auth"
-              core.error("Failed to create temp file for auth token")
-              return
+            local p = process.start({"gh", "auth", "login", "--with-token"}, { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+            if not p then modal.state = "auth"; core.error("Failed to start gh auth login"); return end
+            p:write(modal.token_input .. "\n")
+            p:close_stream(process.STREAM_STDIN)
+            local out = ""
+            while p:returncode() == nil do
+              out = out .. (p:read_stdout(4096) or "")
+              out = out .. (p:read_stderr(4096) or "")
+              coroutine.yield(0.1)
             end
-            f:write(modal.token_input)
-            f:close()
-            local argv
-            if PLATFORM == "Windows" then
-              argv = {"cmd.exe", "/c", "type \"" .. tmp .. "\" | gh auth login --with-token"}
-            else
-              argv = {"sh", "-c", "cat " .. tmp .. " | gh auth login --with-token"}
-            end
-            local success, err = run_cmd_sync(argv)
-            pcall(os.remove, tmp)
-            if success then
-              fetch_codespaces()
-            else
-              modal.state = "auth"
-              modal.token_input = ""
-              core.error("GitHub Login Failed. Invalid token.")
-            end
+            if p:returncode() == 0 then fetch_codespaces() else modal.state = "auth"; modal.token_input = ""; core.error("GitHub Login Failed. Invalid token.") end
           end)
         elseif modal.state == "list" and modal.codespaces[modal.selected_index] then
           connect_codespace(modal.codespaces[modal.selected_index])
@@ -500,8 +499,15 @@ function core.on_event(type, ...)
       end
       return true
     end
+    return true -- Consume all unhandled events
   end
   return old_on_event(type, ...)
+end
+
+local gh_check = process.start({"gh", "--version"}, {stdout = process.REDIRECT_DISCARD, stderr = process.REDIRECT_DISCARD})
+if not gh_check then
+  core.error("GitHub CLI (gh) not found. Please install it from https://cli.github.com/")
+  return { name = "GitHub Codespaces", description = "gh CLI not installed" }
 end
 
 return {
