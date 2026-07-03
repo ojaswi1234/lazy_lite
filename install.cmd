@@ -15,7 +15,6 @@ if %errorlevel% neq 0 (
         echo Installing Lite-XL...
         curl -L -o LiteXL-setup.exe https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
         LiteXL-setup.exe
-        del LiteXL-setup.exe
     ) else (
         echo Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting.
         exit /b 1

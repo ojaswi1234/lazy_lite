@@ -13,7 +13,6 @@ if ! command -v lite-xl &> /dev/null; then
         curl -L -o LiteXL-setup.exe https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
         chmod +x LiteXL-setup.exe
         ./LiteXL-setup.exe
-        rm LiteXL-setup.exe
     else
         echo "Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting."
         exit 1
