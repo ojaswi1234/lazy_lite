@@ -642,6 +642,10 @@ function AGView:show_resume_picker()
           title = cid
         end
         
+        if title:find("lite_xl_healer") or title:find("The editor CRASHED") then
+          title = "🚨 [Auto-Healer] Crash Report"
+        end
+        
         if active_cid == cid then
           title = "[CURRENT] " .. title
         end
