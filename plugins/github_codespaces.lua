@@ -167,6 +167,7 @@ local function check_auth()
       core.redraw = true
     end
   end)
+  end)
 end
 local function stop_codespace(cs)
   if cs.state ~= "Available" then
@@ -178,7 +179,8 @@ local function stop_codespace(cs)
   modal.loading_msg = "Shutting down " .. cs.name .. "..."
   core.redraw = true
   
-  run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
+  with_ssh_lock(function()
+    run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
     if success or (out and out:find("is not running")) then
       if core.active_codespace and core.active_codespace.name == cs.name then
         core.active_codespace = nil
@@ -190,6 +192,7 @@ local function stop_codespace(cs)
       modal.state = "list"
       core.redraw = true
     end
+  end)
   end)
 end
 
@@ -223,6 +226,15 @@ local function run_cmd_sync(args)
   return p:returncode() == 0, out
 end
 
+
+local function format_scp_path(path)
+  local drive, tail = path:match("^([A-Za-z]):[\\/](.*)")
+  if drive then
+    return "/c/" .. tail:gsub("\\", "/")
+  end
+  return path:gsub("\\", "/")
+end
+
 local function connect_codespace(cs)
   if cs.state ~= "Available" then
     modal.state = "loading"
@@ -247,48 +259,88 @@ local function connect_codespace(cs)
       remote_dir = dir_out:match("[^\r\n]+") or remote_dir
     end
 
-    -- 1. Tar on remote
+    local ssh_opts = {"-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/cs-%r@%h:%p", "-o", "ControlPersist=10m"}
     local abs_shadow_path = remote_dir .. "/shadow.tar.gz"
-    local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude=node_modules --exclude=.git --exclude=dist --exclude=build --exclude=.venv --exclude=venv --exclude=target --exclude=.idea --exclude=.vscode --exclude=vendor --exclude=__pycache__ --exclude=.pytest_cache . || true"
-    local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
-    if not success then
-      core.error("Failed to tar remote files: %s", tostring(err))
-      modal.state = "list"
-      core.redraw = true
-      return
+
+    -- 1. Prepare Remote Archive
+    local tar_success, tar_err
+    local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude='.git' --exclude='node_modules' . ; echo \"TAR_READY:$?\""
+    with_ssh_lock(function()
+      tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", unpack(ssh_opts), "sh", "-c", tar_script})
+    end)
+    
+    if not tar_success or not tar_err or not tar_err:find("TAR_READY:0") then
+      core.warn("Remote archive preparation failed or warned: %s", tostring(tar_err))
+      -- Proceed anyway as per prompt "NOT core.error"
     end
 
-    -- 2. Download
-    modal.loading_msg = "Downloading to Shadow Workspace..."
-    core.redraw = true
-    local local_dir = USERDIR .. PATHSEP .. "codespaces"
-    system.mkdir(local_dir)
-    local_dir = local_dir .. PATHSEP .. cs.name
-    system.mkdir(local_dir)
-    
-    success, err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_dir .. PATHSEP .. "shadow.tar.gz", "-c", cs.name})
-    if not success then
-      core.error("%s", "Failed to download workspace: " .. tostring(err))
-      modal.state = "list"
-      core.redraw = true
-      return
-    end
+    -- 2. Probe existence
+    local probe_success
+    with_ssh_lock(function()
+      probe_success, _ = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", unpack(ssh_opts), "test", "-f", abs_shadow_path})
+    end)
 
-    -- 3. Extract
-    -- Cleanup remote tarball
-    run_gh_async({"gh", "cs", "ssh", "-c", cs.name, "--", "rm", "-f", abs_shadow_path})
-    
-    modal.loading_msg = "Extracting files..."
-    core.redraw = true
-    success, err = run_cmd_sync({"tar", "-xzf", local_dir .. PATHSEP .. "shadow.tar.gz", "-C", local_dir})
-    if not success then
-      core.error("%s", "Failed to extract workspace: " .. tostring(err))
-      os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
+    if probe_success then
+      modal.loading_msg = "Downloading to Shadow Workspace..."
+      core.redraw = true
+      local local_dir = USERDIR .. PATHSEP .. "codespaces"
+      system.mkdir(local_dir)
+      local_dir = local_dir .. PATHSEP .. cs.name
+      system.mkdir(local_dir)
+      
+      local local_tar = local_dir .. PATHSEP .. "shadow.tar.gz"
+      local download_success, download_err
+      
+      -- 3. Download (gh cs cp with scp fallback)
+      with_ssh_lock(function()
+        download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
+        if not download_success then
+          -- Fallback to scp
+          local scp_remote = cs.name .. ":" .. abs_shadow_path
+          local scp_local = '"' .. format_scp_path(local_tar) .. '"'
+          download_success, download_err = run_cmd_sync({"scp", "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/cs-%r@%h:%p", "-o", "ControlPersist=10m", scp_remote, scp_local})
+        end
+      end)
+      
+      if not download_success then
+        core.warn("Failed to download workspace: %s", tostring(download_err))
+        -- Retry logic simulated via just proceeding with failure since prompt asks for retry_once in 229, but let's implement basic retry:
+        core.warn("Retrying download...")
+        with_ssh_lock(function()
+          download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
+        end)
+        if not download_success then
+          core.error("Failed to download workspace after retry: %s", tostring(download_err))
+          modal.state = "list"
+          core.redraw = true
+          return
+        end
+      end
+
+      -- 4. Deferred cleanup and extract
+      core.add_thread(function()
+        with_ssh_lock(function()
+          run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", unpack(ssh_opts), "rm", "-f", abs_shadow_path})
+        end)
+      end)
+
+      modal.loading_msg = "Extracting files..."
+      core.redraw = true
+      local extract_success, extract_err = run_cmd_sync({"tar", "-xzf", local_tar, "-C", local_dir})
+      if not extract_success then
+        core.error("Failed to extract workspace: %s", tostring(extract_err))
+        os.remove(local_tar)
+        modal.state = "list"
+        core.redraw = true
+        return
+      end
+      os.remove(local_tar)
+    else
+      core.warn("Archive missing on remote side.")
       modal.state = "list"
       core.redraw = true
       return
     end
-    os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
 
     modal.active = false
     if #core.project_directories > 0 then
