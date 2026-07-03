@@ -78,6 +78,25 @@ local function check_auth()
     end
   end)
 end
+local function stop_codespace(cs)
+  modal.state = "loading"
+  modal.loading_msg = "Shutting down " .. cs.name .. "..."
+  core.redraw = true
+  core.add_thread(function()
+    local p = process.start({"gh", "cs", "stop", "-c", cs.name})
+    while p:returncode() == nil do coroutine.yield(0.1) end
+    if p:returncode() == 0 then
+      if core.active_codespace and core.active_codespace.name == cs.name then
+        core.active_codespace = nil
+      end
+      fetch_codespaces()
+    else
+      core.error("Failed to stop Codespace")
+      modal.state = "list"
+      core.redraw = true
+    end
+  end)
+end
 
 local function connect_codespace(cs)
   modal.state = "loading"
@@ -245,7 +264,18 @@ function core.root_view:draw()
       local bg = (i == modal.selected_index) and { 50, 50, 60, 255 } or { 30, 30, 35, 255 }
       renderer.draw_rect(x + 30 * SCALE, iy, w - 60 * SCALE, 35 * SCALE, bg)
       renderer.draw_text(style.font, cs.name .. " (" .. cs.repo .. ")", x + 40 * SCALE, iy + 10 * SCALE, { 255, 255, 255, 255 })
-      renderer.draw_text(style.font, cs.state, x + w - 100 * SCALE, iy + 10 * SCALE, { 150, 150, 150, 255 })
+      
+      local state_text = cs.state
+      local state_color = (state_text == "Available") and { 100, 255, 100, 255 } or { 150, 150, 150, 255 }
+      
+      local icon_font = style.icon_font
+      local stop_icon = ""
+      local stop_w = icon_font:get_width(stop_icon)
+      local stop_x = x + w - 40 * SCALE - stop_w
+      renderer.draw_text(icon_font, stop_icon, stop_x, iy + 10 * SCALE, { 255, 80, 80, 255 })
+      
+      local state_x = stop_x - style.font:get_width(state_text) - 15 * SCALE
+      renderer.draw_text(style.font, state_text, state_x, iy + 10 * SCALE, state_color)
     end
   end
 end
@@ -295,12 +325,37 @@ function core.on_event(type, ...)
       end
     elseif type == "mousepressed" then
       local button, mx, my = ...
-      local w, h = 600 * SCALE, 400 * SCALE
+      local max_w = 600 * SCALE
+      if modal.state == "list" then
+        for _, cs in ipairs(modal.codespaces) do
+          local txt_w = style.font:get_width(cs.name .. " (" .. cs.repo .. ")")
+          max_w = math.max(max_w, txt_w + 200 * SCALE)
+        end
+      end
+      local w, h = max_w, 400 * SCALE
       local px = (core.root_view.size.x - w) / 2
       local py = (core.root_view.size.y - h) / 2
+      
       if mx < px or mx > px + w or my < py or my > py + h then
         modal.active = false
         core.redraw = true
+      elseif modal.state == "list" then
+        local list_y = py + 90 * SCALE
+        for i, cs in ipairs(modal.codespaces) do
+          local iy = list_y + (i - 1) * 40 * SCALE
+          if my >= iy and my <= iy + 35 * SCALE and mx >= px + 30 * SCALE and mx <= px + w - 30 * SCALE then
+            modal.selected_index = i
+            
+            local stop_w = style.icon_font:get_width("")
+            local stop_x = px + w - 40 * SCALE - stop_w
+            if mx >= stop_x - 10 * SCALE and mx <= stop_x + stop_w + 10 * SCALE then
+              stop_codespace(cs)
+            else
+              connect_codespace(cs)
+            end
+            return true
+          end
+        end
       end
       return true
     end
