@@ -221,15 +221,17 @@ function core.root_view:draw()
   if not modal.active then return end
   
   local max_w = 600 * SCALE
+  local max_h = 400 * SCALE
   if modal.state == "list" then
     for _, cs in ipairs(modal.codespaces) do
       local txt_w = style.font:get_width(cs.name .. " (" .. cs.repo .. ")")
       max_w = math.max(max_w, txt_w + 200 * SCALE)
     end
+    max_h = math.max(max_h, 120 * SCALE + #modal.codespaces * 40 * SCALE)
   end
   
   local w = max_w
-  local h = 400 * SCALE
+  local h = max_h
   local x = (self.size.x - w) / 2
   local y = (self.size.y - h) / 2
   
@@ -359,13 +361,15 @@ function core.on_event(type, ...)
     elseif type == "mousepressed" then
       local button, mx, my = ...
       local max_w = 600 * SCALE
+      local max_h = 400 * SCALE
       if modal.state == "list" then
         for _, cs in ipairs(modal.codespaces) do
           local txt_w = style.font:get_width(cs.name .. " (" .. cs.repo .. ")")
           max_w = math.max(max_w, txt_w + 200 * SCALE)
         end
+        max_h = math.max(max_h, 120 * SCALE + #modal.codespaces * 40 * SCALE)
       end
-      local w, h = max_w, 400 * SCALE
+      local w, h = max_w, max_h
       local px = (core.root_view.size.x - w) / 2
       local py = (core.root_view.size.y - h) / 2
       
