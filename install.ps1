@@ -22,8 +22,13 @@ if (-not $liteXlInstalled) {
 $ghInstalled = Get-Command "gh" -ErrorAction SilentlyContinue
 if (-not $ghInstalled) {
     Write-Host "GitHub CLI (gh) not found. Installing via winget..."
-    winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
 }
+
+# 1.6. Download Nerd Font for icons
+Write-Host "Downloading FiraCode Nerd Font..."
+$fontDir = "$configDir\fonts"
+New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
+irm "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf" -OutFile "$fontDir\FiraCodeNerdFont-Regular.ttf"
 
 # 2. Check Antigravity CLI
 $agyInstalled = Get-Command "agy" -ErrorAction SilentlyContinue

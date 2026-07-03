@@ -147,8 +147,8 @@ if status_view then
     alignment = status_view.Item.RIGHT,
     get_item = function()
       local color = core.active_codespace and {100, 255, 100, 255} or (modal.active and style.accent or style.text)
-      local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
-      return { color, text }
+      local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
+      return { color, style.icon_font, "", style.font, text }
     end,
     command = function()
       modal.active = not modal.active
@@ -166,7 +166,15 @@ function core.root_view:draw()
   
   if not modal.active then return end
   
-  local w = 600 * SCALE
+  local max_w = 600 * SCALE
+  if modal.state == "list" then
+    for _, cs in ipairs(modal.codespaces) do
+      local txt_w = style.font:get_width(cs.name .. " (" .. cs.repo .. ")")
+      max_w = math.max(max_w, txt_w + 200 * SCALE)
+    end
+  end
+  
+  local w = max_w
   local h = 400 * SCALE
   local x = (self.size.x - w) / 2
   local y = (self.size.y - h) / 2

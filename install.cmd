@@ -28,6 +28,11 @@ if %errorlevel% neq 0 (
     winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
 )
 
+:: 1.6. Download Nerd Font for icons
+echo Downloading FiraCode Nerd Font...
+if not exist "%CONFIG_DIR%\fonts" mkdir "%CONFIG_DIR%\fonts"
+curl -L -o "%CONFIG_DIR%\fonts\FiraCodeNerdFont-Regular.ttf" "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf"
+
 :: 2. Check Antigravity CLI
 set "INSTALL_AGY_SIDEBAR=true"
 where agy >nul 2>nul

@@ -30,6 +30,11 @@ if ! command -v gh &> /dev/null; then
     && sudo apt install gh -y
 fi
 
+# 1.6. Download Nerd Font for icons
+echo "Downloading FiraCode Nerd Font..."
+mkdir -p "$CONFIG_DIR/fonts"
+curl -L -o "$CONFIG_DIR/fonts/FiraCodeNerdFont-Regular.ttf" "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf"
+
 # 2. Check Antigravity CLI
 INSTALL_AGY_SIDEBAR=true
 if ! command -v agy &> /dev/null; then

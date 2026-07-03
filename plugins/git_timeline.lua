@@ -142,7 +142,7 @@ if status_view then
     alignment = status_view.Item.LEFT,
     get_item = function()
       local color = timeline_view and style.accent or style.text
-      return { color, " Commits" }
+      return { color, style.icon_font, "", style.font, " Commits" }
     end,
     command = function()
       command.perform("git-timeline:toggle")
