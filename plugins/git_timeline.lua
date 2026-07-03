@@ -26,10 +26,10 @@ function GitTimelineView:update_commits()
   core.add_thread(function()
     local cmd = {}
     if core.active_codespace then
-      cmd = {"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", "cd /workspaces/"..core.active_codespace.repo.." && git log --graph --pretty=format:'%h %s' -n 50"}
+      cmd = {"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", "cd /workspaces/"..core.active_codespace.repo.." && git --no-pager log --graph --pretty=format:'%h %s' -n 50"}
     else
       local p_dir = core.project_dir or ""
-      cmd = {"git", "-C", p_dir, "log", "--graph", "--pretty=format:%h %s", "-n", "50"}
+      cmd = {"git", "--no-pager", "-C", p_dir, "log", "--graph", "--pretty=format:%h %s", "-n", "50"}
     end
     
     local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_DISCARD })
