@@ -103,3 +103,10 @@ If you wish to remove LazyLite and revert to the default Lite-XL experience, nav
   ```
 
 *After running the uninstall script, you will need to manually open your `init.lua` (`~/.config/lite-xl/init.lua`) and delete the 6 lines under the `-- [[ LazyLite Configuration ]]` block.*
+
+## Remote Dev
+
+New commands added for Codespaces:
+- **Connect / Start**: Auto-resolves workspace directory by basename match and extracts archive securely.
+- **LSP Bridge**: Features deep SSH tunnel translation for local-to-remote LSP communication.
+
