@@ -2,7 +2,7 @@
 local core = require "core"
 local command = require "core.command"
 local common = require "core.common"
-local style = require "themes.mossy_theme" or require "core.style"
+local style = require "core.style"
 
 local modal = {
   active = false,
