@@ -11,6 +11,14 @@ local common  = require "core.common"
 local View    = require "core.view"
 local process = require "process"
 
+local function get_prompt(s)
+  if s.proc then return "" end
+  if core.active_codespace then
+    return "☁️ /workspaces/" .. core.active_codespace.repo .. "$ "
+  end
+  return s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ ")
+end
+
 local shells = {}
 if PLATFORM == "Windows" then
   table.insert(shells, { name = "Command Prompt", cmd = {"cmd.exe", "/c"}, prompt_prefix = "" })
@@ -164,12 +172,15 @@ function TermView:run(cmd_str)
   end
 
   local s = self:state()
-  local prompt_str = s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and ">" or "$")
-  self:_push("cmd", prompt_str .. " " .. cmd_str)
+  self:_push("cmd", get_prompt(s) .. cmd_str)
 
   local argv = {}
-  for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
-  table.insert(argv, cmd_str)
+  if core.active_codespace then
+    argv = { "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", "cd /workspaces/" .. core.active_codespace.repo .. " && " .. cmd_str }
+  else
+    for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
+    table.insert(argv, cmd_str)
+  end
 
   local p, err, code = process.start(argv, {
     stdin  = process.REDIRECT_PIPE,
@@ -264,7 +275,7 @@ function TermView:resolve_position(x, y)
     text = self:state().lines[line_idx].text
   else
     local s = self:state()
-    local prompt = s.proc and "" or (s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ "))
+    local prompt = get_prompt(s)
     text = prompt .. self:state().input
   end
   
@@ -435,7 +446,7 @@ function TermView:draw()
   -- Render the live input line at the bottom
   if text_y <= out_bot then
     local s = self:state()
-    local prompt = s.proc and "" or (s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ "))
+    local prompt = get_prompt(s)
     
     local prompt_w = style.code_font:get_width(prompt)
     
@@ -739,7 +750,7 @@ command.add(nil, {
       if i <= #instance:state().lines then txt = instance:state().lines[i].text
       else
         local s = instance:state()
-        local prompt = s.proc and "" or (s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ "))
+        local prompt = get_prompt(s)
         txt = prompt .. instance:state().input
       end
       local sc = (i == l1) and c1 or 1

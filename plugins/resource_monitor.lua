@@ -24,28 +24,55 @@ local current_ram = 0
 local function start_monitor()
   if rawget(_G, "resource_monitor_proc") then pcall(function() rawget(_G, "resource_monitor_proc"):kill() end) end
   
-  -- Use a long-running powershell process to feed us stats over stdout.
-  -- This avoids the heavy overhead of spawning wmic every 2 seconds.
-  local script = string.format([[
-    $ErrorActionPreference = 'SilentlyContinue'
-    while ($true) {
-      $c = (Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
-      $o = Get-WmiObject Win32_OperatingSystem
-      if ($o) {
-        $m = [math]::Round(($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) / $o.TotalVisibleMemorySize * 100)
-        Write-Output "$c,$m"
-      }
-      Start-Sleep -Seconds %d
-    }
-  ]], config.resource_monitor.poll_rate)
+  if core.active_codespace then
+    local script = string.format([[
+      prev_total=""
+      prev_idle=""
+      while true; do
+        read cpu user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat
+        total=$((user+nice+system+idle+iowait+irq+softirq+steal))
+        idle_val=$((idle+iowait))
+        if [ -n "$prev_total" ]; then
+          d_total=$((total - prev_total))
+          d_idle=$((idle_val - prev_idle))
+          if [ $d_total -eq 0 ]; then c=0; else c=$((100 * (d_total - d_idle) / d_total)); fi
+          m=$(free | awk '/Mem/{printf("%%.0f", $3/$2 * 100)}')
+          echo "${c},${m}"
+        fi
+        prev_total=$total
+        prev_idle=$idle_val
+        sleep %d
+      done
+    ]], config.resource_monitor.poll_rate)
 
-  rawset(_G, "resource_monitor_proc", process.start({ "powershell", "-NoProfile", "-Command", script }, {
-    stdout = process.REDIRECT_PIPE,
-    stderr = process.REDIRECT_DISCARD,
-    stdin  = process.REDIRECT_DISCARD,
-  }))
+    rawset(_G, "resource_monitor_proc", process.start({ "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", script }, {
+      stdout = process.REDIRECT_PIPE,
+      stderr = process.REDIRECT_DISCARD,
+      stdin  = process.REDIRECT_DISCARD,
+    }))
+  else
+    local script = string.format([[
+      $ErrorActionPreference = 'SilentlyContinue'
+      while ($true) {
+        $c = (Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+        $o = Get-WmiObject Win32_OperatingSystem
+        if ($o) {
+          $m = [math]::Round(($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) / $o.TotalVisibleMemorySize * 100)
+          Write-Output "$c,$m"
+        }
+        Start-Sleep -Seconds %d
+      }
+    ]], config.resource_monitor.poll_rate)
+
+    rawset(_G, "resource_monitor_proc", process.start({ "powershell", "-NoProfile", "-Command", script }, {
+      stdout = process.REDIRECT_PIPE,
+      stderr = process.REDIRECT_DISCARD,
+      stdin  = process.REDIRECT_DISCARD,
+    }))
+  end
 end
 
+_G.restart_resource_monitor = start_monitor
 start_monitor()
 
 local out_buf = ""
@@ -99,7 +126,6 @@ function TitleView:draw()
   local n = config.resource_monitor.history
   local bar_w = cw / n
   
-  -- Start from the left of the window controls and draw right-to-left
   local current_x = self.size.x - controls_width - 15 * SCALE
 
   local function draw_chart(history, current, label, col)
@@ -109,10 +135,8 @@ function TitleView:draw()
     current_x = current_x - cw
     local cx = current_x
     
-    -- Background panel
     renderer.draw_rect(cx, y + 2*SCALE, cw, max_h, style.background3 or style.background)
     
-    -- Draw Bars
     for i = 1, #history do
       local val = history[i]
       local bar_h = math.max(1, math.floor((val / 100) * max_h))
@@ -120,20 +144,26 @@ function TitleView:draw()
       renderer.draw_rect(math.floor(bx), y + 2*SCALE + (max_h - bar_h), math.ceil(bar_w), bar_h, col)
     end
     
-    -- Text Label
     current_x = current_x - 6 * SCALE - tw
     renderer.draw_text(style.font, txt, current_x, y, style.text)
-    
-    -- Add gap for the next block
     current_x = current_x - gap
   end
 
-  -- Draw right-to-left: RAM will be rightmost, CPU will be left of it
-  draw_chart(ram_history, current_ram, "RAM", { common.color "#FC9867" })
-  draw_chart(cpu_history, current_cpu, "CPU", { common.color "#A9DC76" })
+  local is_cloud = core.active_codespace ~= nil
+  draw_chart(ram_history, current_ram, is_cloud and "CLOUD RAM" or "RAM", { common.color "#FC9867" })
+  draw_chart(cpu_history, current_cpu, is_cloud and "CLOUD CPU" or "CPU", { common.color "#A9DC76" })
+
+  if is_cloud and core.active_codespace.start_time then
+    local elapsed = system.get_time() - core.active_codespace.start_time
+    local mins = math.floor(elapsed / 60)
+    local secs = math.floor(elapsed % 60)
+    local txt = string.format("CS UPTIME: %02d:%02d", mins, secs)
+    local tw = style.font:get_width(txt)
+    current_x = current_x - tw
+    renderer.draw_text(style.font, txt, current_x, y, { 100, 255, 100, 255 })
+  end
 end
 
--- Hook into core.quit to kill the background polling process when Lite-XL exits
 local old_quit = core.quit
 function core.quit(force)
   if rawget(_G, "resource_monitor_proc") then

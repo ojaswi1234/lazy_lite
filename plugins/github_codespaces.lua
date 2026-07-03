@@ -109,10 +109,10 @@ local function connect_codespace(cs)
     while p3:returncode() == nil do coroutine.yield(0.1) end
     os.remove(local_dir .. PATHSEP .. "shadow.tar.gz")
 
-    -- 4. Set project
     modal.active = false
     core.set_project_dir(local_dir)
-    core.active_codespace = { name = cs.name, repo = repo_name }
+    core.active_codespace = { name = cs.name, repo = repo_name, start_time = system.get_time() }
+    if _G.restart_resource_monitor then _G.restart_resource_monitor() end
     core.redraw = true
   end)
 end
