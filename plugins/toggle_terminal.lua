@@ -88,6 +88,7 @@ function TermView:add_session(shell_opts)
   local s = {
     lines = {},
     input = "",
+    cursor = 1,
     scroll_y = 0,
     proc = nil,
     history = {},
@@ -319,12 +320,13 @@ function TermView:draw()
     y + 2 * SCALE + math.floor((hdr_h - style.font:get_height()) / 2),
     status_col)
 
-  renderer.draw_text(style.font, "TERMINAL",
+  local title_font = style.big_font or style.font
+  renderer.draw_text(title_font, "TERMINAL",
     x + 24 * SCALE,
-    y + 2 * SCALE + math.floor((hdr_h - style.font:get_height()) / 2),
-    fg)
+    y + 2 * SCALE + math.floor((hdr_h - title_font:get_height()) / 2),
+    style.accent or { common.color "#E67E80" })
 
-  local cur_x = x + 120 * SCALE
+  local cur_x = x + 160 * SCALE
   self.tab_rects = {}
   for i, s in ipairs(self.sessions) do
     local label = tostring(i)
@@ -456,8 +458,13 @@ function TermView:draw()
 
     -- Cursor
     if core.active_view == self then
-      local cx = text_x + prompt_w + style.code_font:get_width(display_input)
-      renderer.draw_rect(cx, text_y, 2 * SCALE, style.code_font:get_height(), { common.color "#A9DC76" })
+      local s = self:state()
+      s.cursor = s.cursor or (#s.input + 1)
+      local left_txt = display_input:sub(1, s.cursor - 1)
+      local cx = text_x + prompt_w + style.code_font:get_width(left_txt)
+      if core.blink_timer % 1 < 0.5 then
+        renderer.draw_rect(cx, text_y, 2 * SCALE, style.code_font:get_height(), { common.color "#A9DC76" })
+      end
     end
   end
   

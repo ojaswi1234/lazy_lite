@@ -62,7 +62,8 @@ function core.root_view:draw()
     renderer.draw_text(font, spinner_chars[spin_idx], x + 15 * SCALE, y + 10 * SCALE, { r, g, b, 255 })
     
     -- Title
-    renderer.draw_text(font, "AI Auto-Healer Working", x + 40 * SCALE, y + 10 * SCALE, { 255, 255, 255, 255 })
+    local title_font = style.big_font or font
+    renderer.draw_text(title_font, "AI Auto-Healer Working", x + 40 * SCALE, y + 10 * SCALE, { 255, 255, 255, 255 })
     
     -- Error preview (muted)
     renderer.draw_text(font, _G.auto_healer_toast.error_msg, x + 15 * SCALE, y + 35 * SCALE, { 160, 160, 170, 255 })
