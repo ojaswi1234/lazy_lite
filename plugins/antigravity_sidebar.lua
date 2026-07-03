@@ -885,7 +885,7 @@ command.add(is_resume_picker, {
       local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
       local brain_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. item.cid
       if PLATFORM == "Windows" then
-        os.execute('rmdir /S /Q "' .. brain_path .. '"')
+        os.execute('rmdir /S /Q "' .. brain_path:gsub("/", "\\") .. '"')
       else
         os.execute('rm -rf "' .. brain_path .. '"')
       end
