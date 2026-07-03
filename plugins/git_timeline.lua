@@ -127,10 +127,10 @@ command.add(nil, {
       timeline_view = GitTimelineView()
       local node = core.root_view.root_node:get_node_for_view(treeview)
       if node then
-        node:split("down", timeline_view, {y = true}, true)
+        node:split("down", timeline_view)
       else
         -- fallback to right sidebar if treeview not found
-        core.root_view.root_node:split("right", timeline_view, {x = true}, true)
+        core.root_view.root_node:split("right", timeline_view)
       end
     end
   end,
