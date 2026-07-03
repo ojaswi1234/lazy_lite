@@ -21,6 +21,13 @@ if %errorlevel% neq 0 (
     )
 )
 
+:: 1.5. Check GitHub CLI (gh)
+where gh >nul 2>nul
+if %errorlevel% neq 0 (
+    echo GitHub CLI not found. Installing via winget...
+    winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
+)
+
 :: 2. Check Antigravity CLI
 set "INSTALL_AGY_SIDEBAR=true"
 where agy >nul 2>nul

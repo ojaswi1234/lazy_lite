@@ -16,7 +16,13 @@ if (-not $liteXlInstalled) {
     } else {
         Write-Host "Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting."
         exit
-    }
+}
+
+# 1.5. Check GitHub CLI (gh)
+$ghInstalled = Get-Command "gh" -ErrorAction SilentlyContinue
+if (-not $ghInstalled) {
+    Write-Host "GitHub CLI (gh) not found. Installing via winget..."
+    winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
 }
 
 # 2. Check Antigravity CLI
