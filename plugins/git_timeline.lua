@@ -140,6 +140,7 @@ if status_view then
   core.status_view:add_item({
     name = "git_timeline",
     alignment = status_view.Item.LEFT,
+    position = 2,
     get_item = function()
       local color = timeline_view and style.accent or style.text
       return { color, style.icon_font, "", style.font, " Commits" }
