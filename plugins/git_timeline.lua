@@ -28,7 +28,8 @@ function GitTimelineView:update_commits()
     if core.active_codespace then
       cmd = {"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", "cd /workspaces/"..core.active_codespace.repo.." && git log --graph --pretty=format:'%h %s' -n 50"}
     else
-      cmd = {"git", "-C", core.project_dir, "log", "--graph", "--pretty=format:%h %s", "-n", "50"}
+      local p_dir = core.project_dirs and core.project_dirs[1] and core.project_dirs[1].name or ""
+      cmd = {"git", "-C", p_dir, "log", "--graph", "--pretty=format:%h %s", "-n", "50"}
     end
     
     local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_DISCARD })
@@ -122,10 +123,10 @@ command.add(nil, {
       timeline_view = GitTimelineView()
       local node = core.root_view.root_node:get_node_for_view(treeview)
       if node then
-        node:split("down", timeline_view, {y = true}, 0.5)
+        node:split("down", timeline_view, {y = true}, true)
       else
         -- fallback to right sidebar if treeview not found
-        core.root_view.root_node:split("right", timeline_view, {x = true}, 0.8)
+        core.root_view.root_node:split("right", timeline_view, {x = true}, true)
       end
     end
   end,
@@ -145,9 +146,7 @@ if status_view then
       local color = timeline_view and style.accent or style.text
       return { color, style.icon_font, "", style.font, " Commits" }
     end,
-    command = function()
-      command.perform("git-timeline:toggle")
-    end
+    command = "git-timeline:toggle"
   })
 end
 
