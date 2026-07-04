@@ -552,118 +552,22 @@ end
 -- Add GitHub button to status bar
 local status_view = require "core.statusview"
 if status_view then
-  if status_view.get_items then
-    local old_items = status_view.get_items
-    function status_view:get_items()
-      local res = old_items(self)
-      if core.active_codespace then
-        -- Connection status widget
-        local conn_color = state.metrics.offline_mode and { 255, 150, 50, 255 } or { 100, 255, 100, 255 }
-        local conn_text = state.metrics.offline_mode and "⚠ OFFLINE" or "✓ Connected"
-        local latency_text = state.metrics.latency > 0 and string.format("%.0fms", state.metrics.latency) or ""
-        
-        table.insert(res, {
-          name = "codespace_status",
-          get = function()
-            return string.format("%s %s", conn_text, latency_text)
-          end,
-          tooltip = function()
-            return string.format("Codespace: %s\nLatency: %.0fms\nCache: %d files\nSync Queue: %d", 
-              core.active_codespace.name, state.metrics.latency, 
-              #state.cache.file_tree, #state.metrics.sync_queue)
-          end,
-          color = conn_color
-        })
-        
-        -- Resource monitoring widget
-        local cpu_color = state.metrics.resources.cpu > 80 and { 255, 100, 100, 255 } or { 100, 200, 255, 255 }
-        local mem_color = state.metrics.resources.memory > 80 and { 255, 100, 100, 255 } or { 100, 200, 255, 255 }
-        
-        table.insert(res, {
-          name = "resource_monitor",
-          get = function()
-            return string.format("CPU: %.0f%% MEM: %.0f%%", state.metrics.resources.cpu, state.metrics.resources.memory)
-          end,
-          tooltip = function()
-            return string.format("Remote Resources:\nCPU: %.1f%%\nMemory: %.1f%%\nDisk: %d%%", 
-              state.metrics.resources.cpu, state.metrics.resources.memory, state.metrics.resources.disk)
-          end,
-          color = { 150, 200, 255, 255 }
-        })
-        
-        -- Git status widget
-        if state.metrics.git_status.branch ~= "" then
-          local git_color = state.metrics.git_status.changed_files > 0 and { 255, 200, 100, 255 } or { 150, 200, 255, 255 }
-          local ahead_text = state.metrics.git_status.ahead > 0 and string.format("+%d", state.metrics.git_status.ahead) or ""
-          local behind_text = state.metrics.git_status.behind > 0 and string.format("-%d", state.metrics.git_status.behind) or ""
-          local changed_text = state.metrics.git_status.changed_files > 0 and string.format(" (%d)", state.metrics.git_status.changed_files) or ""
-          
-          table.insert(res, {
-            name = "git_status",
-            get = function()
-              return string.format("🌿 %s%s%s%s", state.metrics.git_status.branch, changed_text, ahead_text, behind_text)
-            end,
-            tooltip = function()
-              return string.format("Git Status:\nBranch: %s\nChanged: %d files\nAhead: %d commits\nBehind: %d commits", 
-                state.metrics.git_status.branch, state.metrics.git_status.changed_files, 
-                state.metrics.git_status.ahead, state.metrics.git_status.behind)
-            end,
-            color = git_color
-          })
-        end
-        
-        -- Sync queue indicator
-        if #state.metrics.sync_queue > 0 then
-          table.insert(res, {
-            name = "sync_queue",
-            get = function()
-              return string.format("📝 %d pending", #state.metrics.sync_queue)
-            end,
-            tooltip = function()
-              return string.format("%d files waiting to sync\nType: codespaces:process-sync-queue", #state.metrics.sync_queue)
-            end,
-            color = { 255, 200, 100, 255 }
-          })
-        end
-        
-        -- Session timer
-        local session_time = system.get_time() - core.active_codespace.start_time
-        local hours = math.floor(session_time / 3600)
-        local minutes = math.floor((session_time % 3600) / 60)
-        local time_text = hours > 0 and string.format("%dh %dm", hours, minutes) or string.format("%dm", minutes)
-        
-        table.insert(res, {
-          name = "session_timer",
-          get = function()
-            return string.format("⏱ %s", time_text)
-          end,
-          tooltip = function()
-            return "Session duration"
-          end,
-          color = { 150, 200, 255, 255 }
-        })
+  core.status_view:add_item({
+    name = "codespaces",
+    alignment = status_view.Item.RIGHT,
+    get_item = function()
+      local color = core.active_codespace and {100, 255, 100, 255} or (modal.active and style.accent or style.text)
+      local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
+      return { color, style.icon_font, "", style.font, text }
+    end,
+    command = function()
+      modal.active = not modal.active
+      if modal.active then
+        check_auth()
       end
-      return res
     end
-  end
+  })
 end
-
--- Keep original GitHub button in status bar
-core.status_view:add_item({
-  name = "codespaces",
-  alignment = status_view.Item.RIGHT,
-  get_item = function()
-    local color = core.active_codespace and {100, 255, 100, 255} or (modal.active and style.accent or style.text)
-    local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
-    return { color, style.icon_font, "", style.font, text }
-  end,
-  command = function()
-    modal.active = not modal.active
-    if modal.active then
-      check_auth()
-    end
-  end
-})
 
 -- Hook drawing to render the floating modal
 local old_root_draw = core.root_view.draw
