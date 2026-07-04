@@ -265,7 +265,7 @@ local function connect_codespace(cs)
     local tar_success, tar_err
     local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude='.git' --exclude='node_modules' . ; echo \"TAR_READY:$?\""
     with_ssh_lock(function()
-      tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", unpack(ssh_opts), "sh", "-c", tar_script})
+      tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "sh", "-c", tar_script})
     end)
     
     if not tar_success or not tar_err or not tar_err:find("TAR_READY:0") then
@@ -276,7 +276,7 @@ local function connect_codespace(cs)
     -- 2. Probe existence
     local probe_success
     with_ssh_lock(function()
-      probe_success, _ = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", unpack(ssh_opts), "test", "-f", abs_shadow_path})
+      probe_success, _ = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "test", "-f", abs_shadow_path})
     end)
 
     if probe_success then
@@ -319,7 +319,7 @@ local function connect_codespace(cs)
       -- 4. Deferred cleanup and extract
       core.add_thread(function()
         with_ssh_lock(function()
-          run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", unpack(ssh_opts), "rm", "-f", abs_shadow_path})
+          run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "rm", "-f", abs_shadow_path})
         end)
       end)
 
