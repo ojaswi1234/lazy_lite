@@ -11,20 +11,8 @@ local STOP_ICON = "ï"
 
 
 local state = {
-  codespace_name = nil,
-  ssh_lock = nil
+  codespace_name = nil
 }
-
-local function with_ssh_lock(fn)
-  if state.ssh_lock then
-    return false, "SSH operation already in progress"
-  end
-  state.ssh_lock = true
-  local success, result = pcall(fn)
-  state.ssh_lock = nil
-  if not success then error(result) end
-  return true  -- Return true on successful lock acquisition and execution
-end
 
 local old_set_project_dir = core.set_project_dir
 function core.set_project_dir(...)
@@ -167,24 +155,15 @@ local function stop_codespace(cs)
   modal.loading_msg = "Shutting down " .. cs.name .. "..."
   core.redraw = true
   
-  core.add_thread(function()
-    local lock_ok, lock_err = with_ssh_lock(function()
-      run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
-        if success or (out and out:find("is not running")) then
-          if core.active_codespace and core.active_codespace.name == cs.name then
-            core.active_codespace = nil
-            unhook_lsp()
-          end
-          fetch_codespaces()
-        else
-          core.error("%s", "Failed to stop Codespace: " .. tostring(out))
-          modal.state = "list"
-          core.redraw = true
-        end
-      end)
-    end)
-    if not lock_ok then
-      core.error("Failed to acquire SSH lock: %s", lock_err or "unknown error")
+  run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
+    if success or (out and out:find("is not running")) then
+      if core.active_codespace and core.active_codespace.name == cs.name then
+        core.active_codespace = nil
+        unhook_lsp()
+      end
+      fetch_codespaces()
+    else
+      core.error("%s", "Failed to stop Codespace: " .. tostring(out))
       modal.state = "list"
       core.redraw = true
     end
@@ -237,10 +216,7 @@ local function connect_codespace(cs)
 
   core.add_thread(function()
     -- 0. Get remote workspace directory
-    local dir_success, dir_out
-    with_ssh_lock(function()
-      dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"})
-    end)
+    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"})
     local remote_dir = "/workspaces/" .. repo_name
     if dir_success and dir_out and dir_out ~= "" then
       remote_dir = dir_out:match("[^\r\n]+") or remote_dir
@@ -251,9 +227,7 @@ local function connect_codespace(cs)
     -- 1. Prepare Remote Archive
     local tar_success, tar_err
     local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude='.git' --exclude='node_modules' . ; echo \"TAR_READY:$?\""
-    with_ssh_lock(function()
-      tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
-    end)
+    tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
     
     if not tar_success or not tar_err or not tar_err:find("TAR_READY:0") then
       core.warn("Remote archive preparation failed or warned: %s", tostring(tar_err))
@@ -262,10 +236,7 @@ local function connect_codespace(cs)
 
     -- 2. Probe existence
     local probe_success
-    with_ssh_lock(function()
-      local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "test", "-f", abs_shadow_path})
-      probe_success = success
-    end)
+    probe_success = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "test", "-f", abs_shadow_path})
 
     if probe_success then
       modal.loading_msg = "Downloading to Shadow Workspace..."
@@ -279,20 +250,13 @@ local function connect_codespace(cs)
       local download_success, download_err
       
       -- 3. Download (gh cs cp with scp fallback)
-      with_ssh_lock(function()
-        download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
-        if not download_success then
-          -- gh cs cp is the primary method, no fallback needed
-        end
-      end)
+      download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
       
       if not download_success then
         core.warn("Failed to download workspace: %s", tostring(download_err))
-        -- Retry logic simulated via just proceeding with failure since prompt asks for retry_once in 229, but let's implement basic retry:
+        -- Retry logic
         core.warn("Retrying download...")
-        with_ssh_lock(function()
-          download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
-        end)
+        download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
         if not download_success then
           core.error("Failed to download workspace after retry: %s", tostring(download_err))
           modal.state = "list"
@@ -303,9 +267,7 @@ local function connect_codespace(cs)
 
       -- 4. Deferred cleanup and extract
       core.add_thread(function()
-        with_ssh_lock(function()
-          run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "rm", "-f", abs_shadow_path})
-        end)
+        run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "rm", "-f", abs_shadow_path})
       end)
 
       modal.loading_msg = "Extracting files..."
@@ -320,10 +282,8 @@ local function connect_codespace(cs)
       end
       os.remove(local_tar)
     else
-      core.warn("Archive missing on remote side.")
-      modal.state = "list"
-      core.redraw = true
-      return
+      core.warn("Archive missing on remote side, proceeding with empty directory setup.")
+      -- Continue anyway to set up the directory structure
     end
 
     modal.active = false
