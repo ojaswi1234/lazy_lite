@@ -279,6 +279,7 @@ local function sync_file_tree(remote_path, depth)
 end
 
 local function check_connection()
+  if not core.active_codespace then return false end
   local start_time = system.get_time()
   local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "echo", "connected"})
   local end_time = system.get_time()
