@@ -167,7 +167,6 @@ local function check_auth()
       core.redraw = true
     end
   end)
-  end)
 end
 local function stop_codespace(cs)
   if cs.state ~= "Available" then
