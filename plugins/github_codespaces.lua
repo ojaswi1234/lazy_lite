@@ -491,7 +491,7 @@ function core.root_view:draw()
       local state_text = cs.state
       local state_color = (state_text == "Available") and { 100, 255, 100, 255 } or { 150, 150, 150, 255 }
       
-      local icon_font = style.icon_font
+      local icon_font = style.icon_font or style.font
       local stop_icon = ""
       local stop_w = icon_font:get_width(stop_icon)
       local stop_x = x + w - 40 * SCALE - stop_w
@@ -580,7 +580,7 @@ function core.on_event(type, ...)
           if my >= iy and my <= iy + 35 * SCALE and mx >= px + 30 * SCALE and mx <= px + w - 30 * SCALE then
             modal.selected_index = i
             
-            local stop_w = style.icon_font:get_width("")
+            local stop_w = (style.icon_font or style.font):get_width("")
             local stop_x = px + w - 40 * SCALE - stop_w
             if mx >= stop_x - 10 * SCALE and mx <= stop_x + stop_w + 10 * SCALE then
               stop_codespace(cs)
