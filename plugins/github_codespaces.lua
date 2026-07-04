@@ -287,7 +287,7 @@ end
 local function check_connection(cs_name)
   if not cs_name then return false end
   local start_time = system.get_time()
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "echo", "connected"})
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "echo", "connected"}, 10) -- 10 second timeout for connection test
   local end_time = system.get_time()
   
   state.cache.connection.connected = success
@@ -298,6 +298,7 @@ local function check_connection(cs_name)
   -- Check if we're in offline mode (consecutive failures)
   if not success then
     state.metrics.offline_mode = true
+    core.log_quiet("Connection check failed: %s", tostring(out))
   else
     state.metrics.offline_mode = false
   end
@@ -437,15 +438,16 @@ local function connect_codespace(cs)
 
     core.log_quiet("Remote directory: %s", remote_dir)
     
-    -- 1. Test connection
+    -- 1. Test connection with fallback
     modal.loading_msg = "Testing SSH connection..."
     core.redraw = true
     local conn_ok = check_connection(cs.name)
     if not conn_ok then
-      core.error("Failed to establish SSH connection to codespace")
-      modal.state = "list"
-      core.redraw = true
-      return
+      core.warn("SSH connection test failed, but continuing...")
+      -- Don't fail hard on connection test - try to proceed anyway
+      -- modal.state = "list"
+      -- core.redraw = true
+      -- return
     end
 
     -- 2. Sync file tree (cache population) - only top level for speed
