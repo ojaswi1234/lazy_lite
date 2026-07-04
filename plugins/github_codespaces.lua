@@ -276,7 +276,8 @@ local function connect_codespace(cs)
     -- 2. Probe existence
     local probe_success
     with_ssh_lock(function()
-      probe_success, _ = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "test", "-f", abs_shadow_path})
+      local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "test", "-f", abs_shadow_path})
+      probe_success = success
     end)
 
     if probe_success then
