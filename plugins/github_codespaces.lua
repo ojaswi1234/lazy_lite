@@ -215,14 +215,6 @@ local function run_cmd_sync(args)
 end
 
 
-local function format_scp_path(path)
-  local drive, tail = path:match("^([A-Za-z]):[\\/](.*)")
-  if drive then
-    return "/c/" .. tail:gsub("\\", "/")
-  end
-  return path:gsub("\\", "/")
-end
-
 local function connect_codespace(cs)
   if cs.state ~= "Available" then
     modal.state = "loading"
@@ -247,14 +239,13 @@ local function connect_codespace(cs)
       remote_dir = dir_out:match("[^\r\n]+") or remote_dir
     end
 
-    local ssh_opts = {"-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/cs-%r@%h:%p", "-o", "ControlPersist=10m"}
     local abs_shadow_path = remote_dir .. "/shadow.tar.gz"
 
     -- 1. Prepare Remote Archive
     local tar_success, tar_err
     local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude='.git' --exclude='node_modules' . ; echo \"TAR_READY:$?\""
     with_ssh_lock(function()
-      tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "sh", "-c", tar_script})
+      tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
     end)
     
     if not tar_success or not tar_err or not tar_err:find("TAR_READY:0") then
@@ -265,7 +256,7 @@ local function connect_codespace(cs)
     -- 2. Probe existence
     local probe_success
     with_ssh_lock(function()
-      local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "test", "-f", abs_shadow_path})
+      local success, err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "test", "-f", abs_shadow_path})
       probe_success = success
     end)
 
@@ -284,10 +275,7 @@ local function connect_codespace(cs)
       with_ssh_lock(function()
         download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
         if not download_success then
-          -- Fallback to scp
-          local scp_remote = cs.name .. ":" .. abs_shadow_path
-          local scp_local = '"' .. format_scp_path(local_tar) .. '"'
-          download_success, download_err = run_cmd_sync({"scp", "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/cs-%r@%h:%p", "-o", "ControlPersist=10m", scp_remote, scp_local})
+          -- gh cs cp is the primary method, no fallback needed
         end
       end)
       
@@ -309,7 +297,7 @@ local function connect_codespace(cs)
       -- 4. Deferred cleanup and extract
       core.add_thread(function()
         with_ssh_lock(function()
-          run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", table.unpack(ssh_opts), "rm", "-f", abs_shadow_path})
+          run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "rm", "-f", abs_shadow_path})
         end)
       end)
 
