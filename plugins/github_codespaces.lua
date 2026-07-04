@@ -16,8 +16,8 @@ local state = {
 }
 
 local function with_ssh_lock(fn)
-  while state.ssh_lock do
-    coroutine.yield(0.1)
+  if state.ssh_lock then
+    return false, "SSH operation already in progress"
   end
   state.ssh_lock = true
   local success, result = pcall(fn)
@@ -167,20 +167,27 @@ local function stop_codespace(cs)
   modal.loading_msg = "Shutting down " .. cs.name .. "..."
   core.redraw = true
   
-  with_ssh_lock(function()
-    run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
-      if success or (out and out:find("is not running")) then
-        if core.active_codespace and core.active_codespace.name == cs.name then
-          core.active_codespace = nil
-          unhook_lsp()
+  core.add_thread(function()
+    local lock_result, lock_err = with_ssh_lock(function()
+      run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
+        if success or (out and out:find("is not running")) then
+          if core.active_codespace and core.active_codespace.name == cs.name then
+            core.active_codespace = nil
+            unhook_lsp()
+          end
+          fetch_codespaces()
+        else
+          core.error("%s", "Failed to stop Codespace: " .. tostring(out))
+          modal.state = "list"
+          core.redraw = true
         end
-        fetch_codespaces()
-      else
-        core.error("%s", "Failed to stop Codespace: " .. tostring(out))
-        modal.state = "list"
-        core.redraw = true
-      end
+      end)
     end)
+    if not lock_result then
+      core.error("Failed to stop codespace: %s", lock_err or "unknown error")
+      modal.state = "list"
+      core.redraw = true
+    end
   end)
 end
 
