@@ -11,7 +11,18 @@ local STOP_ICON = "ï"
 
 
 local state = {
-  codespace_name = nil
+  codespace_name = nil,
+  cache = {
+    file_tree = {},      -- { "/path": { name, type, mtime, children } }
+    file_content = {},   -- { "/path": { content, mtime, size } }
+    connection = { connected = false, last_sync = 0, pending_ops = {} }
+  },
+  metrics = {
+    latency = 0,
+    last_check = 0,
+    sync_queue = {},
+    offline_mode = false
+  }
 }
 
 local old_set_project_dir = core.set_project_dir
@@ -200,6 +211,138 @@ local function run_cmd_sync(args)
   return p:returncode() == 0, out
 end
 
+-- Cache functions for SSH file operations
+local function get_remote_file_list(remote_path)
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "ls", "-la", remote_path})
+  if not success then return nil, out end
+  
+  local files = {}
+  for line in out:gmatch("[^\r\n]+") do
+    -- Parse ls -la output: -rw-r--r-- 1 user size date time filename
+    local parts = {}
+    for part in line:gmatch("%S+") do
+      table.insert(parts, part)
+    end
+    if #parts >= 9 then
+      local filename = parts[9]
+      local permissions = parts[1]
+      local file_type = permissions:sub(1,1) == "d" and "dir" or "file"
+      table.insert(files, { name = filename, type = file_type, raw_line = line })
+    end
+  end
+  return files
+end
+
+local function get_remote_file_content(remote_path)
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "cat", remote_path})
+  if not success then return nil, out end
+  return out
+end
+
+local function write_remote_file(remote_path, local_path)
+  -- Use gh cs cp for reliable file transfer
+  local success, out = run_cmd_sync({"gh", "cs", "cp", local_path, "remote:" .. remote_path, "-c", core.active_codespace.name})
+  return success, out
+end
+
+local function sync_file_tree(remote_path, depth)
+  depth = depth or 0
+  if depth > 3 then return true end -- Limit recursion depth initially
+  
+  local files, err = get_remote_file_list(remote_path)
+  if not files then return false, err end
+  
+  state.cache.file_tree[remote_path] = {
+    children = {},
+    mtime = system.get_time()
+  }
+  
+  for idx, file in ipairs(files) do
+    local full_path = remote_path .. (remote_path:sub(-1) == "/" and "" or "/") .. file.name
+    state.cache.file_tree[full_path] = {
+      name = file.name,
+      type = file.type,
+      mtime = system.get_time(),
+      parent = remote_path
+    }
+    table.insert(state.cache.file_tree[remote_path].children, full_path)
+    
+    -- Recursively sync directories (limited depth)
+    if file.type == "dir" and file.name ~= "." and file.name ~= ".." then
+      sync_file_tree(full_path, depth + 1)
+    end
+  end
+  
+  return true
+end
+
+local function check_connection()
+  local start_time = system.get_time()
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "echo", "connected"})
+  local end_time = system.get_time()
+  
+  state.cache.connection.connected = success
+  state.cache.connection.last_sync = system.get_time()
+  state.metrics.latency = (end_time - start_time) * 1000 -- Convert to ms
+  state.metrics.last_check = system.get_time()
+  
+  -- Check if we're in offline mode (consecutive failures)
+  if not success then
+    state.metrics.offline_mode = true
+  else
+    state.metrics.offline_mode = false
+  end
+  
+  return success
+end
+
+local function auto_reconnect()
+  if not core.active_codespace then return end
+  
+  -- Check every 30 seconds
+  local time_since_check = system.get_time() - state.metrics.last_check
+  if time_since_check > 30 then
+    local ok = check_connection()
+    if not ok then
+      core.log_quiet("Attempting auto-reconnect...")
+      -- Clear connection state and retry
+      state.cache.connection.connected = false
+      local retry_ok = check_connection()
+      if retry_ok then
+        core.log_quiet("Auto-reconnect successful")
+      else
+        core.warn("Auto-reconnect failed, offline mode active")
+      end
+    end
+  end
+end
+
+local function process_sync_queue()
+  if #state.metrics.sync_queue == 0 then return end
+  
+  for idx, op in ipairs(state.metrics.sync_queue) do
+    if op.type == "write" then
+      local success, err = write_remote_file(op.remote_path, op.local_path)
+      if success then
+        core.log_quiet("Synced queued file: %s", op.remote_path)
+        table.remove(state.metrics.sync_queue, idx)
+      else
+        core.warn("Failed to sync queued file: %s (keeping in queue)", op.remote_path)
+      end
+    end
+  end
+end
+
+local function invalidate_cache(path)
+  if path then
+    state.cache.file_tree[path] = nil
+    state.cache.file_content[path] = nil
+  else
+    state.cache.file_tree = {}
+    state.cache.file_content = {}
+  end
+end
+
 
 local function connect_codespace(cs)
   if cs.state ~= "Available" then
@@ -208,7 +351,7 @@ local function connect_codespace(cs)
     core.redraw = true
   else
     modal.state = "loading"
-    modal.loading_msg = "Preparing remote workspace..."
+    modal.loading_msg = "Connecting to codespace..."
     core.redraw = true
   end
 
@@ -228,69 +371,31 @@ local function connect_codespace(cs)
     end
 
     core.log_quiet("Remote directory: %s", remote_dir)
-    local abs_shadow_path = remote_dir .. "/shadow.tar.gz"
-
-    -- 1. Prepare Remote Archive
-    local tar_success, tar_err
-    local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude='.git' --exclude='node_modules' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='.idea' --exclude='.vscode' --exclude='vendor' --exclude='__pycache__' --exclude='.pytest_cache' ."
-    tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
     
-    if not tar_success then
-      core.warn("Remote archive preparation failed: %s", tostring(tar_err))
-      -- Proceed anyway to see if file exists
+    -- 1. Test connection
+    modal.loading_msg = "Testing SSH connection..."
+    core.redraw = true
+    local conn_ok = check_connection()
+    if not conn_ok then
+      core.error("Failed to establish SSH connection to codespace")
+      modal.state = "list"
+      core.redraw = true
+      return
     end
 
-    -- 2. Probe existence
-    local probe_success
-    probe_success = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "test", "-f", abs_shadow_path})
-
-    if probe_success then
-      modal.loading_msg = "Downloading to Shadow Workspace..."
-      core.redraw = true
-      local local_dir = USERDIR .. PATHSEP .. "codespaces"
-      system.mkdir(local_dir)
-      local_dir = local_dir .. PATHSEP .. cs.name
-      system.mkdir(local_dir)
-      
-      local local_tar = local_dir .. PATHSEP .. "shadow.tar.gz"
-      local download_success, download_err
-      
-      -- 3. Download (gh cs cp with scp fallback)
-      download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
-      
-      if not download_success then
-        core.warn("Failed to download workspace: %s", tostring(download_err))
-        -- Retry logic
-        core.warn("Retrying download...")
-        download_success, download_err = run_cmd_sync({"gh", "cs", "cp", "remote:" .. abs_shadow_path, local_tar, "-c", cs.name})
-        if not download_success then
-          core.error("Failed to download workspace after retry: %s", tostring(download_err))
-          modal.state = "list"
-          core.redraw = true
-          return
-        end
-      end
-
-      -- 4. Deferred cleanup and extract
-      core.add_thread(function()
-        run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "rm", "-f", abs_shadow_path})
-      end)
-
-      modal.loading_msg = "Extracting files..."
-      core.redraw = true
-      local extract_success, extract_err = run_cmd_sync({"tar", "-xzf", local_tar, "-C", local_dir})
-      if not extract_success then
-        core.error("Failed to extract workspace: %s", tostring(extract_err))
-        os.remove(local_tar)
-        modal.state = "list"
-        core.redraw = true
-        return
-      end
-      os.remove(local_tar)
-    else
-      core.warn("Archive missing on remote side, proceeding with empty directory setup.")
-      -- Continue anyway to set up the directory structure
+    -- 2. Sync file tree (cache population)
+    modal.loading_msg = "Caching file tree..."
+    core.redraw = true
+    local sync_ok = sync_file_tree(remote_dir)
+    if not sync_ok then
+      core.warn("File tree sync had issues, but connection established")
     end
+
+    -- 3. Set up local shadow directory (for compatibility)
+    local local_dir = USERDIR .. PATHSEP .. "codespaces"
+    system.mkdir(local_dir)
+    local_dir = local_dir .. PATHSEP .. cs.name
+    system.mkdir(local_dir)
 
     modal.active = false
     if #core.project_directories > 0 then
@@ -298,11 +403,31 @@ local function connect_codespace(cs)
     end
     core.add_project_directory(local_dir)
     core.set_project_dir(local_dir)
-    core.active_codespace = { name = cs.name, repo = repo_name, remote_dir = remote_dir, start_time = system.get_time() }
+    core.active_codespace = { 
+      name = cs.name, 
+      repo = repo_name, 
+      remote_dir = remote_dir, 
+      start_time = system.get_time(),
+      local_dir = local_dir
+    }
+    
+    core.log_quiet("Connected to codespace: %s", cs.name)
+    core.log_quiet("Remote directory: %s", remote_dir)
+    core.log_quiet("Local shadow: %s", local_dir)
+    
     local rm_ok, rm = pcall(require, "plugins.resource_monitor")
     if rm_ok and type(rm.restart) == "function" then rm.restart() end
     hook_lsp_for_codespace(cs.name, repo_name)
     core.redraw = true
+    
+    -- Start background maintenance tasks
+    core.add_thread(function()
+      while core.active_codespace and core.active_codespace.name == cs.name do
+        auto_reconnect()
+        process_sync_queue()
+        coroutine.yield(30) -- Check every 30 seconds
+      end
+    end)
   end)
 end
 
@@ -319,11 +444,45 @@ function Doc:save(...)
     core.add_thread(function()
       core.log_quiet("Syncing %s to Codespace...", rel_path)
       local remote_path = core.active_codespace.remote_dir and (core.active_codespace.remote_dir.."/"..rel_path) or ("/workspaces/"..core.active_codespace.repo.."/"..rel_path)
-      local success, err = run_cmd_sync({"gh", "cs", "cp", self.abs_filename, "remote:"..remote_path, "-c", core.active_codespace.name})
+      
+      -- If offline, add to sync queue
+      if state.metrics.offline_mode then
+        table.insert(state.metrics.sync_queue, {
+          type = "write",
+          remote_path = remote_path,
+          local_path = self.abs_filename,
+          timestamp = system.get_time()
+        })
+        core.log_quiet("Added to sync queue (offline mode): %s", rel_path)
+        self._codespace_syncing = false
+        return
+      end
+      
+      -- Write directly to remote via gh cs cp
+      local success, err = write_remote_file(remote_path, self.abs_filename)
       if success then
         core.log_quiet("Successfully synced %s", rel_path)
+        -- Update cache
+        local f = io.open(self.abs_filename, "r")
+        if f then
+          local content = f:read("*a")
+          f:close()
+          state.cache.file_content[remote_path] = {
+            content = content,
+            mtime = system.get_time(),
+            size = #content
+          }
+        end
       else
         core.error("Failed to sync %s to Codespace: %s", rel_path, tostring(err))
+        -- Add to sync queue on failure
+        table.insert(state.metrics.sync_queue, {
+          type = "write",
+          remote_path = remote_path,
+          local_path = self.abs_filename,
+          timestamp = system.get_time()
+        })
+        core.log_quiet("Added to sync queue (will retry): %s", rel_path)
       end
       self._codespace_syncing = false
     end)
@@ -449,9 +608,98 @@ function core.root_view:draw()
       
       local state_x = stop_x - style.font:get_width(state_text) - 15 * SCALE
       renderer.draw_text(style.font, state_text, state_x, iy + 10 * SCALE, state_color)
+      
+      -- Add connection status indicator if connected
+      if core.active_codespace and core.active_codespace.name == cs.name then
+        local conn_color = state.metrics.offline_mode and { 255, 150, 50, 255 } or { 100, 255, 100, 255 }
+        local conn_text = state.metrics.offline_mode and "OFFLINE" or "CONNECTED"
+        local conn_x = state_x - style.font:get_width(conn_text) - 15 * SCALE
+        renderer.draw_text(style.font, conn_text, conn_x, iy + 10 * SCALE, conn_color)
+      end
     end
   end
 end
+
+-- Cache management commands
+command.add(nil, {
+  ["codespaces:refresh-cache"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Refreshing file tree cache...")
+    local ok = sync_file_tree(core.active_codespace.remote_dir)
+    if ok then
+      core.log_quiet("Cache refreshed successfully")
+    else
+      core.error("Cache refresh failed")
+    end
+  end,
+  
+  ["codespaces:clear-cache"] = function()
+    invalidate_cache()
+    core.log_quiet("Cache cleared")
+  end,
+  
+  ["codespaces:connection-status"] = function()
+    if not core.active_codespace then
+      core.log_quiet("No codespace connected")
+      return
+    end
+    local ok = check_connection()
+    if ok then
+      core.log_quiet("SSH connection: OK (latency: %.0fms)", state.metrics.latency)
+    else
+      core.log_quiet("SSH connection: FAILED")
+    end
+    core.log_quiet("Cache size: %d files, %d content entries", 
+      #state.cache.file_tree, #state.cache.file_content)
+    core.log_quiet("Sync queue: %d pending operations", #state.metrics.sync_queue)
+    core.log_quiet("Offline mode: %s", state.metrics.offline_mode and "YES" or "NO")
+  end,
+  
+  ["codespaces:process-sync-queue"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Processing sync queue...")
+    process_sync_queue()
+  end,
+  
+  ["codespaces:force-reconnect"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Forcing reconnection...")
+    state.cache.connection.connected = false
+    local ok = check_connection()
+    if ok then
+      core.log_quiet("Reconnection successful")
+    else
+      core.error("Reconnection failed")
+    end
+  end,
+  
+  ["codespaces:open-remote-terminal"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Opening remote terminal...")
+    run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name})
+  end,
+  
+  ["codespaces:open-in-browser"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Opening codespace in browser...")
+    run_cmd_sync({"gh", "cs", "code", "-c", core.active_codespace.name})
+  end,
+})
 
 -- Intercept Events
 local old_on_event = core.on_event
