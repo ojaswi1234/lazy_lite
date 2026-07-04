@@ -483,7 +483,7 @@ local function connect_codespace(cs)
     core.log_quiet("Local shadow: %s", local_dir)
     
     local rm_ok, rm = pcall(require, "plugins.resource_monitor")
-    if rm_ok and type(rm.restart) == "function" then rm.restart() end
+    if rm_ok and type(rm) == "table" and type(rm.restart) == "function" then rm.restart() end
     hook_lsp_for_codespace(cs.name, repo_name)
     core.redraw = true
     
