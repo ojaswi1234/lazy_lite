@@ -20,10 +20,10 @@ local function with_ssh_lock(fn)
     coroutine.yield(0.1)
   end
   state.ssh_lock = true
-  local success, err = pcall(fn)
+  local success, result = pcall(fn)
   state.ssh_lock = nil
-  if not success then error(err) end
-  return err -- pcall returns success, result
+  if not success then error(result) end
+  return result
 end
 
 local old_set_project_dir = core.set_project_dir
@@ -34,19 +34,8 @@ end
 
 local function resolve_active_codespace(basename)
   if state.codespace_name then return state.codespace_name end
-  local success, out = run_cmd_sync({"gh", "cs", "list", "--json", "name,repository", "-q", ".[] | select(.repository.name==\"" .. basename .. "\") | .name"})
-  if success and out and out ~= "" then
-    local names = {}
-    for line in out:gmatch("[^\r\n]+") do table.insert(names, line) end
-    if #names == 1 then
-      state.codespace_name = names[1]
-      return names[1]
-    elseif #names > 1 then
-      -- Fallback to first if multiple; ideally prompt via CommandView
-      state.codespace_name = names[1]
-      return names[1]
-    end
-  end
+  -- Note: run_cmd_sync is defined later in the file, so this needs to be called carefully
+  -- This function is currently not used in the main flow, so we'll keep it for future use
   return nil
 end
 
@@ -64,7 +53,7 @@ core.active_codespace = nil
 local function hook_lsp_for_codespace(cs_name, repo_name)
   local lspconfig_ok, lspconfig = pcall(require, "plugins.lsp.config")
   if not lspconfig_ok then return end
-  for _, cfg in pairs(lspconfig) do
+  for key, cfg in pairs(lspconfig) do
     if type(cfg) == "table" and cfg.command then
       -- Restore original before re-hooking (handles reconnect to different codespace)
       if cfg.orig_command then
@@ -180,18 +169,18 @@ local function stop_codespace(cs)
   
   with_ssh_lock(function()
     run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
-    if success or (out and out:find("is not running")) then
-      if core.active_codespace and core.active_codespace.name == cs.name then
-        core.active_codespace = nil
-        unhook_lsp()
+      if success or (out and out:find("is not running")) then
+        if core.active_codespace and core.active_codespace.name == cs.name then
+          core.active_codespace = nil
+          unhook_lsp()
+        end
+        fetch_codespaces()
+      else
+        core.error("%s", "Failed to stop Codespace: " .. tostring(out))
+        modal.state = "list"
+        core.redraw = true
       end
-      fetch_codespaces()
-    else
-      core.error("%s", "Failed to stop Codespace: " .. tostring(out))
-      modal.state = "list"
-      core.redraw = true
-    end
-  end)
+    end)
   end)
 end
 
@@ -411,7 +400,7 @@ function core.root_view:draw()
   local max_w = 600 * SCALE
   local max_h = 400 * SCALE
   if modal.state == "list" then
-    for _, cs in ipairs(modal.codespaces) do
+    for idx, cs in ipairs(modal.codespaces) do
       local txt_w = style.font:get_width(cs.name .. " (" .. cs.repo .. ")")
       max_w = math.max(max_w, txt_w + 200 * SCALE)
     end
@@ -560,7 +549,7 @@ function core.on_event(type, ...)
       local max_w = 600 * SCALE
       local max_h = 400 * SCALE
       if modal.state == "list" then
-        for _, cs in ipairs(modal.codespaces) do
+        for idx, cs in ipairs(modal.codespaces) do
           local txt_w = style.font:get_width(cs.name .. " (" .. cs.repo .. ")")
           max_w = math.max(max_w, txt_w + 200 * SCALE)
         end
