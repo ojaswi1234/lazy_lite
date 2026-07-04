@@ -23,7 +23,7 @@ local function with_ssh_lock(fn)
   local success, result = pcall(fn)
   state.ssh_lock = nil
   if not success then error(result) end
-  return result
+  return true  -- Return true on successful lock acquisition and execution
 end
 
 local old_set_project_dir = core.set_project_dir
@@ -168,7 +168,7 @@ local function stop_codespace(cs)
   core.redraw = true
   
   core.add_thread(function()
-    local lock_result, lock_err = with_ssh_lock(function()
+    local lock_ok, lock_err = with_ssh_lock(function()
       run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
         if success or (out and out:find("is not running")) then
           if core.active_codespace and core.active_codespace.name == cs.name then
@@ -183,8 +183,8 @@ local function stop_codespace(cs)
         end
       end)
     end)
-    if not lock_result then
-      core.error("Failed to stop codespace: %s", lock_err or "unknown error")
+    if not lock_ok then
+      core.error("Failed to acquire SSH lock: %s", lock_err or "unknown error")
       modal.state = "list"
       core.redraw = true
     end
