@@ -219,19 +219,25 @@ local function connect_codespace(cs)
     local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"})
     local remote_dir = "/workspaces/" .. repo_name
     if dir_success and dir_out and dir_out ~= "" then
-      remote_dir = dir_out:match("[^\r\n]+") or remote_dir
+      -- Clean up the path, remove newlines and extra spaces
+      remote_dir = dir_out:gsub("[\r\n%s]+", "")
+      -- If it doesn't start with /workspaces, use the default
+      if not remote_dir:match("^/workspaces") then
+        remote_dir = "/workspaces/" .. repo_name
+      end
     end
 
+    core.log_quiet("Remote directory: %s", remote_dir)
     local abs_shadow_path = remote_dir .. "/shadow.tar.gz"
 
     -- 1. Prepare Remote Archive
     local tar_success, tar_err
-    local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude='.git' --exclude='node_modules' . ; echo \"TAR_READY:$?\""
+    local tar_script = "cd " .. remote_dir .. " && tar -czf shadow.tar.gz --exclude='.git' --exclude='node_modules' --exclude='.venv' --exclude='venv' --exclude='target' --exclude='.idea' --exclude='.vscode' --exclude='vendor' --exclude='__pycache__' --exclude='.pytest_cache' ."
     tar_success, tar_err = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "sh", "-c", tar_script})
     
-    if not tar_success or not tar_err or not tar_err:find("TAR_READY:0") then
-      core.warn("Remote archive preparation failed or warned: %s", tostring(tar_err))
-      -- Proceed anyway as per prompt "NOT core.error"
+    if not tar_success then
+      core.warn("Remote archive preparation failed: %s", tostring(tar_err))
+      -- Proceed anyway to see if file exists
     end
 
     -- 2. Probe existence
