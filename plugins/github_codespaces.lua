@@ -183,11 +183,20 @@ local function stop_codespace(cs)
   end)
 end
 
-local function run_cmd_sync(args)
+local function run_cmd_sync(args, timeout)
+  timeout = timeout or 30 -- Default 30 second timeout
   local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE})
   if not p then return false, "Failed to start process" end
   local out = ""
+  local start_time = system.get_time()
+  
   while p:returncode() == nil do
+    local elapsed = system.get_time() - start_time
+    if elapsed > timeout then
+      p:kill()
+      return false, "Command timeout after " .. timeout .. " seconds"
+    end
+    
     while true do
       local chunk = p:read_stdout(4096)
       if not chunk or chunk == "" then break end
@@ -198,7 +207,7 @@ local function run_cmd_sync(args)
       if not chunk or chunk == "" then break end
       out = out .. chunk
     end
-    coroutine.yield(0.1)
+    coroutine.yield(0.05) -- Reduced yield time for faster response
   end
   while true do
     local chunk = p:read_stdout(4096)
@@ -215,21 +224,15 @@ end
 
 -- Cache functions for SSH file operations
 local function get_remote_file_list(remote_path, cs_name)
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "ls", "-la", remote_path})
+  -- Use simple ls -1 for just file names, no directory detection for speed
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "ls", "-1", remote_path}, 15) -- 15 second timeout
   if not success then return nil, out end
   
   local files = {}
   for line in out:gmatch("[^\r\n]+") do
-    -- Parse ls -la output: -rw-r--r-- 1 user size date time filename
-    local parts = {}
-    for part in line:gmatch("%S+") do
-      table.insert(parts, part)
-    end
-    if #parts >= 9 then
-      local filename = parts[9]
-      local permissions = parts[1]
-      local file_type = permissions:sub(1,1) == "d" and "dir" or "file"
-      table.insert(files, { name = filename, type = file_type, raw_line = line })
+    if line ~= "" and line ~= "." and line ~= ".." then
+      -- Assume files for now, directory detection can be lazy-loaded
+      table.insert(files, { name = line, type = "file" })
     end
   end
   return files
@@ -249,10 +252,13 @@ end
 
 local function sync_file_tree(remote_path, cs_name, depth)
   depth = depth or 0
-  if depth > 3 then return true end -- Limit recursion depth initially
+  if depth > 1 then return true end -- Limit to just top-level directory initially
   
   local files, err = get_remote_file_list(remote_path, cs_name)
-  if not files then return false, err end
+  if not files then 
+    core.log_quiet("Failed to get file list for %s: %s", remote_path, tostring(err))
+    return false, err 
+  end
   
   state.cache.file_tree[remote_path] = {
     children = {},
@@ -269,10 +275,10 @@ local function sync_file_tree(remote_path, cs_name, depth)
     }
     table.insert(state.cache.file_tree[remote_path].children, full_path)
     
-    -- Recursively sync directories (limited depth)
-    if file.type == "dir" and file.name ~= "." and file.name ~= ".." then
-      sync_file_tree(full_path, cs_name, depth + 1)
-    end
+    -- Skip recursive sync for now - do lazy loading instead
+    -- if file.type == "dir" and file.name ~= "." and file.name ~= ".." then
+    --   sync_file_tree(full_path, cs_name, depth + 1)
+    -- end
   end
   
   return true
@@ -442,12 +448,14 @@ local function connect_codespace(cs)
       return
     end
 
-    -- 2. Sync file tree (cache population)
-    modal.loading_msg = "Caching file tree..."
+    -- 2. Sync file tree (cache population) - only top level for speed
+    modal.loading_msg = "Caching file tree (top level)..."
     core.redraw = true
     local sync_ok = sync_file_tree(remote_dir, cs.name)
     if not sync_ok then
       core.warn("File tree sync had issues, but connection established")
+    else
+      core.log_quiet("Cached %d files in top-level directory", #state.cache.file_tree[remote_dir].children)
     end
 
     -- 3. Set up local shadow directory (for compatibility)
