@@ -646,6 +646,7 @@ if status_view then
       return res
     end
   end
+end
 
 -- Keep original GitHub button in status bar
 core.status_view:add_item({
