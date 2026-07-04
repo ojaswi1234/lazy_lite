@@ -214,8 +214,8 @@ local function run_cmd_sync(args)
 end
 
 -- Cache functions for SSH file operations
-local function get_remote_file_list(remote_path)
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "ls", "-la", remote_path})
+local function get_remote_file_list(remote_path, cs_name)
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "ls", "-la", remote_path})
   if not success then return nil, out end
   
   local files = {}
@@ -235,23 +235,23 @@ local function get_remote_file_list(remote_path)
   return files
 end
 
-local function get_remote_file_content(remote_path)
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "cat", remote_path})
+local function get_remote_file_content(remote_path, cs_name)
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "cat", remote_path})
   if not success then return nil, out end
   return out
 end
 
-local function write_remote_file(remote_path, local_path)
+local function write_remote_file(remote_path, local_path, cs_name)
   -- Use gh cs cp for reliable file transfer
-  local success, out = run_cmd_sync({"gh", "cs", "cp", local_path, "remote:" .. remote_path, "-c", core.active_codespace.name})
+  local success, out = run_cmd_sync({"gh", "cs", "cp", local_path, "remote:" .. remote_path, "-c", cs_name})
   return success, out
 end
 
-local function sync_file_tree(remote_path, depth)
+local function sync_file_tree(remote_path, cs_name, depth)
   depth = depth or 0
   if depth > 3 then return true end -- Limit recursion depth initially
   
-  local files, err = get_remote_file_list(remote_path)
+  local files, err = get_remote_file_list(remote_path, cs_name)
   if not files then return false, err end
   
   state.cache.file_tree[remote_path] = {
@@ -271,17 +271,17 @@ local function sync_file_tree(remote_path, depth)
     
     -- Recursively sync directories (limited depth)
     if file.type == "dir" and file.name ~= "." and file.name ~= ".." then
-      sync_file_tree(full_path, depth + 1)
+      sync_file_tree(full_path, cs_name, depth + 1)
     end
   end
   
   return true
 end
 
-local function check_connection()
-  if not core.active_codespace then return false end
+local function check_connection(cs_name)
+  if not cs_name then return false end
   local start_time = system.get_time()
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "echo", "connected"})
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "echo", "connected"})
   local end_time = system.get_time()
   
   state.cache.connection.connected = success
@@ -305,12 +305,12 @@ local function auto_reconnect()
   -- Check every 30 seconds
   local time_since_check = system.get_time() - state.metrics.last_check
   if time_since_check > 30 then
-    local ok = check_connection()
+    local ok = check_connection(core.active_codespace.name)
     if not ok then
       core.log_quiet("Attempting auto-reconnect...")
       -- Clear connection state and retry
       state.cache.connection.connected = false
-      local retry_ok = check_connection()
+      local retry_ok = check_connection(core.active_codespace.name)
       if retry_ok then
         core.log_quiet("Auto-reconnect successful")
       else
@@ -321,11 +321,12 @@ local function auto_reconnect()
 end
 
 local function process_sync_queue()
+  if not core.active_codespace then return end
   if #state.metrics.sync_queue == 0 then return end
   
   for idx, op in ipairs(state.metrics.sync_queue) do
     if op.type == "write" then
-      local success, err = write_remote_file(op.remote_path, op.local_path)
+      local success, err = write_remote_file(op.remote_path, op.local_path, core.active_codespace.name)
       if success then
         core.log_quiet("Synced queued file: %s", op.remote_path)
         table.remove(state.metrics.sync_queue, idx)
@@ -347,25 +348,25 @@ local function invalidate_cache(path)
 end
 
 -- Remote resource monitoring
-local function get_remote_resources()
-  if not core.active_codespace then return end
+local function get_remote_resources(cs_name)
+  if not cs_name then return end
   
   -- Get CPU usage (simplified)
-  local cpu_success, cpu_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2}'"})
+  local cpu_success, cpu_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2}'"})
   if cpu_success and cpu_out then
     local cpu_val = cpu_out:match("(%d+%.?%d*)")
     state.metrics.resources.cpu = tonumber(cpu_val) or 0
   end
   
   -- Get memory usage
-  local mem_success, mem_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "free | grep Mem | awk '{print $3/$2 * 100.0}'"})
+  local mem_success, mem_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "free | grep Mem | awk '{print $3/$2 * 100.0}'"})
   if mem_success and mem_out then
     local mem_val = mem_out:match("(%d+%.?%d*)")
     state.metrics.resources.memory = tonumber(mem_val) or 0
   end
   
   -- Get disk usage
-  local disk_success, disk_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "df -h /workspaces | tail -1 | awk '{print $5}'"})
+  local disk_success, disk_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "df -h /workspaces | tail -1 | awk '{print $5}'"})
   if disk_success and disk_out then
     local disk_val = disk_out:match("(%d+)")
     state.metrics.resources.disk = tonumber(disk_val) or 0
@@ -373,29 +374,29 @@ local function get_remote_resources()
 end
 
 -- Git status monitoring
-local function get_git_status()
-  if not core.active_codespace then return end
+local function get_git_status(cs_name, remote_dir)
+  if not cs_name or not remote_dir then return end
   
   -- Get current branch
-  local branch_success, branch_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git branch --show-current"})
+  local branch_success, branch_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git branch --show-current"})
   if branch_success and branch_out then
     state.metrics.git_status.branch = branch_out:gsub("[\r\n%s]+", "")
   end
   
   -- Get changed files count
-  local changed_success, changed_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git status --porcelain | wc -l"})
+  local changed_success, changed_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git status --porcelain | wc -l"})
   if changed_success and changed_out then
     local changed_val = changed_out:match("(%d+)")
     state.metrics.git_status.changed_files = tonumber(changed_val) or 0
   end
   
   -- Get ahead/behind status
-  local ahead_success, ahead_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git rev-list --count @{u}..HEAD"})
+  local ahead_success, ahead_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git rev-list --count @{u}..HEAD"})
   if ahead_success and ahead_out then
     state.metrics.git_status.ahead = tonumber(ahead_out:gsub("[\r\n%s]+", "")) or 0
   end
   
-  local behind_success, behind_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git rev-list --count HEAD..@{u}"})
+  local behind_success, behind_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git rev-list --count HEAD..@{u}"})
   if behind_success and behind_out then
     state.metrics.git_status.behind = tonumber(behind_out:gsub("[\r\n%s]+", "")) or 0
   end
@@ -433,7 +434,7 @@ local function connect_codespace(cs)
     -- 1. Test connection
     modal.loading_msg = "Testing SSH connection..."
     core.redraw = true
-    local conn_ok = check_connection()
+    local conn_ok = check_connection(cs.name)
     if not conn_ok then
       core.error("Failed to establish SSH connection to codespace")
       modal.state = "list"
@@ -444,7 +445,7 @@ local function connect_codespace(cs)
     -- 2. Sync file tree (cache population)
     modal.loading_msg = "Caching file tree..."
     core.redraw = true
-    local sync_ok = sync_file_tree(remote_dir)
+    local sync_ok = sync_file_tree(remote_dir, cs.name)
     if not sync_ok then
       core.warn("File tree sync had issues, but connection established")
     end
@@ -483,8 +484,8 @@ local function connect_codespace(cs)
       while core.active_codespace and core.active_codespace.name == cs.name do
         auto_reconnect()
         process_sync_queue()
-        get_remote_resources()
-        get_git_status()
+        get_remote_resources(cs.name)
+        get_git_status(cs.name, core.active_codespace.remote_dir)
         coroutine.yield(30) -- Check every 30 seconds
       end
     end)
@@ -519,7 +520,7 @@ function Doc:save(...)
       end
       
       -- Write directly to remote via gh cs cp
-      local success, err = write_remote_file(remote_path, self.abs_filename)
+      local success, err = write_remote_file(remote_path, self.abs_filename, core.active_codespace.name)
       if success then
         core.log_quiet("Successfully synced %s", rel_path)
         -- Update cache
@@ -688,7 +689,7 @@ command.add(nil, {
       return
     end
     core.log_quiet("Refreshing file tree cache...")
-    local ok = sync_file_tree(core.active_codespace.remote_dir)
+    local ok = sync_file_tree(core.active_codespace.remote_dir, core.active_codespace.name)
     if ok then
       core.log_quiet("Cache refreshed successfully")
     else
@@ -706,7 +707,7 @@ command.add(nil, {
       core.log_quiet("No codespace connected")
       return
     end
-    local ok = check_connection()
+    local ok = check_connection(core.active_codespace.name)
     if ok then
       core.log_quiet("SSH connection: OK (latency: %.0fms)", state.metrics.latency)
     else
@@ -742,7 +743,7 @@ command.add(nil, {
     end
     core.log_quiet("Forcing reconnection...")
     state.cache.connection.connected = false
-    local ok = check_connection()
+    local ok = check_connection(core.active_codespace.name)
     if ok then
       core.log_quiet("Reconnection successful")
     else
@@ -773,6 +774,7 @@ command.add(nil, {
       core.error("No codespace connected")
       return
     end
+    get_remote_resources(core.active_codespace.name)
     core.log_quiet("Remote Resources:")
     core.log_quiet("  CPU: %.1f%%", state.metrics.resources.cpu)
     core.log_quiet("  Memory: %.1f%%", state.metrics.resources.memory)
@@ -785,7 +787,7 @@ command.add(nil, {
       return
     end
     core.log_quiet("Refreshing git status...")
-    get_git_status()
+    get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
     core.log_quiet("Git Status:")
     core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
     core.log_quiet("  Changed files: %d", state.metrics.git_status.changed_files)
@@ -802,7 +804,7 @@ command.add(nil, {
     local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git pull"})
     if success then
       core.log_quiet("Pull successful")
-      get_git_status()
+      get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
     else
       core.error("Pull failed: %s", tostring(out))
     end
@@ -817,7 +819,7 @@ command.add(nil, {
     local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git push"})
     if success then
       core.log_quiet("Push successful")
-      get_git_status()
+      get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
     else
       core.error("Push failed: %s", tostring(out))
     end
