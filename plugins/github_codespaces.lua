@@ -21,7 +21,9 @@ local state = {
     latency = 0,
     last_check = 0,
     sync_queue = {},
-    offline_mode = false
+    offline_mode = false,
+    resources = { cpu = 0, memory = 0, disk = 0 }, -- Remote resource usage
+    git_status = { branch = "", changed_files = 0, ahead = 0, behind = 0 }
   }
 }
 
@@ -343,6 +345,61 @@ local function invalidate_cache(path)
   end
 end
 
+-- Remote resource monitoring
+local function get_remote_resources()
+  if not core.active_codespace then return end
+  
+  -- Get CPU usage (simplified)
+  local cpu_success, cpu_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2}'"})
+  if cpu_success and cpu_out then
+    local cpu_val = cpu_out:match("(%d+%.?%d*)")
+    state.metrics.resources.cpu = tonumber(cpu_val) or 0
+  end
+  
+  -- Get memory usage
+  local mem_success, mem_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "free | grep Mem | awk '{print $3/$2 * 100.0}'"})
+  if mem_success and mem_out then
+    local mem_val = mem_out:match("(%d+%.?%d*)")
+    state.metrics.resources.memory = tonumber(mem_val) or 0
+  end
+  
+  -- Get disk usage
+  local disk_success, disk_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "df -h /workspaces | tail -1 | awk '{print $5}'"})
+  if disk_success and disk_out then
+    local disk_val = disk_out:match("(%d+)")
+    state.metrics.resources.disk = tonumber(disk_val) or 0
+  end
+end
+
+-- Git status monitoring
+local function get_git_status()
+  if not core.active_codespace then return end
+  
+  -- Get current branch
+  local branch_success, branch_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git branch --show-current"})
+  if branch_success and branch_out then
+    state.metrics.git_status.branch = branch_out:gsub("[\r\n%s]+", "")
+  end
+  
+  -- Get changed files count
+  local changed_success, changed_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git status --porcelain | wc -l"})
+  if changed_success and changed_out then
+    local changed_val = changed_out:match("(%d+)")
+    state.metrics.git_status.changed_files = tonumber(changed_val) or 0
+  end
+  
+  -- Get ahead/behind status
+  local ahead_success, ahead_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git rev-list --count @{u}..HEAD"})
+  if ahead_success and ahead_out then
+    state.metrics.git_status.ahead = tonumber(ahead_out:gsub("[\r\n%s]+", "")) or 0
+  end
+  
+  local behind_success, behind_out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git rev-list --count HEAD..@{u}"})
+  if behind_success and behind_out then
+    state.metrics.git_status.behind = tonumber(behind_out:gsub("[\r\n%s]+", "")) or 0
+  end
+end
+
 
 local function connect_codespace(cs)
   if cs.state ~= "Available" then
@@ -425,6 +482,8 @@ local function connect_codespace(cs)
       while core.active_codespace and core.active_codespace.name == cs.name do
         auto_reconnect()
         process_sync_queue()
+        get_remote_resources()
+        get_git_status()
         coroutine.yield(30) -- Check every 30 seconds
       end
     end)
@@ -493,22 +552,117 @@ end
 -- Add GitHub button to status bar
 local status_view = require "core.statusview"
 if status_view then
-  core.status_view:add_item({
-    name = "codespaces",
-    alignment = status_view.Item.RIGHT,
-    get_item = function()
-      local color = core.active_codespace and {100, 255, 100, 255} or (modal.active and style.accent or style.text)
-      local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
-      return { color, style.icon_font, "", style.font, text }
-    end,
-    command = function()
-      modal.active = not modal.active
-      if modal.active then
-        check_auth()
+  if status_view.get_items then
+    local old_items = status_view.get_items
+    function status_view:get_items()
+      local res = old_items(self)
+      if core.active_codespace then
+        -- Connection status widget
+        local conn_color = state.metrics.offline_mode and { 255, 150, 50, 255 } or { 100, 255, 100, 255 }
+        local conn_text = state.metrics.offline_mode and "⚠ OFFLINE" or "✓ Connected"
+        local latency_text = state.metrics.latency > 0 and string.format("%.0fms", state.metrics.latency) or ""
+        
+        table.insert(res, {
+          name = "codespace_status",
+          get = function()
+            return string.format("%s %s", conn_text, latency_text)
+          end,
+          tooltip = function()
+            return string.format("Codespace: %s\nLatency: %.0fms\nCache: %d files\nSync Queue: %d", 
+              core.active_codespace.name, state.metrics.latency, 
+              #state.cache.file_tree, #state.metrics.sync_queue)
+          end,
+          color = conn_color
+        })
+        
+        -- Resource monitoring widget
+        local cpu_color = state.metrics.resources.cpu > 80 and { 255, 100, 100, 255 } or { 100, 200, 255, 255 }
+        local mem_color = state.metrics.resources.memory > 80 and { 255, 100, 100, 255 } or { 100, 200, 255, 255 }
+        
+        table.insert(res, {
+          name = "resource_monitor",
+          get = function()
+            return string.format("CPU: %.0f%% MEM: %.0f%%", state.metrics.resources.cpu, state.metrics.resources.memory)
+          end,
+          tooltip = function()
+            return string.format("Remote Resources:\nCPU: %.1f%%\nMemory: %.1f%%\nDisk: %d%%", 
+              state.metrics.resources.cpu, state.metrics.resources.memory, state.metrics.resources.disk)
+          end,
+          color = { 150, 200, 255, 255 }
+        })
+        
+        -- Git status widget
+        if state.metrics.git_status.branch ~= "" then
+          local git_color = state.metrics.git_status.changed_files > 0 and { 255, 200, 100, 255 } or { 150, 200, 255, 255 }
+          local ahead_text = state.metrics.git_status.ahead > 0 and string.format("+%d", state.metrics.git_status.ahead) or ""
+          local behind_text = state.metrics.git_status.behind > 0 and string.format("-%d", state.metrics.git_status.behind) or ""
+          local changed_text = state.metrics.git_status.changed_files > 0 and string.format(" (%d)", state.metrics.git_status.changed_files) or ""
+          
+          table.insert(res, {
+            name = "git_status",
+            get = function()
+              return string.format("🌿 %s%s%s%s", state.metrics.git_status.branch, changed_text, ahead_text, behind_text)
+            end,
+            tooltip = function()
+              return string.format("Git Status:\nBranch: %s\nChanged: %d files\nAhead: %d commits\nBehind: %d commits", 
+                state.metrics.git_status.branch, state.metrics.git_status.changed_files, 
+                state.metrics.git_status.ahead, state.metrics.git_status.behind)
+            end,
+            color = git_color
+          })
+        end
+        
+        -- Sync queue indicator
+        if #state.metrics.sync_queue > 0 then
+          table.insert(res, {
+            name = "sync_queue",
+            get = function()
+              return string.format("📝 %d pending", #state.metrics.sync_queue)
+            end,
+            tooltip = function()
+              return string.format("%d files waiting to sync\nType: codespaces:process-sync-queue", #state.metrics.sync_queue)
+            end,
+            color = { 255, 200, 100, 255 }
+          })
+        end
+        
+        -- Session timer
+        local session_time = system.get_time() - core.active_codespace.start_time
+        local hours = math.floor(session_time / 3600)
+        local minutes = math.floor((session_time % 3600) / 60)
+        local time_text = hours > 0 and string.format("%dh %dm", hours, minutes) or string.format("%dm", minutes)
+        
+        table.insert(res, {
+          name = "session_timer",
+          get = function()
+            return string.format("⏱ %s", time_text)
+          end,
+          tooltip = function()
+            return "Session duration"
+          end,
+          color = { 150, 200, 255, 255 }
+        })
       end
+      return res
     end
-  })
-end
+  end
+
+-- Keep original GitHub button in status bar
+core.status_view:add_item({
+  name = "codespaces",
+  alignment = status_view.Item.RIGHT,
+  get_item = function()
+    local color = core.active_codespace and {100, 255, 100, 255} or (modal.active and style.accent or style.text)
+    local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
+    return { color, style.icon_font, "", style.font, text }
+  end,
+  command = function()
+    modal.active = not modal.active
+    if modal.active then
+      check_auth()
+    end
+  end
+})
 
 -- Hook drawing to render the floating modal
 local old_root_draw = core.root_view.draw
@@ -656,6 +810,14 @@ command.add(nil, {
       #state.cache.file_tree, #state.cache.file_content)
     core.log_quiet("Sync queue: %d pending operations", #state.metrics.sync_queue)
     core.log_quiet("Offline mode: %s", state.metrics.offline_mode and "YES" or "NO")
+    core.log_quiet("Remote Resources:")
+    core.log_quiet("  CPU: %.1f%%", state.metrics.resources.cpu)
+    core.log_quiet("  Memory: %.1f%%", state.metrics.resources.memory)
+    core.log_quiet("  Disk: %d%%", state.metrics.resources.disk)
+    core.log_quiet("Git Status:")
+    core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
+    core.log_quiet("  Changed: %d files", state.metrics.git_status.changed_files)
+    core.log_quiet("  Ahead: %d, Behind: %d", state.metrics.git_status.ahead, state.metrics.git_status.behind)
   end,
   
   ["codespaces:process-sync-queue"] = function()
@@ -698,6 +860,71 @@ command.add(nil, {
     end
     core.log_quiet("Opening codespace in browser...")
     run_cmd_sync({"gh", "cs", "code", "-c", core.active_codespace.name})
+  end,
+  
+  ["codespaces:show-resources"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Remote Resources:")
+    core.log_quiet("  CPU: %.1f%%", state.metrics.resources.cpu)
+    core.log_quiet("  Memory: %.1f%%", state.metrics.resources.memory)
+    core.log_quiet("  Disk: %d%%", state.metrics.resources.disk)
+  end,
+  
+  ["codespaces:refresh-git-status"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Refreshing git status...")
+    get_git_status()
+    core.log_quiet("Git Status:")
+    core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
+    core.log_quiet("  Changed files: %d", state.metrics.git_status.changed_files)
+    core.log_quiet("  Ahead: %d commits", state.metrics.git_status.ahead)
+    core.log_quiet("  Behind: %d commits", state.metrics.git_status.behind)
+  end,
+  
+  ["codespaces:git-pull"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Pulling from remote...")
+    local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git pull"})
+    if success then
+      core.log_quiet("Pull successful")
+      get_git_status()
+    else
+      core.error("Pull failed: %s", tostring(out))
+    end
+  end,
+  
+  ["codespaces:git-push"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Pushing to remote...")
+    local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git push"})
+    if success then
+      core.log_quiet("Push successful")
+      get_git_status()
+    else
+      core.error("Push failed: %s", tostring(out))
+    end
+  end,
+  
+  ["codespaces:run-command"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Opening command input...")
+    -- This would need a UI for command input - for now just open terminal
+    run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name})
   end,
 })
 
