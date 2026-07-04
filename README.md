@@ -1,6 +1,6 @@
 # 🍃 LazyLite
 
-LazyLite is a highly customized, portable configuration for [Lite-XL](https://lite-xl.com/). It transforms the lightweight editor into a modern, beautifully themed, VS Code-like powerhouse with an integrated terminal, a custom Git status bar, and an incredibly powerful built-in AI coding assistant (Antigravity).
+LazyLite is a highly customized, portable configuration for [Lite-XL](https://lite-xl.com/). It transforms the lightweight editor into a modern, beautifully themed, VS Code-like powerhouse with an integrated terminal, a custom Git status bar, an incredibly powerful built-in AI coding assistant (Antigravity), and comprehensive GitHub Codespaces integration for remote development.
 
 Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed to be elegant, extremely fast, and easy to deploy across any OS.
 
@@ -23,6 +23,7 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 - **Auto-Close Brackets**: Automatically closes `{}`, `[]`, `()`, `""`, `''`, and ` `` `. Steps over existing closing pairs instead of duplicating them, wraps highlighted selections when you type a bracket, and smart-deletes empty pairs on Backspace.
 - **Integrated Terminal**: Native command runner featuring a shell selector dropdown (cmd/powershell/bash), bold headlined titles, robust cursor movement, full text selection with the mouse, clipboard copying via `Ctrl+Shift+C`, VS Code-style `Up`/`Down` command history, visual screen clearing (`cls`/`clear`), and ultra-fast 64KB chunked IPC buffering that will never lag the editor.
 - **Real-Time Resource Monitor**: A gorgeous, animated CPU and RAM sparkline chart injected directly into the top-right of your window titlebar. Cross-platform: uses PowerShell WMI on Windows and `/proc/stat` + `free` on Linux.
+- **GitHub Codespaces Integration**: Comprehensive remote development environment with hybrid SSH + cache architecture, real-time resource monitoring, git integration, and offline resilience.
 
 ---
 
@@ -47,6 +48,17 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 | :--- | :--- |
 | `Auto Healer: Approve Fix` | Sends approval to the AI to apply the suggested fix |
 | `Auto Healer: Run agy install` | Opens terminal and runs `agy install` to set up the CLI |
+| `codespaces:refresh-cache` | Refresh file tree cache from remote |
+| `codespaces:clear-cache` | Clear all cached data |
+| `codespaces:connection-status` | Show detailed connection metrics and resources |
+| `codespaces:process-sync-queue` | Manually process queued sync operations |
+| `codespaces:force-reconnect` | Force reconnection attempt |
+| `codespaces:open-remote-terminal` | Open SSH terminal to codespace |
+| `codespaces:open-in-browser` | Open codespace in VS Code web |
+| `codespaces:show-resources` | Display remote resource usage |
+| `codespaces:refresh-git-status` | Refresh git status manually |
+| `codespaces:git-pull` | Pull from remote repository |
+| `codespaces:git-push` | Push to remote repository |
 
 ---
 
@@ -104,9 +116,83 @@ If you wish to remove LazyLite and revert to the default Lite-XL experience, nav
 
 *After running the uninstall script, you will need to manually open your `init.lua` (`~/.config/lite-xl/init.lua`) and delete the 6 lines under the `-- [[ LazyLite Configuration ]]` block.*
 
-## Remote Dev
+---
 
-New commands added for Codespaces:
-- **Connect / Start**: Auto-resolves workspace directory by basename match and extracts archive securely.
-- **LSP Bridge**: Features deep SSH tunnel translation for local-to-remote LSP communication.
+## Remote Development with GitHub Codespaces
 
+LazyLite features a comprehensive GitHub Codespaces integration that transforms your local Lite-XL editor into a powerful remote development environment.
+
+### Core Architecture
+
+**Hybrid SSH + Cache System:**
+- **Instant Connection**: No more slow tar downloads - uses direct SSH operations with intelligent caching
+- **File Tree Caching**: Remote directory structure cached locally for instant file explorer navigation
+- **Content Caching**: Recently accessed files cached for instant read operations
+- **Background Refresh**: Automatic cache updates every 30 seconds
+- **Offline Resilience**: Operation queuing when connection drops, automatic sync on reconnection
+
+**Connection Management:**
+- **Auto-Reconnect**: Automatically recovers from SSH connection drops
+- **Latency Monitoring**: Real-time connection latency tracking
+- **Connection Health**: Background health checks every 30 seconds
+- **Offline Mode**: Graceful degradation with queued operations
+
+### Remote Resource Monitoring
+
+**Real-Time Resource Tracking:**
+- **CPU Usage**: Monitor remote codespace CPU utilization
+- **Memory Usage**: Track remote memory consumption  
+- **Disk Usage**: Monitor workspace disk space
+- **Status Bar Integration**: Real-time resource widgets in status bar
+- **Automatic Updates**: Background monitoring every 30 seconds
+
+### Git Integration
+
+**Remote Git Operations:**
+- **Branch Tracking**: Real-time current branch display
+- **Changed Files**: Count of modified files in working directory
+- **Sync Status**: Ahead/behind commit tracking
+- **Git Pull/Push**: Direct remote git operations via commands
+- **Status Bar Widget**: Live git status with branch and sync indicators
+
+### Workflow Features
+
+**Session Tracking:**
+- **Session Timer**: Track work duration in status bar
+- **Connection Status**: Visual indicators (Connected/Offline)
+- **Sync Queue**: Pending operation counter
+- **Latency Display**: Real-time connection speed
+
+**File Sync:**
+- **Automatic Sync**: Files automatically synced to codespace on save
+- **Queue System**: Failed operations queued for retry
+- **Conflict Resolution**: Smart handling of sync conflicts
+- **Progress Indicators**: Visual feedback during sync operations
+
+### LSP Integration
+
+**Remote LSP Proxy:**
+- **SSH Tunnel**: LSP communication routed through SSH to remote codespace
+- **Path Translation**: Automatic local-to-remote path conversion
+- **Language Servers**: Uses codespace's own language servers
+- **IntelliSense**: Full remote code completion and diagnostics
+- **Error Handling**: Graceful handling of LSP connection issues
+
+### Status Bar Widgets
+
+When connected to a codespace, the status bar displays:
+- **Connection Status**: "✓ Connected" or "⚠ OFFLINE" with latency
+- **Resource Monitor**: CPU and memory usage percentages
+- **Git Status**: Branch name with changed files count and sync status
+- **Sync Queue**: Pending operations counter (when queue has items)
+- **Session Timer**: Work duration tracking
+
+### Benefits
+
+- **Instant Connection**: No waiting for large file downloads
+- **Always Fresh**: Direct access to latest remote files
+- **Offline Capability**: Continue working during connection drops
+- **Resource Awareness**: Monitor codespace performance
+- **Git Awareness**: Real-time git status without terminal
+- **Seamless Integration**: Works with existing Lite-XL features including LSP and AI sidebar
+- **Antigravity Compatibility**: AI CLI works perfectly with remote files via path translation
