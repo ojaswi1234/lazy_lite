@@ -9,6 +9,30 @@ local PATHSEP = PATHSEP or package.config:sub(1,1)
 local USERDIR = USERDIR or core.userdir or (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.config/lite-xl"
 local STOP_ICON = "ï"
 
+-- Lazy load loader_games to avoid circular dependency issues
+local loader_games = nil
+local function get_loader()
+  if not loader_games then
+    local ok, loader = pcall(require, "plugins.loader_games")
+    if ok then
+      loader_games = loader
+    end
+  end
+  return loader_games
+end
+
+-- Virtual File System for codespaces (VS Code-style approach)
+local VFS = nil
+local function get_vfs()
+  if not VFS then
+    local ok, vfs = pcall(require, "plugins.virtual_codespace_fs")
+    if ok then
+      VFS = vfs
+    end
+  end
+  return VFS
+end
+
 
 local state = {
   codespace_name = nil,
@@ -20,6 +44,7 @@ local state = {
   metrics = {
     latency = 0,
     last_check = 0,
+    poll_interval = 10,
     sync_queue = {},
     offline_mode = false,
     resources = { cpu = 0, memory = 0, disk = 0 }, -- Remote resource usage
@@ -50,6 +75,13 @@ local modal = {
 }
 
 core.active_codespace = nil
+
+local function restart_resource_monitor()
+  local rm_ok, rm = pcall(require, "plugins.resource_monitor")
+  if rm_ok and type(rm) == "table" and type(rm.restart) == "function" then
+    rm.restart()
+  end
+end
 
 local function hook_lsp_for_codespace(cs_name, repo_name)
   local lspconfig_ok, lspconfig = pcall(require, "plugins.lsp.config")
@@ -107,7 +139,7 @@ local function run_gh_async(args, on_complete)
         if on_complete then on_complete(false, "gh command timed out after " .. GH_ASYNC_TIMEOUT .. "s") end
         return
       end
-      coroutine.yield(0.1)
+      coroutine.yield(0.01) -- 10ms yield for smooth 60fps UI
     end
     out = out .. (p:read_stdout(2048) or "") .. (p:read_stderr(2048) or "")
     if on_complete then on_complete(p:returncode() == 0, out) end
@@ -115,7 +147,7 @@ local function run_gh_async(args, on_complete)
 end
 
 local function fetch_codespaces()
-  modal.state = "loading"
+  modal.state = "fetching"
   modal.loading_msg = "Fetching your active Codespaces..."
   core.redraw = true
   run_gh_async({"gh", "cs", "list", "--json", "name,repository,state"}, function(success, out)
@@ -171,8 +203,18 @@ local function stop_codespace(cs)
   run_gh_async({"gh", "cs", "stop", "-c", cs.name}, function(success, out)
     if success or (out and out:find("is not running")) then
       if core.active_codespace and core.active_codespace.name == cs.name then
+        local orig = core.active_codespace.original_dir
         core.active_codespace = nil
         unhook_lsp()
+        restart_resource_monitor()
+        if orig then
+          if type(core.open_project) == "function" then
+            core.open_project(orig)
+          else
+            core.set_project_dir(orig)
+            core.add_project_directory(orig)
+          end
+        end
       end
       fetch_codespaces()
     else
@@ -207,7 +249,7 @@ local function run_cmd_sync(args, timeout)
       if not chunk or chunk == "" then break end
       out = out .. chunk
     end
-    coroutine.yield(0.05) -- Reduced yield time for faster response
+    coroutine.yield(0.01) -- 10ms yield to allow 60FPS+ for game loader
   end
   while true do
     local chunk = p:read_stdout(4096)
@@ -222,10 +264,49 @@ local function run_cmd_sync(args, timeout)
   return p:returncode() == 0, out
 end
 
+-- Blocking version of run_cmd_sync — no coroutine.yield, safe to call from
+-- the main thread (e.g. Doc:load). Busy-waits but only for individual file
+-- fetches which are typically fast (<500ms).
+local function run_cmd_blocking(args, timeout)
+  timeout = timeout or 30
+  local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE})
+  if not p then return false, "Failed to start process" end
+  local out = ""
+  local start_time = system.get_time()
+  while p:returncode() == nil do
+    if system.get_time() - start_time > timeout then
+      p:kill()
+      return false, "Timeout"
+    end
+    out = out .. (p:read_stdout(16384) or "") .. (p:read_stderr(16384) or "")
+  end
+  out = out .. (p:read_stdout(65536) or "") .. (p:read_stderr(65536) or "")
+  return p:returncode() == 0, out
+end
+
+-- Auto-selects yielding vs blocking based on whether we're in a coroutine.
+local function run_cmd_auto(args, timeout)
+  if coroutine.running() then
+    return run_cmd_sync(args, timeout)
+  else
+    return run_cmd_blocking(args, timeout)
+  end
+end
+
+local function shell_quote(value)
+  value = tostring(value or "")
+  return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+
+local function build_remote_workdir_command(remote_dir, cmd)
+  local inner_cmd = string.format("cd '%s' && %s", remote_dir, cmd)
+  return "'" .. inner_cmd:gsub("'", "'\\''") .. "'"
+end
+
 -- Cache functions for SSH file operations
 local function get_remote_file_list(remote_path, cs_name)
   -- Use simple ls -1 for just file names, no directory detection for speed
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "ls", "-1", remote_path}, 15) -- 15 second timeout
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "ls", "-1", remote_path}, 45) -- 45 second timeout for cold SSH
   if not success then return nil, out end
   
   local files = {}
@@ -239,7 +320,8 @@ local function get_remote_file_list(remote_path, cs_name)
 end
 
 local function get_remote_file_content(remote_path, cs_name)
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "cat", remote_path})
+  -- Uses run_cmd_auto so it works both inside coroutines and from Doc:load
+  local success, out = run_cmd_auto({"gh", "cs", "ssh", "-c", cs_name, "--", "cat", remote_path}, 30)
   if not success then return nil, out end
   return out
 end
@@ -248,6 +330,73 @@ local function write_remote_file(remote_path, local_path, cs_name)
   -- Use gh cs cp for reliable file transfer
   local success, out = run_cmd_sync({"gh", "cs", "cp", local_path, "remote:" .. remote_path, "-c", cs_name})
   return success, out
+end
+
+-- VS Code-style approach: instead of bulk-downloading the workspace, we
+-- just create a skeleton of directories + empty placeholder files locally
+-- so the treeview can show the tree. File content is fetched on-demand
+-- when the user opens a file (see Doc:load hook below).
+local function populate_shadow_structure(cs_name, remote_dir, local_dir, on_progress)
+  -- Windows' scp.exe (used by `gh cs cp --recursive`) cannot resolve Linux
+  -- remote directory paths. We work around this with a 3-step tar approach:
+  --   1. tar the workspace on the remote into a single .tar.gz in /tmp
+  --   2. gh cs cp to pull that one file (single-file scp works fine)
+  --   3. Extract locally with Windows' built-in tar (ships with Win10+)
+
+  -- Step 1: get all directories (fast — just mkdir locally, no content)
+  if on_progress then on_progress("Scanning remote directories...", 30) end
+  local ok_d, out_d = run_cmd_sync(
+    {"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c",
+     "find '" .. remote_dir .. "' -maxdepth 6 -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -type d 2>/dev/null || true"},
+    240
+  )
+
+  local dir_count = 0
+  if out_d then
+    for path in out_d:gmatch("[^\r\n]+") do
+      if path ~= "" and path:find(remote_dir, 1, true) == 1 then
+        local rel = path:sub(#remote_dir + 1):gsub("/", PATHSEP)
+        if rel ~= "" then
+          system.mkdir(local_dir .. rel)
+          dir_count = dir_count + 1
+        end
+      end
+    end
+  end
+
+  -- Step 2: get all files — create empty placeholder files (0 bytes)
+  -- Content is fetched on-demand when the user opens the file.
+  if on_progress then on_progress(string.format("Creating %d placeholder files...", dir_count), 60) end
+  local ok_f, out_f = run_cmd_sync(
+    {"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c",
+     "find '" .. remote_dir .. "' -maxdepth 6 -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -type f 2>/dev/null || true"},
+    240
+  )
+
+  local file_count = 0
+  if out_f then
+    for path in out_f:gmatch("[^\r\n]+") do
+      if path ~= "" and path:find(remote_dir, 1, true) == 1 then
+        local rel = path:sub(#remote_dir + 1):gsub("/", PATHSEP)
+        if rel ~= "" then
+          local local_path = local_dir .. rel
+          -- Empty placeholder — content fetched on open
+          local f = io.open(local_path, "wb")
+          if f then f:close() end
+          -- Store remote path in cache for on-demand lookup
+          state.cache.file_tree[local_path] = path  -- local → remote
+          file_count = file_count + 1
+        end
+      end
+    end
+  end
+
+  if file_count == 0 and not ok_d then
+    return false, "Could not read remote directory (dirs): " .. tostring(out_d) .. " (files): " .. tostring(out_f)
+  end
+
+  core.log_quiet("[Codespaces] Shadow: %d dirs, %d placeholder files", dir_count, file_count)
+  return true
 end
 
 local function sync_file_tree(remote_path, cs_name, depth)
@@ -287,7 +436,7 @@ end
 local function check_connection(cs_name)
   if not cs_name then return false end
   local start_time = system.get_time()
-  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "echo", "connected"}, 10) -- 10 second timeout for connection test
+  local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "echo", "connected"}, 30) -- 30 second timeout for cold SSH
   local end_time = system.get_time()
   
   state.cache.connection.connected = success
@@ -331,7 +480,8 @@ local function process_sync_queue()
   if not core.active_codespace then return end
   if #state.metrics.sync_queue == 0 then return end
   
-  for idx, op in ipairs(state.metrics.sync_queue) do
+  for idx = #state.metrics.sync_queue, 1, -1 do
+    local op = state.metrics.sync_queue[idx]
     if op.type == "write" then
       local success, err = write_remote_file(op.remote_path, op.local_path, core.active_codespace.name)
       if success then
@@ -363,6 +513,8 @@ local function get_remote_resources(cs_name)
   if cpu_success and cpu_out then
     local cpu_val = cpu_out:match("(%d+%.?%d*)")
     state.metrics.resources.cpu = tonumber(cpu_val) or 0
+  else
+    state.metrics.resources.cpu = 0
   end
   
   -- Get memory usage
@@ -370,6 +522,8 @@ local function get_remote_resources(cs_name)
   if mem_success and mem_out then
     local mem_val = mem_out:match("(%d+%.?%d*)")
     state.metrics.resources.memory = tonumber(mem_val) or 0
+  else
+    state.metrics.resources.memory = 0
   end
   
   -- Get disk usage
@@ -377,6 +531,8 @@ local function get_remote_resources(cs_name)
   if disk_success and disk_out then
     local disk_val = disk_out:match("(%d+)")
     state.metrics.resources.disk = tonumber(disk_val) or 0
+  else
+    state.metrics.resources.disk = 0
   end
 end
 
@@ -388,6 +544,8 @@ local function get_git_status(cs_name, remote_dir)
   local branch_success, branch_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git branch --show-current"})
   if branch_success and branch_out then
     state.metrics.git_status.branch = branch_out:gsub("[\r\n%s]+", "")
+  else
+    state.metrics.git_status.branch = ""
   end
   
   -- Get changed files count
@@ -395,17 +553,23 @@ local function get_git_status(cs_name, remote_dir)
   if changed_success and changed_out then
     local changed_val = changed_out:match("(%d+)")
     state.metrics.git_status.changed_files = tonumber(changed_val) or 0
+  else
+    state.metrics.git_status.changed_files = 0
   end
   
   -- Get ahead/behind status
   local ahead_success, ahead_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git rev-list --count @{u}..HEAD"})
   if ahead_success and ahead_out then
     state.metrics.git_status.ahead = tonumber(ahead_out:gsub("[\r\n%s]+", "")) or 0
+  else
+    state.metrics.git_status.ahead = 0
   end
   
   local behind_success, behind_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git rev-list --count HEAD..@{u}"})
   if behind_success and behind_out then
     state.metrics.git_status.behind = tonumber(behind_out:gsub("[\r\n%s]+", "")) or 0
+  else
+    state.metrics.git_status.behind = 0
   end
 end
 
@@ -422,138 +586,201 @@ local function connect_codespace(cs)
   end
 
   local repo_name = cs.repo:match("[^/]+$") or cs.repo
+  local original_dir = core.project_dir
 
   core.add_thread(function()
-    -- 0. Get remote workspace directory
-    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"})
+    -- Step 0: Get remote workspace directory.
+    -- This is the ONLY initial SSH probe — it also acts as the wake-up call
+    -- for sleeping codespaces. Timeout is 240s so cold starts (60s+ wake time)
+    -- have enough budget. All other steps piggyback on the now-open connection.
+    modal.loading_msg = "Waking up codespace / connecting..."
+    local loader = get_loader()
+    if loader then loader.start(modal.loading_msg) end
+    core.redraw = true
+    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"}, 240)
     local remote_dir = "/workspaces/" .. repo_name
     if dir_success and dir_out and dir_out ~= "" then
-      -- Clean up the path, remove newlines and extra spaces
       remote_dir = dir_out:gsub("[\r\n%s]+", "")
-      -- If it doesn't start with /workspaces, use the default
       if not remote_dir:match("^/workspaces") then
         remote_dir = "/workspaces/" .. repo_name
       end
+    elseif not dir_success then
+      -- Cold-start SSH can time out even at 120s on heavily loaded infra.
+      -- Fall back to the default path and keep going — populate_shadow_structure
+      -- will retry the connection with its own find calls.
+      core.warn("[Codespaces] Initial SSH probe timed out — using default path and retrying...")
+      local loader = get_loader()
+      if loader then loader.update_progress("Probe timeout, using default...", 10) end
     end
 
     core.log_quiet("Remote directory: %s", remote_dir)
-    
-    -- 1. Test connection with fallback
-    modal.loading_msg = "Testing SSH connection..."
-    core.redraw = true
-    local conn_ok = check_connection(cs.name)
-    if not conn_ok then
-      core.warn("SSH connection test failed, but continuing...")
-      -- Don't fail hard on connection test - try to proceed anyway
-      -- modal.state = "list"
-      -- core.redraw = true
-      -- return
-    end
 
-    -- 2. Sync file tree (cache population) - only top level for speed
-    modal.loading_msg = "Caching file tree (top level)..."
-    core.redraw = true
-    local sync_ok = sync_file_tree(remote_dir, cs.name)
-    if not sync_ok then
-      core.warn("File tree sync had issues, but connection established")
+    -- NEW: VS Code-style approach - use Virtual File System
+    -- Hybrid: creates local file structure quickly (empty files) but fetches content on-demand
+    -- Much faster than the old find-based approach
+    
+    local loader = get_loader()
+    if loader then loader.update_progress("Activating virtual filesystem...", 40) end
+    
+    -- Activate VFS with progress callback
+    local vfs = get_vfs()
+    if vfs then
+      local local_dir = USERDIR .. PATHSEP .. "codespaces" .. PATHSEP .. cs.name
+      system.mkdir(local_dir)
+      
+      local function set_progress(msg, pct)
+        modal.loading_msg = msg
+        if loader then loader.update_progress(msg, pct) end
+        core.redraw = true
+      end
+      
+      vfs.activate(cs.name, remote_dir, local_dir, set_progress)
+      
+      if loader then loader.update_progress("Connected! (Virtual FS active)", 100) end
+      coroutine.yield(1.5) -- Brief celebration
     else
-      core.log_quiet("Cached %d files in top-level directory", #state.cache.file_tree[remote_dir].children)
+      core.error("Failed to load Virtual File System")
+      if loader then loader.set_error("VFS initialization failed") end
+      coroutine.yield(2)
     end
 
-    -- 3. Set up local shadow directory (for compatibility)
-    local local_dir = USERDIR .. PATHSEP .. "codespaces"
-    system.mkdir(local_dir)
-    local_dir = local_dir .. PATHSEP .. cs.name
-    system.mkdir(local_dir)
-
+    if loader then loader.stop() end
     modal.active = false
-    if #core.project_directories > 0 then
-      for i = #core.project_directories, 1, -1 do core.remove_project_directory(core.project_directories[i]) end
+
+    -- Switch to local directory (for compatibility, but operations go through VFS)
+    local local_dir = USERDIR .. PATHSEP .. "codespaces" .. PATHSEP .. cs.name
+    if type(core.open_project) == "function" then
+      core.open_project(local_dir)
+    else
+      -- Manual project switch for older Lite-XL builds
+      -- Close all open documents first
+      for _, node in ipairs(core.root_view.root_node:get_children()) do
+        if node.doc then
+          pcall(function() node:close() end)
+        end
+      end
+      -- Clear existing project directories (use pcall since the API varies)
+      if core.project_directories then
+        for i = #core.project_directories, 1, -1 do
+          pcall(function()
+            local pd = core.project_directories[i]
+            if type(pd) == "table" then
+              core.remove_project_directory(pd.name or pd)
+            elseif type(pd) == "string" then
+              core.remove_project_directory(pd)
+            end
+          end)
+        end
+      end
+      core.set_project_dir(local_dir)
+      core.add_project_directory(local_dir)
     end
-    core.add_project_directory(local_dir)
-    core.set_project_dir(local_dir)
-    core.active_codespace = { 
-      name = cs.name, 
-      repo = repo_name, 
-      remote_dir = remote_dir, 
+
+    core.active_codespace = {
+      name = cs.name,
+      repo = repo_name,
+      remote_dir = remote_dir,
       start_time = system.get_time(),
-      local_dir = local_dir
+      local_dir = local_dir,
+      original_dir = original_dir
     }
-    
+
     core.log_quiet("Connected to codespace: %s", cs.name)
     core.log_quiet("Remote directory: %s", remote_dir)
-    core.log_quiet("Local shadow: %s", local_dir)
-    
-    local rm_ok, rm = pcall(require, "plugins.resource_monitor")
-    if rm_ok and type(rm) == "table" and type(rm.restart) == "function" then rm.restart() end
-    hook_lsp_for_codespace(cs.name, repo_name)
-    core.redraw = true
-    
-    -- Start background maintenance tasks
+    core.log_quiet("Local directory: %s (Virtual FS active)", local_dir)
+
+    -- Make treeview visible and force a full refresh so it shows the new files
     core.add_thread(function()
-      while core.active_codespace and core.active_codespace.name == cs.name do
-        auto_reconnect()
-        process_sync_queue()
-        get_remote_resources(cs.name)
-        get_git_status(cs.name, core.active_codespace.remote_dir)
-        coroutine.yield(30) -- Check every 30 seconds
-      end
+      coroutine.yield(0.1) -- let the project switch settle
+      -- Show treeview
+      pcall(function()
+        command.perform("treeview:toggle")
+        command.perform("treeview:refresh")
+      end)
     end)
+
+    -- Hook LSP for codespace
+    hook_lsp_for_codespace(cs.name, repo_name)
+    
+    -- Restart resource monitor
+    restart_resource_monitor()
   end)
 end
 
--- Hook saving to auto-sync to codespace
+-- ── VS Code-style on-demand file fetching via VFS ─────────────────────────────
+-- When the user opens a file that is an empty placeholder (0 bytes), we fetch the real
+-- content on-demand over SSH — exactly like VS Code's readFile RPC.
+--
+-- CRITICAL: Doc:load(filename) is called with a RELATIVE path (e.g. "fix_db.py").
+-- Lite-XL's core.open_doc() calls Doc:new(relative, abs_filename) which:
+--   1. calls self:set_filename(relative, absolute)  ← sets self.abs_filename
+--   2. calls self:load(relative)                    ← OUR HOOK fires here
+-- So self.abs_filename is already populated when our hook runs.
+-- We must use self.abs_filename (absolute) for VFS path checks, NOT the
+-- filename argument (which is project-relative and will never match VFS.local_dir).
 local Doc = require "core.doc"
+local _orig_doc_load = Doc.load
+function Doc:load(filename)
+  local vfs = get_vfs()
+  -- Use the absolute path that was already set by Doc:new → set_filename
+  -- Fall back to filename only if abs_filename isn't set yet (edge case)
+  local abs_path = self.abs_filename or filename
+
+  if vfs and vfs.active and abs_path and vfs.is_virtual_path(abs_path) then
+    local info = system.get_file_info(abs_path)
+    -- Only fetch if this is still a 0-byte placeholder
+    if info and info.size == 0 then
+      if not self._vfs_fetching then
+        self._vfs_fetching = true
+        core.log_quiet("[VFS] Async fetch started: %s", abs_path)
+        
+        -- Run the fetch in a coroutine so the UI doesn't freeze
+        core.add_thread(function()
+          local content = vfs.read_file(abs_path)
+          if content and #content > 0 then
+            -- Write fetched bytes to the local placeholder so the editor reads real content
+            local fh = io.open(abs_path, "wb")
+            if fh then
+              fh:write(content)
+              fh:close()
+              core.log_quiet("[VFS] Wrote %d bytes for: %s", #content, abs_path)
+            end
+            -- Reload the document content in the editor
+            self:reload()
+          else
+            core.warn("[VFS] Failed to fetch (or empty file): %s", abs_path)
+          end
+          self._vfs_fetching = false
+        end)
+      end
+      -- Fall through immediately so the UI doesn't block. 
+      -- The file will open empty, and populate once the async fetch finishes.
+    end
+  end
+  return _orig_doc_load(self, filename)
+end
+
+-- Hook saving to auto-sync to codespace via VFS
 local old_save = Doc.save
 function Doc:save(...)
+  if self._vfs_fetching then
+    core.warn("[VFS] Cannot save while still fetching file from Codespace.")
+    return false
+  end
   local res = old_save(self, ...)
-  if core.active_codespace and core.project_dir and self.abs_filename and self.abs_filename:find(core.project_dir, 1, true) == 1 then
-    local rel_path = self.abs_filename:sub(#core.project_dir + 2)
-    rel_path = rel_path:gsub("\\", "/")
+  local vfs = get_vfs()
+  if vfs and vfs.active and self.abs_filename and vfs.is_virtual_path(self.abs_filename) then
     if self._codespace_syncing then return res end
     self._codespace_syncing = true
+
     core.add_thread(function()
-      core.log_quiet("Syncing %s to Codespace...", rel_path)
-      local remote_path = core.active_codespace.remote_dir and (core.active_codespace.remote_dir.."/"..rel_path) or ("/workspaces/"..core.active_codespace.repo.."/"..rel_path)
-      
-      -- If offline, add to sync queue
-      if state.metrics.offline_mode then
-        table.insert(state.metrics.sync_queue, {
-          type = "write",
-          remote_path = remote_path,
-          local_path = self.abs_filename,
-          timestamp = system.get_time()
-        })
-        core.log_quiet("Added to sync queue (offline mode): %s", rel_path)
-        self._codespace_syncing = false
-        return
-      end
-      
-      -- Write directly to remote via gh cs cp
-      local success, err = write_remote_file(remote_path, self.abs_filename, core.active_codespace.name)
-      if success then
-        core.log_quiet("Successfully synced %s", rel_path)
-        -- Update cache
-        local f = io.open(self.abs_filename, "r")
-        if f then
-          local content = f:read("*a")
-          f:close()
-          state.cache.file_content[remote_path] = {
-            content = content,
-            mtime = system.get_time(),
-            size = #content
-          }
-        end
+      core.log_quiet("[VFS] Syncing %s to remote...", self.abs_filename)
+      local ok, err = vfs.write_file(self.abs_filename, nil)
+      -- write_file now reads local file internally via gh cs cp
+      if ok then
+        core.log_quiet("[VFS] Sync successful")
       else
-        core.error("Failed to sync %s to Codespace: %s", rel_path, tostring(err))
-        -- Add to sync queue on failure
-        table.insert(state.metrics.sync_queue, {
-          type = "write",
-          remote_path = remote_path,
-          local_path = self.abs_filename,
-          timestamp = system.get_time()
-        })
-        core.log_quiet("Added to sync queue (will retry): %s", rel_path)
+        core.warn("[VFS] Sync failed: %s", tostring(err))
       end
       self._codespace_syncing = false
     end)
@@ -604,7 +831,7 @@ function core.root_view:draw()
   local y = (self.size.y - h) / 2
   
   renderer.draw_rect(0, 0, self.size.x, self.size.y, { 10, 10, 15, 180 })
-  renderer.draw_rect(x, y, w, h, { 30, 30, 35, 255 })
+  renderer.draw_rect(x, y, w, h, style.background)
   
   local border = 2 * SCALE
   local accent = { 100, 200, 150, 255 }
@@ -614,46 +841,30 @@ function core.root_view:draw()
   renderer.draw_rect(x + w - border, y, border, h, accent)
   
   local title_font = style.big_font or style.font
-  renderer.draw_text(title_font, "GitHub Codespaces Integration", x + 30 * SCALE, y + 20 * SCALE, { 255, 255, 255, 255 })
+  renderer.draw_text(title_font, "GitHub Codespaces Integration", x + 30 * SCALE, y + 20 * SCALE, style.text)
   
   if modal.state == "loading" then
-      local t = system.get_time()
-      local cx, cy = x + w / 2, y + h / 2
-      
-      -- Pulse effect on GitHub icon
-      local pulse = (math.sin(t * 5) + 1) / 2
-      local alpha = 100 + (155 * pulse)
-      local icon_font = style.icon_big_font or style.big_font or style.font
-      local iw = icon_font:get_width("")
-      renderer.draw_text(icon_font, "", cx - iw/2, cy - 40 * SCALE, {style.accent[1], style.accent[2], style.accent[3], alpha})
-      
-      -- Loading text with animated dots
-      local dots = string.rep(".", math.floor(t * 3) % 4)
-      local msg = (modal.loading_msg or "Loading") .. dots
-      local tw = style.font:get_width(msg)
-      renderer.draw_text(style.font, msg, cx - tw/2, cy + 20 * SCALE, {220, 220, 220, 255})
-      
-      -- Sleek indeterminate progress bar
-      local bar_w = 200 * SCALE
-      local bar_h = 2 * SCALE
-      local bar_x = cx - bar_w / 2
-      local bar_y = cy + 50 * SCALE
-      renderer.draw_rect(bar_x, bar_y, bar_w, bar_h, {40, 40, 45, 255})
-      
-      local thumb_w = 60 * SCALE
-      local offset = (math.sin(t * 4) + 1) / 2 * (bar_w - thumb_w)
-      renderer.draw_rect(bar_x + offset, bar_y, thumb_w, bar_h, style.accent)
-      
-      -- Force continuous redraw for smooth 60fps animation
-      core.redraw = true
+      local loader = get_loader()
+      if loader and loader.active then 
+        local pad = 10 * SCALE
+        local title_h = 50 * SCALE
+        loader.draw(x + pad, y + title_h, w - pad*2, h - title_h - pad) 
+      end
   
+  elseif modal.state == "fetching" then
+    local text = modal.loading_msg or "Loading..."
+    local dots = string.rep(".", math.floor(system.get_time() * 3) % 4)
+    local display_text = text .. dots
+    local t_w = style.font:get_width(display_text)
+    renderer.draw_text(style.font, display_text, x + (w - t_w) / 2, y + h / 2, style.text)
+    core.redraw = true -- Keep animating dots
   elseif modal.state == "auth" then
-    renderer.draw_text(style.font, "Please authenticate with GitHub to view your codespaces.", x + 30 * SCALE, y + 60 * SCALE, { 200, 200, 200, 255 })
+    renderer.draw_text(style.font, "Please authenticate with GitHub to view your codespaces.", x + 30 * SCALE, y + 60 * SCALE, style.dim)
     local iw = w - 60 * SCALE
     local ix = x + 30 * SCALE
     local iy = y + 100 * SCALE
-    renderer.draw_rect(ix, iy, iw, 35 * SCALE, { 20, 20, 25, 255 })
-    renderer.draw_rect(ix, iy, iw, 1 * SCALE, { 80, 80, 90, 255 })
+    renderer.draw_rect(ix, iy, iw, 35 * SCALE, style.background2 or {20, 20, 25, 255})
+    renderer.draw_rect(ix, iy, iw, 1 * SCALE, style.dim)
     
     local display = #modal.token_input > 0 and string.rep("*", #modal.token_input) or "Paste Personal Access Token here..."
     local color = #modal.token_input > 0 and {255, 255, 255, 255} or {100, 100, 110, 255}
@@ -661,12 +872,12 @@ function core.root_view:draw()
     renderer.draw_text(style.font, "Press ENTER to login or ESC to cancel.", ix, iy + 50 * SCALE, { 150, 150, 160, 255 })
   
   elseif modal.state == "list" then
-    renderer.draw_text(style.font, "Select a Codespace to connect:", x + 30 * SCALE, y + 60 * SCALE, { 200, 200, 200, 255 })
+    renderer.draw_text(style.font, "Select a Codespace to connect:", x + 30 * SCALE, y + 60 * SCALE, style.dim)
     for i, cs in ipairs(modal.codespaces) do
       local iy = y + 90 * SCALE + (i - 1) * 40 * SCALE
-      local bg = (i == modal.selected_index) and { 50, 50, 60, 255 } or { 30, 30, 35, 255 }
+      local bg = (i == modal.selected_index) and style.line_highlight or style.background
       renderer.draw_rect(x + 30 * SCALE, iy, w - 60 * SCALE, 35 * SCALE, bg)
-      renderer.draw_text(style.font, cs.name .. " (" .. cs.repo .. ")", x + 40 * SCALE, iy + 10 * SCALE, { 255, 255, 255, 255 })
+      renderer.draw_text(style.font, cs.name .. " (" .. cs.repo .. ")", x + 40 * SCALE, iy + 10 * SCALE, style.text)
       
       local state_text = cs.state
       local state_color = (state_text == "Available") and { 100, 255, 100, 255 } or { 150, 150, 150, 255 }
@@ -717,6 +928,8 @@ command.add(nil, {
       core.log_quiet("No codespace connected")
       return
     end
+    get_remote_resources(core.active_codespace.name)
+    get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
     local ok = check_connection(core.active_codespace.name)
     if ok then
       core.log_quiet("SSH connection: OK (latency: %.0fms)", state.metrics.latency)
@@ -735,6 +948,10 @@ command.add(nil, {
     core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
     core.log_quiet("  Changed: %d files", state.metrics.git_status.changed_files)
     core.log_quiet("  Ahead: %d, Behind: %d", state.metrics.git_status.ahead, state.metrics.git_status.behind)
+    if core.active_codespace.start_time then
+      local elapsed = system.get_time() - core.active_codespace.start_time
+      core.log_quiet("Session uptime: %.0fs", elapsed)
+    end
   end,
   
   ["codespaces:process-sync-queue"] = function()
@@ -758,6 +975,26 @@ command.add(nil, {
       core.log_quiet("Reconnection successful")
     else
       core.error("Reconnection failed")
+    end
+  end,
+  
+  ["codespaces:disconnect"] = function()
+    if not core.active_codespace then
+      core.error("No codespace connected")
+      return
+    end
+    core.log_quiet("Disconnecting from Codespace...")
+    local orig = core.active_codespace.original_dir
+    core.active_codespace = nil
+    unhook_lsp()
+    restart_resource_monitor()
+    if orig then
+      if type(core.open_project) == "function" then
+        core.open_project(orig)
+      else
+        core.set_project_dir(orig)
+        core.add_project_directory(orig)
+      end
     end
   end,
   
@@ -811,7 +1048,10 @@ command.add(nil, {
       return
     end
     core.log_quiet("Pulling from remote...")
-    local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git pull"})
+    local success, out = run_cmd_sync({
+      "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c",
+      build_remote_workdir_command(core.active_codespace.remote_dir, "git pull")
+    })
     if success then
       core.log_quiet("Pull successful")
       get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
@@ -826,7 +1066,10 @@ command.add(nil, {
       return
     end
     core.log_quiet("Pushing to remote...")
-    local success, out = run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. core.active_codespace.remote_dir .. " && git push"})
+    local success, out = run_cmd_sync({
+      "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c",
+      build_remote_workdir_command(core.active_codespace.remote_dir, "git push")
+    })
     if success then
       core.log_quiet("Push successful")
       get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
@@ -840,9 +1083,35 @@ command.add(nil, {
       core.error("No codespace connected")
       return
     end
-    core.log_quiet("Opening command input...")
-    -- This would need a UI for command input - for now just open terminal
-    run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name})
+    core.command_view:enter("Run Remote Command", {
+      submit = function(text)
+        local cmd = (text or ""):match("^%s*(.-)%s*$")
+        if cmd == "" then return end
+        core.log_quiet("[codespaces] Running: %s", cmd)
+        core.add_thread(function()
+          local success, out = run_cmd_sync({
+            "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c",
+            build_remote_workdir_command(core.active_codespace.remote_dir, cmd)
+          }, 120)
+          if success then
+            core.log_quiet("[codespaces] Command completed.")
+            if out and out:match("%S") then
+              local shown = 0
+              for line in out:gmatch("[^\r\n]+") do
+                core.log_quiet("%s", line)
+                shown = shown + 1
+                if shown >= 40 then
+                  core.log_quiet("... output truncated ...")
+                  break
+                end
+              end
+            end
+          else
+            core.error("Remote command failed: %s", tostring(out))
+          end
+        end)
+      end
+    })
   end,
 })
 
@@ -856,6 +1125,13 @@ function core.on_event(type, ...)
       core.redraw = true; return true
     elseif type == "keypressed" then
       local key = ...
+      
+      -- Let the loader handle keypresses if active
+      local loader = get_loader()
+      if loader and loader.active and loader.on_keypressed(key) then
+        return true
+      end
+      
       if key == "escape" then
         modal.active = false
         core.redraw = true; return true

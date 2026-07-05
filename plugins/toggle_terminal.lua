@@ -10,13 +10,43 @@ local command = require "core.command"
 local common  = require "core.common"
 local View    = require "core.view"
 local process = require "process"
+local system  = require "system"
+
+local function shell_quote(value)
+  value = tostring(value or "")
+  return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+
+local function utf8_prev_index(text, cursor)
+  cursor = math.max(1, math.min(cursor or (#text + 1), #text + 1))
+  if cursor <= 1 then return 1 end
+  local i = cursor - 1
+  while i > 1 do
+    local b = text:byte(i)
+    if not b or b < 0x80 or b >= 0xC0 then break end
+    i = i - 1
+  end
+  return i
+end
+
+local function utf8_next_index(text, cursor)
+  cursor = math.max(1, math.min(cursor or (#text + 1), #text + 1))
+  if cursor > #text then return #text + 1 end
+  local i = cursor + 1
+  while i <= #text do
+    local b = text:byte(i)
+    if not b or b < 0x80 or b >= 0xC0 then break end
+    i = i + 1
+  end
+  return i
+end
 
 local function get_prompt(s)
   if s.proc then return "" end
   if core.active_codespace then
     return "☁️ /workspaces/" .. core.active_codespace.repo .. "$ "
   end
-  return s.shell.prompt_prefix .. core.project_dir .. (PLATFORM == "Windows" and "> " or "$ ")
+  return s.shell.prompt_prefix .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
 end
 
 local shells = {}
@@ -107,7 +137,7 @@ function TermView:add_session(shell_opts)
   }
   table.insert(self.sessions, s)
   self.active_idx = #self.sessions
-  self:_push("info", shell_opts.name .. "\\n")
+  self:_push("info", shell_opts.name)
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -122,11 +152,17 @@ end
 function TermView:get_name() return "Terminal" end
 
 -- Highly optimized chunk parser that prevents string allocation spam on massive I/O
-function TermView:_push_chunk(kind, chunk)
+function TermView:_push_chunk(kind, chunk, no_redraw)
+  local s = self:state()
+  local lh = style.code_font:get_height() + 2 * SCALE
+  local old_total = #s.lines * lh
+  local inner = math.max(0, self.size.y - 20 * SCALE)
+  local was_at_bottom = s.scroll_to_bottom or (s.scroll_y >= old_total - inner - lh)
+
   local buf_key = kind .. "_buf"
-  self:state()[buf_key] = (self:state()[buf_key] or "") .. chunk
+  s[buf_key] = (s[buf_key] or "") .. chunk
   
-  local buf = self:state()[buf_key]
+  local buf = s[buf_key]
   local last_nl = 0
   
   for i = 1, #buf do
@@ -136,47 +172,67 @@ function TermView:_push_chunk(kind, chunk)
         line = line:sub(1, -2)
       end
       if #line > 0 then
-        table.insert(self:state().lines, { kind = kind, text = line })
+        table.insert(s.lines, { kind = kind, text = line })
       end
       last_nl = i
     end
   end
   
   if last_nl > 0 then
-    self:state()[buf_key] = buf:sub(last_nl + 1)
-    self:state().scroll_to_bottom = true
+    s[buf_key] = buf:sub(last_nl + 1)
+    if was_at_bottom then
+      s.scroll_to_bottom = true
+    end
   end
-  local n = #self:state().lines
+  local lines = s.lines
+  local n = #lines
   local overflow = n - config.terminal.scrollback
   if overflow > 0 then
-    local new_lines = {}
-    for i = overflow + 1, n do
-      table.insert(new_lines, self:state().lines[i])
+    for _ = 1, overflow do
+      table.remove(lines, 1)
     end
-    self:state().lines = new_lines
   end
-  core.redraw = true
+  if not no_redraw then
+    core.redraw = true
+  end
 end
 
 function TermView:_push(kind, text)
   self:_push_chunk(kind, text .. "\n")
 end
 
+function TermView:_flush_chunk_buffer(kind)
+  local buf_key = kind .. "_buf"
+  local rem = self:state()[buf_key]
+  if rem and #rem > 0 then
+    if rem:byte(#rem) == 13 then
+      rem = rem:sub(1, -2)
+    end
+    if #rem > 0 then
+      table.insert(self:state().lines, { kind = kind, text = rem })
+    end
+    self:state()[buf_key] = ""
+  end
+end
+
 -- Run a command string asynchronously
 function TermView:run(cmd_str)
+  local s = self:state()
+  s.scroll_to_bottom = true
+
   -- If a process is already running, send input to stdin
-  if self:state().proc then
+  if s.proc then
     self:_push("cmd", cmd_str)
-    pcall(function() self:state().proc:write(cmd_str .. "\n") end)
+    pcall(function() s.proc:write(cmd_str .. "\n") end)
     return
   end
 
-  local s = self:state()
   self:_push("cmd", get_prompt(s) .. cmd_str)
 
   local argv = {}
   if core.active_codespace then
-    argv = { "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", "cd /workspaces/" .. core.active_codespace.repo .. " && " .. cmd_str }
+    local remote_dir = core.active_codespace.remote_dir or ("/workspaces/" .. core.active_codespace.repo)
+    argv = { "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. shell_quote(remote_dir) .. " && " .. cmd_str }
   else
     for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
     table.insert(argv, cmd_str)
@@ -186,7 +242,7 @@ function TermView:run(cmd_str)
     stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
-    cwd    = core.project_dir
+    cwd    = s.cwd or core.project_dir
   })
 
   if p then
@@ -211,14 +267,16 @@ function TermView:update()
   -- Drain ALL process outputs using 64KB chunks for maximum IPC throughput
   for i, s in ipairs(self.sessions) do
     if s.proc then
+      local had_output = false
       while true do
         local out = s.proc:read_stdout(65536)
         if not out or #out == 0 then break end
         -- Need to temporarily set active state for _push_chunk to target right session
         local old_idx = self.active_idx
         self.active_idx = i
-        self:_push_chunk("out", out)
+        self:_push_chunk("out", out, true)
         self.active_idx = old_idx
+        had_output = true
       end
       
       while true do
@@ -226,28 +284,40 @@ function TermView:update()
         if not err or #err == 0 then break end
         local old_idx = self.active_idx
         self.active_idx = i
-        self:_push_chunk("err", err)
+        self:_push_chunk("err", err, true)
         self.active_idx = old_idx
+        had_output = true
       end
 
       local rc = s.proc:returncode()
       if rc ~= nil then
         local old_idx = self.active_idx
         self.active_idx = i
-        self:_push_chunk("info", string.format("[exited: %d]\\n", rc))
+        self:_flush_chunk_buffer("out")
+        self:_flush_chunk_buffer("err")
+        self:_push_chunk("info", string.format("[exited: %d]\n", rc), true)
         self.active_idx = old_idx
         s.proc = nil
+        had_output = true
+      end
+
+      if had_output then
+        core.redraw = true
       end
     end
   end
 
-  -- Handle scroll snapping
-  if self:state().scroll_to_bottom and #self:state().lines > 0 then
-    local lh    = style.code_font:get_height() + 2 * SCALE
-    local total = #self:state().lines * lh
-    local inner = math.max(0, self.size.y - 20 * SCALE)
-    self:state().scroll_y = math.max(0, total - inner)
-    self:state().scroll_to_bottom = false
+  -- Handle scroll snapping & clamp on resize
+  local s = self:state()
+  local lh = style.code_font:get_height() + 2 * SCALE
+  local total = #s.lines * lh
+  local inner = math.max(0, self.size.y - 20 * SCALE)
+  local max_scroll = math.max(0, total - inner)
+  if s.scroll_to_bottom and total > 0 then
+    s.scroll_y = max_scroll
+    s.scroll_to_bottom = false
+  elseif s.scroll_y > max_scroll then
+    s.scroll_y = max_scroll
   end
 end
 
@@ -340,7 +410,7 @@ function TermView:draw()
   local cur_x = x + 160 * SCALE
   self.tab_rects = {}
   for i, s in ipairs(self.sessions) do
-    local label = tostring(i)
+    local label = s.shell and s.shell.name:sub(1, 2) or tostring(i)
     local tw = style.font:get_width(label) + 16 * SCALE
     local tab_bg = (i == self.active_idx) and get_contrast_bg(hdr_bg) or hdr_bg
     local tab_fg = (i == self.active_idx) and fg or col_inf
@@ -421,27 +491,35 @@ function TermView:draw()
   core.push_clip_rect(x, out_top, w, out_h)
 
   
-  -- Render all historical lines
-  for i, ln in ipairs(self:state().lines) do
-    if text_y + lh >= out_top and text_y <= out_bot then
-      if sel and i >= sel_l1 and i <= sel_l2 then
-         local txt = ln.text
-         local col1 = (i == sel_l1) and sel_c1 or 1
-         local col2 = (i == sel_l2) and sel_c2 or (#txt + 1)
-         local x1 = text_x + style.code_font:get_width(txt:sub(1, col1 - 1))
-         local sw = style.code_font:get_width(txt:sub(col1, col2 - 1))
-         if i < sel_l2 and col2 == #txt + 1 then sw = sw + style.code_font:get_width(" ") end
-         renderer.draw_rect(x1, text_y, sw, lh, style.selection or {255, 255, 255, 60})
+  -- Render only visible lines
+  local lines = self:state().lines
+  local first_vi = math.floor((text_y - out_top) / lh) + 1
+  local last_vi  = math.ceil((out_bot - text_y) / lh) + 1
+  first_vi = common.clamp(first_vi, 1, #lines + 1)
+  last_vi  = common.clamp(last_vi, first_vi, #lines)
+  if #lines > 0 then
+    for i = first_vi, last_vi do
+      local ln = lines[i]
+      if ln then
+        local line_y = text_y + (i - 1) * lh
+        if sel and i >= sel_l1 and i <= sel_l2 then
+           local txt = ln.text
+           local col1 = (i == sel_l1) and sel_c1 or 1
+           local col2 = (i == sel_l2) and sel_c2 or (#txt + 1)
+           local x1 = text_x + style.code_font:get_width(txt:sub(1, col1 - 1))
+           local sw = style.code_font:get_width(txt:sub(col1, col2 - 1))
+           if i < sel_l2 and col2 == #txt + 1 then sw = sw + style.code_font:get_width(" ") end
+           renderer.draw_rect(x1, line_y, sw, lh, style.selection or {255, 255, 255, 60})
+        end
+        local col = ln.kind == "cmd"  and fg
+                 or ln.kind == "err"  and col_err
+                 or ln.kind == "info" and col_inf
+                 or fg
+        renderer.draw_text(style.code_font, ln.text, text_x, line_y, col)
       end
-      local col = ln.kind == "cmd"  and fg
-
-               or ln.kind == "err"  and col_err
-               or ln.kind == "info" and col_inf
-               or fg
-      renderer.draw_text(style.code_font, ln.text, text_x, text_y, col)
     end
-    text_y = text_y + lh
   end
+  text_y = text_y + #lines * lh
 
   -- Render the live input line at the bottom
   if text_y <= out_bot then
@@ -484,7 +562,10 @@ end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
 function TermView:on_text_input(text)
-  self:state().input = self:state().input .. text
+  local s = self:state()
+  s.cursor = s.cursor or (#s.input + 1)
+  s.input = s.input:sub(1, s.cursor - 1) .. text .. s.input:sub(s.cursor)
+  s.cursor = s.cursor + #text
   core.redraw = true
 end
 
@@ -492,19 +573,73 @@ function TermView:on_key_pressed(key)
   if key == "return" then
     local cmd = self:state().input:match("^%s*(.-)%s*$")
     self:state().input = ""
+    self:state().cursor = 1
     if cmd and #cmd > 0 then
       if self:state().history[#self:state().history] ~= cmd then
         table.insert(self:state().history, cmd)
       end
       self:state().history_idx = #self:state().history + 1
       
-      -- Intercept clear commands to wipe the graphical buffer
       local lower_cmd = cmd:lower()
-      if lower_cmd == "cls" or lower_cmd == "clear" then
-        self:state().lines = {}
+      local cd_dir
+      if not self:state().proc then
+        cd_dir = cmd:match("^%s*[cC][dD]%s+([^&;|]+)%s*$")
+        if not cd_dir and cmd:match("^%s*[cC][dD]%s*$") then cd_dir = "" end
       end
       
-      self:run(cmd)
+      if cd_dir then
+          cd_dir = cd_dir:gsub('^"([^"]*)"$', '%1'):gsub("^'([^']*)'$", "%1")
+          if cd_dir == "" then
+             if PLATFORM == "Windows" then
+                 self:_push("cmd", get_prompt(self:state()) .. cmd)
+                 self:_push("out", self:state().cwd or core.project_dir)
+             else
+                 self:state().cwd = os.getenv("HOME") or (self:state().cwd or core.project_dir)
+                 self:_push("cmd", get_prompt(self:state()) .. cmd)
+             end
+          else
+              local cur = self:state().cwd or core.project_dir
+              local new_dir = cd_dir
+              if not (new_dir:match("^%a:") or new_dir:match("^/") or new_dir:match("^\\")) then
+                  new_dir = cur .. "/" .. new_dir
+              end
+              
+              local parts = {}
+              for part in new_dir:gmatch("[^/\\]+") do
+                  if part == ".." then
+                      if #parts > 0 and not parts[#parts]:match("^%a:$") then
+                          table.remove(parts)
+                      end
+                  elseif part ~= "." then
+                      table.insert(parts, part)
+                  end
+              end
+              
+              if PLATFORM == "Windows" then
+                  new_dir = table.concat(parts, "\\")
+                  if not new_dir:match("^%a:\\") and #parts > 0 and parts[1]:match("^%a:$") then
+                      new_dir = parts[1] .. "\\" .. table.concat(parts, "\\", 2)
+                  end
+                  if new_dir:match("^%a:$") then new_dir = new_dir .. "\\" end
+              else
+                  new_dir = "/" .. table.concat(parts, "/")
+              end
+              
+              local info = system.get_file_info(new_dir)
+              if info and info.type == "dir" then
+                  self:state().cwd = new_dir
+                  self:_push("cmd", get_prompt(self:state()) .. cmd)
+              else
+                  self:_push("cmd", get_prompt(self:state()) .. cmd)
+                  self:_push("err", "Cannot find path: " .. cd_dir)
+              end
+          end
+      elseif lower_cmd == "cls" or lower_cmd == "clear" then
+        self:state().lines = {}
+        self:state().scroll_y = 0
+      else
+        self:run(cmd)
+      end
     end
     core.redraw = true
     return true
@@ -526,16 +661,55 @@ function TermView:on_key_pressed(key)
     return true
   end
   if key == "backspace" then
-    local text = self:state().input
-    if #text > 0 then
-      local i = #text
+    local s = self:state()
+    local text = s.input
+    local cursor = s.cursor or (#text + 1)
+    if #text > 0 and cursor > 1 then
+      local i = cursor - 1
       -- Step back over UTF-8 continuation bytes (10xxxxxx)
       while i > 0 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
         i = i - 1
       end
-      self:state().input = text:sub(1, math.max(0, i - 1))
+      s.input = text:sub(1, i - 1) .. text:sub(cursor)
+      s.cursor = i
       core.redraw = true
     end
+    return true
+  end
+  if key == "delete" then
+    local s = self:state()
+    local text = s.input
+    local cursor = s.cursor or (#text + 1)
+    if cursor <= #text then
+      local i = cursor + 1
+      while i <= #text and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
+        i = i + 1
+      end
+      s.input = text:sub(1, cursor - 1) .. text:sub(i)
+      core.redraw = true
+    end
+    return true
+  end
+  if key == "left" then
+    local s = self:state()
+    s.cursor = utf8_prev_index(s.input, s.cursor or (#s.input + 1))
+    core.redraw = true
+    return true
+  end
+  if key == "right" then
+    local s = self:state()
+    s.cursor = utf8_next_index(s.input, s.cursor or (#s.input + 1))
+    core.redraw = true
+    return true
+  end
+  if key == "home" then
+    self:state().cursor = 1
+    core.redraw = true
+    return true
+  end
+  if key == "end" then
+    self:state().cursor = #self:state().input + 1
+    core.redraw = true
     return true
   end
   if key == "ctrl+c" then
@@ -733,10 +907,10 @@ command.add(nil, {
   end,
 
   ["terminal:focus"] = function()
-    command.perform "terminal:toggle"
-    if instance and instance.visible then
-      core.set_active_view(instance)
+    if not instance or not node_built or not instance.visible then
+      command.perform "terminal:toggle"
     end
+    if instance and instance.visible then core.set_active_view(instance) end
   end,
 
   
@@ -799,10 +973,14 @@ command.add(
     ["terminal:scroll-down"] = function() instance:on_key_pressed("pagedown") end,
     ["terminal:history-up"] = function() instance:on_key_pressed("up") end,
     ["terminal:history-down"] = function() instance:on_key_pressed("down") end,
+    ["terminal:cursor-left"] = function() instance:on_key_pressed("left") end,
+    ["terminal:cursor-right"] = function() instance:on_key_pressed("right") end,
+    ["terminal:cursor-home"] = function() instance:on_key_pressed("home") end,
+    ["terminal:cursor-end"] = function() instance:on_key_pressed("end") end,
+    ["terminal:delete"] = function() instance:on_key_pressed("delete") end,
   }
 )
 
-local keymap = require "core.keymap"
 keymap.add {
   ["return"]    = "terminal:return",
   ["backspace"] = "terminal:backspace",
@@ -812,6 +990,11 @@ keymap.add {
   ["pagedown"]  = "terminal:scroll-down",
   ["up"]        = "terminal:history-up",
   ["down"]      = "terminal:history-down",
+  ["left"]      = "terminal:cursor-left",
+  ["right"]     = "terminal:cursor-right",
+  ["home"]      = "terminal:cursor-home",
+  ["end"]       = "terminal:cursor-end",
+  ["delete"]    = "terminal:delete",
 }
 
 -- Hook into core.quit to kill any zombie background processes when Lite-XL exits
@@ -824,4 +1007,3 @@ function core.quit(force)
   end
   return old_quit(force)
 end
-

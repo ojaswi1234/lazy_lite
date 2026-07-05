@@ -28,7 +28,20 @@ if %errorlevel% neq 0 (
     winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
 )
 
-:: 1.6. Download Nerd Font for icons
+:: 1.6. Check Python + pywinpty (required for AI sidebar PTY bridge on Windows)
+where python >nul 2>nul
+if %errorlevel% equ 0 (
+    python -c "import winpty" >nul 2>nul
+    if !errorlevel! neq 0 (
+        echo Installing pywinpty (required for AI sidebar streaming^)...
+        python -m pip install pywinpty --quiet
+    )
+) else (
+    echo WARNING: Python not found. The AI sidebar PTY bridge requires Python + pywinpty.
+    echo          Install Python from https://python.org and then run: pip install pywinpty
+)
+
+:: 1.7. Download Nerd Font for icons
 echo Downloading FiraCode Nerd Font...
 if not exist "%CONFIG_DIR%\fonts" mkdir "%CONFIG_DIR%\fonts"
 curl -L -o "%CONFIG_DIR%\fonts\FiraCodeNerdFont-Regular.ttf" "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf"
@@ -54,9 +67,11 @@ if %errorlevel% neq 0 (
 echo Installing Lite-XL Mossy Configuration...
 
 if not exist "%CONFIG_DIR%\plugins" mkdir "%CONFIG_DIR%\plugins"
-if not exist "%CONFIG_DIR%\colors" mkdir "%CONFIG_DIR%\colors"
-if not exist "%CONFIG_DIR%\fonts" mkdir "%CONFIG_DIR%\fonts"
+if not exist "%CONFIG_DIR%\colors"  mkdir "%CONFIG_DIR%\colors"
+if not exist "%CONFIG_DIR%\fonts"   mkdir "%CONFIG_DIR%\fonts"
+if not exist "%CONFIG_DIR%\scripts" mkdir "%CONFIG_DIR%\scripts"
 
+:: Copy all .lua plugin files (skip AI sidebar if agy not installed)
 for %%f in ("%SRC_DIR%plugins\*.lua") do (
     if "%%~nxf"=="antigravity_sidebar.lua" (
         if "!INSTALL_AGY_SIDEBAR!"=="true" (
@@ -69,10 +84,30 @@ for %%f in ("%SRC_DIR%plugins\*.lua") do (
     )
 )
 
-copy /y "%SRC_DIR%colors\*.lua" "%CONFIG_DIR%\colors\" >nul 2>nul
-copy /y "%SRC_DIR%fonts\*.ttf" "%CONFIG_DIR%\fonts\" >nul 2>nul
-echo Copied plugins, fonts, and color scheme.
+:: Copy Python PTY bridge (required for AI sidebar streaming on Windows)
+if "!INSTALL_AGY_SIDEBAR!"=="true" (
+    if exist "%SRC_DIR%plugins\agy_pty_bridge.py" (
+        copy /y "%SRC_DIR%plugins\agy_pty_bridge.py" "%CONFIG_DIR%\plugins\" >nul
+    )
+)
 
+:: Copy color schemes
+copy /y "%SRC_DIR%colors\*.lua" "%CONFIG_DIR%\colors\" >nul 2>nul
+
+:: Copy bundled fonts (if any are in the repo)
+copy /y "%SRC_DIR%fonts\*.ttf" "%CONFIG_DIR%\fonts\" >nul 2>nul
+
+:: Copy scripts (remote LSP proxy for Codespaces)
+if exist "%SRC_DIR%scripts" (
+    xcopy /y "%SRC_DIR%scripts\*" "%CONFIG_DIR%\scripts\" >nul
+)
+
+:: Copy lsp and widget sub-directories (third-party plugins)
+if exist "%SRC_DIR%plugins\lsp"    xcopy /e /i /y "%SRC_DIR%plugins\lsp"    "%CONFIG_DIR%\plugins\lsp"    >nul
+if exist "%SRC_DIR%plugins\widget" xcopy /e /i /y "%SRC_DIR%plugins\widget" "%CONFIG_DIR%\plugins\widget" >nul
+echo Copied plugins, scripts, fonts, and color scheme.
+
+:: Update init.lua safely (append LazyLite block if not already present)
 set "INIT_FILE=%CONFIG_DIR%\init.lua"
 set "MARKER=-- [[ LazyLite Configuration ]]"
 
@@ -90,5 +125,8 @@ if not exist "%INIT_FILE%" (
     )
 )
 
+echo.
 echo Installation complete! Open Lite-XL to see the new Mossy Configuration.
+echo.
+echo NEXT STEP: Run "agy install" once in a terminal to configure the AI backend.
 pause

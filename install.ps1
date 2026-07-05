@@ -16,15 +16,30 @@ if (-not $liteXlInstalled) {
     } else {
         Write-Host "Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting."
         exit
+    }
 }
 
 # 1.5. Check GitHub CLI (gh)
 $ghInstalled = Get-Command "gh" -ErrorAction SilentlyContinue
 if (-not $ghInstalled) {
     Write-Host "GitHub CLI (gh) not found. Installing via winget..."
+    winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
 }
 
-# 1.6. Download Nerd Font for icons
+# 1.6. Check Python + pywinpty (required for the AI sidebar's PTY bridge on Windows)
+$pythonInstalled = Get-Command "python" -ErrorAction SilentlyContinue
+if ($pythonInstalled) {
+    $pywinptyCheck = python -c "import winpty" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Installing pywinpty (required for AI sidebar streaming)..."
+        python -m pip install pywinpty --quiet
+    }
+} else {
+    Write-Host "WARNING: Python not found. The AI sidebar PTY bridge (agy_pty_bridge.py) requires Python + pywinpty."
+    Write-Host "         Install Python from https://python.org and then run: pip install pywinpty"
+}
+
+# 1.7. Download Nerd Font for icons
 Write-Host "Downloading FiraCode Nerd Font..."
 $fontDir = "$configDir\fonts"
 New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
@@ -54,10 +69,11 @@ Write-Host "Installing Lite-XL Mossy Configuration..."
 
 # Create dirs if they don't exist
 New-Item -ItemType Directory -Force -Path "$configDir\plugins" | Out-Null
-New-Item -ItemType Directory -Force -Path "$configDir\colors" | Out-Null
-New-Item -ItemType Directory -Force -Path "$configDir\fonts" | Out-Null
+New-Item -ItemType Directory -Force -Path "$configDir\colors"  | Out-Null
+New-Item -ItemType Directory -Force -Path "$configDir\fonts"   | Out-Null
+New-Item -ItemType Directory -Force -Path "$configDir\scripts" | Out-Null
 
-# Copy files
+# Copy all .lua plugin files (skip AI sidebar if agy not installed)
 Get-ChildItem -Path "$srcDir\plugins\*.lua" | ForEach-Object {
     if ($_.Name -eq "antigravity_sidebar.lua" -and -not $installAgySidebar) {
         Write-Host "Skipping antigravity_sidebar.lua..."
@@ -66,13 +82,34 @@ Get-ChildItem -Path "$srcDir\plugins\*.lua" | ForEach-Object {
     }
 }
 
+# Copy Python bridge (required for AI sidebar on Windows)
+if ($installAgySidebar -and (Test-Path "$srcDir\plugins\agy_pty_bridge.py")) {
+    Copy-Item -Path "$srcDir\plugins\agy_pty_bridge.py" -Destination "$configDir\plugins\" -Force
+}
+
+# Copy color schemes
 Copy-Item -Path "$srcDir\colors\*.lua" -Destination "$configDir\colors\" -Force
+
+# Copy bundled fonts (if any are in the repo)
 if (Test-Path "$srcDir\fonts\*.ttf") {
     Copy-Item -Path "$srcDir\fonts\*.ttf" -Destination "$configDir\fonts\" -Force
 }
-Write-Host "Copied plugins, fonts, and color scheme."
 
-# Update init.lua safely
+# Copy scripts (remote LSP proxy for Codespaces)
+if (Test-Path "$srcDir\scripts") {
+    Copy-Item -Path "$srcDir\scripts\*" -Destination "$configDir\scripts\" -Force
+}
+
+# Copy lsp and widget sub-directories (third-party plugins)
+if (Test-Path "$srcDir\plugins\lsp") {
+    Copy-Item -Path "$srcDir\plugins\lsp" -Destination "$configDir\plugins\lsp" -Recurse -Force
+}
+if (Test-Path "$srcDir\plugins\widget") {
+    Copy-Item -Path "$srcDir\plugins\widget" -Destination "$configDir\plugins\widget" -Recurse -Force
+}
+Write-Host "Copied plugins, scripts, fonts, and color scheme."
+
+# Update init.lua safely (append LazyLite block if not already present)
 $initFile = "$configDir\init.lua"
 $marker = "-- [[ LazyLite Configuration ]]"
 $initContent = ""
@@ -88,5 +125,8 @@ if (-not $initContent.Contains($marker)) {
     Write-Host "Configuration already present in init.lua"
 }
 
+Write-Host ""
 Write-Host "Installation complete! Restart Lite-XL."
+Write-Host ""
+Write-Host "NEXT STEP: Run 'agy install' once in a terminal to configure the AI backend."
 Read-Host "Press Enter to exit"

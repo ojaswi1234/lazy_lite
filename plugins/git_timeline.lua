@@ -32,7 +32,7 @@ function GitTimelineView:update_commits()
       cmd = {"git", "--no-pager", "-C", p_dir, "log", "--graph", "--pretty=format:%h %s", "-n", "50"}
     end
     
-    local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_DISCARD })
+    local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
     if not p then
       self.commits = { { graph = "", hash = "", msg = "Git not found or error executing." } }
       core.redraw = true
@@ -40,8 +40,10 @@ function GitTimelineView:update_commits()
     end
     
     local out = ""
+    local err = ""
     while p:returncode() == nil do
       out = out .. (p:read_stdout(4096) or "")
+      err = err .. (p:read_stderr(4096) or "")
       coroutine.yield(0.05)
     end
     while true do
@@ -49,13 +51,25 @@ function GitTimelineView:update_commits()
       if chunk == "" then break end
       out = out .. chunk
     end
+    while true do
+      local chunk = p:read_stderr(4096) or ""
+      if chunk == "" then break end
+      err = err .. chunk
+    end
+
+    if p:returncode() ~= 0 then
+      local msg = (err and err:match("%S")) and err:gsub("[\r\n]+", " ") or "No git repository found in current project."
+      self.commits = { { graph = "", hash = "", msg = msg } }
+      core.redraw = true
+      return
+    end
     
     self.commits = {}
     for line in out:gmatch("[^\r\n]+") do
       -- Parse graph, hash, and msg
       -- Example: * | \ a1b2c3d Commit message
-      local graph, hash, msg = line:match("^(.-)%s+([0-9a-fA-F]{7,})%s+(.*)$")
-      if hash then
+      local graph, hash, msg = line:match("^(.-)%s+([0-9a-fA-F]+)%s+(.*)$")
+      if hash and #hash >= 7 then
         table.insert(self.commits, { graph = graph, hash = hash, msg = msg })
       else
         -- Just graph lines, like | | |

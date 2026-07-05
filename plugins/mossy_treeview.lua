@@ -28,6 +28,10 @@ end
 local orig_draw_item = TreeView.draw_item
 
 function TreeView:draw_item(item, active, hovered, x, y, w, h)
+  if not item or not item.name then
+    return orig_draw_item(self, item, active, hovered, x, y, w, h)
+  end
+
   -- Row background
   if active then
     renderer.draw_rect(x, y, w, h, style.selection)
@@ -58,7 +62,7 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
 
   -- Filename
   local name_x     = icon_x + ifont:get_width(icon_str) + 4 * SCALE
-  local text_color = (active or hovered) and style.text or style.dim
+  local text_color = style.text
 
   renderer.draw_text(
     style.font, item.name,

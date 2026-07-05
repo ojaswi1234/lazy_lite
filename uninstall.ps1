@@ -9,8 +9,39 @@ $files = @(
     "$configDir\plugins\mossy_treeview.lua",
     "$configDir\plugins\toggle_terminal.lua",
     "$configDir\plugins\mossy_statusbar.lua",
-    "$configDir\colors\everforest_lite_xl.lua"
+    "$configDir\plugins\autoclose.lua",
+    "$configDir\plugins\auto_healer.lua",
+    "$configDir\plugins\git_timeline.lua",
+    "$configDir\plugins\github_codespaces.lua",
+    "$configDir\plugins\language_ignore.lua",
+    "$configDir\plugins\resource_monitor.lua",
+    "$configDir\plugins\tempfiles_manager.lua",
+    "$configDir\plugins\progress_pet.lua",
+    "$configDir\plugins\virtual_codespace_fs.lua",
+    "$configDir\plugins\codespace_treeview.lua",
+    "$configDir\plugins\agy_pty_bridge.py",
+    "$configDir\colors\everforest_lite_xl.lua",
+    "$configDir\colors\dark_forest_lite_xl.lua",
+    "$configDir\colors\tokyo_night_remix.lua",
+    "$configDir\fonts\FiraCode-iScript.ttf",
+    "$configDir\fonts\FiraCodeiScript-Bold.ttf",
+    "$configDir\fonts\FiraCodeNerdFont-Regular.ttf",
+    "$configDir\scripts\remote_lsp_proxy.py"
 )
+
+# Remove lsp/, widget/, and codespaces/ directories
+if (Test-Path "$configDir\plugins\lsp") {
+    Remove-Item -Path "$configDir\plugins\lsp" -Recurse -Force
+    Write-Host "Removed lsp directory"
+}
+if (Test-Path "$configDir\plugins\widget") {
+    Remove-Item -Path "$configDir\plugins\widget" -Recurse -Force
+    Write-Host "Removed widget directory"
+}
+if (Test-Path "$configDir\codespaces") {
+    Remove-Item -Path "$configDir\codespaces" -Recurse -Force
+    Write-Host "Removed codespaces cache directory"
+}
 
 foreach ($file in $files) {
     if (Test-Path $file) {

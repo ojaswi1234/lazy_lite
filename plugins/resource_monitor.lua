@@ -5,6 +5,7 @@ local style = require "core.style"
 local common = require "core.common"
 local config = require "core.config"
 local process = require "process"
+local system = require "system"
 
 config.resource_monitor = {
   width = 60,
@@ -20,9 +21,23 @@ for i = 1, config.resource_monitor.history do
 end
 local current_cpu = 0
 local current_ram = 0
+local monitor_proc = nil
+
+local function reset_history()
+  current_cpu = 0
+  current_ram = 0
+  for i = 1, config.resource_monitor.history do
+    cpu_history[i] = 0
+    ram_history[i] = 0
+  end
+end
 
 local function start_monitor()
-  if rawget(_G, "resource_monitor_proc") then pcall(function() rawget(_G, "resource_monitor_proc"):kill() end) end
+  if monitor_proc then
+    pcall(function() monitor_proc:kill() end)
+    monitor_proc = nil
+  end
+  reset_history()
   
   if core.active_codespace then
     local script = string.format([[
@@ -45,11 +60,11 @@ local function start_monitor()
       done
     ]], config.resource_monitor.poll_rate)
 
-    rawset(_G, "resource_monitor_proc", process.start({ "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", script }, {
+    monitor_proc = process.start({ "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "bash", "-c", script }, {
       stdout = process.REDIRECT_PIPE,
       stderr = process.REDIRECT_DISCARD,
       stdin  = process.REDIRECT_DISCARD,
-    }))
+    })
   else
     local script = string.format([[
       $ErrorActionPreference = 'SilentlyContinue'
@@ -64,21 +79,24 @@ local function start_monitor()
       }
     ]], config.resource_monitor.poll_rate)
 
-    rawset(_G, "resource_monitor_proc", process.start({ "powershell", "-NoProfile", "-Command", script }, {
+    monitor_proc = process.start({ "powershell", "-NoProfile", "-Command", script }, {
       stdout = process.REDIRECT_PIPE,
       stderr = process.REDIRECT_DISCARD,
       stdin  = process.REDIRECT_DISCARD,
-    }))
+    })
+  end
+
+  if not monitor_proc then
+    core.warn("Resource monitor: failed to start monitor process.")
   end
 end
 
-rawset(_G, "restart_resource_monitor", start_monitor)
 start_monitor()
 
 local out_buf = ""
 core.add_thread(function()
   while true do
-    local p = rawget(_G, "resource_monitor_proc")
+    local p = monitor_proc
     if p then
       local chunk = p:read_stdout(1024)
       if chunk and #chunk > 0 then
@@ -173,8 +191,13 @@ end
 
 local old_quit = core.quit
 function core.quit(force)
-  if rawget(_G, "resource_monitor_proc") then
-    pcall(function() rawget(_G, "resource_monitor_proc"):kill() end)
+  if monitor_proc then
+    pcall(function() monitor_proc:kill() end)
+    monitor_proc = nil
   end
   if old_quit then return old_quit(force) end
 end
+
+return {
+  restart = start_monitor
+}
