@@ -16,6 +16,8 @@ local function get_loader()
     local ok, loader = pcall(require, "plugins.loader_games")
     if ok then
       loader_games = loader
+    else
+      core.error("Failed to load loader_games: %s", tostring(loader))
     end
   end
   return loader_games
@@ -178,7 +180,7 @@ local function fetch_codespaces()
 end
 
 local function check_auth()
-  modal.state = "loading"
+  modal.state = "fetching"
   modal.loading_msg = "Checking GitHub Authentication..."
   core.redraw = true
   run_gh_async({"gh", "auth", "status"}, function(success, out)
@@ -196,7 +198,7 @@ local function stop_codespace(cs)
     return
   end
   
-  modal.state = "loading"
+  modal.state = "fetching"
   modal.loading_msg = "Shutting down " .. cs.name .. "..."
   core.redraw = true
   
