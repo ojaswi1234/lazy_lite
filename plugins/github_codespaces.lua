@@ -819,7 +819,12 @@ function core.root_view:draw()
   
   local max_w = 600 * SCALE
   local max_h = 400 * SCALE
-  if modal.state == "list" then
+  
+  if modal.state == "loading" then
+    -- Make the popup larger and more flexible for games
+    max_w = math.max(max_w, math.min(self.size.x - 100 * SCALE, 800 * SCALE))
+    max_h = math.max(max_h, math.min(self.size.y - 100 * SCALE, 600 * SCALE))
+  elseif modal.state == "list" then
     for idx, cs in ipairs(modal.codespaces) do
       local txt_w = style.font:get_width(cs.name .. " (" .. cs.repo .. ")")
       max_w = math.max(max_w, txt_w + 200 * SCALE)
@@ -827,8 +832,9 @@ function core.root_view:draw()
     max_h = math.max(max_h, 120 * SCALE + #modal.codespaces * 40 * SCALE)
   end
   
-  local w = max_w
-  local h = max_h
+  -- Prevent modal from exceeding window size
+  local w = math.max(400 * SCALE, math.min(max_w, self.size.x - 40 * SCALE))
+  local h = math.max(250 * SCALE, math.min(max_h, self.size.y - 40 * SCALE))
   local x = (self.size.x - w) / 2
   local y = (self.size.y - h) / 2
   

@@ -98,7 +98,8 @@ function loader.draw(x, y, w, h)
   loader.last_update = t
   
   local status_h = 40 * SCALE
-  local game_h = h - status_h
+  local game_h = math.max(10 * SCALE, h - status_h)
+  w = math.max(10 * SCALE, w)
   
   if loader.error_msg then
     local err_w = style.font:get_width(loader.error_msg)
