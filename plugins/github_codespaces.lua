@@ -183,8 +183,10 @@ local function check_auth()
   modal.state = "fetching"
   modal.loading_msg = "Checking GitHub Authentication..."
   core.redraw = true
-  run_gh_async({"gh", "auth", "status"}, function(success, out)
-    if success then
+  run_gh_async({"gh", "auth", "token"}, function(success, out)
+    -- gh auth token is much faster as it only checks the local keyring,
+    -- bypassing network requests and avoiding flakiness
+    if success and out and (out:match("gh[opsu]_[%a%d]+") or out:match("gh[a-zA-Z0-9_]+")) then
       fetch_codespaces()
     else
       modal.state = "auth"
