@@ -237,3 +237,42 @@ command.add(nil, {
     end
   end,
 })
+
+-- ── Context Menu: Open Folder ─────────────────────────────────────────────────
+local function get_sidebar_item()
+  return TreeView.hovered_item or TreeView.selected_item
+end
+
+local function get_hovered_dir()
+  local item = get_sidebar_item()
+  if item and item.type == "dir" and item.abs_filename ~= core.project_dir then
+    return item
+  end
+  return nil
+end
+
+command.add(
+  function()
+    local item = get_hovered_dir()
+    return item ~= nil and (core.active_view == TreeView or (TreeView.contextmenu and TreeView.contextmenu.show_context_menu)), item
+  end, {
+  ["treeview:open-folder"] = function(item)
+    core.confirm_close_docs(core.docs, function(dirpath)
+      core.open_folder_project(dirpath)
+    end, item.abs_filename)
+  end,
+})
+
+if TreeView.contextmenu then
+  TreeView.contextmenu:register(
+    function()
+      return core.active_view == TreeView and get_hovered_dir() ~= nil
+    end, {
+      { text = "Open Folder", command = "treeview:open-folder" }
+    }
+  )
+  -- Reorder menu itemset so "Open Folder" appears at the top (index 1)
+  local last = table.remove(TreeView.contextmenu.itemset)
+  table.insert(TreeView.contextmenu.itemset, 1, last)
+end
+
