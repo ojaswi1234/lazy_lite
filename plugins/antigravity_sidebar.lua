@@ -2222,7 +2222,7 @@ core.status_view:add_item({
     return {
       style.text,
       style.icon_font,
-      "?",
+      "\u{f084}",
       style.font,
       text
     }
