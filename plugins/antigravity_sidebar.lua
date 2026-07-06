@@ -2211,12 +2211,12 @@ core.status_view:add_item({
   name = "antigravity:auth",
   alignment = StatusView.Item.RIGHT,
   get_item = function()
-    local text = "🤖 AGY Auth"
+    local text = "AGY Auth"
     if instance then
       if instance.auth_status == "logged_in" then
-        text = "🤖 " .. (os.getenv("USERNAME") or "AGY Connected")
+        text = os.getenv("USERNAME") or "AGY Connected"
       elseif instance.auth_status == "auth_error" then
-        text = "🤖 Retry Auth[click here again]"
+        text = "Retry Auth[click here again]"
       end
     end
     return {
