@@ -102,9 +102,11 @@ if exist "%SRC_DIR%scripts" (
     xcopy /y "%SRC_DIR%scripts\*" "%CONFIG_DIR%\scripts\" >nul
 )
 
-:: Copy lsp and widget sub-directories (third-party plugins)
-if exist "%SRC_DIR%plugins\lsp"    xcopy /e /i /y "%SRC_DIR%plugins\lsp"    "%CONFIG_DIR%\plugins\lsp"    >nul
-if exist "%SRC_DIR%plugins\widget" xcopy /e /i /y "%SRC_DIR%plugins\widget" "%CONFIG_DIR%\plugins\widget" >nul
+:: Copy sub-directories (third-party and custom plugins)
+if exist "%SRC_DIR%plugins\lsp"          xcopy /e /i /y "%SRC_DIR%plugins\lsp"          "%CONFIG_DIR%\plugins\lsp"          >nul
+if exist "%SRC_DIR%plugins\widget"       xcopy /e /i /y "%SRC_DIR%plugins\widget"       "%CONFIG_DIR%\plugins\widget"       >nul
+if exist "%SRC_DIR%plugins\lintplus"     xcopy /e /i /y "%SRC_DIR%plugins\lintplus"     "%CONFIG_DIR%\plugins\lintplus"     >nul
+if exist "%SRC_DIR%plugins\loader_games" xcopy /e /i /y "%SRC_DIR%plugins\loader_games" "%CONFIG_DIR%\plugins\loader_games" >nul
 echo Copied plugins, scripts, fonts, and color scheme.
 
 :: Update init.lua safely (append LazyLite block if not already present)

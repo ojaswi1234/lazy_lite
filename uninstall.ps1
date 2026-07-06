@@ -16,7 +16,7 @@ $files = @(
     "$configDir\plugins\language_ignore.lua",
     "$configDir\plugins\resource_monitor.lua",
     "$configDir\plugins\tempfiles_manager.lua",
-    "$configDir\plugins\progress_pet.lua",
+    "$configDir\plugins\workspace.lua",
     "$configDir\plugins\virtual_codespace_fs.lua",
     "$configDir\plugins\codespace_treeview.lua",
     "$configDir\plugins\agy_pty_bridge.py",
@@ -29,7 +29,7 @@ $files = @(
     "$configDir\scripts\remote_lsp_proxy.py"
 )
 
-# Remove lsp/, widget/, and codespaces/ directories
+# Remove plugin sub-directories and codespaces cache
 if (Test-Path "$configDir\plugins\lsp") {
     Remove-Item -Path "$configDir\plugins\lsp" -Recurse -Force
     Write-Host "Removed lsp directory"
@@ -37,6 +37,14 @@ if (Test-Path "$configDir\plugins\lsp") {
 if (Test-Path "$configDir\plugins\widget") {
     Remove-Item -Path "$configDir\plugins\widget" -Recurse -Force
     Write-Host "Removed widget directory"
+}
+if (Test-Path "$configDir\plugins\lintplus") {
+    Remove-Item -Path "$configDir\plugins\lintplus" -Recurse -Force
+    Write-Host "Removed lintplus directory"
+}
+if (Test-Path "$configDir\plugins\loader_games") {
+    Remove-Item -Path "$configDir\plugins\loader_games" -Recurse -Force
+    Write-Host "Removed loader_games directory"
 }
 if (Test-Path "$configDir\codespaces") {
     Remove-Item -Path "$configDir\codespaces" -Recurse -Force

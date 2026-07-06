@@ -100,12 +100,18 @@ if (Test-Path "$srcDir\scripts") {
     Copy-Item -Path "$srcDir\scripts\*" -Destination "$configDir\scripts\" -Force
 }
 
-# Copy lsp and widget sub-directories (third-party plugins)
+# Copy sub-directories (third-party and custom plugins)
 if (Test-Path "$srcDir\plugins\lsp") {
     Copy-Item -Path "$srcDir\plugins\lsp" -Destination "$configDir\plugins\lsp" -Recurse -Force
 }
 if (Test-Path "$srcDir\plugins\widget") {
     Copy-Item -Path "$srcDir\plugins\widget" -Destination "$configDir\plugins\widget" -Recurse -Force
+}
+if (Test-Path "$srcDir\plugins\lintplus") {
+    Copy-Item -Path "$srcDir\plugins\lintplus" -Destination "$configDir\plugins\lintplus" -Recurse -Force
+}
+if (Test-Path "$srcDir\plugins\loader_games") {
+    Copy-Item -Path "$srcDir\plugins\loader_games" -Destination "$configDir\plugins\loader_games" -Recurse -Force
 }
 Write-Host "Copied plugins, scripts, fonts, and color scheme."
 
