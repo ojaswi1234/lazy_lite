@@ -214,16 +214,56 @@ end
 
 local function get_mention_suggestions(query)
   local results = {}
-  local q = query:lower()
-  for dir_name, file in core.get_project_files() do
-    if file and file.type == "file" then
-      local path = file.filename
-      if path:lower():find(q, 1, true) then
-        table.insert(results, path)
-        if #results >= 10 then break end
+  local q = query:gsub("\\", "/")
+  
+  -- Split query into folder and search term
+  local target_dir = ""
+  local search_term = q:lower()
+  
+  local last_slash = q:match("^.*()[/]")
+  if last_slash then
+    target_dir = q:sub(1, last_slash)
+    search_term = q:sub(last_slash + 1):lower()
+  end
+  
+  local base_dir = core.project_dir
+  if not base_dir then return results end
+  
+  local abs_dir = base_dir .. PATHSEP .. target_dir:gsub("/", PATHSEP)
+  local files = system.list_dir(abs_dir) or {}
+  
+  local folders = {}
+  local raw_files = {}
+  
+  -- If we are inside a subfolder, add a ".." option
+  if target_dir ~= "" then
+    local parent = target_dir:match("^(.*[/])[^/]+[/]$") or ""
+    table.insert(folders, { type = "dir", full_path = parent, display = "📁 .." })
+  end
+  
+  for _, f in ipairs(files) do
+    if f:lower():find(search_term, 1, true) then
+      local info = system.get_file_info(abs_dir .. f)
+      if info and info.type == "dir" then
+        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", display = "📁 " .. f .. "/" })
+      else
+        table.insert(raw_files, { type = "file", full_path = target_dir .. f, display = "📄 " .. f })
       end
     end
   end
+  
+  table.sort(folders, function(a,b) return a.display < b.display end)
+  table.sort(raw_files, function(a,b) return a.display < b.display end)
+  
+  for _, f in ipairs(folders) do
+    table.insert(results, f)
+    if #results >= 15 then break end
+  end
+  for _, f in ipairs(raw_files) do
+    if #results >= 15 then break end
+    table.insert(results, f)
+  end
+  
   return results
 end
 
@@ -791,6 +831,14 @@ function AGView:submit(prompt)
   local full_prompt = prompt_text
   if fname then
     full_prompt = string.format("Regarding the active file %s: %s", fname, prompt_text)
+  end
+  
+  if core.active_codespace and not self:state().cid then
+    local cs = core.active_codespace
+    full_prompt = full_prompt .. string.format(
+      "\n\n[SYSTEM CONTEXT: The user is connected to a remote GitHub Codespace ('%s'). The local workspace provided to you is a SPARSE VFS where files exist as 0-byte placeholders. You CANNOT read them natively with your built-in file tools. To read file contents, search the codebase, or execute tasks, you MUST use the `run_command` tool to execute commands over SSH on the remote Linux container (e.g., `gh cs ssh -c %s -- cat path/to/file`). The absolute remote workspace path is %s.]",
+      cs.name, cs.name, cs.remote_dir or "/workspaces/default"
+    )
   end
 
   self:state().status               = "running"
@@ -1674,7 +1722,7 @@ function AGView:draw()
       if i == self:state().mention_idx then
         renderer.draw_rect(pop_x, iy, pop_w, item_h, P.bg_btn_hl)
       end
-      renderer.draw_text(style.font, file, pop_x + 8 * SCALE, iy + 4 * SCALE, P.fg)
+      renderer.draw_text(style.font, type(file) == "table" and file.display or file, pop_x + 8 * SCALE, iy + 4 * SCALE, P.fg)
     end
   end
 
@@ -1778,8 +1826,14 @@ function AGView:on_key_pressed(key, ...)
       return true
     elseif key == "return" or key == "tab" then
       local choice = self:state().mention_suggestions[self:state().mention_idx]
-      self:state().input = self:state().input:gsub("@[^%s]*$", "@" .. choice .. " ")
-      self:state().mention_suggestions = nil
+      if type(choice) == "table" and choice.type == "dir" then
+        self:state().input = self:state().input:gsub("@[^%s]*$", "@" .. choice.full_path)
+        self:_update_mentions()
+      else
+        local path = type(choice) == "table" and choice.full_path or choice
+        self:state().input = self:state().input:gsub("@[^%s]*$", "@" .. path .. " ")
+        self:state().mention_suggestions = nil
+      end
       core.redraw = true
       return true
     elseif key == "escape" then
