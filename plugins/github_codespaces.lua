@@ -86,9 +86,9 @@ local function restart_resource_monitor()
 end
 
 local function hook_lsp_for_codespace(cs_name, repo_name)
-  local lspconfig_ok, lspconfig = pcall(require, "plugins.lsp.config")
-  if not lspconfig_ok then return end
-  for key, cfg in pairs(lspconfig) do
+  local lsp_ok, lsp = pcall(require, "plugins.lsp")
+  if not lsp_ok then return end
+  for key, cfg in pairs(lsp.servers) do
     if type(cfg) == "table" and cfg.command then
       -- Restore original before re-hooking (handles reconnect to different codespace)
       if cfg.orig_command then
@@ -108,12 +108,12 @@ local function hook_lsp_for_codespace(cs_name, repo_name)
 end
 
 local function unhook_lsp()
-  local lspconfig_ok, lspconfig = pcall(require, "plugins.lsp.config")
-  if not lspconfig_ok then return end
-  for name, config in pairs(lspconfig) do
-    if type(config) == "table" and config.orig_command then
-      config.command = config.orig_command
-      config.orig_command = nil
+  local lsp_ok, lsp = pcall(require, "plugins.lsp")
+  if not lsp_ok then return end
+  for name, cfg in pairs(lsp.servers) do
+    if type(cfg) == "table" and cfg.orig_command then
+      cfg.command = cfg.orig_command
+      cfg.orig_command = nil
     end
   end
   pcall(function() command.perform("lsp:restart") end)
