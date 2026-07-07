@@ -288,14 +288,10 @@ local function build_shadow_structure(cs_name, remote_dir, local_dir, on_progres
   -- Format: "d <path>" for directories, "f <path>" for files.
   -- Capped at 6000 entries to prevent runaway builds on huge monorepos.
   local quoted_dir = "'" .. remote_dir:gsub("'", "'\\''" ) .. "'"
-  local combined_cmd =
-    "find " .. quoted_dir
-    .. " -maxdepth 6"
-    .. " -not -path '*/.git/*'"
-    .. " -not -path '*/node_modules/*'"
-    .. " -not -path '*/__pycache__/*'"
-    .. " \\( -type d -printf 'd %p\\n' -o -type f -printf 'f %p\\n' \\)"
-    .. " 2>/dev/null | head -n 6000 || true"
+  local common_args = " -maxdepth 6 -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*'"
+  local combined_cmd = 
+    "find " .. quoted_dir .. common_args .. " -type d 2>/dev/null | sed 's/^/d /' | head -n 2000; " ..
+    "find " .. quoted_dir .. common_args .. " -type f 2>/dev/null | sed 's/^/f /' | head -n 6000 || true"
 
   local ok, out = run_ssh_command(cs_name, combined_cmd, 240)
 
