@@ -255,7 +255,7 @@ function TermView:_ensure_persistent_proc(s)
   -- GH_INSECURE_SKIP_VERIFY_TLS bypasses corporate proxy TLS interception.
   local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
   local p, err = process.start(
-    { "gh", "codespace", "ssh", "-c", core.active_codespace.name },
+    { "gh", "codespace", "ssh", "-c", core.active_codespace.name, "--", "-T", "-q", "bash" },
     { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV }
   )
   if not p then
