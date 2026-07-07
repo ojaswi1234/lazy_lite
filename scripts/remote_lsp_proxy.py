@@ -195,7 +195,7 @@ def ensure_remote_binary(binary_name):
     send_lsp_message(3, f"Auto-installing {binary_name} on the remote codespace. This may take a minute...")
     print(f"[remote_lsp_proxy] Auto-installing {binary_name} with: {installer}", file=sys.stderr)
     
-    install_cmd = ["gh", "cs", "ssh", "-c", codespace_name, "--", "sh", "-c", installer]
+    install_cmd = ["gh", "cs", "ssh", "-c", codespace_name, "--", "sh", "-c", f"'{installer}'"]
     inst_res = subprocess.run(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=gh_env, text=True)
     
     if inst_res.returncode == 0:
