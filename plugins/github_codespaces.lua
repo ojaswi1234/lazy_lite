@@ -790,6 +790,17 @@ if status_view then
     get_item = function()
       local color = core.active_codespace and {100, 255, 100, 255} or (modal.active and style.accent or style.text)
       local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
+      
+      if core.active_codespace then
+        local is_lsp_active = false
+        local lsp_ok, lsp = pcall(require, "plugins.lsp")
+        if lsp_ok and core.active_view and core.active_view.doc and core.active_view.doc.filename then
+          is_lsp_active = #lsp.get_active_servers(core.active_view.doc.filename, true) > 0
+        end
+        local dot_color = is_lsp_active and {100, 255, 100, 255} or {255, 100, 100, 255}
+        return { color, style.icon_font, "", style.font, text, dot_color, style.font, " ●" }
+      end
+      
       return { color, style.icon_font, "", style.font, text }
     end,
     command = function()
