@@ -6,6 +6,8 @@ set "SRC_DIR=%~dp0"
 
 echo Lite-XL Mossy Configuration Installer
 echo ---------------------------------------
+echo DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required.
+echo.
 
 :: 1. Check Lite-XL
 where lite-xl >nul 2>nul

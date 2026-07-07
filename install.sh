@@ -4,6 +4,8 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Lite-XL Mossy Configuration Installer"
 echo "---------------------------------------"
+echo "DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required."
+echo ""
 
 # 1. Check Lite-XL
 if ! command -v lite-xl &> /dev/null; then

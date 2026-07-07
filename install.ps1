@@ -3,6 +3,8 @@ $srcDir = $PSScriptRoot
 
 Write-Host "Lite-XL Mossy Configuration Installer"
 Write-Host "---------------------------------------"
+Write-Host "DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required."
+Write-Host ""
 
 # 1. Check Lite-XL
 $liteXlInstalled = Get-Command "lite-xl" -ErrorAction SilentlyContinue
