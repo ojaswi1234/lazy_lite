@@ -228,28 +228,24 @@ function VFS.write_file(local_path, content)
 
   local remote_path = local_to_remote(local_path)
   local remote_escaped = remote_path:gsub("'", "'\\''")
-  local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
+  
+  -- Create a temporary batch script to run the SSH command with stdin redirection.
+  -- This bypasses Windows CreateProcess quoting bugs and avoids editor hangs from p:write() on full OS pipes.
+  local script_path = local_path .. ".upload.bat"
+  local fd = io.open(script_path, "w")
+  if not fd then return false, "Failed to create upload script" end
+  fd:write("@echo off\r\n")
+  fd:write("set GH_INSECURE_SKIP_VERIFY_TLS=1\r\n")
+  fd:write("set GH_NO_UPDATE_NOTIFIER=1\r\n")
+  fd:write(string.format('gh cs ssh -c "%s" -- sh -c "cat > \'%s\'" < "%s"\r\n', VFS.codespace_name, remote_escaped, local_path))
+  fd:write('del "%~f0"\r\n')
+  fd:close()
+
   local p = process.start(
-    {"gh", "cs", "ssh", "-c", VFS.codespace_name, "--", "sh", "-c", "cat > '" .. remote_escaped .. "'"},
-    {stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV}
+    {"cmd.exe", "/c", script_path},
+    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE}
   )
   if not p then return false, "Failed to start file upload" end
-  
-  -- Write content in chunks to avoid blocking the pipe
-  local fd = io.open(local_path, "rb")
-  if fd then
-    local data = fd:read("*a")
-    fd:close()
-    if data and #data > 0 then
-      local offset = 1
-      while offset <= #data do
-        p:write(data:sub(offset, offset + 8192 - 1))
-        offset = offset + 8192
-        if coroutine.running() then coroutine.yield(0.01) end
-      end
-    end
-  end
-  p:close_stream(process.STREAM_STDIN)
 
   local out_t = {}
   local start = system.get_time()
