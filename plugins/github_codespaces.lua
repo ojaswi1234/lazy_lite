@@ -282,7 +282,7 @@ end
 -- fetches which are typically fast (<500ms).
 local function run_cmd_blocking(args, timeout)
   timeout = timeout or 30
-  local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE})
+  local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV})
   if not p then return false, "Failed to start process" end
   local out = ""
   local start_time = system.get_time()
@@ -1182,7 +1182,7 @@ function core.on_event(type, ...)
           modal.loading_msg = "Logging in..."
           core.redraw = true
           core.add_thread(function()
-            local p = process.start({"gh", "auth", "login", "--with-token"}, { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+            local p = process.start({"gh", "auth", "login", "--with-token"}, { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV })
             if not p then modal.state = "auth"; core.error("Failed to start gh auth login"); return end
             p:write(modal.token_input .. "\n")
             p:close_stream(process.STREAM_STDIN)
