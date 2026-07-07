@@ -1014,7 +1014,13 @@ command.add(nil, {
       return
     end
     core.log_quiet("Opening remote terminal...")
-    run_cmd_sync({"gh", "cs", "ssh", "-c", core.active_codespace.name})
+    if PLATFORM == "Windows" then
+      process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "gh codespace ssh -c " .. core.active_codespace.name })
+    elseif PLATFORM == "Mac OS X" then
+      process.start({ "osascript", "-e", 'tell app "Terminal" to do script "gh codespace ssh -c ' .. core.active_codespace.name .. '"' })
+    else
+      process.start({ "x-terminal-emulator", "-e", "gh codespace ssh -c " .. core.active_codespace.name })
+    end
   end,
   
   ["codespaces:open-in-browser"] = function()
