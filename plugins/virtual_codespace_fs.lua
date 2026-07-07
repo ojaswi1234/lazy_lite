@@ -228,29 +228,33 @@ function VFS.write_file(local_path, content)
 
   -- gh cs cp handles the transfer reliably (single-file scp)
   local remote_path = local_to_remote(local_path)
+  -- GH_ENV needed for TLS bypass on corporate proxies (same as all other gh calls)
+  local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
   local p = process.start(
     {"gh", "cs", "cp", local_path, "remote:" .. remote_path, "-c", VFS.codespace_name},
-    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE}
+    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV}
   )
   if not p then return false, "Failed to start gh cs cp" end
 
-  local out = ""
+  local out_t = {}
   local start = system.get_time()
   while p:returncode() == nil do
     if system.get_time() - start > 60 then p:kill(); return false, "Timeout" end
-    out = out .. (p:read_stdout(4096) or "")
-    out = out .. (p:read_stderr(4096) or "")
+    local chunk = p:read_stdout(65536)
+    if chunk and #chunk > 0 then out_t[#out_t + 1] = chunk end
+    local echk = p:read_stderr(65536)
+    if echk and #echk > 0 then out_t[#out_t + 1] = echk end
     if coroutine.running() then coroutine.yield(0.05) end
   end
 
   -- Invalidate both caches on successful write
   if p:returncode() == 0 then
     VFS.cache.files[local_path] = nil
-    -- Also invalidate the parent dir listing so treeview refreshes
     local parent = local_path:match("^(.*)[/\\][^/\\]+$")
     if parent then VFS.cache.directories[parent] = nil end
     return true
   end
+  local out = table.concat(out_t)
   core.warn("[VFS] Write failed: %s", out)
   return false, out
 end

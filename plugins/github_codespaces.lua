@@ -137,20 +137,25 @@ local function run_gh_async(args, on_complete)
       if on_complete then on_complete(false, "Failed to start gh process") end
       return
     end
-    local out = ""
+    local out_t = {}
     local started = system.get_time()
     while p:returncode() == nil do
-      out = out .. (p:read_stdout(2048) or "")
-      out = out .. (p:read_stderr(2048) or "")
+      local chunk = p:read_stdout(65536)
+      if chunk and #chunk > 0 then out_t[#out_t + 1] = chunk end
+      local echk = p:read_stderr(65536)
+      if echk and #echk > 0 then out_t[#out_t + 1] = echk end
       if system.get_time() - started > GH_ASYNC_TIMEOUT then
         pcall(function() p:kill() end)
         if on_complete then on_complete(false, "gh command timed out after " .. GH_ASYNC_TIMEOUT .. "s") end
         return
       end
-      coroutine.yield(0.01) -- 10ms yield for smooth 60fps UI
+      coroutine.yield(0.01)
     end
-    out = out .. (p:read_stdout(2048) or "") .. (p:read_stderr(2048) or "")
-    if on_complete then on_complete(p:returncode() == 0, out) end
+    local chunk = p:read_stdout(65536)
+    if chunk and #chunk > 0 then out_t[#out_t + 1] = chunk end
+    local echk = p:read_stderr(65536)
+    if echk and #echk > 0 then out_t[#out_t + 1] = echk end
+    if on_complete then on_complete(p:returncode() == 0, table.concat(out_t)) end
   end)
 end
 
@@ -517,72 +522,47 @@ local function invalidate_cache(path)
   end
 end
 
--- Remote resource monitoring
+-- Remote resource monitoring — ONE SSH connection for all 3 metrics
 local function get_remote_resources(cs_name)
   if not cs_name then return end
-  
-  -- Get CPU usage (simplified)
-  local cpu_success, cpu_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2}'"})
-  if cpu_success and cpu_out then
-    local cpu_val = cpu_out:match("(%d+%.?%d*)")
-    state.metrics.resources.cpu = tonumber(cpu_val) or 0
+  -- Combined command: outputs 3 lines: cpu%, mem%, disk%
+  local cmd = "printf '%s\\n' \"$(top -bn1 | awk '/Cpu/{gsub(/[^0-9.]/," ",$0); print $1}')\" \"$(free | awk '/Mem/{printf \"%.1f\", $3/$2*100}')\" \"$(df /workspaces 2>/dev/null | awk 'NR==2{gsub(/%/,\"\"); print $5}')\""
+  local ok, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", cmd})
+  if ok and out then
+    local lines = {}
+    for l in out:gmatch("[^\r\n]+") do lines[#lines + 1] = l end
+    state.metrics.resources.cpu    = tonumber(lines[1]) or 0
+    state.metrics.resources.memory = tonumber(lines[2]) or 0
+    state.metrics.resources.disk   = tonumber(lines[3]) or 0
   else
-    state.metrics.resources.cpu = 0
-  end
-  
-  -- Get memory usage
-  local mem_success, mem_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "free | grep Mem | awk '{print $3/$2 * 100.0}'"})
-  if mem_success and mem_out then
-    local mem_val = mem_out:match("(%d+%.?%d*)")
-    state.metrics.resources.memory = tonumber(mem_val) or 0
-  else
+    state.metrics.resources.cpu    = 0
     state.metrics.resources.memory = 0
-  end
-  
-  -- Get disk usage
-  local disk_success, disk_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "df -h /workspaces | tail -1 | awk '{print $5}'"})
-  if disk_success and disk_out then
-    local disk_val = disk_out:match("(%d+)")
-    state.metrics.resources.disk = tonumber(disk_val) or 0
-  else
-    state.metrics.resources.disk = 0
+    state.metrics.resources.disk   = 0
   end
 end
 
--- Git status monitoring
+-- Git status monitoring — ONE SSH connection for all 4 metrics
 local function get_git_status(cs_name, remote_dir)
   if not cs_name or not remote_dir then return end
-  
-  -- Get current branch
-  local branch_success, branch_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git branch --show-current"})
-  if branch_success and branch_out then
-    state.metrics.git_status.branch = branch_out:gsub("[\r\n%s]+", "")
+  -- Combined: outputs 4 lines: branch, changed_count, ahead, behind
+  local rd = remote_dir:gsub("'", "'\\''")
+  local cmd = string.format(
+    "cd '%s' && git branch --show-current && git status --porcelain | wc -l && git rev-list --count @{u}..HEAD 2>/dev/null || echo 0 && git rev-list --count HEAD..@{u} 2>/dev/null || echo 0",
+    rd
+  )
+  local ok, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", cmd})
+  if ok and out then
+    local lines = {}
+    for l in out:gmatch("[^\r\n]+") do lines[#lines + 1] = l end
+    state.metrics.git_status.branch        = lines[1] and lines[1]:gsub("%s+", "") or ""
+    state.metrics.git_status.changed_files = tonumber(lines[2]) or 0
+    state.metrics.git_status.ahead         = tonumber(lines[3]) or 0
+    state.metrics.git_status.behind        = tonumber(lines[4]) or 0
   else
-    state.metrics.git_status.branch = ""
-  end
-  
-  -- Get changed files count
-  local changed_success, changed_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git status --porcelain | wc -l"})
-  if changed_success and changed_out then
-    local changed_val = changed_out:match("(%d+)")
-    state.metrics.git_status.changed_files = tonumber(changed_val) or 0
-  else
+    state.metrics.git_status.branch        = ""
     state.metrics.git_status.changed_files = 0
-  end
-  
-  -- Get ahead/behind status
-  local ahead_success, ahead_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git rev-list --count @{u}..HEAD"})
-  if ahead_success and ahead_out then
-    state.metrics.git_status.ahead = tonumber(ahead_out:gsub("[\r\n%s]+", "")) or 0
-  else
-    state.metrics.git_status.ahead = 0
-  end
-  
-  local behind_success, behind_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", "cd " .. remote_dir .. " && git rev-list --count HEAD..@{u}"})
-  if behind_success and behind_out then
-    state.metrics.git_status.behind = tonumber(behind_out:gsub("[\r\n%s]+", "")) or 0
-  else
-    state.metrics.git_status.behind = 0
+    state.metrics.git_status.ahead         = 0
+    state.metrics.git_status.behind        = 0
   end
 end
 
@@ -650,7 +630,7 @@ local function connect_codespace(cs)
       vfs.activate(cs.name, remote_dir, local_dir, set_progress)
       
       if loader then loader.update_progress("Connected! (Virtual FS active)", 100) end
-      coroutine.yield(1.5) -- Brief celebration
+      -- No artificial delay — proceed immediately
     else
       core.error("Failed to load Virtual File System")
       if loader then loader.set_error("VFS initialization failed") end
@@ -1038,7 +1018,10 @@ command.add(nil, {
       return
     end
     core.log_quiet("Opening codespace in browser...")
-    run_cmd_sync({"gh", "cs", "code", "-c", core.active_codespace.name})
+    -- Wrap in core.add_thread to avoid yielding from the main thread (Lua 5.1 crash)
+    core.add_thread(function()
+      run_cmd_sync({"gh", "cs", "code", "-c", core.active_codespace.name})
+    end)
   end,
   
   ["codespaces:show-resources"] = function()

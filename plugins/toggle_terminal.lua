@@ -204,9 +204,12 @@ function TermView:_push_chunk(kind, chunk, no_redraw)
   local n = #lines
   local overflow = n - config.terminal.scrollback
   if overflow > 0 then
-    for _ = 1, overflow do
-      table.remove(lines, 1)
+    -- O(N) table rebuild instead of O(N²) repeated table.remove(t,1)
+    local new_lines = {}
+    for i = overflow + 1, n do
+      new_lines[#new_lines + 1] = lines[i]
     end
+    s.lines = new_lines
   end
   if not no_redraw then
     core.redraw = true
@@ -249,10 +252,11 @@ function TermView:_ensure_persistent_proc(s)
   s.codespace_cwd = s.codespace_cwd or remote_dir
 
   -- Launch a SINGLE long-lived interactive bash via SSH.
-  -- We use -t to allocate a pseudo-TTY so bash behaves naturally.
+  -- GH_INSECURE_SKIP_VERIFY_TLS bypasses corporate proxy TLS interception.
+  local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
   local p, err = process.start(
     { "gh", "codespace", "ssh", "-c", core.active_codespace.name },
-    { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE }
+    { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV }
   )
   if not p then
     self:_push("err", "ERROR: failed to start persistent SSH: " .. tostring(err))
@@ -290,8 +294,9 @@ function TermView:run(cmd_str)
     s.sentinel_n = (s.sentinel_n or 0) + 1
     local sentinel = make_sentinel(s.sentinel_n)
     s.waiting_sentinel = sentinel
+    -- Wrap: run cmd, capture exit code, echo sentinel on its own line
     local wrapped = string.format(
-      "%s; echo '%s'\n",
+      "%s; _rc=$?; echo '%s'; echo \"[exit: $_rc]\"\n",
       cmd_str, sentinel
     )
     pcall(function() s.persistent_proc:write(wrapped) end)
@@ -354,11 +359,12 @@ function TermView:update()
         s.persistent_out_buf = ""
         local done = false
         for line in (buf .. "\n"):gmatch("([^\n]*)\n") do
-          -- Strip \r
+          -- Strip \r and ALL ANSI escape sequences (mid-line too)
           line = line:gsub("\r$", "")
-          -- Filter out shell prompt garbage (PS1='') and READY marker
-          if line == "READY" or line:match("^\027%[") then
-            -- skip terminal escape sequences and our init marker
+          line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")
+          -- Filter READY init marker
+          if line == "READY" then
+            -- skip init marker
           elseif s.waiting_sentinel and line:find(s.waiting_sentinel, 1, true) then
             -- Sentinel found — command finished
             s.waiting_sentinel = nil
@@ -382,9 +388,8 @@ function TermView:update()
         s.persistent_err_buf = ""
         for line in (buf .. "\n"):gmatch("([^\n]*)\n") do
           line = line:gsub("\r$", "")
-          if line:match("^\027%[") then
-            -- skip escape sequences
-          elseif #line > 0 then
+          line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")  -- strip all ANSI escapes
+          if #line > 0 then
             table.insert(s.lines, { kind = "err", text = line })
             had_output = true
           end
@@ -860,7 +865,12 @@ function TermView:on_key_pressed(key)
     return true
   end
   if key == "ctrl+c" then
-    if self:state().proc then
+    if self:state().persistent_proc then
+      -- Send SIGINT to the remote bash process via the persistent SSH shell
+      pcall(function() self:state().persistent_proc:write("\x03") end)
+      self:state().waiting_sentinel = nil  -- cancel sentinel wait
+      self:_push("info", "^C (sent to remote)")
+    elseif self:state().proc then
       pcall(function() self:state().proc:kill() end)
       self:state().proc = nil
       self:_push("info", "^C (terminated)")
