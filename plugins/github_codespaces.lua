@@ -226,6 +226,25 @@ local function stop_codespace(cs)
           if type(core.open_project) == "function" then
             core.open_project(orig)
           else
+            -- Manual project switch: Close all open documents first
+            for _, node in ipairs(core.root_view.root_node:get_children()) do
+              if node.doc then
+                pcall(function() node:close() end)
+              end
+            end
+            -- Clear existing project directories
+            if core.project_directories then
+              for i = #core.project_directories, 1, -1 do
+                pcall(function()
+                  local pd = core.project_directories[i]
+                  if type(pd) == "table" then
+                    core.remove_project_directory(pd.name or pd)
+                  elseif type(pd) == "string" then
+                    core.remove_project_directory(pd)
+                  end
+                end)
+              end
+            end
             core.set_project_dir(orig)
             core.add_project_directory(orig)
           end
@@ -1056,6 +1075,25 @@ command.add(nil, {
       if type(core.open_project) == "function" then
         core.open_project(orig)
       else
+        -- Manual project switch: Close all open documents first
+        for _, node in ipairs(core.root_view.root_node:get_children()) do
+          if node.doc then
+            pcall(function() node:close() end)
+          end
+        end
+        -- Clear existing project directories
+        if core.project_directories then
+          for i = #core.project_directories, 1, -1 do
+            pcall(function()
+              local pd = core.project_directories[i]
+              if type(pd) == "table" then
+                core.remove_project_directory(pd.name or pd)
+              elseif type(pd) == "string" then
+                core.remove_project_directory(pd)
+              end
+            end)
+          end
+        end
         core.set_project_dir(orig)
         core.add_project_directory(orig)
       end
