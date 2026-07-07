@@ -45,7 +45,7 @@ local function get_prompt(s)
   if s.proc then return "" end
   if core.active_codespace then
     local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
-    return "\u{f0c2} /workspaces/" .. repo_only .. "$ "
+    return "\u{f09b} /workspaces/" .. repo_only .. "$ "
   end
   return s.shell.prompt_prefix .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
 end
