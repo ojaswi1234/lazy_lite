@@ -797,7 +797,13 @@ if status_view then
         if lsp_ok and core.active_view and core.active_view.doc and core.active_view.doc.filename then
           is_lsp_active = #lsp.get_active_servers(core.active_view.doc.filename, true) > 0
         end
-        local dot_color = is_lsp_active and {100, 255, 100, 255} or {255, 100, 100, 255}
+        local dot_color
+        if is_lsp_active then
+          local alpha = 155 + math.floor(100 * math.sin(system.get_time() * 4))
+          dot_color = {100, 255, 100, alpha}
+        else
+          dot_color = {255, 100, 100, 255}
+        end
         return { color, style.icon_font, "", style.font, text, dot_color, style.font, " ●" }
       end
       
