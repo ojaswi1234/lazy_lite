@@ -44,6 +44,7 @@ end
 local function get_prompt(s)
   if s.proc then return "" end
   if core.active_codespace then
+    if s.waiting_sentinel then return "" end  -- running, no input prompt
     local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
     return "\u{f09b} /workspaces/" .. repo_only .. "$ "
   end
@@ -107,6 +108,11 @@ local TermView = View:extend()
 local instance   = nil   -- single instance kept alive across toggles
 local node_built = false -- have we added to node tree yet?
 
+-- Sentinel used to detect end-of-command in persistent shell sessions.
+-- Must be unique enough to never appear in normal command output.
+local SENTINEL_BASE = "__LITEXL_DONE_"
+local function make_sentinel(n) return SENTINEL_BASE .. tostring(n) .. "__" end
+
 function TermView:new()
   TermView.super.new(self)
   self.visible      = true   -- controls size animation (treeview pattern)
@@ -134,6 +140,11 @@ function TermView:add_session(shell_opts)
     cursor = 1,
     scroll_y = 0,
     proc = nil,
+    -- Persistent shell for codespace sessions (avoids per-command SSH handshake)
+    persistent_proc = nil,
+    codespace_cwd = nil,   -- tracks cwd inside the persistent shell
+    sentinel_n = 0,        -- counter for unique sentinels
+    waiting_sentinel = nil,-- sentinel we're waiting for
     history = {},
     history_idx = 1,
     selection = nil,
@@ -220,11 +231,74 @@ function TermView:_flush_chunk_buffer(kind)
   end
 end
 
+-- Start (or reuse) a persistent SSH bash session for the given session state.
+-- Returns true if the proc is ready, false/nil otherwise.
+function TermView:_ensure_persistent_proc(s)
+  if s.persistent_proc then
+    local rc = s.persistent_proc:returncode()
+    if rc == nil then return true end  -- still alive
+    -- Process died — clear it so we reconnect
+    s.persistent_proc = nil
+    s.waiting_sentinel = nil
+    self:_push("info", "[connection lost, reconnecting...]")
+  end
+
+  if not core.active_codespace then return false end
+  local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
+  local remote_dir = core.active_codespace.remote_dir or ("/workspaces/" .. repo_only)
+  s.codespace_cwd = s.codespace_cwd or remote_dir
+
+  -- Launch a SINGLE long-lived interactive bash via SSH.
+  -- We use -t to allocate a pseudo-TTY so bash behaves naturally.
+  local p, err = process.start(
+    { "gh", "codespace", "ssh", "-c", core.active_codespace.name },
+    { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE }
+  )
+  if not p then
+    self:_push("err", "ERROR: failed to start persistent SSH: " .. tostring(err))
+    return false
+  end
+  s.persistent_proc = p
+  s.waiting_sentinel = nil
+  -- Initialise: cd to the remote working dir and disable prompt so our output is clean.
+  pcall(function()
+    p:write("cd " .. shell_quote(remote_dir) .. " && export PS1='' && export PS2='' && stty -echo 2>/dev/null; echo READY\n")
+  end)
+  self:_push("info", "[connecting to codespace...]")
+  return true
+end
+
 -- Run a command string asynchronously
 function TermView:run(cmd_str)
   local s = self:state()
   s.scroll_to_bottom = true
 
+  -- ── Codespace path: use persistent SSH shell (no per-command SSH handshake) ──
+  if core.active_codespace then
+    -- If the persistent shell process is already running a command, queue nothing
+    -- (the user typed another command while one is executing)
+    if s.waiting_sentinel then
+      self:_push("err", "[command already running — wait for it to finish]")
+      return
+    end
+    self:_push("cmd", get_prompt(s) .. cmd_str)
+    if not self:_ensure_persistent_proc(s) then return end
+    -- Build a sentinel-wrapped command that:
+    --   1. runs the user's command
+    --   2. captures its exit code
+    --   3. prints a unique sentinel so we know it finished
+    s.sentinel_n = (s.sentinel_n or 0) + 1
+    local sentinel = make_sentinel(s.sentinel_n)
+    s.waiting_sentinel = sentinel
+    local wrapped = string.format(
+      "%s; echo '%s'\n",
+      cmd_str, sentinel
+    )
+    pcall(function() s.persistent_proc:write(wrapped) end)
+    return
+  end
+
+  -- ── Local path: legacy per-command spawn ──
   -- If a process is already running, send input to stdin
   if s.proc then
     self:_push("cmd", cmd_str)
@@ -235,14 +309,8 @@ function TermView:run(cmd_str)
   self:_push("cmd", get_prompt(s) .. cmd_str)
 
   local argv = {}
-  if core.active_codespace then
-    local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
-    local remote_dir = core.active_codespace.remote_dir or ("/workspaces/" .. repo_only)
-    argv = { "gh", "codespace", "ssh", "-c", core.active_codespace.name, "--", "cd " .. shell_quote(remote_dir) .. " && " .. cmd_str }
-  else
-    for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
-    table.insert(argv, cmd_str)
-  end
+  for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
+  table.insert(argv, cmd_str)
 
   local p, err, code = process.start(argv, {
     stdin  = process.REDIRECT_PIPE,
@@ -270,7 +338,76 @@ function TermView:update()
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "y", dest, nil, "terminal")
 
-  -- Drain ALL process outputs using 64KB chunks for maximum IPC throughput
+  -- ── Drain persistent SSH shell output (codespace sessions) ──
+  for i, s in ipairs(self.sessions) do
+    if s.persistent_proc then
+      local had_output = false
+      local old_idx = self.active_idx
+      self.active_idx = i
+
+      -- Drain stdout from persistent proc, watch for sentinel
+      while true do
+        local out = s.persistent_proc:read_stdout(65536)
+        if not out or #out == 0 then break end
+        -- Split on lines, filter out sentinel line
+        local buf = (s.persistent_out_buf or "") .. out
+        s.persistent_out_buf = ""
+        local done = false
+        for line in (buf .. "\n"):gmatch("([^\n]*)\n") do
+          -- Strip \r
+          line = line:gsub("\r$", "")
+          -- Filter out shell prompt garbage (PS1='') and READY marker
+          if line == "READY" or line:match("^\027%[") then
+            -- skip terminal escape sequences and our init marker
+          elseif s.waiting_sentinel and line:find(s.waiting_sentinel, 1, true) then
+            -- Sentinel found — command finished
+            s.waiting_sentinel = nil
+            done = true
+          elseif #line > 0 then
+            table.insert(s.lines, { kind = "out", text = line })
+            had_output = true
+          end
+        end
+        if done then
+          s.scroll_to_bottom = true
+          had_output = true
+        end
+      end
+
+      -- Drain stderr from persistent proc
+      while true do
+        local err = s.persistent_proc:read_stderr(65536)
+        if not err or #err == 0 then break end
+        local buf = (s.persistent_err_buf or "") .. err
+        s.persistent_err_buf = ""
+        for line in (buf .. "\n"):gmatch("([^\n]*)\n") do
+          line = line:gsub("\r$", "")
+          if line:match("^\027%[") then
+            -- skip escape sequences
+          elseif #line > 0 then
+            table.insert(s.lines, { kind = "err", text = line })
+            had_output = true
+          end
+        end
+      end
+
+      -- Check if persistent proc died unexpectedly
+      local rc = s.persistent_proc:returncode()
+      if rc ~= nil then
+        s.persistent_proc = nil
+        s.waiting_sentinel = nil
+        self:_push("info", string.format("[ssh session closed: %d]", rc))
+        had_output = true
+      end
+
+      self.active_idx = old_idx
+      if had_output then
+        core.redraw = true
+      end
+    end
+  end
+
+  -- Drain ALL regular (local) process outputs using 64KB chunks
   for i, s in ipairs(self.sessions) do
     if s.proc then
       local had_output = false
