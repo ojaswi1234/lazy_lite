@@ -160,8 +160,8 @@ function TermView:get_name() return "Terminal" end
 function TermView:_push_chunk(kind, chunk, no_redraw)
   local s = self:state()
   local lh = style.code_font:get_height() + 2 * SCALE
-  local old_total = #s.lines * lh
-  local inner = math.max(0, self.size.y - 20 * SCALE)
+  local old_total = (#s.lines + 1) * lh
+  local inner = math.max(0, self.size.y - 31 * SCALE)
   local was_at_bottom = s.scroll_to_bottom or (s.scroll_y >= old_total - inner - lh)
 
   local buf_key = kind .. "_buf"
@@ -316,8 +316,8 @@ function TermView:update()
   -- Handle scroll snapping & clamp on resize
   local s = self:state()
   local lh = style.code_font:get_height() + 2 * SCALE
-  local total = #s.lines * lh
-  local inner = math.max(0, self.size.y - 20 * SCALE)
+  local total = (#s.lines + 1) * lh
+  local inner = math.max(0, self.size.y - 31 * SCALE)
   local max_scroll = math.max(0, total - inner)
   if s.scroll_to_bottom and total > 0 then
     s.scroll_y = max_scroll
@@ -870,8 +870,8 @@ function TermView:on_mouse_wheel(dy)
   self:state().scroll_y = math.max(0, self:state().scroll_y - dy * lh * 3)
   
   -- Clamp scroll
-  local total = #self:state().lines * lh
-  local inner = math.max(0, self.size.y - 20 * SCALE)
+  local total = (#self:state().lines + 1) * lh
+  local inner = math.max(0, self.size.y - 31 * SCALE)
   local max_scroll = math.max(0, total - inner)
   self:state().scroll_y = math.max(0, math.min(max_scroll, self:state().scroll_y))
   
