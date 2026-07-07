@@ -948,13 +948,15 @@ command.add(nil, {
       core.warn("No codespace connected")
       return
     end
-    core.log_quiet("Refreshing file tree cache...")
-    local ok = sync_file_tree(core.active_codespace.remote_dir, core.active_codespace.name)
-    if ok then
-      core.log_quiet("Cache refreshed successfully")
-    else
-      core.error("Cache refresh failed")
-    end
+    core.add_thread(function()
+      core.log_quiet("Refreshing file tree cache...")
+      local ok = sync_file_tree(core.active_codespace.remote_dir, core.active_codespace.name)
+      if ok then
+        core.log_quiet("Cache refreshed successfully")
+      else
+        core.error("Cache refresh failed")
+      end
+    end)
   end,
   
   ["codespaces:clear-cache"] = function()
@@ -967,30 +969,32 @@ command.add(nil, {
       core.log_quiet("No codespace connected")
       return
     end
-    get_remote_resources(core.active_codespace.name)
-    get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
-    local ok = check_connection(core.active_codespace.name)
-    if ok then
-      core.log_quiet("SSH connection: OK (latency: %.0fms)", state.metrics.latency)
-    else
-      core.log_quiet("SSH connection: FAILED")
-    end
-    core.log_quiet("Cache size: %d files, %d content entries", 
-      #state.cache.file_tree, #state.cache.file_content)
-    core.log_quiet("Sync queue: %d pending operations", #state.metrics.sync_queue)
-    core.log_quiet("Offline mode: %s", state.metrics.offline_mode and "YES" or "NO")
-    core.log_quiet("Remote Resources:")
-    core.log_quiet("  CPU: %.1f%%", state.metrics.resources.cpu)
-    core.log_quiet("  Memory: %.1f%%", state.metrics.resources.memory)
-    core.log_quiet("  Disk: %d%%", state.metrics.resources.disk)
-    core.log_quiet("Git Status:")
-    core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
-    core.log_quiet("  Changed: %d files", state.metrics.git_status.changed_files)
-    core.log_quiet("  Ahead: %d, Behind: %d", state.metrics.git_status.ahead, state.metrics.git_status.behind)
-    if core.active_codespace.start_time then
-      local elapsed = system.get_time() - core.active_codespace.start_time
-      core.log_quiet("Session uptime: %.0fs", elapsed)
-    end
+    core.add_thread(function()
+      get_remote_resources(core.active_codespace.name)
+      get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
+      local ok = check_connection(core.active_codespace.name)
+      if ok then
+        core.log_quiet("SSH connection: OK (latency: %.0fms)", state.metrics.latency)
+      else
+        core.log_quiet("SSH connection: FAILED")
+      end
+      core.log_quiet("Cache size: %d files, %d content entries", 
+        #state.cache.file_tree, #state.cache.file_content)
+      core.log_quiet("Sync queue: %d pending operations", #state.metrics.sync_queue)
+      core.log_quiet("Offline mode: %s", state.metrics.offline_mode and "YES" or "NO")
+      core.log_quiet("Remote Resources:")
+      core.log_quiet("  CPU: %.1f%%", state.metrics.resources.cpu)
+      core.log_quiet("  Memory: %.1f%%", state.metrics.resources.memory)
+      core.log_quiet("  Disk: %d%%", state.metrics.resources.disk)
+      core.log_quiet("Git Status:")
+      core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
+      core.log_quiet("  Changed: %d files", state.metrics.git_status.changed_files)
+      core.log_quiet("  Ahead: %d, Behind: %d", state.metrics.git_status.ahead, state.metrics.git_status.behind)
+      if core.active_codespace.start_time then
+        local elapsed = system.get_time() - core.active_codespace.start_time
+        core.log_quiet("Session uptime: %.0fs", elapsed)
+      end
+    end)
   end,
   
   ["codespaces:process-sync-queue"] = function()
@@ -1007,14 +1011,16 @@ command.add(nil, {
       core.warn("No codespace connected")
       return
     end
-    core.log_quiet("Forcing reconnection...")
-    state.cache.connection.connected = false
-    local ok = check_connection(core.active_codespace.name)
-    if ok then
-      core.log_quiet("Reconnection successful")
-    else
-      core.warn("Reconnection failed")
-    end
+    core.add_thread(function()
+      core.log_quiet("Forcing reconnection...")
+      state.cache.connection.connected = false
+      local ok = check_connection(core.active_codespace.name)
+      if ok then
+        core.log_quiet("Reconnection successful")
+      else
+        core.warn("Reconnection failed")
+      end
+    end)
   end,
   
   ["codespaces:disconnect"] = function()
@@ -1069,11 +1075,13 @@ command.add(nil, {
       core.warn("No codespace connected")
       return
     end
-    get_remote_resources(core.active_codespace.name)
-    core.log_quiet("Remote Resources:")
-    core.log_quiet("  CPU: %.1f%%", state.metrics.resources.cpu)
-    core.log_quiet("  Memory: %.1f%%", state.metrics.resources.memory)
-    core.log_quiet("  Disk: %d%%", state.metrics.resources.disk)
+    core.add_thread(function()
+      get_remote_resources(core.active_codespace.name)
+      core.log_quiet("Remote Resources:")
+      core.log_quiet("  CPU: %.1f%%", state.metrics.resources.cpu)
+      core.log_quiet("  Memory: %.1f%%", state.metrics.resources.memory)
+      core.log_quiet("  Disk: %d%%", state.metrics.resources.disk)
+    end)
   end,
   
   ["codespaces:refresh-git-status"] = function()
@@ -1081,13 +1089,15 @@ command.add(nil, {
       core.warn("No codespace connected")
       return
     end
-    core.log_quiet("Refreshing git status...")
-    get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
-    core.log_quiet("Git Status:")
-    core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
-    core.log_quiet("  Changed files: %d", state.metrics.git_status.changed_files)
-    core.log_quiet("  Ahead: %d commits", state.metrics.git_status.ahead)
-    core.log_quiet("  Behind: %d commits", state.metrics.git_status.behind)
+    core.add_thread(function()
+      core.log_quiet("Refreshing git status...")
+      get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
+      core.log_quiet("Git Status:")
+      core.log_quiet("  Branch: %s", state.metrics.git_status.branch)
+      core.log_quiet("  Changed files: %d", state.metrics.git_status.changed_files)
+      core.log_quiet("  Ahead: %d commits", state.metrics.git_status.ahead)
+      core.log_quiet("  Behind: %d commits", state.metrics.git_status.behind)
+    end)
   end,
   
   ["codespaces:git-pull"] = function()
@@ -1095,17 +1105,19 @@ command.add(nil, {
       core.warn("No codespace connected")
       return
     end
-    core.log_quiet("Pulling from remote...")
-    local success, out = run_cmd_sync({
-      "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c",
-      build_remote_workdir_command(core.active_codespace.remote_dir, "git pull")
-    })
-    if success then
-      core.log_quiet("Pull successful")
-      get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
-    else
-      core.warn("Pull failed: %s", tostring(out))
-    end
+    core.add_thread(function()
+      core.log_quiet("Pulling from remote...")
+      local success, out = run_cmd_sync({
+        "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c",
+        build_remote_workdir_command(core.active_codespace.remote_dir, "git pull")
+      })
+      if success then
+        core.log_quiet("Pull successful")
+        get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
+      else
+        core.warn("Pull failed: %s", tostring(out))
+      end
+    end)
   end,
   
   ["codespaces:git-push"] = function()
@@ -1113,17 +1125,19 @@ command.add(nil, {
       core.warn("No codespace connected")
       return
     end
-    core.log_quiet("Pushing to remote...")
-    local success, out = run_cmd_sync({
-      "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c",
-      build_remote_workdir_command(core.active_codespace.remote_dir, "git push")
-    })
-    if success then
-      core.log_quiet("Push successful")
-      get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
-    else
-      core.warn("Push failed: %s", tostring(out))
-    end
+    core.add_thread(function()
+      core.log_quiet("Pushing to remote...")
+      local success, out = run_cmd_sync({
+        "gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c",
+        build_remote_workdir_command(core.active_codespace.remote_dir, "git push")
+      })
+      if success then
+        core.log_quiet("Push successful")
+        get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
+      else
+        core.warn("Push failed: %s", tostring(out))
+      end
+    end)
   end,
   
   ["codespaces:run-command"] = function()
