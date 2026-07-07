@@ -226,15 +226,18 @@ end
 function VFS.write_file(local_path, content)
   if not VFS.active then return false, "VFS not active" end
 
-  -- gh cs cp handles the transfer reliably (single-file scp)
+  -- gh cs cp on Windows fails with single-quote escaping issues, so we use cmd.exe stdin redirection
   local remote_path = local_to_remote(local_path)
-  -- GH_ENV needed for TLS bypass on corporate proxies (same as all other gh calls)
-  local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
-  local p = process.start(
-    {"gh", "cs", "cp", local_path, "remote:" .. remote_path, "-c", VFS.codespace_name},
-    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV}
+  local remote_escaped = remote_path:gsub("'", "'\\''")
+  local cmd_str = string.format(
+    'set GH_INSECURE_SKIP_VERIFY_TLS=1&& set GH_NO_UPDATE_NOTIFIER=1&& gh cs ssh -c %s -- sh -c "cat > \'%s\'" < "%s"',
+    VFS.codespace_name, remote_escaped, local_path
   )
-  if not p then return false, "Failed to start gh cs cp" end
+  local p = process.start(
+    {"cmd.exe", "/c", cmd_str},
+    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE}
+  )
+  if not p then return false, "Failed to start file upload" end
 
   local out_t = {}
   local start = system.get_time()
@@ -354,6 +357,7 @@ function VFS.activate(cs_name, remote_dir, local_dir, on_progress)
   end
 
   core.log_quiet("[VFS] Activated: %s → %s", cs_name, remote_dir)
+  return ok, err
 end
 
 -- Deactivate and clear all state.
