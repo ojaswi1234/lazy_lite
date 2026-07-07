@@ -121,11 +121,17 @@ end
 
 local GH_ASYNC_TIMEOUT = 30
 
+-- Environment passed to every gh subprocess.
+-- GH_INSECURE_SKIP_VERIFY_TLS=1 silences x509/TLS cert errors that occur
+-- when a corporate proxy or antivirus intercepts HTTPS (very common on Windows).
+local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
+
 local function run_gh_async(args, on_complete)
   core.add_thread(function()
     local p = process.start(args, {
       stdout = process.REDIRECT_PIPE,
-      stderr = process.REDIRECT_PIPE
+      stderr = process.REDIRECT_PIPE,
+      env    = GH_ENV,
     })
     if not p then
       if on_complete then on_complete(false, "Failed to start gh process") end
@@ -222,7 +228,10 @@ local function stop_codespace(cs)
       end
       fetch_codespaces()
     else
-      core.error("%s", "Failed to stop Codespace: " .. tostring(out))
+      -- Demote to a quiet warning so the xpcall chain doesn't propagate
+      -- a modal error for transient TLS / network issues.
+      core.log_quiet("[Codespaces] stop failed: %s", tostring(out))
+      core.warn("Failed to stop Codespace (network/TLS issue). It may already be stopped.")
       modal.state = "list"
       core.redraw = true
     end
@@ -231,7 +240,7 @@ end
 
 local function run_cmd_sync(args, timeout)
   timeout = timeout or 30 -- Default 30 second timeout
-  local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE})
+  local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV})
   if not p then return false, "Failed to start process" end
   local out = ""
   local start_time = system.get_time()
