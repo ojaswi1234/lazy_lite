@@ -703,8 +703,8 @@ function TermView:draw()
       s.cursor = s.cursor or (#s.input + 1)
       local left_txt = display_input:sub(1, s.cursor - 1)
       local cx = text_x + prompt_w + style.code_font:get_width(left_txt)
-      if core.blink_timer % 1 < 0.5 then
-        renderer.draw_rect(cx, text_y, 2 * SCALE, style.code_font:get_height(), { common.color "#A9DC76" })
+      if system.get_time() % 1 < 0.5 then
+        renderer.draw_rect(cx, text_y, 2 * SCALE, style.code_font:get_height(), { common.color("#A9DC76") })
       end
     end
   end

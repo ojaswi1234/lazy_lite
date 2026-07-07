@@ -590,19 +590,38 @@ local function connect_codespace(cs)
     local loader = get_loader()
     if loader then loader.start(modal.loading_msg) end
     core.redraw = true
-    local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"}, 240)
     local remote_dir = "/workspaces/" .. repo_name
-    if dir_success and dir_out and dir_out ~= "" then
-      remote_dir = dir_out:gsub("[\r\n%s]+", "")
-      if not remote_dir:match("^/workspaces") then
-        remote_dir = "/workspaces/" .. repo_name
+    local probe_success = false
+    local start = system.get_time()
+    
+    while system.get_time() - start < 180 do
+      -- The first time this runs, it acts as a wake-up call to the codespace.
+      local dir_success, dir_out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs.name, "--", "pwd"}, 30)
+      if dir_success and dir_out and dir_out ~= "" then
+        remote_dir = dir_out:gsub("[\r\n%s]+", "")
+        if not remote_dir:match("^/workspaces") then
+          remote_dir = "/workspaces/" .. repo_name
+        end
+        probe_success = true
+        break
       end
-    elseif not dir_success then
-      -- Cold-start SSH can time out even at 120s on heavily loaded infra.
-      -- Fall back to the default path and keep going — populate_shadow_structure
-      -- will retry the connection with its own find calls.
-      core.warn("[Codespaces] Initial SSH probe timed out — using default path and retrying...")
-      local loader = get_loader()
+      
+      -- If it timed out, query the actual Codespace state using VS Code's technique
+      local st_ok, st_out = run_cmd_sync({"gh", "cs", "view", "-c", cs.name, "--json", "state", "-q", ".state"}, 10)
+      local state = (st_ok and st_out) and st_out:gsub("[\r\n%s]+", "") or "Starting"
+      
+      if loader then loader.update_progress("Codespace is " .. state .. ", waiting...", 20) end
+      core.redraw = true
+      
+      -- Sleep briefly before retrying
+      local wait_until = system.get_time() + 5
+      while system.get_time() < wait_until do
+        coroutine.yield(0.1)
+      end
+    end
+    
+    if not probe_success then
+      core.warn("[Codespaces] Initial SSH probe timed out entirely — using default path and hoping for the best...")
       if loader then loader.update_progress("Probe timeout, using default...", 10) end
     end
 
