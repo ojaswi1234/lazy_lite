@@ -123,7 +123,11 @@ function TermView:state()
 end
 
 function TermView:add_session(shell_opts)
-  shell_opts = shell_opts or shells[1]
+  if core.active_codespace then
+    shell_opts = { name = "Cloud Shell", cmd = {} }
+  else
+    shell_opts = shell_opts or shells[1]
+  end
   local s = {
     lines = {},
     input = "",
@@ -412,7 +416,7 @@ function TermView:draw()
   local cur_x = x + 160 * SCALE
   self.tab_rects = {}
   for i, s in ipairs(self.sessions) do
-    local label = s.shell and s.shell.name:sub(1, 2) or tostring(i)
+    local label = core.active_codespace and "Cl" or (s.shell and s.shell.name:sub(1, 2) or tostring(i))
     local tw = style.font:get_width(label) + 16 * SCALE
     local tab_bg = (i == self.active_idx) and get_contrast_bg(hdr_bg) or hdr_bg
     local tab_fg = (i == self.active_idx) and fg or col_inf
@@ -432,11 +436,15 @@ function TermView:draw()
     cur_x = cur_x + pw + 2 * SCALE
     
     -- "v" dropdown button
-    local vw = style.font:get_width("v") + 16 * SCALE
-    renderer.draw_rect(cur_x, y + 2 * SCALE, vw, hdr_h, hdr_bg)
-    renderer.draw_text(style.font, "v", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), col_inf)
-    self.dropdown_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = vw, h = hdr_h }
-    cur_x = cur_x + vw + 2 * SCALE
+    if not core.active_codespace then
+      local vw = style.font:get_width("v") + 16 * SCALE
+      renderer.draw_rect(cur_x, y + 2 * SCALE, vw, hdr_h, hdr_bg)
+      renderer.draw_text(style.font, "v", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), col_inf)
+      self.dropdown_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = vw, h = hdr_h }
+      cur_x = cur_x + vw + 2 * SCALE
+    else
+      self.dropdown_btn_rect = nil
+    end
   
   -- "x" button (close active)
   if #self.sessions > 1 then
