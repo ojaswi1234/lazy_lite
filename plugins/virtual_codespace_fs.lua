@@ -226,18 +226,30 @@ end
 function VFS.write_file(local_path, content)
   if not VFS.active then return false, "VFS not active" end
 
-  -- gh cs cp on Windows fails with single-quote escaping issues, so we use cmd.exe stdin redirection
   local remote_path = local_to_remote(local_path)
   local remote_escaped = remote_path:gsub("'", "'\\''")
-  local cmd_str = string.format(
-    'set GH_INSECURE_SKIP_VERIFY_TLS=1&& set GH_NO_UPDATE_NOTIFIER=1&& gh cs ssh -c %s -- sh -c "cat > \'%s\'" < "%s"',
-    VFS.codespace_name, remote_escaped, local_path
-  )
+  local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
   local p = process.start(
-    {"cmd.exe", "/c", cmd_str},
-    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE}
+    {"gh", "cs", "ssh", "-c", VFS.codespace_name, "--", "sh", "-c", "cat > '" .. remote_escaped .. "'"},
+    {stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV}
   )
   if not p then return false, "Failed to start file upload" end
+  
+  -- Write content in chunks to avoid blocking the pipe
+  local fd = io.open(local_path, "rb")
+  if fd then
+    local data = fd:read("*a")
+    fd:close()
+    if data and #data > 0 then
+      local offset = 1
+      while offset <= #data do
+        p:write(data:sub(offset, offset + 8192 - 1))
+        offset = offset + 8192
+        if coroutine.running() then coroutine.yield(0.01) end
+      end
+    end
+  end
+  p:close_stream(process.STREAM_STDIN)
 
   local out_t = {}
   local start = system.get_time()
