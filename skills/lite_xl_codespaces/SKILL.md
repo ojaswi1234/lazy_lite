@@ -39,6 +39,8 @@ To make remote files accessible to local Lite XL features, `virtual_codespace_fs
 
 ## 4. Healing Protocol for Remote Issues
 1. **Identify the subsystem:** Is it failing during shadow build (VFS)? During autocomplete/LSP (Proxy)? Or during terminal launch?
-2. **Check the quoting:** If a shell command is malformed, rewrite it using `[[...]]`.
-3. **Check the environment:** Ensure `GH_INSECURE_SKIP_VERIFY_TLS=1` is present in the subprocess environment map.
-4. **Check the remote OS compatibility:** If a standard Linux utility fails, assume it's a BusyBox container and rewrite the command to be strict POSIX.
+2. **Deadlocked Codespaces (The "Starting" loop):** If you see `[Codespaces] Initial SSH probe timed out` followed by `[VFS] Shadow build failed`, the Codespace is likely stuck in the `"Starting"` state on GitHub's backend due to a broken Docker build. 
+   - **Action:** DO NOT try to patch local Lua files for this. Tell the user exactly why it failed and instruct them to run the `codespaces:rebuild-codespace` command from the Lite XL command palette to forcefully rebuild the container.
+3. **Check the quoting:** If a shell command is malformed, rewrite it using `[[...]]`.
+4. **Check the environment:** Ensure `GH_INSECURE_SKIP_VERIFY_TLS=1` is present in the subprocess environment map.
+5. **Check the remote OS compatibility:** If a standard Linux utility fails, assume it's a BusyBox container and rewrite the command to be strict POSIX.

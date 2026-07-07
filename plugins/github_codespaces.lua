@@ -1138,6 +1138,25 @@ command.add(nil, {
       end
     })
   end,
+  
+  ["codespaces:rebuild-codespace"] = function()
+    -- Useful for fixing deadlocked codespaces stuck in "Starting" state
+    core.command_view:enter("Rebuild Codespace (Enter name)", {
+      submit = function(name)
+        local cs_name = (name or ""):match("^%s*(.-)%s*$")
+        if cs_name == "" then return end
+        core.log_quiet("[codespaces] Force rebuilding %s...", cs_name)
+        core.add_thread(function()
+          local success, out = run_cmd_sync({"gh", "cs", "rebuild", "-c", cs_name}, 600)
+          if success then
+            core.log_quiet("[codespaces] Successfully rebuilt %s! You can now reconnect.", cs_name)
+          else
+            core.error("Failed to rebuild %s: %s", cs_name, tostring(out))
+          end
+        end)
+      end
+    })
+  end,
 })
 
 -- Intercept Events
