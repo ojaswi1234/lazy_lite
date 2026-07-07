@@ -1146,10 +1146,26 @@ command.add(nil, {
         local cs_name = (name or ""):match("^%s*(.-)%s*$")
         if cs_name == "" then return end
         core.log_quiet("[codespaces] Force rebuilding %s...", cs_name)
+        
+        modal.active = true
+        modal.state = "loading"
+        modal.loading_msg = "Rebuilding Codespace (This will take a few minutes)..."
+        local loader = get_loader()
+        if loader then loader.start(modal.loading_msg) end
+        core.redraw = true
+        
         core.add_thread(function()
           local success, out = run_cmd_sync({"gh", "cs", "rebuild", "-c", cs_name}, 600)
+          
+          if loader then loader.stop() end
+          modal.active = false
+          core.redraw = true
+          
           if success then
             core.log_quiet("[codespaces] Successfully rebuilt %s! You can now reconnect.", cs_name)
+            core.command_view:enter("Rebuild Complete! Press Enter to dismiss.", {
+              submit = function() end
+            })
           else
             core.error("Failed to rebuild %s: %s", cs_name, tostring(out))
           end
