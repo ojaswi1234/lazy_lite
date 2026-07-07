@@ -643,7 +643,7 @@ local function connect_codespace(cs)
             submit = function() command.perform("codespaces:open") end
           })
         else
-          core.error("Failed to auto-rebuild: %s", tostring(out))
+          core.warn("Failed to auto-rebuild: %s", tostring(out))
         end
         
         if loader then loader.stop() end
@@ -945,7 +945,7 @@ end
 command.add(nil, {
   ["codespaces:refresh-cache"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Refreshing file tree cache...")
@@ -995,7 +995,7 @@ command.add(nil, {
   
   ["codespaces:process-sync-queue"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Processing sync queue...")
@@ -1004,7 +1004,7 @@ command.add(nil, {
   
   ["codespaces:force-reconnect"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Forcing reconnection...")
@@ -1013,13 +1013,13 @@ command.add(nil, {
     if ok then
       core.log_quiet("Reconnection successful")
     else
-      core.error("Reconnection failed")
+      core.warn("Reconnection failed")
     end
   end,
   
   ["codespaces:disconnect"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Disconnecting from Codespace...")
@@ -1039,7 +1039,7 @@ command.add(nil, {
   
   ["codespaces:open-remote-terminal"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Opening remote terminal...")
@@ -1054,7 +1054,7 @@ command.add(nil, {
   
   ["codespaces:open-in-browser"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Opening codespace in browser...")
@@ -1066,7 +1066,7 @@ command.add(nil, {
   
   ["codespaces:show-resources"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     get_remote_resources(core.active_codespace.name)
@@ -1078,7 +1078,7 @@ command.add(nil, {
   
   ["codespaces:refresh-git-status"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Refreshing git status...")
@@ -1092,7 +1092,7 @@ command.add(nil, {
   
   ["codespaces:git-pull"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Pulling from remote...")
@@ -1104,13 +1104,13 @@ command.add(nil, {
       core.log_quiet("Pull successful")
       get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
     else
-      core.error("Pull failed: %s", tostring(out))
+      core.warn("Pull failed: %s", tostring(out))
     end
   end,
   
   ["codespaces:git-push"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.log_quiet("Pushing to remote...")
@@ -1122,13 +1122,13 @@ command.add(nil, {
       core.log_quiet("Push successful")
       get_git_status(core.active_codespace.name, core.active_codespace.remote_dir)
     else
-      core.error("Push failed: %s", tostring(out))
+      core.warn("Push failed: %s", tostring(out))
     end
   end,
   
   ["codespaces:run-command"] = function()
     if not core.active_codespace then
-      core.error("No codespace connected")
+      core.warn("No codespace connected")
       return
     end
     core.command_view:enter("Run Remote Command", {
@@ -1155,7 +1155,7 @@ command.add(nil, {
               end
             end
           else
-            core.error("Remote command failed: %s", tostring(out))
+            core.warn("Remote command failed: %s", tostring(out))
           end
         end)
       end
@@ -1190,7 +1190,7 @@ command.add(nil, {
               submit = function() end
             })
           else
-            core.error("Failed to rebuild %s: %s", cs_name, tostring(out))
+            core.warn("Failed to rebuild %s: %s", cs_name, tostring(out))
           end
         end)
       end
