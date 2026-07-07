@@ -627,7 +627,30 @@ local function connect_codespace(cs)
         core.redraw = true
       end
       
-      vfs.activate(cs.name, remote_dir, local_dir, set_progress)
+      local vfs_ok, vfs_err = vfs.activate(cs.name, remote_dir, local_dir, set_progress)
+      
+      if not vfs_ok and not dir_success then
+        core.log_quiet("[Codespaces] Deadlock detected. Codespace is stuck in 'Starting'. Auto-rebuilding...")
+        modal.loading_msg = "Deadlock detected! Auto-rebuilding Codespace..."
+        if loader then loader.update_progress(modal.loading_msg, 0) end
+        core.redraw = true
+        
+        local success, out = run_cmd_sync({"gh", "cs", "rebuild", "-c", cs.name}, 600)
+        
+        if success then
+          core.log_quiet("[Codespaces] Successfully auto-rebuilt! Retrying connection...")
+          core.command_view:enter("Rebuild Complete! Press Enter to reconnect.", {
+            submit = function() command.perform("codespaces:open") end
+          })
+        else
+          core.error("Failed to auto-rebuild: %s", tostring(out))
+        end
+        
+        if loader then loader.stop() end
+        modal.active = false
+        core.redraw = true
+        return
+      end
       
       if loader then loader.update_progress("Connected! (Virtual FS active)", 100) end
       -- No artificial delay — proceed immediately
