@@ -758,6 +758,42 @@ local function connect_codespace(cs)
     
     -- Restart resource monitor
     restart_resource_monitor()
+    
+    -- Ask user about periodic git pull
+    core.command_view:enter("Should we run git pull periodically? (y/n)", {
+      submit = function(text)
+        local ans = (text or ""):lower():match("^%s*(.-)%s*$")
+        if ans == "y" or ans == "yes" then
+          core.log_quiet("[Codespaces] Periodic git pull enabled.")
+          local current_cs = core.active_codespace
+          core.add_thread(function()
+            local wait_time = 300 -- 5 minutes
+            while core.active_codespace == current_cs do
+              local start_t = system.get_time()
+              while system.get_time() - start_t < wait_time do
+                coroutine.yield(1)
+                if core.active_codespace ~= current_cs then return end
+              end
+              
+              if core.active_codespace == current_cs then
+                core.log_quiet("[Codespaces] Auto-sync: Running background git pull...")
+                local success, out = run_cmd_sync({
+                  "gh", "cs", "ssh", "-c", current_cs.name, "--", "sh", "-c",
+                  build_remote_workdir_command(current_cs.remote_dir, "git pull")
+                }, 60)
+                if success then
+                  core.log_quiet("[Codespaces] Auto-sync complete.")
+                else
+                  core.log_quiet("[Codespaces] Auto-sync git pull failed: " .. tostring(out))
+                end
+              end
+            end
+          end)
+        else
+          core.log_quiet("[Codespaces] Periodic git pull disabled.")
+        end
+      end
+    })
   end)
 end
 
