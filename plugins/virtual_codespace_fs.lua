@@ -229,46 +229,58 @@ function VFS.write_file(local_path, content)
   local remote_path = local_to_remote(local_path)
   local remote_escaped = remote_path:gsub("'", "'\\''")
   
-  -- Create a temporary batch script to run the SSH command with stdin redirection.
-  -- This bypasses Windows CreateProcess quoting bugs and avoids editor hangs from p:write() on full OS pipes.
-  local script_path = local_path .. ".upload.bat"
-  local fd = io.open(script_path, "w")
-  if not fd then return false, "Failed to create upload script" end
-  fd:write("@echo off\r\n")
-  fd:write("set GH_INSECURE_SKIP_VERIFY_TLS=1\r\n")
-  fd:write("set GH_NO_UPDATE_NOTIFIER=1\r\n")
-  fd:write(string.format('gh cs ssh -c "%s" -- sh -c "cat > \'%s\'" < "%s"\r\n', VFS.codespace_name, remote_escaped, local_path))
-  fd:write('del "%~f0"\r\n')
-  fd:close()
+  -- Add to sync queue to prevent SSH storms on "Save All"
+  VFS.write_queue = VFS.write_queue or {}
+  table.insert(VFS.write_queue, {
+    local_path = local_path,
+    remote_escaped = remote_escaped,
+    codespace_name = VFS.codespace_name
+  })
+  
+  -- If a write loop is already running, just return success (it's queued)
+  if VFS.write_active then return true end
+  VFS.write_active = true
 
-  local p = process.start(
-    {"cmd.exe", "/c", script_path},
-    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE}
-  )
-  if not p then return false, "Failed to start file upload" end
+  -- Process the queue sequentially in the background
+  core.add_thread(function()
+    while #VFS.write_queue > 0 do
+      local job = table.remove(VFS.write_queue, 1)
+      local script_path = job.local_path .. ".upload.bat"
+      local fd = io.open(script_path, "w")
+      if fd then
+        fd:write("@echo off\r\n")
+        fd:write("set GH_INSECURE_SKIP_VERIFY_TLS=1\r\n")
+        fd:write("set GH_NO_UPDATE_NOTIFIER=1\r\n")
+        fd:write(string.format('gh cs ssh -c "%s" -- sh -c "cat > \'%s\'" < "%s"\r\n', job.codespace_name, job.remote_escaped, job.local_path))
+        fd:write('del "%~f0"\r\n')
+        fd:close()
 
-  local out_t = {}
-  local start = system.get_time()
-  while p:returncode() == nil do
-    if system.get_time() - start > 60 then p:kill(); return false, "Timeout" end
-    local chunk = p:read_stdout(65536)
-    if chunk and #chunk > 0 then out_t[#out_t + 1] = chunk end
-    local echk = p:read_stderr(65536)
-    if echk and #echk > 0 then out_t[#out_t + 1] = echk end
-    if coroutine.running() then coroutine.yield(0.05) end
-  end
+        local p = process.start(
+          {"cmd.exe", "/c", script_path},
+          {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE}
+        )
+        if p then
+          local start = system.get_time()
+          while p:returncode() == nil do
+            if system.get_time() - start > 60 then p:kill(); break end
+            p:read_stdout(65536)
+            p:read_stderr(65536)
+            if coroutine.running() then coroutine.yield(0.05) end
+          end
+          if p:returncode() == 0 then
+            VFS.cache.files[job.local_path] = nil
+            local parent = job.local_path:match("^(.*)[/\\][^/\\]+$")
+            if parent then VFS.cache.directories[parent] = nil end
+          end
+        end
+      end
+    end
+    VFS.write_active = false
+  end)
 
-  -- Invalidate both caches on successful write
-  if p:returncode() == 0 then
-    VFS.cache.files[local_path] = nil
-    local parent = local_path:match("^(.*)[/\\][^/\\]+$")
-    if parent then VFS.cache.directories[parent] = nil end
-    return true
-  end
-  local out = table.concat(out_t)
-  core.warn("[VFS] Write failed: %s", out)
-  return false, out
+  return true
 end
+
 
 -- ── Lifecycle ────────────────────────────────────────────────────────────────────
 
