@@ -526,7 +526,7 @@ end
 local function get_remote_resources(cs_name)
   if not cs_name then return end
   -- Combined command: outputs 3 lines: cpu%, mem%, disk%
-  local cmd = "printf '%s\\n' \"$(top -bn1 | awk '/Cpu/{gsub(/[^0-9.]/," ",$0); print $1}')\" \"$(free | awk '/Mem/{printf \"%.1f\", $3/$2*100}')\" \"$(df /workspaces 2>/dev/null | awk 'NR==2{gsub(/%/,\"\"); print $5}')\""
+  local cmd = [[printf '%s\n' "$(top -bn1 | awk '/Cpu/{gsub(/[^0-9.]/," ",$0); print $1}')" "$(free | awk '/Mem/{printf "%.1f", $3/$2*100}')" "$(df /workspaces 2>/dev/null | awk 'NR==2{gsub(/%/,""); print $5}')"]]
   local ok, out = run_cmd_sync({"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", cmd})
   if ok and out then
     local lines = {}
