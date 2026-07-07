@@ -45,7 +45,7 @@ local function get_prompt(s)
   if s.proc then return "" end
   if core.active_codespace then
     local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
-    return "☁️ /workspaces/" .. repo_only .. "$ "
+    return "\u{f0c2} /workspaces/" .. repo_only .. "$ "
   end
   return s.shell.prompt_prefix .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
 end
@@ -234,7 +234,7 @@ function TermView:run(cmd_str)
   if core.active_codespace then
     local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
     local remote_dir = core.active_codespace.remote_dir or ("/workspaces/" .. repo_only)
-    argv = { "gh", "codespace", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", "cd " .. shell_quote(remote_dir) .. " && " .. cmd_str }
+    argv = { "gh", "codespace", "ssh", "-c", core.active_codespace.name, "--", "cd " .. shell_quote(remote_dir) .. " && " .. cmd_str }
   else
     for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
     table.insert(argv, cmd_str)
