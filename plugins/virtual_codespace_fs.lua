@@ -275,57 +275,51 @@ end
 -- Create local skeleton directory structure (empty placeholder files) from remote.
 -- This is called during activate() in a coroutine, so run_ssh_command can yield.
 local function build_shadow_structure(cs_name, remote_dir, local_dir, on_progress)
-  if on_progress then on_progress("Scanning remote directories...", 30) end
+  if on_progress then on_progress("Scanning remote filesystem...", 30) end
 
   -- Ensure the root local directory exists
   mkdir_recursive(local_dir)
 
-  -- Step 1: get all directories
-  local ok_d, out_d = run_ssh_command(cs_name,
-    "find '" .. remote_dir:gsub("'","'\\''") .. "'"
+  -- Single combined find: emits dirs+files in ONE SSH round trip.
+  -- Format: "d <path>" for directories, "f <path>" for files.
+  -- Capped at 6000 entries to prevent runaway builds on huge monorepos.
+  local quoted_dir = "'" .. remote_dir:gsub("'", "'\\''" ) .. "'"
+  local combined_cmd =
+    "find " .. quoted_dir
     .. " -maxdepth 6"
     .. " -not -path '*/.git/*'"
     .. " -not -path '*/node_modules/*'"
     .. " -not -path '*/__pycache__/*'"
-    .. " -type d 2>/dev/null || true",
-    240
-  )
+    .. " \\( -type d -printf 'd %p\\n' -o -type f -printf 'f %p\\n' \\)"
+    .. " 2>/dev/null | head -n 6000 || true"
+
+  local ok, out = run_ssh_command(cs_name, combined_cmd, 240)
 
   local dir_count = 0
-  if out_d then
-    for path in out_d:gmatch("[^\r\n]+") do
-      if path ~= "" and path:sub(1, #remote_dir) == remote_dir then
+  local file_count = 0
+
+  if out then
+    -- First pass: create all directories
+    for line in out:gmatch("[^\r\n]+") do
+      local kind, path = line:match("^([df]) (.+)$")
+      if kind == "d" and path and path ~= "" and path:sub(1, #remote_dir) == remote_dir then
         local rel = strip_prefix(path, remote_dir):gsub("/", package.config:sub(1,1))
         if rel ~= "" then
-          local local_path = local_dir .. rel
-          mkdir_recursive(local_path)
+          mkdir_recursive(local_dir .. rel)
           dir_count = dir_count + 1
         end
       end
     end
-  end
 
-  -- Step 2: get all files and create 0-byte placeholders
-  if on_progress then on_progress(string.format("Creating placeholder files (%d dirs)...", dir_count), 60) end
+    if on_progress then on_progress(string.format("Creating placeholder files (%d dirs)...", dir_count), 60) end
 
-  local ok_f, out_f = run_ssh_command(cs_name,
-    "find '" .. remote_dir:gsub("'","'\\''") .. "'"
-    .. " -maxdepth 6"
-    .. " -not -path '*/.git/*'"
-    .. " -not -path '*/node_modules/*'"
-    .. " -not -path '*/__pycache__/*'"
-    .. " -type f 2>/dev/null || true",
-    240
-  )
-
-  local file_count = 0
-  if out_f then
-    for path in out_f:gmatch("[^\r\n]+") do
-      if path ~= "" and path:sub(1, #remote_dir) == remote_dir then
+    -- Second pass: create 0-byte file placeholders
+    for line in out:gmatch("[^\r\n]+") do
+      local kind, path = line:match("^([df]) (.+)$")
+      if kind == "f" and path and path ~= "" and path:sub(1, #remote_dir) == remote_dir then
         local rel = strip_prefix(path, remote_dir):gsub("/", package.config:sub(1,1))
         if rel ~= "" then
           local local_path = local_dir .. rel
-          -- 0-byte placeholder — content fetched on first open
           local fh = io.open(local_path, "wb")
           if fh then fh:close() end
           file_count = file_count + 1
@@ -334,7 +328,7 @@ local function build_shadow_structure(cs_name, remote_dir, local_dir, on_progres
     end
   end
 
-  if file_count == 0 and not ok_d then
+  if file_count == 0 and not ok then
     return false, "Could not list remote files"
   end
 
