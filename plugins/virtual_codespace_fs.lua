@@ -79,9 +79,12 @@ local function run_ssh_command(cs_name, shell_cmd, timeout)
   timeout = timeout or 30
   -- Double-wrap in single quotes so Windows CreateProcess doesn't strip the outer quotes.
   local safe_cmd = "'" .. shell_cmd:gsub("'", "'\\''") .. "'"
+  -- Environment passed to every gh subprocess.
+  -- GH_INSECURE_SKIP_VERIFY_TLS=1 silences x509/TLS cert errors (common with antivirus/proxies).
+  local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
   local p = process.start(
     {"gh", "cs", "ssh", "-c", cs_name, "--", "sh", "-c", safe_cmd},
-    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE}
+    {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV}
   )
   if not p then return false, "Failed to start gh process" end
 
