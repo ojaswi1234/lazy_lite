@@ -176,7 +176,7 @@ def ensure_remote_binary(binary_name):
         "docker-langserver": "npm install -g dockerfile-language-server-nodejs",
         "pylsp": "pip install python-lsp-server",
         "gopls": "go install golang.org/x/tools/gopls@latest",
-        "clangd": "sudo apt-get update && sudo apt-get install -y clangd",
+        "clangd": "DEBIAN_FRONTEND=noninteractive sudo apt-get update && DEBIAN_FRONTEND=noninteractive sudo apt-get install -yq clangd",
         "rust-analyzer": "rustup component add rust-analyzer || (curl -L https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz | gunzip -c > /tmp/ra && sudo mv /tmp/ra /usr/local/bin/rust-analyzer && sudo chmod +x /usr/local/bin/rust-analyzer)",
         "jdtls": "mkdir -p ~/.local/bin ~/.local/share/jdtls && curl -sL https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz | tar -xz -C ~/.local/share/jdtls && echo '#!/bin/bash\njava -Declipse.application=org.eclipse.jdt.ls.core.id1 -Dosgi.bundles.defaultStartLevel=4 -Declipse.product=org.eclipse.jdt.ls.core.product -Dlog.level=ALL -noverify -Xmx1G -jar $(find ~/.local/share/jdtls/plugins -name \"org.eclipse.equinox.launcher_*.jar\") -configuration ~/.local/share/jdtls/config_linux -data ~/.cache/jdtls-workspace' > ~/.local/bin/jdtls && chmod +x ~/.local/bin/jdtls"
     }
