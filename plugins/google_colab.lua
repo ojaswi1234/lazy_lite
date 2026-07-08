@@ -20,7 +20,7 @@ local runtime_ok, runtime = pcall(require, "plugins.google_colab_runtime")
 local view_ok, NotebookView = pcall(require, "plugins.google_colab_view")
 
 if not auth_ok then
-  core.error("Failed to load google_colab_auth: %s", tostring(auth))
+  core.log_quiet("Failed to load google_colab_auth: %s", tostring(auth))
   auth = {
     authenticate = function() end,
     is_authenticated = function() return false end,
@@ -29,7 +29,7 @@ if not auth_ok then
 end
 
 if not api_ok then
-  core.error("Failed to load google_colab_api: %s", tostring(api))
+  core.log_quiet("Failed to load google_colab_api: %s", tostring(api))
   api = {
     list_notebooks = function() end,
     download_notebook = function() end,
@@ -40,7 +40,7 @@ if not api_ok then
 end
 
 if not runtime_ok then
-  core.error("Failed to load google_colab_runtime: %s", tostring(runtime))
+  core.log_quiet("Failed to load google_colab_runtime: %s", tostring(runtime))
   runtime = {
     execute_cell = function() end,
     execute_all_cells = function() end,
@@ -52,7 +52,7 @@ if not runtime_ok then
 end
 
 if not view_ok then
-  core.error("Failed to load google_colab_view: %s", tostring(NotebookView))
+  core.log_quiet("Failed to load google_colab_view: %s", tostring(NotebookView))
   NotebookView = View
 end
 
@@ -337,8 +337,20 @@ if type(core.status_view.add_item) == "function" and core.status_view.Item then
   end
 end
 
+local open_colab_modal
+local close_colab_modal
+local authenticate
+local create_notebook
+local open_notebook
+local save_notebook
+local delete_notebook
+local connect_runtime
+local disconnect_runtime
+local run_current_cell
+local run_all_cells
+
 -- Open Colab modal
-local function open_colab_modal()
+open_colab_modal = function()
   colab_modal.state = "auth"
   colab_modal.message = "Google Colab"
   colab_modal.selected_index = 1
@@ -366,7 +378,7 @@ local function open_colab_modal()
 end
 
 -- Close Colab modal
-local function close_colab_modal()
+close_colab_modal = function()
   -- Remove modal from root view
   local node = core.root_view.root_node
   for i, view in ipairs(node:get_children()) do
@@ -380,7 +392,7 @@ local function close_colab_modal()
 end
 
 -- Authenticate with Google
-local function authenticate()
+authenticate = function()
   colab_modal.state = "loading"
   colab_modal.message = "Authenticating with Google..."
   core.redraw = true
@@ -409,9 +421,9 @@ local function authenticate()
 end
 
 -- Create new notebook
-local function create_notebook(name)
+create_notebook = function(name)
   if not state.authenticated then
-    core.error("Not authenticated with Google Colab")
+    core.log_quiet("Not authenticated with Google Colab")
     return
   end
   
@@ -451,13 +463,13 @@ local function create_notebook(name)
       core.log("Created notebook: %s", name)
       open_notebook(data.id, name)
     else
-      core.error("Failed to create notebook")
+      core.log_quiet("Failed to create notebook")
     end
   end)
 end
 
 -- Open notebook
-local function open_notebook(notebook_id, name)
+open_notebook = function(notebook_id, name)
   colab_modal.state = "loading"
   colab_modal.message = "Loading notebook..."
   core.redraw = true
@@ -486,11 +498,11 @@ local function open_notebook(notebook_id, name)
         colab_modal.message = name
         core.log("Opened notebook: %s", name)
       else
-        core.error("Failed to parse notebook JSON")
+        core.log_quiet("Failed to parse notebook JSON")
         colab_modal.state = "list"
       end
     else
-      core.error("Failed to download notebook")
+      core.log_quiet("Failed to download notebook")
       colab_modal.state = "list"
     end
     core.redraw = true
@@ -498,9 +510,9 @@ local function open_notebook(notebook_id, name)
 end
 
 -- Save notebook
-local function save_notebook()
+save_notebook = function()
   if not state.notebook_view or not state.current_notebook_id then
-    core.error("No notebook open")
+    core.log_quiet("No notebook open")
     return
   end
   
@@ -544,13 +556,13 @@ local function save_notebook()
     if success then
       core.log("Saved notebook: %s", state.current_notebook.name)
     else
-      core.error("Failed to save notebook")
+      core.log_quiet("Failed to save notebook")
     end
   end)
 end
 
 -- Delete notebook
-local function delete_notebook(notebook_id)
+delete_notebook = function(notebook_id)
   api.delete_notebook(notebook_id, function(success)
     if success then
       core.log("Deleted notebook")
@@ -561,15 +573,15 @@ local function delete_notebook(notebook_id)
         end
       end)
     else
-      core.error("Failed to delete notebook")
+      core.log_quiet("Failed to delete notebook")
     end
   end)
 end
 
 -- Connect to runtime
-local function connect_runtime(runtime_type)
+connect_runtime = function(runtime_type)
   if not state.current_notebook_id then
-    core.error("No notebook open")
+    core.log_quiet("No notebook open")
     return
   end
   
@@ -582,13 +594,13 @@ local function connect_runtime(runtime_type)
         state.notebook_view:set_runtime_status("connected", runtime_type)
       end
     else
-      core.error("Failed to connect to runtime: %s", tostring(message))
+      core.log_quiet("Failed to connect to runtime: %s", tostring(message))
     end
   end)
 end
 
 -- Disconnect from runtime
-local function disconnect_runtime()
+disconnect_runtime = function()
   runtime.disconnect_runtime(function(success)
     if success then
       core.log("Disconnected from runtime")
@@ -600,9 +612,9 @@ local function disconnect_runtime()
 end
 
 -- Run current cell
-local function run_current_cell()
+run_current_cell = function()
   if not state.notebook_view or not runtime.is_connected() then
-    core.error("Not connected to runtime")
+    core.log_quiet("Not connected to runtime")
     return
   end
   
@@ -610,7 +622,7 @@ local function run_current_cell()
   local cell = state.notebook_view:get_cell(cell_index)
   
   if not cell or cell.cell_type ~= "code" then
-    core.error("Not a code cell")
+    core.log_quiet("Not a code cell")
     return
   end
   
@@ -622,15 +634,15 @@ local function run_current_cell()
       -- Increment execution count
       cell.execution_count = (cell.execution_count or 0) + 1
     else
-      core.error("Execution failed")
+      core.log_quiet("Execution failed")
     end
   end)
 end
 
 -- Run all cells
-local function run_all_cells()
+run_all_cells = function()
   if not state.notebook_view or not runtime.is_connected() then
-    core.error("Not connected to runtime")
+    core.log_quiet("Not connected to runtime")
     return
   end
   

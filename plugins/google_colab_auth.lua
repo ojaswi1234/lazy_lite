@@ -36,8 +36,17 @@ local OAUTH_CONFIG = {
 
 local token_cache_file = USERDIR .. PATHSEP .. "google_colab_token.lua"
 
+local refresh_access_token
+local load_cached_tokens
+local save_cached_tokens
+local build_auth_url
+local start_callback_server
+local exchange_code_for_token
+local get_access_token
+local authenticate
+
 -- Load cached tokens from disk
-local function load_cached_tokens()
+load_cached_tokens = function()
   local f = io.open(token_cache_file, "r")
   if not f then return false end
   
@@ -66,7 +75,7 @@ local function load_cached_tokens()
 end
 
 -- Save tokens to disk
-local function save_cached_tokens()
+save_cached_tokens = function()
   local f = io.open(token_cache_file, "w")
   if not f then return false end
   
@@ -92,7 +101,7 @@ return {
 end
 
 -- Build OAuth authorization URL
-local function build_auth_url()
+build_auth_url = function()
   local scope_string = table.concat(OAUTH_CONFIG.scopes, " ")
   local params = {
     "client_id=" .. common.encode_uri(OAUTH_CONFIG.client_id),
@@ -107,7 +116,7 @@ local function build_auth_url()
 end
 
 -- Start local HTTP server to receive OAuth callback
-local function start_callback_server(on_code_received)
+start_callback_server = function(on_code_received)
   -- Simplified approach: prompt user to paste the auth code
   -- This is more reliable than running a local HTTP server
   core.log("OAuth: Please paste the authorization code from your browser")
@@ -117,7 +126,7 @@ local function start_callback_server(on_code_received)
       if code and #code > 0 and on_code_received then
         on_code_received(code)
       else
-        core.error("Invalid authorization code")
+        core.log_quiet("Invalid authorization code")
       end
     end
   })
@@ -126,7 +135,7 @@ local function start_callback_server(on_code_received)
 end
 
 -- Exchange authorization code for access token
-local function exchange_code_for_token(code, on_complete)
+exchange_code_for_token = function(code, on_complete)
   local curl_cmd = PLATFORM == "Windows" and "curl.exe" or "curl"
   
   local params = {
@@ -180,7 +189,7 @@ local function exchange_code_for_token(code, on_complete)
 end
 
 -- Refresh access token using refresh token
-local function refresh_access_token(on_complete)
+refresh_access_token = function(on_complete)
   if not auth_state.refresh_token then
     if on_complete then on_complete(false, "No refresh token available") end
     return false
@@ -240,7 +249,7 @@ local function refresh_access_token(on_complete)
 end
 
 -- Get valid access token (refresh if needed)
-local function get_access_token(on_complete)
+get_access_token = function(on_complete)
   if not auth_state.authenticated then
     if on_complete then on_complete(false, "Not authenticated") end
     return nil
@@ -256,7 +265,7 @@ local function get_access_token(on_complete)
 end
 
 -- Start OAuth flow
-local function authenticate(on_complete)
+authenticate = function(on_complete)
   -- Try to load cached tokens first
   if load_cached_tokens() then
     if on_complete then on_complete(true, "Authenticated from cache") end
@@ -296,7 +305,7 @@ local function authenticate(on_complete)
 end
 
 -- Clear authentication (logout)
-local function clear_authentication()
+clear_authentication = function()
   auth_state.authenticated = false
   auth_state.access_token = nil
   auth_state.refresh_token = nil

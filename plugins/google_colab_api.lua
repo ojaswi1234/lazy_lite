@@ -138,8 +138,17 @@ local function curl_request(method, url, data, on_complete)
   end)
 end
 
+local list_notebooks
+local get_notebook_metadata
+local download_notebook
+local create_notebook
+local update_notebook
+local delete_notebook
+local permanently_delete_notebook
+local search_notebooks
+
 -- List all Colab notebooks in Google Drive
-local function list_notebooks(on_complete)
+list_notebooks = function(on_complete)
   local url = DRIVE_API_BASE .. "?q=mimeType='" .. COLAB_MIME_TYPE .. "'&fields=files(id,name,createdTime,modifiedTime)&pageSize=100"
   
   curl_request("GET", url, nil, function(success, out, err)
@@ -158,7 +167,7 @@ local function list_notebooks(on_complete)
 end
 
 -- Get notebook metadata
-local function get_notebook_metadata(file_id, on_complete)
+get_notebook_metadata = function(file_id, on_complete)
   local url = DRIVE_API_BASE .. "/" .. file_id .. "?fields=id,name,createdTime,modifiedTime"
   
   curl_request("GET", url, nil, function(success, out, err)
@@ -177,7 +186,7 @@ local function get_notebook_metadata(file_id, on_complete)
 end
 
 -- Download notebook content
-local function download_notebook(file_id, on_complete)
+download_notebook = function(file_id, on_complete)
   local url = DRIVE_API_BASE .. "/" .. file_id .. "/alt=media"
   
   curl_request("GET", url, nil, function(success, out, err)
@@ -191,7 +200,7 @@ local function download_notebook(file_id, on_complete)
 end
 
 -- Create new notebook
-local function create_notebook(name, content, on_complete)
+create_notebook = function(name, content, on_complete)
   local metadata = {
     name = name,
     mimeType = COLAB_MIME_TYPE
@@ -224,7 +233,7 @@ local function create_notebook(name, content, on_complete)
 end
 
 -- Update notebook content
-local function update_notebook(file_id, content, on_complete)
+update_notebook = function(file_id, content, on_complete)
   local url = DRIVE_API_BASE .. "/" .. file_id
   
   curl_request("PATCH", url, content, function(success, out, err)
@@ -243,7 +252,7 @@ local function update_notebook(file_id, content, on_complete)
 end
 
 -- Delete notebook (move to trash)
-local function delete_notebook(file_id, on_complete)
+delete_notebook = function(file_id, on_complete)
   local url = DRIVE_API_BASE .. "/" .. file_id
   
   curl_request("PATCH", url, '{"trashed": true}', function(success, out, err)
@@ -257,7 +266,7 @@ local function delete_notebook(file_id, on_complete)
 end
 
 -- Permanently delete notebook
-local function permanently_delete_notebook(file_id, on_complete)
+permanently_delete_notebook = function(file_id, on_complete)
   local url = DRIVE_API_BASE .. "/" .. file_id
   
   curl_request("DELETE", url, nil, function(success, out, err)
@@ -271,7 +280,7 @@ local function permanently_delete_notebook(file_id, on_complete)
 end
 
 -- Search notebooks by name
-local function search_notebooks(query, on_complete)
+search_notebooks = function(query, on_complete)
   local escaped_query = query:gsub("'", "\\'")
   local search_query = "mimeType='" .. COLAB_MIME_TYPE .. "' and name contains '" .. escaped_query .. "'"
   local url = DRIVE_API_BASE .. "?q=" .. encode_uri(search_query) .. "&fields=files(id,name,createdTime,modifiedTime)&pageSize=50"
