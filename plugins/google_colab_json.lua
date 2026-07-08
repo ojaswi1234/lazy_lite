@@ -1,3 +1,5 @@
+-- mod-version:3
+-- A JSON parser for Google Colab Plugin
 --
 -- json.lua
 --
@@ -386,3 +388,4 @@ end
 
 
 return json
+
