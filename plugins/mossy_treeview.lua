@@ -324,3 +324,101 @@ if TreeView.contextmenu then
     }
   )
 end
+
+-- "?"? Multi-Selection Override "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
+local orig_set_selection = TreeView.set_selection
+function TreeView:set_selection(selection, selection_y)
+  orig_set_selection(self, selection, selection_y)
+  self.selected_items = selection and { [selection.abs_filename] = selection } or {}
+end
+
+local orig_draw_item_bg = TreeView.draw_item_background
+function TreeView:draw_item_background(item, active, hovered, x, y, w, h)
+  local is_selected = self.selected_items and self.selected_items[item.abs_filename] ~= nil
+  orig_draw_item_bg(self, item, active or is_selected, hovered, x, y, w, h)
+end
+
+command.add(
+  function()
+    return core.active_view == TreeView and TreeView.hovered_item ~= nil
+  end, {
+  ["treeview:toggle-selection"] = function()
+    local item = TreeView.hovered_item
+    if not item then return end
+    
+    TreeView.selected_items = TreeView.selected_items or {}
+    
+    if TreeView.selected_items[item.abs_filename] then
+      TreeView.selected_items[item.abs_filename] = nil
+      if TreeView.selected_item == item then
+        TreeView.selected_item = nil
+        local any = next(TreeView.selected_items)
+        if any then
+          TreeView.selected_item = TreeView.selected_items[any]
+        end
+      end
+    else
+      TreeView.selected_items[item.abs_filename] = item
+      TreeView.selected_item = item
+    end
+    core.redraw = true
+  end
+})
+
+keymap.add {
+  ["ctrl+lclick"] = "treeview:toggle-selection"
+}
+
+
+-- "?"? Multi-Select Commands "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
+local function get_all_selected()
+  if not TreeView.selected_items or not next(TreeView.selected_items) then
+    local item = TreeView.hovered_item or TreeView.selected_item
+    return item and {item} or {}
+  end
+  local res = {}
+  for _, it in pairs(TreeView.selected_items) do table.insert(res, it) end
+  return res
+end
+
+-- Override treeview:delete
+local orig_delete = command.map["treeview:delete"] and command.map["treeview:delete"].perform
+if orig_delete then
+  command.map["treeview:delete"].perform = function(item)
+    local items = get_all_selected()
+    if #items <= 1 then
+      return orig_delete(items[1] or item)
+    end
+    
+    local opt = {
+      { text = "Yes", default_yes = true },
+      { text = "No", default_no = true }
+    }
+    core.nag_view:show(
+      "Delete Multiple Items",
+      string.format("Are you sure you want to delete %d items?", #items),
+      opt,
+      function(item_opt)
+        if item_opt.text == "Yes" then
+          for _, it in ipairs(items) do
+            local file_info = system.get_file_info(it.abs_filename)
+            if file_info then
+              local err
+              if file_info.type == "dir" then
+                local common = require "core.common"
+                err = common.rmdir(it.abs_filename, true)
+              else
+                local res
+                res, err = os.remove(it.abs_filename)
+              end
+              if err then core.error("Failed to delete %s: %s", it.name, err) end
+            end
+          end
+          TreeView.selected_items = {}
+          TreeView.selected_item = nil
+          core.update_project_files()
+        end
+      end
+    )
+  end
+end
