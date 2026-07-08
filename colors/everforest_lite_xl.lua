@@ -9,13 +9,13 @@ local function c(hex) return { common.color(hex) } end
 
 -- Surfaces
 style.background       = c "#E3EFCE"
-style.background2      = c "#D5E5B9"
-style.background3      = c "#B9CFA5"
+style.background2      = c "#1B2A1E"
+style.background3      = c "#243827"
 
 -- Text
-style.text             = c "#424A3E"
-style.dim              = c "#6A7B61"
-style.accent           = c "#437A16"
+style.text             = c "#D4E4D7"
+style.dim              = c "#8A9F8E"
+style.accent           = c "#68C171"
 
 -- Caret & selection
 style.caret            = c "#2A4016"
@@ -28,12 +28,12 @@ style.line_number      = c "#7A9165"
 style.line_number2     = c "#4A6B30"
 
 -- Dividers & scrollbar
-style.divider          = c "#A9C985"
-style.scrollbar        = c "#A1C47A"
-style.scrollbar2       = c "#7BA351"
+style.divider          = c "#2A412E"
+style.scrollbar        = c "#38563E"
+style.scrollbar2       = c "#4F7356"
 
 -- Tab bar
-style.tab_bar_background = c "#B9CFA5"
+style.tab_bar_background = c "#101911"
 style.tab_width          = 200 * SCALE
 style.tab_height         = 32 * SCALE
 
