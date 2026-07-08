@@ -118,21 +118,29 @@ local function curl_request(method, url, data, on_complete)
       return
     end
     
-    local out = ""
-    local err = ""
+    local out_tbl = {}
+    local err_tbl = {}
     
     while p:returncode() == nil do
       local chunk = p:read_stdout(4096)
-      if chunk then out = out .. chunk end
+      if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
       local echunk = p:read_stderr(4096)
-      if echunk then err = err .. echunk end
-      coroutine.yield(0.1)
+      if echunk and #echunk > 0 then table.insert(err_tbl, echunk) end
+      coroutine.yield(0.01)
     end
     
-    local chunk = p:read_stdout(4096)
-    if chunk then out = out .. chunk end
-    local echunk = p:read_stderr(4096)
-    if echunk then err = err .. echunk end
+    -- Drain remaining output
+    while true do
+      local chunk = p:read_stdout(4096)
+      if chunk and #chunk > 0 then table.insert(out_tbl, chunk) else break end
+    end
+    while true do
+      local echunk = p:read_stderr(4096)
+      if echunk and #echunk > 0 then table.insert(err_tbl, echunk) else break end
+    end
+    
+    local out = table.concat(out_tbl)
+    local err = table.concat(err_tbl)
     
     local success = p:returncode() == 0
     if on_complete then on_complete(success, out, err) end
