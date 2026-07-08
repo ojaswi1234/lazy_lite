@@ -188,7 +188,7 @@ end
 
 -- Download notebook content
 download_notebook = function(file_id, on_complete)
-  local url = DRIVE_API_BASE .. "/" .. file_id .. "/alt=media"
+  local url = DRIVE_API_BASE .. "/" .. file_id .. "?alt=media"
   
   curl_request("GET", url, nil, function(success, out, err)
     if not success then
@@ -235,7 +235,7 @@ end
 
 -- Update notebook content
 update_notebook = function(file_id, content, on_complete)
-  local url = DRIVE_API_BASE .. "/" .. file_id
+  local url = "https://www.googleapis.com/upload/drive/v3/files/" .. file_id .. "?uploadType=media"
   
   curl_request("PATCH", url, content, function(success, out, err)
     if not success then
