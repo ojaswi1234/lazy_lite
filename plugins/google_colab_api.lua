@@ -31,8 +31,9 @@ local function parse_json(str)
   end
   
   -- Last resort: simple manual parsing
-  -- This is very basic and won't handle all JSON
-  local ok, result = pcall(loadstring("return " .. str:gsub('true', 'true'):gsub('false', 'false'):gsub('null', 'nil')))
+  -- This is very basic and won't handle all JSON, but it won't crash the editor
+  local lua_str = "return " .. str:gsub('true', 'true'):gsub('false', 'false'):gsub('null', 'nil')
+  local ok, result = pcall(function() return load(lua_str)() end)
   if ok then return result end
   
   return nil

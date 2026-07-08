@@ -506,10 +506,13 @@ open_notebook = function(notebook_id, name)
   
   api.download_notebook(notebook_id, function(success, content)
     if success then
-      -- Parse notebook JSON with fallback
-      local parse_func = common.parse_json or function(str) 
-        local ok, result = pcall(loadstring("return " .. str:gsub('true', 'true'):gsub('false', 'false'):gsub('null', 'nil')))
-        if ok then return result else return nil end
+      -- Parse notebook JSON using the LSP json module
+      local parse_func = function(str) 
+        local ok, json = pcall(require, "plugins.lsp.json")
+        if ok and json and json.decode then
+          return json.decode(str)
+        end
+        return nil
       end
       local ok, notebook_data = pcall(parse_func, content)
       if ok then
