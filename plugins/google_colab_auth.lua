@@ -19,11 +19,19 @@ local auth_state = {
   auth_code = nil
 }
 
+local credentials_file = USERDIR .. PATHSEP .. "google_colab_credentials.lua"
+local credentials = {}
+if system.get_file_info(credentials_file) then
+  local success, result = pcall(dofile, credentials_file)
+  if success and type(result) == "table" then
+    credentials = result
+  end
+end
+
 -- OAuth configuration (using Google's OAuth 2.0 for Desktop Apps)
 local OAUTH_CONFIG = {
-  -- Default OAuth client for desktop applications
-  client_id = "1078968906816-6o1k2f3j4k5l6m7n8o9p0q1r2s3t4u5.apps.googleusercontent.com",
-  client_secret = "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5o6p",
+  client_id = credentials.client_id,
+  client_secret = credentials.client_secret,
   redirect_uri = "http://localhost:8080",
   auth_url = "https://accounts.google.com/o/oauth2/v2/auth",
   token_url = "https://oauth2.googleapis.com/token",
@@ -33,6 +41,10 @@ local OAUTH_CONFIG = {
     "https://www.googleapis.com/auth/documents.readonly"
   }
 }
+
+local function has_credentials()
+  return OAUTH_CONFIG.client_id ~= nil and OAUTH_CONFIG.client_secret ~= nil
+end
 
 local token_cache_file = USERDIR .. PATHSEP .. "google_colab_token.lua"
 
@@ -336,5 +348,6 @@ return {
   get_access_token = get_access_token,
   clear_authentication = clear_authentication,
   is_authenticated = function() return auth_state.authenticated end,
+  has_credentials = has_credentials,
   get_auth_state = function() return auth_state end
 }

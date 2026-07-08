@@ -141,13 +141,26 @@ function ColabModal:draw_auth_view(x, y, w, h)
   renderer.draw_text(style.font, subtitle, x + w/2 - style.font:get_width(subtitle)/2, subtitle_y, style.dim)
   
   -- Draw instructions
-  local instructions = {
-    "Press 'Enter' to authenticate with Google",
-    "A browser window will open for OAuth login",
-    "After authentication, your notebooks will be listed",
-    "",
-    "Press 'Escape' to close"
-  }
+  local instructions = {}
+  
+  if auth.has_credentials() then
+    instructions = {
+      "Press 'Enter' to authenticate with Google",
+      "A browser window will open for OAuth login",
+      "After authentication, your notebooks will be listed",
+      "",
+      "Press 'Escape' to close"
+    }
+  else
+    instructions = {
+      "MISSING OAUTH CREDENTIALS!",
+      "1. Create a file at: " .. USERDIR .. PATHSEP .. "google_colab_credentials.lua",
+      "2. Return this table: { client_id = '...', client_secret = '...' }",
+      "3. Restart Lite-XL to load them.",
+      "",
+      "Press 'Escape' to close"
+    }
+  end
   
   local instr_y = subtitle_y + style.font:get_height() + 40
   for i, instr in ipairs(instructions) do
@@ -280,7 +293,9 @@ command.add(function() return core.active_view == colab_modal end, {
   
   ["colab-modal:submit"] = function()
     if colab_modal.state == "auth" then
-      authenticate()
+      if auth.has_credentials() then
+        authenticate()
+      end
     elseif colab_modal.state == "list" then
       if #state.notebooks > 0 and state.notebooks[colab_modal.selected_index] then
         local notebook = state.notebooks[colab_modal.selected_index]
