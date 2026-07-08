@@ -257,6 +257,18 @@ function ColabModal:on_mouse_pressed(button, x, y, clicks)
   return true
 end
 
+local open_colab_modal
+local close_colab_modal
+local authenticate
+local create_notebook
+local open_notebook
+local save_notebook
+local delete_notebook
+local connect_runtime
+local disconnect_runtime
+local run_current_cell
+local run_all_cells
+
 -- Create modal instance
 local colab_modal = ColabModal()
 
@@ -351,17 +363,6 @@ if type(core.status_view.add_item) == "function" and core.status_view.Item then
   end
 end
 
-local open_colab_modal
-local close_colab_modal
-local authenticate
-local create_notebook
-local open_notebook
-local save_notebook
-local delete_notebook
-local connect_runtime
-local disconnect_runtime
-local run_current_cell
-local run_all_cells
 
 -- Open Colab modal
 open_colab_modal = function()
