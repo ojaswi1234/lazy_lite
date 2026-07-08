@@ -68,8 +68,8 @@ load_cached_tokens = function()
   
   local ok, data = pcall(loadstring(content))
   if ok and type(data) == "table" then
-    auth_state.access_token = data.access_token
-    auth_state.refresh_token = data.refresh_token
+      auth_state.access_token = access_token
+      if refresh_token then auth_state.refresh_token = refresh_token end
     auth_state.token_expiry = data.token_expiry or 0
     auth_state.client_id = data.client_id or OAUTH_CONFIG.client_id
     auth_state.client_secret = data.client_secret or OAUTH_CONFIG.client_secret
@@ -194,14 +194,16 @@ exchange_code_for_token = function(code, on_complete)
     if chunk then out = out .. chunk end
     
     -- Parse JSON response
-    local ok, data = pcall(common.parse_json, out)
-    if ok and data.access_token then
-      auth_state.access_token = data.access_token
-      auth_state.refresh_token = data.refresh_token
-      auth_state.token_expiry = system.get_time() + (data.expires_in or 3600)
+    local access_token = out:match('"access_token"%s*:%s*"([^"]+)"')
+    local refresh_token = out:match('"refresh_token"%s*:%s*"([^"]+)"')
+    local expires_in = out:match('"expires_in"%s*:%s*(%d+)')
+    if access_token then
+      auth_state.access_token = access_token
+      if refresh_token then auth_state.refresh_token = refresh_token end
+      auth_state.token_expiry = system.get_time() + (tonumber(expires_in) or 3600)
       auth_state.authenticated = true
       save_cached_tokens()
-      if on_complete then on_complete(true, data) end
+      if on_complete then on_complete(true, {access_token = access_token}) end
     else
       if on_complete then on_complete(false, out) end
     end
@@ -251,13 +253,15 @@ refresh_access_token = function(on_complete)
     local chunk = p:read_stdout(4096)
     if chunk then out = out .. chunk end
     
-    local ok, data = pcall(common.parse_json, out)
-    if ok and data.access_token then
-      auth_state.access_token = data.access_token
-      auth_state.token_expiry = system.get_time() + (data.expires_in or 3600)
+    local access_token = out:match('"access_token"%s*:%s*"([^"]+)"')
+    local refresh_token = out:match('"refresh_token"%s*:%s*"([^"]+)"')
+    local expires_in = out:match('"expires_in"%s*:%s*(%d+)')
+    if access_token then
+      auth_state.access_token = access_token
+      auth_state.token_expiry = system.get_time() + (tonumber(expires_in) or 3600)
       auth_state.authenticated = true
       save_cached_tokens()
-      if on_complete then on_complete(true, data) end
+      if on_complete then on_complete(true, {access_token = access_token}) end
     else
       -- Refresh failed, need to re-authenticate
       auth_state.authenticated = false
