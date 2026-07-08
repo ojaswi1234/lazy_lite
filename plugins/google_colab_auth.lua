@@ -132,7 +132,7 @@ start_callback_server = function(on_code_received)
     end
   })
   
-  return true -- Return success indicator
+  return true
 end
 
 -- Exchange authorization code for access token
@@ -289,7 +289,8 @@ authenticate = function(on_complete)
   -- Open browser for user to authorize
   local open_cmd
   if PLATFORM == "Windows" then
-    open_cmd = {"start", auth_url}
+    -- Use cmd.exe to invoke the built-in start command, quote the URL properly
+    open_cmd = {"cmd", "/c", "start", "", auth_url}
   elseif PLATFORM == "MacOS" then
     open_cmd = {"open", auth_url}
   else
