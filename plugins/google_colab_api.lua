@@ -5,7 +5,7 @@
 local core = require "core"
 local common = require "core.common"
 local process = require "process"
-local system = require "system"
+-- system is global
 local auth = require "plugins.google_colab_auth"
 
 -- URL encoding function

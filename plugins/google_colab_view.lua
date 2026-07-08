@@ -10,7 +10,7 @@ local command = require "core.command"
 local keymap = require "core.keymap"
 local tokenizer = require "core.tokenizer"
 local syntax = require "core.syntax"
-local renderer = require "core.renderer"
+-- renderer is global
 
 -- Cell types
 local CELL_TYPE_MARKDOWN = "markdown"

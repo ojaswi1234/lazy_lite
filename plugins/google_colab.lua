@@ -9,8 +9,7 @@ local command = require "core.command"
 local keymap = require "core.keymap"
 local common = require "core.common"
 local View = require "core.view"
-local renderer = require "renderer"
-local system = require "system"
+-- renderer and system are globals in Lite-XL
 local PATHSEP = PATHSEP or package.config:sub(1,1)
 local USERDIR = USERDIR or core.userdir or (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.config/lite-xl"
 

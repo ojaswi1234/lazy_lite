@@ -5,7 +5,7 @@
 local core = require "core"
 local common = require "core.common"
 local process = require "process"
-local system = require "system"
+-- system is global
 local PATHSEP = PATHSEP or package.config:sub(1,1)
 local USERDIR = USERDIR or core.userdir or (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.config/lite-xl"
 
