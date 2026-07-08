@@ -22,11 +22,27 @@ end
 -- ── 1. Override Status View Background ──────────────────────────────────────────
 local old_draw_bg = core.status_view.draw_background
 function core.status_view:draw_background(...)
-  local status_bg = get_contrast_bg(style.background)
+  local status_bg = (style.mossy and style.mossy.status_bg) or get_contrast_bg(style.background)
   renderer.draw_rect(0, self.position.y, self.size.x, self.size.y, status_bg)
   
-  local border_bg = get_contrast_bg(status_bg)
+  local border_bg = (style.mossy and style.mossy.border) or get_contrast_bg(status_bg)
   renderer.draw_rect(0, self.position.y, self.size.x, 1 * SCALE, border_bg)
+end
+
+local old_draw = core.status_view.draw
+function core.status_view:draw(...)
+  local old_text = style.text
+  local old_dim = style.dim
+  local old_icon = style.icon_color
+  if style.mossy then
+    style.text = style.mossy.status_text or style.text
+    style.dim = style.mossy.sidebar_muted or style.dim
+    style.icon_color = style.mossy.status_text or style.icon_color
+  end
+  old_draw(self, ...)
+  style.text = old_text
+  style.dim = old_dim
+  style.icon_color = old_icon
 end
 
 -- ── 2. Git Branch Indicator ───────────────────────────────────────────────────

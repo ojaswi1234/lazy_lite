@@ -212,6 +212,24 @@ local function get_palette()
   local bg_sendhl= { math.max(0,bg_send[1]-15), math.max(0,bg_send[2]-15), math.max(0,bg_send[3]-15), 255 }
   local fg_send  = contrast_fg(bg_send)
   local border   = contrast_bg(base, 0.16)
+  
+  if style.mossy then
+    bg          = style.mossy.sidebar_bg or bg
+    bg_dark     = style.mossy.sidebar_bg or bg_dark
+    bg_darker   = style.mossy.activity_bg or bg_darker
+    bg_input    = style.mossy.terminal_bg or bg_input
+    bg_user     = style.mossy.active_row or bg_user
+    bg_ai       = style.mossy.sidebar_bg or bg_ai
+    bg_btn      = style.mossy.sidebar_muted or bg_btn
+    bg_btnhl    = style.mossy.active_row or bg_btnhl
+    bg_send     = style.mossy.active_row or bg_send
+    bg_sendhl   = style.mossy.hover_row or bg_sendhl
+    fg          = style.mossy.sidebar_text or fg
+    fg_muted    = style.mossy.sidebar_muted or fg_muted
+    fg_accent   = style.mossy.activity_icon_hl or fg_accent
+    fg_send     = style.mossy.sidebar_text or fg_send
+    border      = style.mossy.border or border
+  end
   return {
     bg          = bg,
     bg_dark     = bg_dark,

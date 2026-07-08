@@ -529,6 +529,14 @@ function TermView:draw()
   end
   local border = get_contrast_bg(hdr_bg)
   local inp_bg = inp_bg_dyn
+  
+  if style.mossy then
+    bg = style.mossy.terminal_bg or bg
+    fg = style.mossy.terminal_text or fg
+    hdr_bg = style.mossy.activity_bg or hdr_bg
+    inp_bg = style.mossy.sidebar_bg or inp_bg
+    border = style.mossy.border or border
+  end
   local x, y, w, h = self.position.x, self.position.y, self.size.x, self.size.y
 
   -- Full background
