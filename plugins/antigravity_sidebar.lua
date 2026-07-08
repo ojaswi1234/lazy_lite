@@ -27,6 +27,116 @@ local system  = require "system"
 -- ── Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) ─
 local function lum(r, g, b) return r*0.299 + g*0.587 + b*0.114 end
 
+-- ── Emoji-aware rendering ─────────────────────────────────────────────────────
+-- Lite XL's default fonts (FiraCode, etc.) have no emoji glyphs, so emoji
+-- codepoints render as '?'. We load the system emoji font once and use it
+-- to draw emoji segments, falling back gracefully if unavailable.
+local _emoji_font = nil
+local function get_emoji_font()
+  if _emoji_font ~= false then  -- false = already tried and failed
+    if not _emoji_font then
+      local candidates = {}
+      if PLATFORM == "Windows" then
+        local windir = os.getenv("WINDIR") or "C:\\Windows"
+        table.insert(candidates, windir .. "\\Fonts\\seguiemj.ttf")  -- Segoe UI Emoji
+      else
+        -- Linux / macOS candidates
+        for _, p in ipairs({
+          "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+          "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+          "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
+          "/Library/Fonts/Apple Color Emoji.ttc",
+        }) do table.insert(candidates, p) end
+      end
+      for _, path in ipairs(candidates) do
+        local f = io.open(path, "rb")
+        if f then f:close()
+          -- Load at same size as style.font
+          local sz = style.font and style.font:get_height() or 14
+          local ok, fnt = pcall(renderer.font.load, path, sz)
+          if ok then _emoji_font = fnt; break end
+        end
+      end
+      if not _emoji_font then _emoji_font = false end  -- mark as unavailable
+    end
+  end
+  return _emoji_font or nil
+end
+
+-- Returns true if the UTF-8 char starting at byte i in `s` is an emoji.
+-- We check the first codepoint of each multi-byte sequence.
+local function is_emoji_char(s, i)
+  local b1 = s:byte(i)
+  if not b1 then return false, i+1 end
+  local seq_len, cp
+  if b1 < 0x80 then
+    -- ASCII
+    return false, i+1
+  elseif b1 >= 0xF0 then
+    seq_len = 4
+    local b2,b3,b4 = s:byte(i+1), s:byte(i+2), s:byte(i+3)
+    if not (b2 and b3 and b4) then return false, i+1 end
+    cp = ((b1 & 0x07) << 18) | ((b2 & 0x3F) << 12) | ((b3 & 0x3F) << 6) | (b4 & 0x3F)
+  elseif b1 >= 0xE0 then
+    seq_len = 3
+    local b2,b3 = s:byte(i+1), s:byte(i+2)
+    if not (b2 and b3) then return false, i+1 end
+    cp = ((b1 & 0x0F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F)
+  elseif b1 >= 0xC0 then
+    seq_len = 2
+    local b2 = s:byte(i+1)
+    if not b2 then return false, i+1 end
+    cp = ((b1 & 0x1F) << 6) | (b2 & 0x3F)
+  else
+    return false, i+1
+  end
+  -- Unicode emoji ranges
+  local emoji = (cp >= 0x1F300 and cp <= 0x1FAFF)   -- Misc Symbols / Pictographs / emoticons
+             or (cp >= 0x2600  and cp <= 0x27BF)    -- Misc symbols, dingbats
+             or (cp >= 0x2300  and cp <= 0x23FF)    -- Misc Technical
+             or (cp >= 0x1F000 and cp <= 0x1F02F)   -- Mahjong/domino tiles
+             or (cp >= 0x1F0A0 and cp <= 0x1F0FF)   -- Playing cards
+             or (cp >= 0x231A  and cp <= 0x231B)    -- Watch, Hourglass
+             or (cp >= 0x23E9  and cp <= 0x23F3)    -- Various
+             or cp == 0x2764                         -- Heart
+  return emoji, i + seq_len
+end
+
+-- Draw text handling emoji segments with the emoji font.
+-- Returns the final x position (same interface as renderer.draw_text).
+local function draw_text_emoji(font, text, tx, ty, col)
+  local ef = get_emoji_font()
+  if not ef or not text or text == "" then
+    return renderer.draw_text(font, text, tx, ty, col)
+  end
+  local i = 1
+  local seg_start = 1
+  local cur_x = tx
+  local function flush_normal(upto)
+    if upto > seg_start then
+      local chunk = text:sub(seg_start, upto - 1)
+      if chunk ~= "" then
+        cur_x = renderer.draw_text(font, chunk, cur_x, ty, col)
+      end
+    end
+  end
+  while i <= #text do
+    local is_emj, next_i = is_emoji_char(text, i)
+    if is_emj then
+      flush_normal(i)
+      local emj = text:sub(i, next_i - 1)
+      -- Skip zero-width joiner (U+200D) and variation selectors that follow
+      cur_x = renderer.draw_text(ef, emj, cur_x, ty, col)
+      seg_start = next_i
+      i = next_i
+    else
+      i = next_i
+    end
+  end
+  flush_normal(#text + 1)
+  return cur_x
+end
+
 local function utf8_prev(text, i)
   if not i or i <= 0 then return 0 end
   i = i - 1
@@ -1607,7 +1717,7 @@ function AGView:draw()
               local type = tokens[i]
               local text = tokens[i+1]
               local col = style.syntax[type] or style.syntax["normal"] or P.fg_ai
-              lx = renderer.draw_text(style.code_font, text, lx, line_y, col)
+              lx = draw_text_emoji(style.code_font, text, lx, line_y, col)
             end
           else
             if synt then pcall(function() _, state = tokenizer.tokenize(synt, line, state) end) end
@@ -1641,7 +1751,7 @@ function AGView:draw()
               elseif seg.type == "bold" then ccol = P.fg_accent
               elseif seg.type == "link" then ccol = style.syntax["function"] or P.fg_accent end
               
-              renderer.draw_text(cfont, seg.text, lx, line_y, ccol)
+              draw_text_emoji(cfont, seg.text, lx, line_y, ccol)
               lx = lx + seg.width
             end
           end
@@ -2280,21 +2390,22 @@ core.status_view:add_item({
         -- Try to read the actual Google account email from agy's state file
         local account_name = nil
         local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
-        local state_path = home .. "\\.gemini\\antigravity-cli\\jetski_state.pbtxt"
+        local sep = PLATFORM == "Windows" and "\\" or "/"
+        local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
         local f = io.open(state_path, "r")
         if f then
           local content = f:read("*a")
           f:close()
-          -- Look for email field in the pbtxt
           account_name = content:match('email:%s*"([^"]+)"')
                       or content:match("email:%s*'([^']+)'")
                       or content:match("account_email:%s*([^%s]+)")
-          -- Trim the domain to just show the username part
           if account_name then
             account_name = account_name:match("^([^@]+)") or account_name
           end
         end
-        text = account_name or (os.getenv("USERNAME") .. " (agy)")
+        -- Linux uses $USER, Windows uses $USERNAME
+        local sys_user = os.getenv("USER") or os.getenv("USERNAME") or "AGY"
+        text = account_name or (sys_user .. " (agy)")
       elseif instance.auth_status == "auth_error" then
         text = "Retry Auth[click here again]"
       end
