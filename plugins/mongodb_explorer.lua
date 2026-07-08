@@ -68,10 +68,27 @@ local function start_bridge()
   })
   
   if not mongo.proc then
-    core.error("Failed to start MongoDB bridge script")
+    core.error("Failed to start MongoDB bridge. Is Python installed?")
     return false
   end
   return true
+end
+
+local function check_dependencies()
+  core.log_quiet("Checking MongoDB dependencies...")
+  local python_cmd = PLATFORM == "Windows" and "python" or "python3"
+  local p = process.start({python_cmd, "-c", "import pymongo"}, {
+    stdout = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_PIPE
+  })
+  
+  if not p then return false end
+  
+  while p:returncode() == nil do
+    coroutine.yield(0.1)
+  end
+  
+  return p:returncode() == 0
 end
 
 local function send_request(req, callback)
@@ -208,7 +225,50 @@ command.add(nil, {
         core.error("Failed to fetch collections")
       end
     end)
+  end,
+  
+  ["mongodb:install-dependencies"] = function()
+    core.log("Installing PyMongo via pip...")
+    local python_cmd = PLATFORM == "Windows" and "python" or "python3"
+    
+    core.add_thread(function()
+      local p = process.start({python_cmd, "-m", "pip", "install", "pymongo"}, {
+        stdout = process.REDIRECT_PIPE,
+        stderr = process.REDIRECT_PIPE
+      })
+      
+      if not p then
+        core.error("Failed to start pip installer. Is Python installed?")
+        return
+      end
+      
+      while p:returncode() == nil do
+        coroutine.yield(0.1)
+      end
+      
+      if p:returncode() == 0 then
+        core.log("PyMongo successfully installed! You can now connect to MongoDB.")
+      else
+        core.error("Failed to install PyMongo. Check your Python installation.")
+      end
+    end)
   end
 })
+
+-- Initialize Toolbar UI if available
+core.add_thread(function()
+  if core.toolbar_view and type(core.toolbar_view.toolbar_commands) == "table" then
+    table.insert(core.toolbar_view.toolbar_commands, {
+      symbol = "M",
+      command = "mongodb:connect",
+      tooltip = "Connect to MongoDB"
+    })
+  end
+  
+  -- Check dependencies quietly on startup
+  if not check_dependencies() then
+    core.log_quiet("MongoDB dependencies missing. Run 'MongoDB: Install Dependencies' to enable the explorer.")
+  end
+end)
 
 return mongo
