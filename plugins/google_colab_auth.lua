@@ -103,7 +103,7 @@ return {
 ]], 
     auth_state.access_token or "",
     auth_state.refresh_token or "",
-    auth_state.token_expiry or 0,
+    math.floor(auth_state.token_expiry or 0),
     auth_state.client_id or OAUTH_CONFIG.client_id,
     auth_state.client_secret or OAUTH_CONFIG.client_secret
   )
