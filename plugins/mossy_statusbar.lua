@@ -165,4 +165,3 @@ end
 -- Remove rarely used items to save space
 status_view:remove_item("doc:line-ending")
 status_view:remove_item("doc:lines")
-status_view:remove_item("doc:indentation")
