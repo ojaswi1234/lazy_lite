@@ -1033,7 +1033,7 @@ function AGView:update()
       self._model_raw = ""
       self.model_proc = nil
       core.redraw = true
-    elseif m_elapsed > 15 then
+    elseif m_elapsed > 45 then
       pcall(function() graceful_kill(self.model_proc) end)
       self.model_proc = nil
       self._model_raw = ""
@@ -1140,9 +1140,9 @@ function AGView:update()
 end
 
 -- Kick off background fetch of real model list via PTY bridge
-function AGView:fetch_models()
+function AGView:fetch_models(force)
   if self.model_proc then return end
-  if self.model_list and #self.model_list > 0 then return end
+  if not force and self.model_list and #self.model_list > 0 then return end
   local cfg = config.antigravity
 
   -- Use the PTY bridge so agy gets a real pseudoterminal and outputs the list
@@ -2251,11 +2251,15 @@ command.add(nil, {
         
         if not instance then instance = AGView() end
         instance.auth_status = "checking"
+        -- Clear the model cache so fetch_models actually runs again
+        instance.model_list = {}
+        instance.model_proc = nil
+        instance._model_raw = ""
         
         core.add_thread(function()
-          coroutine.yield(15) -- wait 15 seconds for them to complete the browser login
+          coroutine.yield(20) -- wait 20 seconds for browser auth to complete
           if instance then
-            instance:fetch_models()
+            instance:fetch_models(true) -- force=true bypasses the "already loaded" guard
           end
         end)
       end
@@ -2273,7 +2277,24 @@ core.status_view:add_item({
     local text = "AGY Auth"
     if instance then
       if instance.auth_status == "logged_in" then
-        text = os.getenv("USERNAME") or "AGY Connected"
+        -- Try to read the actual Google account email from agy's state file
+        local account_name = nil
+        local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+        local state_path = home .. "\\.gemini\\antigravity-cli\\jetski_state.pbtxt"
+        local f = io.open(state_path, "r")
+        if f then
+          local content = f:read("*a")
+          f:close()
+          -- Look for email field in the pbtxt
+          account_name = content:match('email:%s*"([^"]+)"')
+                      or content:match("email:%s*'([^']+)'")
+                      or content:match("account_email:%s*([^%s]+)")
+          -- Trim the domain to just show the username part
+          if account_name then
+            account_name = account_name:match("^([^@]+)") or account_name
+          end
+        end
+        text = account_name or (os.getenv("USERNAME") .. " (agy)")
       elseif instance.auth_status == "auth_error" then
         text = "Retry Auth[click here again]"
       end
