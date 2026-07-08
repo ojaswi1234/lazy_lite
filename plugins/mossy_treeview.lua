@@ -276,3 +276,51 @@ if TreeView.contextmenu then
   table.insert(TreeView.contextmenu.itemset, 1, last)
 end
 
+
+command.add(
+  function()
+    local item = TreeView.hovered_item or TreeView.selected_item
+    return item ~= nil and (core.active_view == TreeView or (TreeView.contextmenu and TreeView.contextmenu.show_context_menu)), item
+  end, {
+  ["treeview:move-to-any-folder"] = function(item)
+    local common = require 'core.common'
+    core.command_view:enter("Move to folder (target path)", {
+      text = item.dir_name,
+      submit = function(target_dir)
+        local abs_dir = target_dir
+        if not common.is_absolute_path(target_dir) then
+          abs_dir = core.project_dir .. PATHSEP .. target_dir
+        end
+        local new_abs_filename = abs_dir .. PATHSEP .. item.name
+        
+        local stat = system.get_file_info(abs_dir)
+        if not stat then
+          common.mkdirp(abs_dir)
+        end
+
+        local res, err = os.rename(item.abs_filename, new_abs_filename)
+        if res then
+          core.log("Moved %s to %s", item.name, abs_dir)
+        else
+          core.error("Failed to move %s: %s", item.name, err)
+        end
+      end
+    })
+  end,
+  ["treeview:go-into-its-folder"] = function(item)
+    core.confirm_close_docs(core.docs, function(dirpath)
+      core.open_folder_project(dirpath)
+    end, item.dir_name)
+  end,
+})
+
+if TreeView.contextmenu then
+  TreeView.contextmenu:register(
+    function()
+      return core.active_view == TreeView and (TreeView.hovered_item or TreeView.selected_item) ~= nil
+    end, {
+      { text = "Move to any folder", command = "treeview:move-to-any-folder" },
+      { text = "Go into any folder", command = "treeview:go-into-its-folder" }
+    }
+  )
+end
