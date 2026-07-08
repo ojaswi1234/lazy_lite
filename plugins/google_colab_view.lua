@@ -206,7 +206,7 @@ end
 function NotebookView:draw_cell_background(x, y, w, h, is_selected, is_editing)
   local color = style.background2
   if is_selected then
-    color = style.mossy.active_row or {r=191, g=211, a=167}
+    color = style.mossy.active_row or {191, 211, 167}
   end
   if is_editing then
     color = style.background3
@@ -279,7 +279,7 @@ function NotebookView:draw_cell_output(x, y, w, cell)
     elseif output.output_type == "error" then
       local traceback = output.traceback or {}
       for _, line in ipairs(traceback) do
-        renderer.draw_text(font, line, x + padding, output_y, {r=255, g=100, b=100})
+        renderer.draw_text(font, line, x + padding, output_y, {255, 100, 100})
         output_y = output_y + line_height
       end
     elseif output.output_type == "execute_result" or output.output_type == "display_data" then

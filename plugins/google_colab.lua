@@ -57,7 +57,7 @@ if not view_ok then
 end
 
 local COLAB_ICON = "\u{F1BB}" -- Google icon (unicode)
-local COLAB_ICON_COLOR = {r=66, g=133, b=244} -- Google blue
+local COLAB_ICON_COLOR = {66, 133, 244} -- Google blue
 
 local state = {
   authenticated = false,
@@ -158,7 +158,7 @@ function ColabModal:draw_auth_view(x, y, w, h)
   local icon_x = x + w/2 - 30
   local icon_y = y + h - 100
   renderer.draw_rect(icon_x, icon_y, 60, 60, COLAB_ICON_COLOR)
-  renderer.draw_text(style.font, "G", icon_x + 60/2 - style.font:get_width("G")/2, icon_y + 60/2 - style.font:get_height()/2, {r=255, g=255, b=255})
+  renderer.draw_text(style.font, "G", icon_x + 60/2 - style.font:get_width("G")/2, icon_y + 60/2 - style.font:get_height()/2, {255, 255, 255})
 end
 
 function ColabModal:draw_loading_view(x, y, w, h)
@@ -177,7 +177,7 @@ function ColabModal:draw_loading_view(x, y, w, h)
     local px = spinner_x + math.cos(angle) * radius
     local py = spinner_y + math.sin(angle) * radius
     local alpha = 255 - (i * 30)
-    renderer.draw_rect(px - 2, py - 2, 4, 4, {r=100, g=100, b=100, a=alpha})
+    renderer.draw_rect(px - 2, py - 2, 4, 4, {100, 100, 100, alpha})
   end
 end
 
@@ -208,7 +208,7 @@ function ColabModal:draw_notebook_list(x, y, w, h)
     
     -- Highlight selected item
     if i == self.selected_index then
-      renderer.draw_rect(x + 20, item_y, w - 40, item_height - 5, style.mossy.active_row or {r=191, g=211, a=167})
+      renderer.draw_rect(x + 20, item_y, w - 40, item_height - 5, style.mossy.active_row or {191, 211, 167})
     end
     
     -- Draw notebook name
