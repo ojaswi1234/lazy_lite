@@ -206,7 +206,7 @@ end
 function NotebookView:draw_cell_background(x, y, w, h, is_selected, is_editing)
   local color = style.background2
   if is_selected then
-    color = style.mossy.active_row or {191, 211, 167}
+    color = (style.mossy and style.mossy.active_row) or style.selection or {191, 211, 167}
   end
   if is_editing then
     color = style.background3

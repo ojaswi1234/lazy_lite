@@ -221,7 +221,7 @@ function ColabModal:draw_notebook_list(x, y, w, h)
     
     -- Highlight selected item
     if i == self.selected_index then
-      renderer.draw_rect(x + 20, item_y, w - 40, item_height - 5, style.mossy.active_row or {191, 211, 167})
+      renderer.draw_rect(x + 20, item_y, w - 40, item_height - 5, (style.mossy and style.mossy.active_row) or style.selection or {191, 211, 167})
     end
     
     -- Draw notebook name
@@ -547,39 +547,15 @@ save_notebook = function()
   end
   
   local notebook_data = state.notebook_view.notebook_data
-  local encode_func = common.encode_json or function(tbl)
-    -- Basic JSON encoding fallback
-    local function serialize(val)
-      local t = type(val)
-      if t == "string" then
-        return '"' .. val:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r'):gsub('\t', '\\t') .. '"'
-      elseif t == "number" then
-        return tostring(val)
-      elseif t == "boolean" then
-        return tostring(val)
-      elseif t == "nil" then
-        return "null"
-      elseif t == "table" then
-        local is_array = #val > 0
-        local parts = {}
-        if is_array then
-          for i, v in ipairs(val) do
-            table.insert(parts, serialize(v))
-          end
-          return "[" .. table.concat(parts, ",") .. "]"
-        else
-          for k, v in pairs(val) do
-            local key = type(k) == "string" and '"' .. k .. '"' or tostring(k)
-            table.insert(parts, key .. ":" .. serialize(v))
-          end
-          return "{" .. table.concat(parts, ",") .. "}"
-        end
-      else
-        return "null"
-      end
+  local encode_func = function(tbl)
+    local ok, json = pcall(require, "plugins.google_colab_json")
+    if ok and json and json.encode then
+      return json.encode(tbl)
     end
-    return serialize(tbl)
+    -- Very basic fallback just in case
+    return "{}" 
   end
+  
   local content = encode_func(notebook_data)
   
   api.update_notebook(state.current_notebook_id, content, function(success, data)

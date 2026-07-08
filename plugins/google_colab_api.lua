@@ -16,13 +16,8 @@ local function encode_uri(str)
   end)
 end
 
--- Use Lite-XL's built-in JSON parsing if available
+-- Use our bundled JSON parsing
 local function parse_json(str)
-  -- Try to use common.parse_json if available
-  if common.parse_json then
-    local ok, result = pcall(common.parse_json, str)
-    if ok then return result end
-  end
   
   -- Use our bundled json library
   local ok, json = pcall(require, "plugins.google_colab_json")
@@ -40,50 +35,12 @@ local function parse_json(str)
 end
 
 local function encode_json(tbl)
-  -- Try to use common.encode_json if available
-  if common.encode_json then
-    local ok, result = pcall(common.encode_json, tbl)
-    if ok then return result end
-  end
-  
-  -- Fallback: try to use JSON library
-  local ok, json = pcall(require, "plugins.lsp.json")
-  if ok and json.encode then
+  -- Use our bundled json library
+  local ok, json = pcall(require, "plugins.google_colab_json")
+  if ok and json and json.encode then
     return json.encode(tbl)
   end
-  
-  -- Last resort: simple manual encoding
-  local function serialize(val)
-    local t = type(val)
-    if t == "string" then
-      return '"' .. val:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r'):gsub('\t', '\\t') .. '"'
-    elseif t == "number" then
-      return tostring(val)
-    elseif t == "boolean" then
-      return tostring(val)
-    elseif t == "nil" then
-      return "null"
-    elseif t == "table" then
-      local is_array = #val > 0
-      local parts = {}
-      if is_array then
-        for i, v in ipairs(val) do
-          table.insert(parts, serialize(v))
-        end
-        return "[" .. table.concat(parts, ",") .. "]"
-      else
-        for k, v in pairs(val) do
-          local key = type(k) == "string" and '"' .. k .. '"' or tostring(k)
-          table.insert(parts, key .. ":" .. serialize(v))
-        end
-        return "{" .. table.concat(parts, ",") .. "}"
-      end
-    else
-      return "null"
-    end
-  end
-  
-  return serialize(tbl)
+  return "{}"
 end
 
 local DRIVE_API_BASE = "https://www.googleapis.com/drive/v3/files"
