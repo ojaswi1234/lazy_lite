@@ -231,7 +231,7 @@ command.add(nil, {
   ["codespaces:show-treeview"] = function()
     local vfs = get_vfs()
     if not vfs or not vfs.active then
-      core.error("No active codespace connection")
+      core.log_quiet("No active codespace connection")
       return
     end
     
