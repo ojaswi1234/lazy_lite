@@ -8,32 +8,32 @@ local common = require "core.common"
 local function c(hex) return { common.color(hex) } end
 
 -- Surfaces
-style.background       = c "#F0F4DF"
-style.background2      = c "#E4EAD0"
-style.background3      = c "#CCD0BC"
+style.background       = c "#E3EFCE"
+style.background2      = c "#D5E5B9"
+style.background3      = c "#B9CFA5"
 
 -- Text
-style.text             = c "#4F4C4E"
-style.dim              = c "#A8AE8C"
-style.accent           = c "#637A3E"
+style.text             = c "#2A3821"
+style.dim              = c "#7A9165"
+style.accent           = c "#437A16"
 
 -- Caret & selection
-style.caret            = c "#4A6A3A"
+style.caret            = c "#2A4016"
 style.caret_width      = 2 * SCALE
-style.selection        = c "#C5D9A8"
-style.line_highlight   = c "#E8EDCF"
+style.selection        = c "#B2D38A"
+style.line_highlight   = c "#D5ECB9"
 
 -- Line numbers
-style.line_number      = c "#A8AE8C"
-style.line_number2     = c "#6B7A55"
+style.line_number      = c "#7A9165"
+style.line_number2     = c "#4A6B30"
 
 -- Dividers & scrollbar
-style.divider          = c "#CDD3BB"
-style.scrollbar        = c "#C5D9A8"
-style.scrollbar2       = c "#A8C28A"
+style.divider          = c "#A9C985"
+style.scrollbar        = c "#A1C47A"
+style.scrollbar2       = c "#7BA351"
 
 -- Tab bar
-style.tab_bar_background = c "#CCD0BC"
+style.tab_bar_background = c "#B9CFA5"
 style.tab_width          = 200 * SCALE
 style.tab_height         = 32 * SCALE
 
@@ -62,8 +62,8 @@ style.mossy = {
 
 -- Syntax tokens
 style.syntax = {
-  normal       = c "#4F4C4E",
-  symbol       = c "#4F4C4E",
+  normal       = c "#2A3821",
+  symbol       = c "#2A3821",
   comment      = c "#737D53",
   keyword      = c "#6166BA",
   keyword2     = c "#8F627C",

@@ -9,7 +9,7 @@ local command = require "core.command"
 local keymap = require "core.keymap"
 local common = require "core.common"
 local View = require "core.view"
-local renderer = require "core.renderer"
+local renderer = require "renderer"
 local system = require "system"
 local PATHSEP = PATHSEP or package.config:sub(1,1)
 local USERDIR = USERDIR or core.userdir or (os.getenv("USERPROFILE") or os.getenv("HOME")) .. "/.config/lite-xl"
@@ -737,8 +737,8 @@ command.add("core", {
 
 -- Keybindings (avoid conflicts with existing keybindings)
 keymap.add {
-  ["ctrl+shift+c"] = "colab:open",
-  ["ctrl+shift+n"] = "colab:save-notebook",  -- Changed from ctrl+shift+s to avoid conflict
+  ["alt+c"] = "colab:open",
+  ["ctrl+shift+n"] = "colab:save-notebook",
   ["shift+return"] = "colab:run-cell",
   ["ctrl+return"] = "colab:run-cell-no-advance",
   ["ctrl+shift+return"] = "colab:run-all-cells",
