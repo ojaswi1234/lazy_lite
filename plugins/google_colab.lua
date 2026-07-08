@@ -666,7 +666,7 @@ run_all_cells = function()
   end)
 end
 
--- Commands
+-- Global Commands
 command.add(nil, {
   ["colab:open"] = function()
     open_colab_modal()
@@ -686,8 +686,13 @@ command.add(nil, {
         create_notebook(name)
       end
     })
-  end,
-  
+  end
+})
+
+-- Notebook Commands
+command.add(function()
+  return state.notebook_view and core.active_view == state.notebook_view
+end, {
   ["colab:save-notebook"] = function()
     save_notebook()
   end,
@@ -755,7 +760,7 @@ command.add(nil, {
 -- Keybindings (avoid conflicts with existing keybindings)
 keymap.add {
   ["ctrl+alt+b"] = "colab:open",
-  ["ctrl+shift+n"] = "colab:save-notebook",
+  ["ctrl+s"] = "colab:save-notebook",
   ["shift+return"] = "colab:run-cell",
   ["ctrl+return"] = "colab:run-cell-no-advance",
   ["ctrl+shift+return"] = "colab:run-all-cells",
