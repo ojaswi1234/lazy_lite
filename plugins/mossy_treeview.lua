@@ -35,9 +35,9 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
 
   -- Row background
   if active then
-    renderer.draw_rect(x, y, w, h, style.selection)
+    renderer.draw_rect(x, y, w, h, (style.mossy and style.mossy.active_row) or style.selection)
   elseif hovered then
-    renderer.draw_rect(x, y, w, h, style.line_highlight)
+    renderer.draw_rect(x, y, w, h, (style.mossy and style.mossy.hover_row) or style.line_highlight)
   end
 
   -- Indent guides
@@ -45,13 +45,20 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
   local step  = 20 * SCALE
   for d = 1, depth do
     local gx = x + (d - 1) * step + 8 * SCALE
-    renderer.draw_rect(gx, y, 1 * SCALE, h, style.divider)
+    renderer.draw_rect(gx, y, 1 * SCALE, h, (style.mossy and style.mossy.border) or style.divider)
   end
 
   -- Icon (guard: icon_font may be nil on some builds, fall back to style.font)
   local ifont      = style.icon_font or style.font
   local icon_str   = icons.get(item.name, item.type == "dir", item.expanded)
-  local icon_color = (active or hovered) and style.text or style.dim
+  
+  local base_text  = (style.mossy and style.mossy.sidebar_text)  or style.text
+  local base_dim   = (style.mossy and style.mossy.sidebar_muted) or style.dim
+  local active_txt = (style.mossy and style.mossy.active_row_text) or base_text
+  
+  local icon_color = (active or hovered) and active_txt or base_dim
+  local text_color = (active or hovered) and active_txt or base_text
+  
   local icon_x     = x + depth * step + 6 * SCALE
 
   renderer.draw_text(
@@ -63,7 +70,6 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
 
   -- Filename
   local name_x     = icon_x + ifont:get_width(icon_str) + 4 * SCALE
-  local text_color = style.text
 
   renderer.draw_text(
     style.font, item.name,
@@ -77,7 +83,7 @@ end
 local orig_draw = TreeView.draw
 
 function TreeView:draw()
-  local sidebar_bg = get_contrast_bg(style.background)
+  local sidebar_bg = (style.mossy and style.mossy.sidebar_bg) or get_contrast_bg(style.background)
   
   -- Full sidebar background
   renderer.draw_rect(
@@ -91,13 +97,13 @@ function TreeView:draw()
   renderer.draw_rect(
     self.position.x, self.position.y,
     self.size.x, hdr_h,
-    style.background3 or style.selection
+    (style.mossy and style.mossy.activity_bg) or style.background3 or style.selection
   )
   renderer.draw_text(
     style.font, "  EXPLORER",
     self.position.x + 8 * SCALE,
     self.position.y + math.floor((hdr_h - style.font:get_height()) / 2),
-    style.text
+    (style.mossy and style.mossy.sidebar_text) or style.text
   )
 
   -- Draw "Open Folder" button icon
@@ -110,7 +116,7 @@ function TreeView:draw()
   local hovered = (mx >= btn_x and mx <= btn_x + btn_w and my >= self.position.y and my <= self.position.y + hdr_h)
 
   if hovered then
-    renderer.draw_rect(btn_x, self.position.y + 2 * SCALE, btn_w, hdr_h - 4 * SCALE, style.line_highlight)
+    renderer.draw_rect(btn_x, self.position.y + 2 * SCALE, btn_w, hdr_h - 4 * SCALE, (style.mossy and style.mossy.hover_row) or style.line_highlight)
   end
 
   local iw = ifont:get_width(icon)
