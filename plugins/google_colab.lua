@@ -394,13 +394,10 @@ end
 
 -- Close Colab modal
 close_colab_modal = function()
-  -- Remove modal from root view
-  local node = core.root_view:get_active_node()
-  for i, view in ipairs(node:get_children()) do
-    if view == colab_modal then
-      node:remove_view(colab_modal)
-      break
-    end
+  local root = core.root_view.root_node
+  local node = root:get_node_for_view(colab_modal)
+  if node then
+    node:close_view(root, colab_modal)
   end
   state.notebook_view = nil
   core.redraw = true
