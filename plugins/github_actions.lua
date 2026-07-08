@@ -547,15 +547,22 @@ core.add_thread(function()
       self._gh_extra_tab_rects = {}
 
       local extra_tabs = {
-        {id=PANEL_ACTIONS,  label="  Actions"},
-        {id=PANEL_INSIGHTS, label="  Insights"},
+        {id=PANEL_INSIGHTS, label="  Insights  "},
+        {id=PANEL_ACTIONS,  label="  Actions  "},
       }
+      
+      -- Anchor from the maximize button
+      local right_edge = self.btn_rect and self.btn_rect.x or (x + w - 80*SCALE)
+      local cur_x = right_edge
+
       for _, tab in ipairs(extra_tabs) do
         local is_active = (gh_state.active_panel == tab.id)
         local lbl_w = sf:get_width(tab.label) + 14*SCALE
-        -- only draw if it fits before MAXIMIZE button
-        local btn_x = self.btn_rect and self.btn_rect.x or (x+w-80*SCALE)
-        if cur_x + lbl_w > btn_x - 8*SCALE then break end
+        
+        cur_x = cur_x - lbl_w - 2*SCALE
+        
+        -- Break only if we violently collide with the left side session tabs
+        if cur_x < tabs_end_x + 8*SCALE then break end
 
         local tab_bg = is_active and contrast_bg(hdr_bg) or hdr_bg
         local tab_fg = is_active and (style.text or {255,255,255,255}) or style.dim
@@ -571,7 +578,6 @@ core.add_thread(function()
         table.insert(self._gh_extra_tab_rects, {
           x=cur_x, y=y+2*SCALE, w=lbl_w, h=hdr_h, id=tab.id
         })
-        cur_x = cur_x + lbl_w + 2*SCALE
       end
 
       -- If an extra panel is active, OVERDRAW the content area
