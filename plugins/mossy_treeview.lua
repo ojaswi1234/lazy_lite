@@ -146,6 +146,11 @@ function TreeView:on_mouse_pressed(button, x, y, clicks)
   end
   
   if button == "left" then
+    local keymap = require "core.keymap"
+    if keymap.modkeys["ctrl"] or keymap.modkeys["cmd"] then
+      command.perform("treeview:toggle-selection")
+      return true
+    end
     self.dnd_start_x = x
     self.dnd_start_y = y
     self.dnd_item = self.hovered_item
@@ -339,10 +344,10 @@ function TreeView:draw_item_background(item, active, hovered, x, y, w, h)
   orig_draw_item_bg(self, item, active or is_selected, hovered, x, y, w, h)
 end
 
-command.add(
-  function()
-    return core.active_view == TreeView and TreeView.hovered_item ~= nil
-  end, {
+  command.add(
+    function()
+      return TreeView.hovered_item ~= nil
+    end, {
   ["treeview:toggle-selection"] = function()
     local item = TreeView.hovered_item
     if not item then return end
@@ -453,3 +458,13 @@ function RootView:on_mouse_left()
     end
   end
 end
+
+command.add(
+  function() return true end, {
+  ["treeview:debug-click"] = function()
+    local item = TreeView.hovered_item
+    local active = (core.active_view == TreeView)
+    core.log("DEBUG: ctrl+lclick fired! active_view_is_treeview: %s, hovered_item: %s", tostring(active), tostring(item and item.name or "nil"))
+  end
+})
+keymap.add({ ["ctrl+lclick"] = "treeview:debug-click" })
