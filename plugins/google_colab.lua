@@ -748,7 +748,7 @@ command.add("core", {
 
 -- Keybindings (avoid conflicts with existing keybindings)
 keymap.add {
-  ["ctrl+alt+g"] = "colab:open",
+  ["ctrl+alt+b"] = "colab:open",
   ["ctrl+shift+n"] = "colab:save-notebook",
   ["shift+return"] = "colab:run-cell",
   ["ctrl+return"] = "colab:run-cell-no-advance",
