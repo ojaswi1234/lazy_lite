@@ -63,7 +63,69 @@ config.plugins.drawwhitespace = false
 config.plugins.lineguide      = false
 config.plugins.wordcount      = false
 
--- ── 5. Custom plugins ─────────────────────────────────────────────────────────
+-- ── 5. Hybrid Theme Universal Patches ──────────────────────────────────────────
+local Node = require "core.node"
+local old_node_draw_tabs = Node.draw_tabs
+function Node:draw_tabs(...)
+  local old_text = style.text
+  local old_dim = style.dim
+  local old_bg2 = style.background2
+  if style.mossy then
+    style.background2 = style.tab_bar_background or style.mossy.activity_bg or style.background2
+    style.text = style.syntax.normal or style.text
+    style.dim = style.mossy.sidebar_text or style.dim
+  end
+  old_node_draw_tabs(self, ...)
+  style.text = old_text
+  style.dim = old_dim
+  style.background2 = old_bg2
+end
+
+local TreeView_ok, TreeView = pcall(require, "plugins.treeview")
+if TreeView_ok then
+  local old_tv_draw = TreeView.draw
+  function TreeView:draw(...)
+    local old_bg2 = style.background2
+    local old_bg3 = style.background3
+    local old_text = style.text
+    local old_dim = style.dim
+    if style.mossy then
+      style.background2 = style.mossy.sidebar_bg or style.background2
+      style.background3 = style.mossy.activity_bg or style.background3
+      style.text = style.mossy.sidebar_text or style.text
+      style.dim = style.mossy.sidebar_muted or style.dim
+    end
+    old_tv_draw(self, ...)
+    style.background2 = old_bg2
+    style.background3 = old_bg3
+    style.text = old_text
+    style.dim = old_dim
+  end
+end
+
+local TitleView_ok, TitleView = pcall(require, "core.titleview")
+if TitleView_ok then
+  local old_title_draw = TitleView.draw
+  function TitleView:draw(...)
+    local old_bg2 = style.background2
+    local old_bg3 = style.background3
+    local old_text = style.text
+    local old_dim = style.dim
+    if style.mossy then
+      style.background2 = style.titlebar_background or style.mossy.activity_bg or style.background2
+      style.background3 = style.titlebar_background or style.mossy.activity_bg or style.background3
+      style.text = style.titlebar_text or style.mossy.sidebar_text or style.text
+      style.dim = style.titlebar_text or style.mossy.sidebar_muted or style.dim
+    end
+    old_title_draw(self, ...)
+    style.background2 = old_bg2
+    style.background3 = old_bg3
+    style.text = old_text
+    style.dim = old_dim
+  end
+end
+
+-- ── 6. Custom plugins ─────────────────────────────────────────────────────────
 -- mossy_icons must load before mossy_treeview (dependency order)
 local function safe_require(mod)
   local ok, err = pcall(require, mod)
@@ -88,6 +150,7 @@ safe_require "plugins.mossy_statusbar"
 safe_require "plugins.loader_games"
 safe_require "plugins.virtual_codespace_fs"
 safe_require "plugins.github_codespaces"
+safe_require "plugins.google_colab"
 
 -- ── 6. Keybindings (VS Code parity) ──────────────────────────────────────────
 keymap.add {
