@@ -147,7 +147,7 @@ function TreeView:on_mouse_pressed(button, x, y, clicks)
   
   if button == "left" then
     local keymap = require "core.keymap"
-    if keymap.modkeys["ctrl"] or keymap.modkeys["cmd"] then
+    if (keymap.modkeys["ctrl"] or keymap.modkeys["cmd"]) and keymap.modkeys["shift"] then
       command.perform("treeview:toggle-selection")
       return true
     end
@@ -371,9 +371,9 @@ end
   end
 })
 
-keymap.add {
-  ["ctrl+lclick"] = "treeview:toggle-selection"
-}
+  keymap.add {
+    ["ctrl+shift+lclick"] = "treeview:toggle-selection"
+  }
 
 
 -- "?"? Multi-Select Commands "?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?"?
