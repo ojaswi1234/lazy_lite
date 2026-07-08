@@ -748,7 +748,7 @@ command.add("core", {
 
 -- Keybindings (avoid conflicts with existing keybindings)
 keymap.add {
-  ["alt+c"] = "colab:open",
+  ["ctrl+alt+g"] = "colab:open",
   ["ctrl+shift+n"] = "colab:save-notebook",
   ["shift+return"] = "colab:run-cell",
   ["ctrl+return"] = "colab:run-cell-no-advance",
@@ -765,6 +765,14 @@ core.add_thread(function()
   -- Check if already authenticated
   if auth.is_authenticated() then
     state.authenticated = true
+  end
+  
+  -- Add to Toolbar UI if present
+  if core.toolbar_view and type(core.toolbar_view.toolbar_commands) == "table" then
+    table.insert(core.toolbar_view.toolbar_commands, {
+      symbol = "C",
+      command = "colab:open"
+    })
   end
 end)
 
