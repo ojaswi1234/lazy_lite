@@ -38,26 +38,26 @@ style.tab_width          = 200 * SCALE
 style.tab_height         = 32 * SCALE
 
 -- Title / activity bar
-style.titlebar_background = c "#0F1A11"
+style.titlebar_background = c "#020402"
 style.titlebar_text       = c "#B4D6B0"
 
 -- Shared palette for custom plugins (they read style.mossy.*)
 style.mossy = {
-  sidebar_bg       = c "#132115", -- A lot darker green
-  sidebar_text     = c "#B4D6B0", -- Light green text
-  sidebar_muted    = c "#658560",
-  active_row       = c "#1E3321",
+  sidebar_bg       = c "#050A05", -- Almost black green
+  sidebar_text     = c "#B4D6B0",
+  sidebar_muted    = c "#4A6346",
+  active_row       = c "#0D1C0D",
   active_row_text  = c "#D6EBD3",
-  hover_row        = c "#192B1C",
-  activity_bg      = c "#0F1A11",
-  activity_icon    = c "#658560",
+  hover_row        = c "#091209",
+  activity_bg      = c "#020402", -- Darkest
+  activity_icon    = c "#4A6346",
   activity_icon_hl = c "#B4D6B0",
-  status_bg        = c "#132115",
+  status_bg        = c "#050A05",
   status_text      = c "#B4D6B0",
-  terminal_bg      = c "#0F1A11",
+  terminal_bg      = c "#020402",
   terminal_text    = c "#B4D6B0",
-  indent_guide     = c "#203623",
-  border           = c "#0A120C",
+  indent_guide     = c "#091209",
+  border           = c "#000000",
 }
 
 -- Syntax tokens
