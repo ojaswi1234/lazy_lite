@@ -1164,3 +1164,70 @@ function core.quit(force)
   end
   return old_quit(force)
 end
+
+-- ── Error Line Marker Extractor ──────────────────────────────────────────────
+local DocView = require "core.docview"
+local old_draw_line_gutter = DocView.draw_line_gutter
+local terminal_errors = {}
+
+local old_termview_update = TermView.update
+local last_scanned_line = 0
+local last_session_ptr = nil
+
+function TermView:update(...)
+  if old_termview_update then old_termview_update(self, ...) end
+  local s = self:state()
+  if not s then return end
+
+  if last_session_ptr ~= s then
+    last_scanned_line = s.lines and #s.lines or 0
+    last_session_ptr = s
+  end
+
+  if s.lines and #s.lines > last_scanned_line then
+    for i = last_scanned_line + 1, #s.lines do
+      local line_text = s.lines[i].text
+      if line_text then
+        -- 1. Python: File "script.py", line 42
+        local file, lnum = line_text:match('File "([^"]+)", line (%d+)')
+        -- 2. Generic (C/C++, Rust, Lua, etc.): src/main.c:42:5: error:
+        if not file then
+          file, lnum = line_text:match("([%w%._/%-]+%.%w+):(%d+):")
+        end
+        if file and lnum then
+          lnum = tonumber(lnum)
+          local abs = system.absolute_path(file)
+          if not abs then
+            local full = core.project_dir .. PATHSEP .. file
+            local info = system.get_file_info(full)
+            if info then abs = full end
+          end
+          if abs then
+            terminal_errors[abs] = terminal_errors[abs] or {}
+            terminal_errors[abs][lnum] = true
+            core.redraw = true
+          end
+        end
+      end
+    end
+    last_scanned_line = #s.lines
+  end
+end
+
+local old_termview_run = TermView.run
+function TermView:run(cmd, ...)
+  terminal_errors = {}
+  return old_termview_run(self, cmd, ...)
+end
+
+function DocView:draw_line_gutter(line, x, y, width)
+  local res = old_draw_line_gutter(self, line, x, y, width)
+  local abs = self.doc.abs_filename
+  if abs and terminal_errors[abs] and terminal_errors[abs][line] then
+    local color = style.error or {255, 50, 50, 255}
+    local icon = "" -- Warning/Error icon in Nerd Font
+    -- Draw next to the line number
+    renderer.draw_text(style.icon_font, icon, x + math.max(0, width - 15 * SCALE), y, color)
+  end
+  return res
+end
