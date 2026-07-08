@@ -296,8 +296,8 @@ authenticate = function(on_complete)
   -- Open browser for user to authorize
   local open_cmd
   if PLATFORM == "Windows" then
-    -- Use cmd.exe to invoke the built-in start command, quote the URL properly
-    open_cmd = {"cmd", "/c", "start", "", auth_url}
+    -- Use PowerShell to robustly open the URL without cmd.exe mangling the ampersands
+    open_cmd = {"powershell", "-NoProfile", "-Command", "Start-Process", "'" .. auth_url .. "'"}
   elseif PLATFORM == "MacOS" then
     open_cmd = {"open", auth_url}
   else
