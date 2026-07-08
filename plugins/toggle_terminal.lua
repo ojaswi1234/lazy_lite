@@ -1169,6 +1169,7 @@ end
 local DocView = require "core.docview"
 local old_draw_line_gutter = DocView.draw_line_gutter
 local terminal_errors = {}
+local first_error_jumped = false
 
 local old_termview_update = TermView.update
 local last_scanned_line = 0
@@ -1188,12 +1189,22 @@ function TermView:update(...)
     for i = last_scanned_line + 1, #s.lines do
       local line_text = s.lines[i].text
       if line_text then
+        local file, lnum
         -- 1. Python: File "script.py", line 42
-        local file, lnum = line_text:match('File "([^"]+)", line (%d+)')
-        -- 2. Generic (C/C++, Rust, Lua, etc.): src/main.c:42:5: error:
-        if not file then
-          file, lnum = line_text:match("([%w%._/%-]+%.%w+):(%d+):")
-        end
+        file, lnum = line_text:match('File "([^"]+)", line (%d+)')
+        -- 2. Windows absolute paths (C:\foo\bar.c:42:)
+        if not file then file, lnum = line_text:match('([%a]:\\[^:]+%.%w+):(%d+):') end
+        -- 3. Generic (C/C++, Rust, Lua, Go, Ruby): src/main.c:42:5: error:
+        if not file then file, lnum = line_text:match('([%w%._/\\-]+%.%w+):(%d+):') end
+        -- 4. Node.js stack trace with Windows path
+        if not file then file, lnum = line_text:match('%(([%a]:\\[^:]+%.%w+):(%d+):%d+%)') end
+        -- 5. Node.js stack trace generic
+        if not file then file, lnum = line_text:match('%(([%w%._/\\-]+%.%w+):(%d+):%d+%)') end
+        -- 6. Java stack trace
+        if not file then file, lnum = line_text:match('at .*%(([%w%._/\\-]+%.java):(%d+)%)') end
+        -- 7. C# stack trace
+        if not file then file, lnum = line_text:match('in ([%w%._/\\-]+%.cs):line (%d+)') end
+
         if file and lnum then
           lnum = tonumber(lnum)
           local abs = system.absolute_path(file)
@@ -1206,6 +1217,19 @@ function TermView:update(...)
             terminal_errors[abs] = terminal_errors[abs] or {}
             terminal_errors[abs][lnum] = true
             core.redraw = true
+            
+            -- Automatically jump to the FIRST error found in this session
+            if not first_error_jumped then
+              first_error_jumped = true
+              core.try(function()
+                local doc = core.open_doc(abs)
+                core.root_view:open_doc(doc)
+                if core.active_view and core.active_view.doc == doc then
+                  core.active_view.doc:set_selection(lnum, 1)
+                  core.active_view:scroll_to_line(lnum, true)
+                end
+              end)
+            end
           end
         end
       end
@@ -1217,6 +1241,7 @@ end
 local old_termview_run = TermView.run
 function TermView:run(cmd, ...)
   terminal_errors = {}
+  first_error_jumped = false
   return old_termview_run(self, cmd, ...)
 end
 
