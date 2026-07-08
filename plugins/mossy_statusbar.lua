@@ -161,6 +161,23 @@ if cs_item then
   end
 end
 
+-- Remove percentage from doc:position
+local pos_item = status_view:get_item("doc:position")
+if pos_item then
+  local old_pos_get_item = pos_item.get_item
+  pos_item.get_item = function(self)
+    local items = old_pos_get_item(self)
+    -- Original ends with: self.separator, string.format("%.f%%", ...)
+    if items and #items >= 2 then
+      if type(items[#items]) == "string" and items[#items]:match("%%$") then
+        table.remove(items, #items) -- remove percentage
+        table.remove(items, #items) -- remove separator
+      end
+    end
+    return items
+  end
+end
+
 -- ── 4. Clean Up Clutter ────────────────────────────────────────────────────────
 -- Remove rarely used items to save space
 status_view:remove_item("doc:line-ending")
