@@ -38,26 +38,26 @@ style.tab_width          = 200 * SCALE
 style.tab_height         = 32 * SCALE
 
 -- Title / activity bar
-style.titlebar_background = c "#020402"
-style.titlebar_text       = c "#B4D6B0"
+style.titlebar_background = c "#0C140D"
+style.titlebar_text       = c "#D4E4D7"
 
 -- Shared palette for custom plugins (they read style.mossy.*)
 style.mossy = {
-  sidebar_bg       = c "#050A05", -- Almost black green
-  sidebar_text     = c "#B4D6B0",
-  sidebar_muted    = c "#4A6346",
-  active_row       = c "#0D1C0D",
-  active_row_text  = c "#D6EBD3",
-  hover_row        = c "#091209",
-  activity_bg      = c "#020402", -- Darkest
-  activity_icon    = c "#4A6346",
-  activity_icon_hl = c "#B4D6B0",
-  status_bg        = c "#050A05",
-  status_text      = c "#B4D6B0",
-  terminal_bg      = c "#020402",
-  terminal_text    = c "#B4D6B0",
-  indent_guide     = c "#091209",
-  border           = c "#000000",
+  sidebar_bg       = c "#18271B",
+  sidebar_text     = c "#B5C8B8",
+  sidebar_muted    = c "#6C8770",
+  active_row       = c "#243827",
+  active_row_text  = c "#E0EFE2",
+  hover_row        = c "#1E3022",
+  activity_bg      = c "#0C140D",
+  activity_icon    = c "#8A9F8E",
+  activity_icon_hl = c "#68C171",
+  status_bg        = c "#1B2A1E",
+  status_text      = c "#B5C8B8",
+  terminal_bg      = c "#0F1A12",
+  terminal_text    = c "#D4E4D7",
+  indent_guide     = c "#223525",
+  border           = c "#2A412E",
 }
 
 -- Syntax tokens
