@@ -506,9 +506,9 @@ open_notebook = function(notebook_id, name)
   
   api.download_notebook(notebook_id, function(success, content)
     if success then
-      -- Parse notebook JSON using the LSP json module
+      -- Parse notebook JSON using our bundled json module
       local parse_func = function(str) 
-        local ok, json = pcall(require, "plugins.lsp.json")
+        local ok, json = pcall(require, "plugins.google_colab_json")
         if ok and json and json.decode then
           return json.decode(str)
         end

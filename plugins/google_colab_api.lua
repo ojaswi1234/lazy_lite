@@ -24,9 +24,9 @@ local function parse_json(str)
     if ok then return result end
   end
   
-  -- Fallback: try to load JSON library
-  local ok, json = pcall(require, "plugins.lsp.json")
-  if ok and json.decode then
+  -- Use our bundled json library
+  local ok, json = pcall(require, "plugins.google_colab_json")
+  if ok and json and json.decode then
     return json.decode(str)
   end
   
