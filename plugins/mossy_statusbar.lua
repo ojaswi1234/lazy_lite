@@ -135,7 +135,7 @@ if doc_file_item then
   end
 end
 
--- Truncate Codespace name indicator
+-- Truncate Codespace name indicator or hide verbose text
 local cs_item = status_view:get_item("codespaces")
 if cs_item then
   local old_cs_get_item = cs_item.get_item
@@ -146,7 +146,11 @@ if cs_item then
         if type(item) == "string" and item:match("^ ") then
           -- The text is usually " name" or " GitHub Codespaces"
           local name = item:sub(2)
-          if name ~= "GitHub Codespaces" and #name > 15 then
+          if name == "GitHub Codespaces" then
+            -- In local mode, the text "GitHub Codespaces" is redundant. 
+            -- Just let the GitHub icon show.
+            items[i] = ""
+          elseif #name > 15 then
             items[i] = " " .. name:sub(1, 12) .. "..."
           end
           break
@@ -156,3 +160,9 @@ if cs_item then
     return items
   end
 end
+
+-- ── 4. Clean Up Clutter ────────────────────────────────────────────────────────
+-- Remove rarely used items to save space
+status_view:remove_item("doc:line-ending")
+status_view:remove_item("doc:lines")
+status_view:remove_item("doc:indentation")
