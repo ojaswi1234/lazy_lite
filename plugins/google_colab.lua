@@ -661,7 +661,7 @@ run_all_cells = function()
 end
 
 -- Commands
-command.add("core", {
+command.add(nil, {
   ["colab:open"] = function()
     open_colab_modal()
   end,
