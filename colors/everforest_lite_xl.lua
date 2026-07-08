@@ -13,8 +13,8 @@ style.background2      = c "#D5E5B9"
 style.background3      = c "#B9CFA5"
 
 -- Text
-style.text             = c "#2A3821"
-style.dim              = c "#7A9165"
+style.text             = c "#424A3E"
+style.dim              = c "#6A7B61"
 style.accent           = c "#437A16"
 
 -- Caret & selection
@@ -61,7 +61,7 @@ style.mossy = {
 }
 
 -- Syntax tokens
-style.syntax = {
+local syntax_colors = {
   normal       = c "#2A3821",
   symbol       = c "#2A3821",
   comment      = c "#737D53",
@@ -75,6 +75,7 @@ style.syntax = {
   link         = c "#5581B4",
   ["type"]     = c "#5581B4",
 }
+for k, v in pairs(syntax_colors) do style.syntax[k] = v end
 
 style.padding  = { x = 12 * SCALE, y = 6 * SCALE }
 style.tab_font = style.font

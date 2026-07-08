@@ -61,7 +61,7 @@ style.mossy = {
 }
 
 -- Syntax tokens (High contrast green spectrum)
-style.syntax = {
+local syntax_colors = {
   normal       = c "#D4E4D7",
   symbol       = c "#A8C3AC",
   comment      = c "#68886C", -- Dimmer green
@@ -75,6 +75,7 @@ style.syntax = {
   link         = c "#8DE896",
   ["type"]     = c "#6FD97A", 
 }
+for k, v in pairs(syntax_colors) do style.syntax[k] = v end
 
 style.padding  = { x = 12 * SCALE, y = 6 * SCALE }
 style.tab_font = style.font
