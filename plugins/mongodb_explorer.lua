@@ -255,20 +255,36 @@ command.add(nil, {
   end
 })
 
--- Initialize Toolbar UI if available
+-- Initialize Statusbar UI
 core.add_thread(function()
-  if core.toolbar_view and type(core.toolbar_view.toolbar_commands) == "table" then
-    table.insert(core.toolbar_view.toolbar_commands, {
-      symbol = "M",
-      command = "mongodb:connect",
-      tooltip = "Connect to MongoDB"
-    })
-  end
-  
   -- Check dependencies quietly on startup
   if not check_dependencies() then
     core.log_quiet("MongoDB dependencies missing. Run 'MongoDB: Install Dependencies' to enable the explorer.")
   end
+  
+  -- Add a native clickable button to the bottom status bar
+  if core.status_view and core.status_view.add_item then
+    core.status_view:add_item({
+      name = "mongodb:status_btn",
+      alignment = core.status_view.Item.RIGHT,
+      get_item = function()
+        return {
+          core.status_view.Item.BUTTON,
+          text = "🍃 MongoDB",
+          tooltip = "MongoDB Explorer",
+          on_click = function()
+            -- If not connected, connect. If connected, explore databases.
+            if not mongo.uri then
+              command.perform("mongodb:connect")
+            else
+              command.perform("mongodb:explore-databases")
+            end
+          end
+        }
+      end
+    })
+  end
 end)
+
 
 return mongo
