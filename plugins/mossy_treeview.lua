@@ -127,7 +127,21 @@ function TreeView:draw()
     hovered and style.text or style.dim
   )
 
+  local old_bg2 = style.background2
+  local old_bg3 = style.background3
+  local old_text = style.text
+  local old_dim = style.dim
+  if style.mossy then
+    style.background2 = style.mossy.sidebar_bg or style.background2
+    style.background3 = style.mossy.activity_bg or style.background3
+    style.text = style.mossy.sidebar_text or style.text
+    style.dim = style.mossy.sidebar_muted or style.dim
+  end
   orig_draw(self)
+  style.background2 = old_bg2
+  style.background3 = old_bg3
+  style.text = old_text
+  style.dim = old_dim
   
   if self.is_dragging and self.dnd_item then
     local ifont2 = style.icon_font or style.font
