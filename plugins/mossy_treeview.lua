@@ -459,12 +459,4 @@ function RootView:on_mouse_left()
   end
 end
 
-command.add(
-  function() return true end, {
-  ["treeview:debug-click"] = function()
-    local item = TreeView.hovered_item
-    local active = (core.active_view == TreeView)
-    core.log("DEBUG: ctrl+lclick fired! active_view_is_treeview: %s, hovered_item: %s", tostring(active), tostring(item and item.name or "nil"))
-  end
-})
-keymap.add({ ["ctrl+lclick"] = "treeview:debug-click" })
+
