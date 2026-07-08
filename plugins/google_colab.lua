@@ -355,8 +355,8 @@ open_colab_modal = function()
   colab_modal.message = "Google Colab"
   colab_modal.selected_index = 1
   
-  -- Add modal to root view
-  local node = core.root_view.root_node
+  -- Add modal to active node
+  local node = core.root_view:get_active_node()
   node:add_view(colab_modal)
   
   if auth.is_authenticated() then
@@ -380,7 +380,7 @@ end
 -- Close Colab modal
 close_colab_modal = function()
   -- Remove modal from root view
-  local node = core.root_view.root_node
+  local node = core.root_view:get_active_node()
   for i, view in ipairs(node:get_children()) do
     if view == colab_modal then
       node:remove_view(colab_modal)
@@ -491,7 +491,7 @@ open_notebook = function(notebook_id, name)
         state.notebook_view:set_notebook_data(notebook_data)
         
         -- Add view to root
-        local node = core.root_view.root_node
+        local node = core.root_view:get_active_node()
         node:split("right", state.notebook_view, true)
         
         colab_modal.state = "notebook"
