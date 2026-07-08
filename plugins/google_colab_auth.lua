@@ -101,13 +101,20 @@ return {
   return true
 end
 
+-- URL encoding function
+local function encode_uri(str)
+  return str:gsub("[^A-Za-z0-9%-_.~]", function(c)
+    return string.format("%%%02X", string.byte(c))
+  end)
+end
+
 -- Build OAuth authorization URL
 build_auth_url = function()
   local scope_string = table.concat(OAUTH_CONFIG.scopes, " ")
   local params = {
-    "client_id=" .. common.encode_uri(OAUTH_CONFIG.client_id),
-    "redirect_uri=" .. common.encode_uri(OAUTH_CONFIG.redirect_uri),
-    "scope=" .. common.encode_uri(scope_string),
+    "client_id=" .. encode_uri(OAUTH_CONFIG.client_id),
+    "redirect_uri=" .. encode_uri(OAUTH_CONFIG.redirect_uri),
+    "scope=" .. encode_uri(scope_string),
     "response_type=code",
     "access_type=offline",
     "prompt=consent"
