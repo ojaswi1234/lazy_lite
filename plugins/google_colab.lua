@@ -257,42 +257,56 @@ function ColabModal:on_mouse_pressed(button, x, y, clicks)
   return true
 end
 
-function ColabModal:on_key_pressed(key)
-  if key == "escape" then
+-- Create modal instance
+local colab_modal = ColabModal()
+
+-- The proper Lite-XL way to handle keys for a view is to register commands with a predicate
+command.add(function() return core.active_view == colab_modal end, {
+  ["colab-modal:close"] = function()
     close_colab_modal()
-    return true
-  elseif self.state == "auth" and key == "return" then
-    authenticate()
-    return true
-  elseif self.state == "list" then
-    if key == "up" then
-      self.selected_index = math.max(1, self.selected_index - 1)
-      return true
-    elseif key == "down" then
-      self.selected_index = math.min(#state.notebooks, self.selected_index + 1)
-      return true
-    elseif key == "return" then
-      if #state.notebooks > 0 and state.notebooks[self.selected_index] then
-        local notebook = state.notebooks[self.selected_index]
+  end,
+  
+  ["colab-modal:submit"] = function()
+    if colab_modal.state == "auth" then
+      authenticate()
+    elseif colab_modal.state == "list" then
+      if #state.notebooks > 0 and state.notebooks[colab_modal.selected_index] then
+        local notebook = state.notebooks[colab_modal.selected_index]
         open_notebook(notebook.id, notebook.name)
       end
-      return true
-    elseif key == "n" then
-      -- Create new notebook
+    end
+  end,
+  
+  ["colab-modal:up"] = function()
+    if colab_modal.state == "list" then
+      colab_modal.selected_index = math.max(1, colab_modal.selected_index - 1)
+    end
+  end,
+  
+  ["colab-modal:down"] = function()
+    if colab_modal.state == "list" then
+      colab_modal.selected_index = math.min(#state.notebooks, colab_modal.selected_index + 1)
+    end
+  end,
+  
+  ["colab-modal:new-notebook"] = function()
+    if colab_modal.state == "list" then
       core.command_view:enter("Notebook name:", {
         submit = function(name)
           create_notebook(name)
         end
       })
-      return true
     end
   end
-  
-  return false
-end
+})
 
--- Create modal instance
-local colab_modal = ColabModal()
+keymap.add {
+  ["escape"] = "colab-modal:close",
+  ["return"] = "colab-modal:submit",
+  ["up"] = "colab-modal:up",
+  ["down"] = "colab-modal:down",
+  ["n"] = "colab-modal:new-notebook"
+}
 
 -- Status bar integration
 local status_item_added = false
