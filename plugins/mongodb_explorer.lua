@@ -269,7 +269,7 @@ core.add_thread(function()
       name = "mongodb:status_btn",
       alignment = core.status_view.Item.RIGHT,
       get_item = function()
-        return { style.text, "🍃 MongoDB" }
+        return { style.text, "MongoDB" }
       end,
       command = function()
         -- If not connected, connect. If connected, explore databases.
