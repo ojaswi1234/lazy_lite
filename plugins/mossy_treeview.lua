@@ -422,3 +422,33 @@ if orig_delete then
     )
   end
 end
+
+-- "?"? Global Mouse Release Hook for Drag & Drop Safety "?"?"?"?"?"?"?"?"?
+local RootView = require "core.rootview"
+local orig_root_mousereleased = RootView.on_mouse_released
+function RootView:on_mouse_released(button, x, y, clicks)
+  local res
+  if orig_root_mousereleased then
+    res = orig_root_mousereleased(self, button, x, y, clicks)
+  end
+  if button == "left" then
+    for _, view in ipairs(core.root_view.root_node:get_children()) do
+      if view:is(TreeView) then
+        view.dnd_item = nil
+        view.is_dragging = false
+      end
+    end
+  end
+  return res
+end
+
+local orig_root_mouseleft = RootView.on_mouse_left
+function RootView:on_mouse_left()
+  if orig_root_mouseleft then orig_root_mouseleft(self) end
+  for _, view in ipairs(core.root_view.root_node:get_children()) do
+    if view:is(TreeView) then
+      view.dnd_item = nil
+      view.is_dragging = false
+    end
+  end
+end
