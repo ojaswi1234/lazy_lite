@@ -783,6 +783,8 @@ function AGView:submit(prompt)
   elseif prompt == "/usage" then
     self:state().status = "running"
     self:state().has_session = true
+    self:state()._ai_buf = ""
+    self:state()._ai_displayed_chars = 0
     table.insert(self:state().sessions, { role = "user", text = prompt })
     table.insert(self:state().sessions, { role = "ai", text = "" })
     
@@ -2172,7 +2174,10 @@ command.add(nil, {
     if not instance then instance = AGView() end
 
     if not node_built then
-      local target = core.root_view:get_active_node_default()
+      -- Always split from the PRIMARY node (main editor area), never from
+      -- get_active_node_default() which returns whatever panel the user last
+      -- clicked — that could be the git graph, terminal, etc.
+      local target = core.root_view:get_primary_node()
       -- resizable=true makes the divider draggable by the user
       local new_node = target:split("right", instance, { x = true }, true)
       if new_node then
