@@ -4,6 +4,7 @@ local command = require "core.command"
 local keymap = require "core.keymap"
 local process = require "process"
 local common = require "core.common"
+local style = require "core.style"
 
 -- Basic JSON Parser for reading bridge output
 local function decode_json(str)
@@ -268,20 +269,17 @@ core.add_thread(function()
       name = "mongodb:status_btn",
       alignment = core.status_view.Item.RIGHT,
       get_item = function()
-        return {
-          core.status_view.Item.BUTTON,
-          text = "🍃 MongoDB",
-          tooltip = "MongoDB Explorer",
-          on_click = function()
-            -- If not connected, connect. If connected, explore databases.
-            if not mongo.uri then
-              command.perform("mongodb:connect")
-            else
-              command.perform("mongodb:explore-databases")
-            end
-          end
-        }
-      end
+        return { style.text, "🍃 MongoDB" }
+      end,
+      command = function()
+        -- If not connected, connect. If connected, explore databases.
+        if not mongo.uri then
+          command.perform("mongodb:connect")
+        else
+          command.perform("mongodb:explore-databases")
+        end
+      end,
+      tooltip = "MongoDB Explorer"
     })
   end
 end)
