@@ -125,6 +125,28 @@ if TitleView_ok then
   end
 end
 
+local ToolbarView_ok, ToolbarView = pcall(require, "plugins.toolbarview")
+if ToolbarView_ok then
+  local old_toolbar_draw = ToolbarView.draw
+  function ToolbarView:draw(...)
+    local old_bg2 = style.background2
+    local old_bg3 = style.background3
+    local old_text = style.text
+    local old_dim = style.dim
+    if style.mossy then
+      style.background2 = style.mossy.activity_bg or style.background2
+      style.background3 = style.mossy.activity_bg or style.background3
+      style.text = style.mossy.activity_icon_hl or style.text
+      style.dim = style.mossy.sidebar_muted or style.dim
+    end
+    old_toolbar_draw(self, ...)
+    style.background2 = old_bg2
+    style.background3 = old_bg3
+    style.text = old_text
+    style.dim = old_dim
+  end
+end
+
 -- ── 6. Custom plugins ─────────────────────────────────────────────────────────
 -- mossy_icons must load before mossy_treeview (dependency order)
 local function safe_require(mod)
@@ -150,7 +172,7 @@ safe_require "plugins.mossy_statusbar"
 safe_require "plugins.loader_games"
 safe_require "plugins.virtual_codespace_fs"
 safe_require "plugins.github_codespaces"
-safe_require "plugins.google_colab"
+
 
 -- ── 6. Keybindings (VS Code parity) ──────────────────────────────────────────
 keymap.add {
