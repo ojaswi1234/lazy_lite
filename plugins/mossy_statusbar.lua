@@ -101,5 +101,58 @@ core.status_view:add_item({
       "\xee\x82\xa0 " .. current_branch,
       core.status_view.separator2
     }
-  end
+  end,
+  command = "git-timeline:toggle",
 })
+
+-- ── 3. Truncate Long Filenames & Codespace Names ────────────────────────────────────────────────
+local status_view = core.status_view
+
+-- Truncate document filename
+local doc_file_item = status_view:get_item("doc:file")
+if doc_file_item then
+  local old_get_item = doc_file_item.get_item
+  doc_file_item.get_item = function(self)
+    local items = old_get_item(self)
+    if not items or #items == 0 then return items end
+    
+    local path = items[#items]
+    if type(path) == "string" then
+      local max_len = 30
+      if #path > max_len then
+        local file = path:match("[^/\\]+$") or ""
+        local dir = path:sub(1, #path - #file)
+        
+        if #file > max_len - 5 then
+          items[#items] = "..." .. path:sub(-(max_len - 3))
+        else
+          local keep_dir = max_len - #file - 3
+          items[#items] = dir:sub(1, math.max(1, math.floor(keep_dir / 2))) .. "..." .. dir:sub(-math.max(1, math.ceil(keep_dir / 2))) .. file
+        end
+      end
+    end
+    return items
+  end
+end
+
+-- Truncate Codespace name indicator
+local cs_item = status_view:get_item("codespaces")
+if cs_item then
+  local old_cs_get_item = cs_item.get_item
+  cs_item.get_item = function(self)
+    local items = old_cs_get_item(self)
+    if items then
+      for i, item in ipairs(items) do
+        if type(item) == "string" and item:match("^ ") then
+          -- The text is usually " name" or " GitHub Codespaces"
+          local name = item:sub(2)
+          if name ~= "GitHub Codespaces" and #name > 15 then
+            items[i] = " " .. name:sub(1, 12) .. "..."
+          end
+          break
+        end
+      end
+    end
+    return items
+  end
+end
