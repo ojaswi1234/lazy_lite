@@ -48,6 +48,22 @@ echo Downloading FiraCode Nerd Font...
 if not exist "%CONFIG_DIR%\fonts" mkdir "%CONFIG_DIR%\fonts"
 curl -L -o "%CONFIG_DIR%\fonts\FiraCodeNerdFont-Regular.ttf" "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf"
 
+:: 1.8. Emoji font check and fallback download
+:: Windows ships with Segoe UI Emoji (seguiemj.ttf) — the AI sidebar uses it automatically.
+:: If for some reason it's missing, we download NotoColorEmoji instead.
+if exist "%WINDIR%\Fonts\seguiemj.ttf" (
+    echo Segoe UI Emoji found ^(seguiemj.ttf^) -- emoji rendering ready.
+) else (
+    echo WARNING: seguiemj.ttf not found -- downloading NotoColorEmoji as fallback...
+    curl -L -o "%CONFIG_DIR%\fonts\NotoColorEmoji.ttf" "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf"
+    echo NotoColorEmoji downloaded.
+)
+if not exist "%CONFIG_DIR%\fonts\NotoColorEmoji.ttf" (
+    echo Downloading NotoColorEmoji as supplementary emoji fallback...
+    curl -L -o "%CONFIG_DIR%\fonts\NotoColorEmoji.ttf" "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf"
+    if errorlevel 1 ( echo WARNING: NotoColorEmoji download failed. Emoji still works via Segoe UI Emoji. )
+)
+
 :: 2. Check Antigravity CLI
 set "INSTALL_AGY_SIDEBAR=true"
 where agy >nul 2>nul

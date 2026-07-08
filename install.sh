@@ -45,6 +45,34 @@ echo "Downloading FiraCode Nerd Font..."
 mkdir -p "$CONFIG_DIR/fonts"
 curl -L -o "$CONFIG_DIR/fonts/FiraCodeNerdFont-Regular.ttf" "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf"
 
+# 1.8. Emoji font fallback (NotoColorEmoji) — ensures emoji render correctly in the AI sidebar
+EMOJI_FONT="$CONFIG_DIR/fonts/NotoColorEmoji.ttf"
+SYSTEM_EMOJI_PATHS=(
+  "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+  "/usr/share/fonts/noto/NotoColorEmoji.ttf"
+  "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf"
+  "/Library/Fonts/Apple Color Emoji.ttc"
+)
+SYSTEM_EMOJI_FOUND=false
+for p in "${SYSTEM_EMOJI_PATHS[@]}"; do
+  if [ -f "$p" ]; then
+    SYSTEM_EMOJI_FOUND=true
+    echo "System emoji font found at $p — skipping download."
+    break
+  fi
+done
+if [ "$SYSTEM_EMOJI_FOUND" = false ]; then
+  if [ -f "$EMOJI_FONT" ]; then
+    echo "NotoColorEmoji already in fonts dir — skipping download."
+  else
+    echo "Downloading NotoColorEmoji for emoji rendering in AI sidebar..."
+    curl -L --progress-bar -o "$EMOJI_FONT" \
+      "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf" \
+      && echo "NotoColorEmoji downloaded successfully." \
+      || echo "WARNING: NotoColorEmoji download failed. Emoji may appear as '?' in the AI sidebar."
+  fi
+fi
+
 # 2. Check Antigravity CLI
 INSTALL_AGY_SIDEBAR=true
 if ! command -v agy &> /dev/null; then

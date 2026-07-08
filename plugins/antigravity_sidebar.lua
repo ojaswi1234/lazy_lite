@@ -36,11 +36,14 @@ local function get_emoji_font()
   if _emoji_font ~= false then  -- false = already tried and failed
     if not _emoji_font then
       local candidates = {}
+      -- First priority: bundled font in user's Lite XL config dir (installed by setup script)
+      local user_bundled = USERDIR .. "/fonts/NotoColorEmoji.ttf"
+      table.insert(candidates, user_bundled)
       if PLATFORM == "Windows" then
         local windir = os.getenv("WINDIR") or "C:\\Windows"
         table.insert(candidates, windir .. "\\Fonts\\seguiemj.ttf")  -- Segoe UI Emoji
       else
-        -- Linux / macOS candidates
+        -- Linux / macOS system candidates
         for _, p in ipairs({
           "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
           "/usr/share/fonts/noto/NotoColorEmoji.ttf",

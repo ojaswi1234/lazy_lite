@@ -47,6 +47,28 @@ $fontDir = "$configDir\fonts"
 New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
 irm "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf" -OutFile "$fontDir\FiraCodeNerdFont-Regular.ttf"
 
+# 1.8. Emoji font — Windows has Segoe UI Emoji built-in (C:\Windows\Fonts\seguiemj.ttf).
+#      The AI sidebar auto-detects it. We download NotoColorEmoji as a supplementary fallback
+#      in case the font picker needs a wider emoji range.
+$segoeEmoji = "$env:WINDIR\Fonts\seguiemj.ttf"
+$notoEmoji   = "$fontDir\NotoColorEmoji.ttf"
+if (Test-Path $segoeEmoji) {
+    Write-Host "Segoe UI Emoji found at $segoeEmoji — primary emoji font ready."
+} else {
+    Write-Host "WARNING: seguiemj.ttf not found — downloading NotoColorEmoji as fallback..."
+    irm "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf" -OutFile $notoEmoji
+    Write-Host "NotoColorEmoji downloaded to $notoEmoji"
+}
+if (-not (Test-Path $notoEmoji)) {
+    Write-Host "Downloading NotoColorEmoji as supplementary emoji fallback..."
+    Try {
+        irm "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf" -OutFile $notoEmoji
+        Write-Host "NotoColorEmoji downloaded successfully."
+    } Catch {
+        Write-Host "WARNING: NotoColorEmoji download failed. Emoji will still work via Segoe UI Emoji."
+    }
+}
+
 # 2. Check Antigravity CLI
 $agyInstalled = Get-Command "agy" -ErrorAction SilentlyContinue
 $installAgySidebar = $true
