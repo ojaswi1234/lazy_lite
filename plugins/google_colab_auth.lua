@@ -66,10 +66,13 @@ load_cached_tokens = function()
   local content = f:read("*all")
   f:close()
   
-  local ok, data = pcall(loadstring(content))
+  local chunk = load(content)
+  if not chunk then return false end
+  
+  local ok, data = pcall(chunk)
   if ok and type(data) == "table" then
-      auth_state.access_token = access_token
-      if refresh_token then auth_state.refresh_token = refresh_token end
+    auth_state.access_token = data.access_token
+    auth_state.refresh_token = data.refresh_token
     auth_state.token_expiry = data.token_expiry or 0
     auth_state.client_id = data.client_id or OAUTH_CONFIG.client_id
     auth_state.client_secret = data.client_secret or OAUTH_CONFIG.client_secret
