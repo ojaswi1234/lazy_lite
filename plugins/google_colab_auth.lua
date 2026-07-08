@@ -44,6 +44,7 @@ local start_callback_server
 local exchange_code_for_token
 local get_access_token
 local authenticate
+local clear_authentication
 
 -- Load cached tokens from disk
 load_cached_tokens = function()
