@@ -546,11 +546,8 @@ function core.on_event(type, ...)
   if modal.active then
     if type == "keypressed" then
       local key = ...
-      -- Let modifiers through so keymap can track them for pasting/shortcuts
-      if key == "lctrl" or key == "rctrl" or key == "ctrl" or
-         key == "lshift" or key == "rshift" or key == "shift" or
-         key == "lalt" or key == "ralt" or key == "alt" or
-         key == "gui" or key == "lgui" or key == "rgui" then
+      -- Allow modifiers to register in the core keymap so we can detect Ctrl
+      if key:match("ctrl") or key:match("shift") or key:match("alt") or key:match("gui") then
         return old_on_event(type, ...)
       end
 
@@ -571,37 +568,52 @@ function core.on_event(type, ...)
         end
         core.redraw = true; return true
       end
+
+      -- Modal State specific keys
+      local handled = false
       if modal.state == "auth" then
         if key == "tab" then
           modal.auth_focus = modal.auth_focus == "session" and "csrf" or "session"
-          core.redraw = true; return true
-        end
-        if key == "return" then command.perform("leetcode:connect"); return true end
-        if key == "backspace" then
+          handled = true
+        elseif key == "return" then command.perform("leetcode:connect"); handled = true
+        elseif key == "backspace" then
           if modal.auth_focus == "session" then modal.session_input = modal.session_input:sub(1, -2)
           else modal.csrf_input = modal.csrf_input:sub(1, -2) end
-          core.redraw = true; return true
+          handled = true
         end
-      end
-      if modal.state == "list" then
-        if key == "up"    then modal.selected_idx = math.max(1, modal.selected_idx - 1); core.redraw = true; return true end
-        if key == "down"  then modal.selected_idx = math.min(#modal.problems, modal.selected_idx + 1); core.redraw = true; return true end
-        if key == "return" then command.perform("leetcode:open-problem"); return true end
-        if key == "tab" then modal.search_focus = not modal.search_focus; core.redraw = true; return true end
-        if key == "backspace" and modal.search_focus then
+      elseif modal.state == "list" then
+        if key == "up" then modal.selected_idx = math.max(1, modal.selected_idx - 1); handled = true
+        elseif key == "down" then modal.selected_idx = math.min(#modal.problems, modal.selected_idx + 1); handled = true
+        elseif key == "return" then command.perform("leetcode:open-problem"); handled = true
+        elseif key == "tab" then modal.search_focus = not modal.search_focus; handled = true
+        elseif key == "backspace" and modal.search_focus then
           modal.search_input = modal.search_input:sub(1, -2)
           modal._search_timer = system.get_time() + 0.4
-          core.redraw = true; return true
+          handled = true
         end
+      elseif modal.state == "problem" then
+        if key == "backspace" then modal.state = "list"; handled = true
+        elseif key == "down" then modal.scroll_y = modal.scroll_y + 40; handled = true
+        elseif key == "up" then modal.scroll_y = math.max(0, modal.scroll_y - 40); handled = true
+        end
+      elseif modal.state == "result" then
+        if key == "backspace" or key == "return" then modal.active = false; handled = true end
       end
-      if modal.state == "problem" then
-        if key == "backspace" then modal.state = "list"; core.redraw = true; return true end
-        if key == "down" then modal.scroll_y = modal.scroll_y + 40; core.redraw = true; return true end
-        if key == "up" then modal.scroll_y = math.max(0, modal.scroll_y - 40); core.redraw = true; return true end
+      
+      if handled then
+        core.redraw = true
+        return true
       end
-      if modal.state == "result" then
-        if key == "backspace" or key == "return" then modal.active = false; core.redraw = true; return true end
+      
+      -- For all other keys: 
+      -- If a modifier like Ctrl/Alt is held, swallow it to prevent bleeding hotkeys (like Ctrl+S)
+      if keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"] then
+        return true
       end
+      
+      -- Return FALSE for normal character keys to skip old_on_event but NOT trigger 'did_keymap=true'
+      -- This allows Lite-XL's engine to emit a "textinput" event immediately afterward!
+      return false
     end
     if type == "textinput" then
       local text = ...
