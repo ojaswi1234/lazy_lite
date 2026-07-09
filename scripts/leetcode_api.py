@@ -216,16 +216,30 @@ def cmd_problem_detail(params):
         
         topics = [t["name"] for t in (q.get("topicTags") or [])]
         companies = []
-        c_stats = q.get("companyTagStats")
-        if c_stats:
-            try:
-                c_data = json.loads(c_stats)
-                for stage in c_data.values():
-                    for c in stage:
-                        if c.get("name") and c["name"] not in companies:
-                            companies.append(c["name"])
-            except:
-                pass
+        
+        # Override with local offline JSON dataset to bypass Premium!
+        try:
+            local_json_path = os.path.join(USERDIR, "plugins", "company_tags.json")
+            if os.path.exists(local_json_path):
+                with open(local_json_path, "r", encoding="utf-8") as f:
+                    local_db = json.load(f)
+                    if slug in local_db:
+                        companies = local_db[slug]
+        except Exception:
+            pass
+
+        # Fallback to Premium tags if available and not found locally
+        if not companies:
+            c_stats = q.get("companyTagStats")
+            if c_stats:
+                try:
+                    c_data = json.loads(c_stats)
+                    for stage in c_data.values():
+                        for c in stage:
+                            if c.get("name") and c["name"] not in companies:
+                                companies.append(c["name"])
+                except:
+                    pass
                 
         return {"ok": True, "data": {
             "question_id":   q["questionId"],
