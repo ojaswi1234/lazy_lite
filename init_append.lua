@@ -155,4 +155,23 @@ function core.statusview:update(...)
   end
 end
 
+-- ── 12. Fix Inactive Tab Font Color ──────────────────────────────────────────
+local Node = require "core.node"
+local old_draw_tab_title = Node.draw_tab_title
+function Node:draw_tab_title(view, font, is_active, is_hovered, x, y, w, h)
+  local old_dim = style.dim
+  style.dim = style.text 
+  old_draw_tab_title(self, view, font, is_active, is_hovered, x, y, w, h)
+  style.dim = old_dim
+end
+
+-- ── 13. Fix Theme Inconsistency ──────────────────────────────────────────────
+local old_reload = core.reload_module
+function core.reload_module(name)
+  if type(name) == "string" and name:match("^colors%.") then
+    style.mossy = nil
+  end
+  return old_reload(name)
+end
+
 -- [[ End LazyLite Configuration ]]
