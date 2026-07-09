@@ -23,6 +23,10 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 - **Auto-Close Brackets**: Automatically closes `{}`, `[]`, `()`, `""`, `''`, and ` `` `. Steps over existing closing pairs instead of duplicating them, wraps highlighted selections when you type a bracket, and smart-deletes empty pairs on Backspace.
 - **Integrated Terminal**: Native command runner featuring a shell selector dropdown (cmd/powershell/bash), bold headlined titles, robust cursor movement, full text selection with the mouse, clipboard copying via `Ctrl+Shift+C`, VS Code-style `Up`/`Down` command history, visual screen clearing (`cls`/`clear`), and ultra-fast 64KB chunked IPC buffering that will never lag the editor.
 - **Real-Time Resource Monitor**: A gorgeous, animated CPU and RAM sparkline chart injected directly into the top-right of your window titlebar. Cross-platform: uses PowerShell WMI on Windows and `/proc/stat` + `free` on Linux.
+- **Native LeetCode Integration**: Browse, solve, run, and submit LeetCode problems entirely within the editor. 
+  - **Live Problem Browser**: Hit `Ctrl+Shift+L` to search problems, filter by difficulty, and see acceptance rates.
+  - **One-Click Setup**: Automatically creates a local file with the correct language starter code and problem description in comments.
+  - **Integrated Execution**: Hit `Ctrl+R` to run against test cases, or `Ctrl+Shift+S` to submit directly to LeetCode's judging servers with full real-time results inside a stunning GUI modal.
 - **GitHub Codespaces Integration**: Comprehensive remote development environment with hybrid SSH + cache architecture, real-time resource monitoring, git integration, and offline resilience.
 
 ---
@@ -40,7 +44,9 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> | Copy Selected Text | While in Terminal |
 | <kbd>Ctrl</kbd> + <kbd>L</kbd> | Clear Output | While in Terminal |
 | <kbd>PageUp</kbd> / <kbd>PageDn</kbd> | Scroll Output | While in Terminal |
-| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | View Logs / Auto-Heal Status | Global |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | Toggle LeetCode Browser | Global |
+| <kbd>Ctrl</kbd> + <kbd>R</kbd> | Run Test Cases | While in a LeetCode solution file |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Submit Solution | While in a LeetCode solution file |
 
 ### Command Palette Actions
 
@@ -115,6 +121,25 @@ If you wish to remove LazyLite and revert to the default Lite-XL experience, nav
   ```
 
 *After running the uninstall script, you will need to manually open your `init.lua` (`~/.config/lite-xl/init.lua`) and delete the 6 lines under the `-- [[ LazyLite Configuration ]]` block.*
+
+---
+
+## 💻 LeetCode Integration
+
+LazyLite includes a fully native, blazingly fast LeetCode integration that connects directly to LeetCode's GraphQL API. 
+
+### Features
+- **Browse & Search**: Filter problems by difficulty, search by keyword, and view acceptance rates directly inside Lite-XL.
+- **Auto-Scaffolding**: Clicking a language (Python, C++, Java, JS, etc.) automatically creates a local solution file pre-filled with the starter code and problem description.
+- **In-Editor Judging**: Run your code (`Ctrl+R`) against example test cases or Submit (`Ctrl+Shift+S`) to LeetCode. The results (Accepted, Wrong Answer, Runtime Error) and your performance percentiles stream directly back into the UI.
+
+### Setup Instructions
+1. Press `Ctrl+Shift+L` to open the LeetCode menu.
+2. Open your web browser, log in to [leetcode.com](https://leetcode.com).
+3. Open Developer Tools (<kbd>F12</kbd>) → navigate to the **Application** tab (or **Storage** tab on Firefox).
+4. Expand **Cookies** → `https://leetcode.com`.
+5. Copy the values for `LEETCODE_SESSION` and `csrftoken`.
+6. Paste them into the LazyLite LeetCode modal (using `Ctrl+V`) and click **Connect**.
 
 ---
 
