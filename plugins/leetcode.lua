@@ -717,9 +717,11 @@ function core.on_event(type, ...)
         return true
       end
       
-      -- Return FALSE for normal character keys to skip old_on_event but NOT trigger 'did_keymap=true'
-      -- This allows Lite-XL's engine to emit a "textinput" event immediately afterward!
-      return false
+      -- Return TRUE for normal character keys to consume them in the UI layer
+      -- and prevent old_on_event from accidentally mapping them to core commands.
+      -- Consuming the keypressed event here STILL allows Lite-XL's engine to 
+      -- emit the actual "textinput" event on the next poll frame!
+      return true
     end
     if type == "textinput" then
       local text = ...
