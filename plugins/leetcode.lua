@@ -474,16 +474,10 @@ function core.root_view:draw()
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
-    renderer.draw_rect(cx + 60*SCALE, cy, cw - 260*SCALE, 24*SCALE, style.background2)
+    renderer.draw_rect(cx + 60*SCALE, cy, cw - 60*SCALE, 24*SCALE, style.background2)
     local stext = modal.search_input
     if modal.search_focus and os.time() % 2 == 0 then stext = stext .. "|" end
     renderer.draw_text(style.font, stext, cx + 65*SCALE, cy + 2*SCALE, style.text)
-    
-    local page = math.floor(modal.page_skip / 50) + 1
-    local total_pages = math.max(1, math.ceil(modal.total_problems / 50))
-    renderer.draw_text(style.font, "Page " .. page .. " / " .. total_pages, cx + cw - 180*SCALE, cy + 2*SCALE, style.dim)
-    renderer.draw_text(style.font, "[< Prev]", cx + cw - 100*SCALE, cy + 2*SCALE, modal.page_skip > 0 and style.accent or style.dim)
-    renderer.draw_text(style.font, "[Next >]", cx + cw - 40*SCALE, cy + 2*SCALE, (modal.page_skip + 50) < modal.total_problems and style.accent or style.dim)
     
     cy = cy + 35*SCALE
     
@@ -514,6 +508,13 @@ function core.root_view:draw()
     end
     core.pop_clip_rect()
     cy = y + h - 50*SCALE
+    
+    -- Draw Pagination at bottom
+    local page = math.floor(modal.page_skip / 50) + 1
+    local total_pages = math.max(1, math.ceil(modal.total_problems / 50))
+    renderer.draw_text(style.font, "Page " .. page .. " / " .. total_pages, cx, cy + 10*SCALE, style.dim)
+    renderer.draw_text(style.font, "[< Prev Page]", cx + cw/2 - 100*SCALE, cy + 10*SCALE, modal.page_skip > 0 and style.accent or style.dim)
+    renderer.draw_text(style.font, "[Next Page >]", cx + cw/2 + 20*SCALE, cy + 10*SCALE, (modal.page_skip + 50) < modal.total_problems and style.accent or style.dim)
     
   elseif modal.state == "problem" and modal.current then
     local p = modal.current
@@ -742,26 +743,31 @@ function core.on_event(type, ...)
         local mx, my = (sw - w) / 2, (sh - h) / 2
         local cx = mx + 20 * SCALE
         local cw = w - 40 * SCALE
-        local cy = my + 20 * SCALE + 60*SCALE -- "LeetCode Browser" + "Hotkeys"
+        local cy = my + 80 * SCALE -- Search box Y
         
-        local prev_x = cx + cw - 100*SCALE
-        local next_x = cx + cw - 40*SCALE
+        -- Search box click
         if y >= cy and y <= cy + 24*SCALE then
-          if x >= prev_x and x < next_x then
+          if x >= cx + 60*SCALE and x <= cx + cw then
+            modal.search_focus = true
+            core.redraw = true
+            return true
+          end
+        end
+        
+        -- Pagination click
+        local btn_cy = my + h - 40*SCALE
+        if y >= btn_cy and y <= btn_cy + 24*SCALE then
+          if x >= cx + cw/2 - 100*SCALE and x <= cx + cw/2 - 20*SCALE then
             if modal.page_skip >= 50 then
               modal.page_skip = modal.page_skip - 50
               command.perform("leetcode:fetch-list")
             end
             return true
-          elseif x >= next_x then
+          elseif x >= cx + cw/2 + 20*SCALE and x <= cx + cw/2 + 120*SCALE then
             if modal.page_skip + 50 < modal.total_problems then
               modal.page_skip = modal.page_skip + 50
               command.perform("leetcode:fetch-list")
             end
-            return true
-          elseif x >= cx + 60*SCALE and x <= cx + cw - 220*SCALE then
-            modal.search_focus = true
-            core.redraw = true
             return true
           end
         end
@@ -771,7 +777,7 @@ function core.on_event(type, ...)
         
         -- Handle click on a problem
         local list_y = cy + 35*SCALE + 10*SCALE
-        if y >= list_y then
+        if y >= list_y and y < btn_cy then
           local idx = math.floor((y - list_y + modal.list_scroll_y) / (24*SCALE)) + 1
           if idx >= 1 and idx <= #modal.problems then
             modal.selected_idx = idx
