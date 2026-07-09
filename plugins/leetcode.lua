@@ -487,6 +487,8 @@ function core.root_view:draw()
     renderer.draw_text(style.font, p.title, cx + 80*SCALE, cy, style.text)
     renderer.draw_text(style.font, "[" .. p.difficulty .. "]", cx + cw - 100*SCALE, cy, dc)
     cy = cy + 25*SCALE
+    renderer.draw_text(style.font, "Click a language below to scaffold your local solution file.", cx, cy, style.accent)
+    cy = cy + 25*SCALE
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 15*SCALE
     
