@@ -608,6 +608,9 @@ end
 local old_on_event = core.on_event
 function core.on_event(type, ...)
   if modal.active then
+    if type == "keypressed" or type == "textinput" then
+       core.log("EVENT: " .. type .. " ARGS: " .. tostring((...)))
+    end
     if type == "keypressed" then
       local key = ...
       -- Allow modifiers to register in the core keymap so we can detect Ctrl
@@ -830,11 +833,16 @@ end
 local old_update = core.root_view.update
 function core.root_view:update(...)
   old_update(self, ...)
-  if modal.active and modal._search_timer then
-    if system.get_time() >= modal._search_timer then
-      modal._search_timer = nil
-      modal.page_skip     = 0
-      command.perform("leetcode:fetch-list")
+  if modal.active then
+    -- Force text input ON so SDL generates textinput events even if EmptyView is active
+    system.text_input(true)
+    
+    if modal._search_timer then
+      if system.get_time() >= modal._search_timer then
+        modal._search_timer = nil
+        modal.page_skip     = 0
+        command.perform("leetcode:fetch-list")
+      end
     end
     core.redraw = true
   end
