@@ -174,18 +174,6 @@ function LeetCodeView:on_key_pressed(key)
   if key == "escape" then
     command.perform("leetcode:toggle")
     handled = true
-  elseif key == "v" and (keymap.modkeys["ctrl"] or keymap.modkeys["gui"]) then
-    local text = system.get_clipboard()
-    if text then
-      text = text:gsub("[\r\n]", "")
-      if self.state == "auth" then
-        self.cookie_input = self.cookie_input .. text
-      elseif self.state == "list" then
-        self.search_input = self.search_input .. text
-        self._search_timer = system.get_time() + 0.4
-      end
-    end
-    handled = true
   elseif self.state == "auth" then
     if key == "return" then command.perform("leetcode:connect"); handled = true
     elseif key == "backspace" then
@@ -518,6 +506,45 @@ keymap.add({
 command.add(function() return get_active_meta() ~= nil end, {
   ["ctrl+r"] = "leetcode:run",
   ["ctrl+shift+s"] = "leetcode:submit",
+})
+
+command.add(
+  function() return core.active_view and core.active_view:is(LeetCodeView) end,
+  {
+    ["leetcode:up"] = function() core.active_view:on_key_pressed("up") end,
+    ["leetcode:down"] = function() core.active_view:on_key_pressed("down") end,
+    ["leetcode:backspace"] = function() core.active_view:on_key_pressed("backspace") end,
+    ["leetcode:return"] = function() core.active_view:on_key_pressed("return") end,
+    ["leetcode:space"] = function() core.active_view:on_key_pressed("space") end,
+    ["leetcode:tab"] = function() core.active_view:on_key_pressed("tab") end,
+    ["leetcode:escape"] = function() core.active_view:on_key_pressed("escape") end,
+    ["leetcode:paste"] = function() 
+      local text = system.get_clipboard()
+      if text then
+        text = text:gsub("[\r\n]", "")
+        local v = core.active_view
+        if v.state == "auth" then
+          v.cookie_input = v.cookie_input .. text
+        elseif v.state == "list" then
+          v.search_input = v.search_input .. text
+          v._search_timer = system.get_time() + 0.4
+        end
+        core.redraw = true
+      end
+    end,
+  }
+)
+
+keymap.add({
+  ["up"] = "leetcode:up",
+  ["down"] = "leetcode:down",
+  ["backspace"] = "leetcode:backspace",
+  ["return"] = "leetcode:return",
+  ["space"] = "leetcode:space",
+  ["tab"] = "leetcode:tab",
+  ["escape"] = "leetcode:escape",
+  ["ctrl+v"] = "leetcode:paste",
+  ["gui+v"] = "leetcode:paste",
 })
 
 -- Drawing utilities
