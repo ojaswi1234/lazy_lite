@@ -307,6 +307,7 @@ def cmd_submit(params):
 HANDLERS = {
     "auth_check":     cmd_auth_check,
     "auth_set":       cmd_auth_set,
+    "auth_auto":      cmd_auth_auto,
     "problem_list":   cmd_problem_list,
     "problem_detail": cmd_problem_detail,
     "run_code":       cmd_run_code,
