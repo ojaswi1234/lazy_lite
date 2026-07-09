@@ -68,82 +68,165 @@ local function json_decode(s)
   return nil, err
 end
 
-local modal = {
-  active        = false,
-  state         = "auth",
-  cookie_input  = "",
-  auth_status   = "",
-  problems      = {},
-  total_problems= 0,
-  search_input  = "",
-  search_focus  = false,
-  difficulty    = "",
-  scroll_y      = 0,
-  list_scroll_y = 0,
-  selected_idx  = 1,
-  page_skip     = 0,
-  loading_msg   = "",
-  current       = nil,
-  open_lang     = "python3",
-  result        = nil,
-  result_type   = "run",
-  _search_timer = nil,
-  run_req_id    = nil,
-}
 
-local api_proc   = nil
-local pending    = {}
-local req_counter = 0
+local LeetCodeView = View:extend()
 
-local function ensure_api()
-  if api_proc and api_proc:returncode() == nil then return true end
-  local script = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "leetcode_api.py"
-  local python_cmd = PLATFORM == "Windows" and "python" or "python3"
-  api_proc = process.start(
-    {python_cmd, script, USERDIR},
-    { stdin  = process.REDIRECT_PIPE,
-      stdout = process.REDIRECT_PIPE,
-      stderr = process.REDIRECT_DISCARD }
-  )
-  if not api_proc then
-    core.log("[LeetCode] Failed to start leetcode_api.py - is Python installed?")
-    return false
-  end
-  core.add_thread(function()
-    local buf = ""
-    while api_proc and api_proc:returncode() == nil do
-      local chunk = api_proc:read_stdout(65536) or ""
-      if chunk ~= "" then
-        buf = buf .. chunk
-      end
-      while true do
-        local line, rest = buf:match("^([^\n]+)\n(.*)")
-        if not line then break end
-        buf = rest
-        local ok, resp = pcall(json_decode, line)
-        if ok and resp and resp.id then
-          local cb = pending[resp.id]
-          if cb then pending[resp.id] = nil; cb(resp) end
-        end
-      end
-      -- Only yield if no data was read, to avoid artificial throttling on large responses
-      if chunk == "" then
-        coroutine.yield(0.01)
-      end
-    end
-  end)
+function LeetCodeView:new()
+  LeetCodeView.super.new(self)
+  self.scrollable = true
+  self.state         = "auth"
+  self.cookie_input  = ""
+  self.auth_status   = ""
+  self.problems      = {}
+  self.total_problems= 0
+  self.search_input  = ""
+  self.search_focus  = false
+  self.difficulty    = ""
+  self.scroll_y      = 0
+  self.list_scroll_y = 0
+  self.selected_idx  = 1
+  self.page_skip     = 0
+  self.loading_msg   = ""
+  self.current       = nil
+  self.open_lang     = "python3"
+  self.result        = nil
+  self.result_type   = "run"
+  self._search_timer = nil
+  self.run_req_id    = nil
+end
+
+function LeetCodeView:get_name()
+  return "LeetCode"
+end
+
+function LeetCodeView:supports_text_input()
   return true
 end
 
-local function api_call(params, callback)
-  req_counter = req_counter + 1
-  local id = tostring(req_counter)
-  params.id = id
-  pending[id] = callback
-  if ensure_api() then
-    local line = json_encode(params) .. "\n"
-    api_proc:write(line)
+function LeetCodeView:on_text_input(text)
+  if self.state == "auth" then
+    self.cookie_input = self.cookie_input .. text
+    core.redraw = true
+  elseif self.state == "list" then
+    self.search_input = self.search_input .. text
+    self._search_timer = system.get_time() + 0.4
+    core.redraw = true
   end
+end
+
+function LeetCodeView:on_key_pressed(key)
+  if key == "escape" then
+    command.perform("leetcode:toggle")
+    return true
+  end
+  if key == "v" and (keymap.modkeys["ctrl"] or keymap.modkeys["gui"]) then
+    local text = system.get_clipboard()
+    if text then
+      text = text:gsub("[\r\n]", "")
+      if self.state == "auth" then
+        self.cookie_input = self.cookie_input .. text
+      elseif self.state == "list" then
+        self.search_input = self.search_input .. text
+        self._search_timer = system.get_time() + 0.4
+      end
+    end
+    core.redraw = true
+    return true
+  end
+
+  if self.state == "auth" then
+    if key == "return" then command.perform("leetcode:connect"); return true
+    elseif key == "backspace" then
+      self.cookie_input = self.cookie_input:sub(1, -2)
+      return true
+    elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
+      local char = key
+      if key == "space" then char = " " end
+      if keymap.modkeys["shift"] then char = char:upper() end
+      self.cookie_input = self.cookie_input .. char
+      return true
+    end
+  elseif self.state == "list" then
+    if key == "up" then
+      self.selected_idx = math.max(1, self.selected_idx - 1)
+      local target_y = (self.selected_idx - 1) * 24 * SCALE
+      if target_y < self.list_scroll_y then self.list_scroll_y = target_y end
+      return true
+    elseif key == "down" then
+      self.selected_idx = math.min(#self.problems, self.selected_idx + 1)
+      local target_y = (self.selected_idx - 1) * 24 * SCALE
+      local list_h = 300 * SCALE
+      if target_y + 24*SCALE > self.list_scroll_y + list_h then
+        self.list_scroll_y = target_y + 24*SCALE - list_h
+      end
+      return true
+    elseif key == "return" then
+      if self.search_focus then
+        self.search_focus = false
+      else
+        command.perform("leetcode:open-problem")
+      end
+      return true
+    elseif key == "tab" then self.search_focus = not self.search_focus; return true
+    elseif key == "backspace" then
+      self.search_input = self.search_input:sub(1, -2)
+      self._search_timer = system.get_time() + 0.4
+      return true
+    elseif key == "space" and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]) then
+      self.search_input = self.search_input .. " "
+      self._search_timer = system.get_time() + 0.4
+      return true
+    end
+  elseif self.state == "problem" then
+    if key == "backspace" then self.state = "list"; self.search_focus = true; return true
+    elseif key == "down" then self.scroll_y = self.scroll_y + 40; return true
+    elseif key == "up" then self.scroll_y = math.max(0, self.scroll_y - 40); return true
+    end
+  elseif self.state == "result" then
+    if key == "backspace" or key == "return" then command.perform("leetcode:toggle"); return true end
+  end
+
+  return false
+end
+
+function LeetCodeView:update()
+  LeetCodeView.super.update(self)
+  if self._search_timer and system.get_time() >= self._search_timer then
+    self._search_timer = nil
+    self.page_skip     = 0
+    command.perform("leetcode:fetch-list")
+  end
+end
+
+-- We declare lc_view as the global active instance
+local lc_view = nil
+
+local function get_active_meta()
+  local doc = core.active_view and core.active_view.doc
+  if not doc or not doc.abs_filename then return nil end
+  local leetcode_dir = USERDIR .. PATHSEP .. "leetcode"
+  if doc.abs_filename:find(leetcode_dir, 1, true) ~= 1 then return nil end
+  local meta_path = doc.abs_filename .. ".lc_meta"
+  local f = io.open(meta_path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  local slug  = content:match('"slug"%s*:%s*"([^"]+)"')
+  local qid   = content:match('"question_id"%s*:%s*"([^"]+)"')
+  local lang  = content:match('"lang"%s*:%s*"([^"]+)"')
+  local title = content:match('"title"%s*:%s*"([^"]+)"')
+  local diff  = content:match('"difficulty"%s*:%s*"([^"]+)"')
+  local tc    = content:match('"test_cases"%s*:%s*"(.-)"')
+  if not slug then return nil end
+  return { slug=slug, question_id=qid, lang=lang, title=title, difficulty=diff, test_cases=tc or "" }
+end
+
+local function get_active_code()
+  local doc = core.active_view and core.active_view.doc
+  if not doc then return nil end
+  local lines = {}
+  for i = 1, #doc.lines do lines[i] = doc.lines[i] end
+  return table.concat(lines)
 end
 
 local function open_problem(problem, lang)
@@ -184,83 +267,63 @@ local function open_problem(problem, lang)
   end
 
   core.root_view:open_doc(core.open_doc(fpath))
-  modal.active = false
+  command.perform("leetcode:toggle")
   core.redraw  = true
-end
-
-local function get_active_meta()
-  local doc = core.active_view and core.active_view.doc
-  if not doc or not doc.abs_filename then return nil end
-  local leetcode_dir = USERDIR .. PATHSEP .. "leetcode"
-  if doc.abs_filename:find(leetcode_dir, 1, true) ~= 1 then return nil end
-  local meta_path = doc.abs_filename .. ".lc_meta"
-  local f = io.open(meta_path, "r")
-  if not f then return nil end
-  local content = f:read("*a")
-  f:close()
-  local slug  = content:match('"slug"%s*:%s*"([^"]+)"')
-  local qid   = content:match('"question_id"%s*:%s*"([^"]+)"')
-  local lang  = content:match('"lang"%s*:%s*"([^"]+)"')
-  local title = content:match('"title"%s*:%s*"([^"]+)"')
-  local diff  = content:match('"difficulty"%s*:%s*"([^"]+)"')
-  local tc    = content:match('"test_cases"%s*:%s*"(.-)"')
-  if not slug then return nil end
-  return { slug=slug, question_id=qid, lang=lang, title=title, difficulty=diff, test_cases=tc or "" }
-end
-
-local function get_active_code()
-  local doc = core.active_view and core.active_view.doc
-  if not doc then return nil end
-  local lines = {}
-  for i = 1, #doc.lines do lines[i] = doc.lines[i] end
-  return table.concat(lines)
 end
 
 command.add(nil, {
   ["leetcode:auto-detect"] = function()
-    modal.state = "loading"
-    modal.loading_msg = "Auto-detecting cookies..."
+    if not lc_view then return end
+    lc_view.state = "loading"
+    lc_view.loading_msg = "Auto-detecting cookies..."
     core.redraw = true
     api_call({ cmd = "auth_auto" }, function(res)
+      if not lc_view then return end
       if res.ok then
-        modal.auth_status = "Connected via " .. (res.data.detected_from or "browser")
-        modal.state = "list"; modal.search_focus = true
+        lc_view.auth_status = "Connected via " .. (res.data.detected_from or "browser")
+        lc_view.state = "list"; lc_view.search_focus = true
         command.perform("leetcode:fetch-list")
       else
-        modal.state = "auth"
-        modal.auth_status = "Auto-detect failed: " .. (res.error or "Unknown error")
+        lc_view.state = "auth"
+        lc_view.auth_status = "Auto-detect failed: " .. (res.error or "Unknown error")
         core.redraw = true
       end
     end)
   end,
   ["leetcode:toggle"] = function()
-    modal.active = not modal.active
-    if modal.active and modal.state == "list" and #modal.problems == 0 then
-      command.perform("leetcode:fetch-list")
-    elseif modal.active and modal.state == "auth" then
-      api_call({cmd = "auth_check"}, function(resp)
-        if resp.ok then
-          modal.auth_status = "[+] Logged in as " .. resp.data.username
-          modal.state = "list"; modal.search_focus = true
-          if #modal.problems == 0 then command.perform("leetcode:fetch-list") end
-        else
-          modal.auth_status = ""
-        end
-        core.redraw = true
-      end)
+    if lc_view and core.root_view.root_node:get_node_for_view(lc_view) then
+      local node = core.root_view.root_node:get_node_for_view(lc_view)
+      node:close_view(core.root_view.root_node, lc_view)
+      lc_view = nil
+    else
+      lc_view = LeetCodeView()
+      core.root_view:get_active_node():add_view(lc_view)
+      if lc_view.state == "auth" then
+        api_call({cmd = "auth_check"}, function(resp)
+          if not lc_view then return end
+          if resp.ok then
+            lc_view.auth_status = "[+] Logged in as " .. resp.data.username
+            lc_view.state = "list"; lc_view.search_focus = true
+            if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
+          else
+            lc_view.auth_status = ""
+          end
+          core.redraw = true
+        end)
+      end
     end
     core.redraw = true
   end,
-
   ["leetcode:connect"] = function()
-    modal.auth_status = "checking..."
+    if not lc_view then return end
+    lc_view.auth_status = "checking..."
     core.redraw = true
     
-    local sess_match = modal.cookie_input:match("LEETCODE_SESSION=([^;]+)")
-    local csrf_match = modal.cookie_input:match("csrftoken=([^;]+)")
+    local sess_match = lc_view.cookie_input:match("LEETCODE_SESSION=([^;]+)")
+    local csrf_match = lc_view.cookie_input:match("csrftoken=([^;]+)")
     
     if not sess_match or not csrf_match then
-      modal.auth_status = "Invalid cookie string"
+      lc_view.auth_status = "Invalid cookie string"
       core.redraw = true
       return
     end
@@ -269,39 +332,41 @@ command.add(nil, {
       cmd     = "auth_set",
       session = sess_match,
       csrf    = csrf_match,
-      raw     = modal.cookie_input
+      raw     = lc_view.cookie_input
     }, function(resp)
+      if not lc_view then return end
       if resp.ok then
-        modal.auth_status = "[+] Logged in as " .. resp.data.username
-        modal.state = "list"; modal.search_focus = true
+        lc_view.auth_status = "[+] Logged in as " .. resp.data.username
+        lc_view.state = "list"; lc_view.search_focus = true
         command.perform("leetcode:fetch-list")
       else
-        modal.auth_status = "✗ Invalid cookies"
+        lc_view.auth_status = "✗ Invalid cookies"
       end
       core.redraw = true
     end)
   end,
-
   ["leetcode:fetch-list"] = function()
-    modal.state       = "list"
-    modal.is_fetching = true
+    if not lc_view then return end
+    lc_view.state       = "list"
+    lc_view.is_fetching = true
     core.redraw       = true
     api_call({
       cmd        = "problem_list",
-      skip       = modal.page_skip,
+      skip       = lc_view.page_skip,
       limit      = 50,
-      difficulty = modal.difficulty,
-      search     = modal.search_input,
+      difficulty = lc_view.difficulty,
+      search     = lc_view.search_input,
     }, function(resp)
-      modal.is_fetching = false
+      if not lc_view then return end
+      lc_view.is_fetching = false
       if resp.ok then
-        modal.problems       = resp.data.problems
-        modal.total_problems = resp.data.total
-        modal.selected_idx   = 1
+        lc_view.problems       = resp.data.problems
+        lc_view.total_problems = resp.data.total
+        lc_view.selected_idx   = 1
       else
         if resp.error and resp.error:match("Not logged in") then
-          modal.state = "auth"
-          modal.auth_status = "Session expired"
+          lc_view.state = "auth"
+          lc_view.auth_status = "Session expired"
         else
           core.log("[LeetCode] " .. (resp.error or "Unknown error"))
         end
@@ -309,27 +374,26 @@ command.add(nil, {
       core.redraw = true
     end)
   end,
-
   ["leetcode:open-problem"] = function()
-    if modal.state ~= "list" then return end
-    local p = modal.problems[modal.selected_idx]
+    if not lc_view or lc_view.state ~= "list" then return end
+    local p = lc_view.problems[lc_view.selected_idx]
     if not p then return end
-    modal.state       = "loading"
-    modal.loading_msg = "Loading " .. p.title
+    lc_view.state       = "loading"
+    lc_view.loading_msg = "Loading " .. p.title
     core.redraw       = true
     api_call({ cmd = "problem_detail", slug = p.slug }, function(resp)
+      if not lc_view then return end
       if resp.ok then
-        modal.current = resp.data
-        modal.state   = "problem"
-        modal.scroll_y = 0
+        lc_view.current = resp.data
+        lc_view.state   = "problem"
+        lc_view.scroll_y = 0
       else
-        modal.state = "list"; modal.search_focus = true
+        lc_view.state = "list"; lc_view.search_focus = true
         core.log("[LeetCode] " .. (resp.error or "Failed to load problem"))
       end
       core.redraw = true
     end)
   end,
-
   ["leetcode:run"] = function()
     local meta = get_active_meta()
     local code = get_active_code()
@@ -337,12 +401,12 @@ command.add(nil, {
       core.log("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
       return
     end
-    modal.active      = true
-    modal.state       = "running"
-    modal.loading_msg = "Running test cases"
+    if not lc_view or not core.root_view.root_node:get_node_for_view(lc_view) then command.perform("leetcode:toggle") end
+    lc_view.state       = "running"
+    lc_view.loading_msg = "Running test cases"
     core.redraw       = true
     local my_req_id = tostring(req_counter + 1)
-    modal.run_req_id = my_req_id
+    lc_view.run_req_id = my_req_id
     api_call({
       cmd         = "run_code",
       slug        = meta.slug,
@@ -351,16 +415,15 @@ command.add(nil, {
       code        = code,
       test_input  = meta.test_cases:gsub("\\n", "\n"),
     }, function(resp)
-      if modal.run_req_id ~= my_req_id then return end
-      modal.result      = resp.data or {}
-      modal.result.ok   = resp.ok
-      modal.result.err  = resp.error
-      modal.result_type = "run"
-      modal.state       = "result"
+      if not lc_view or lc_view.run_req_id ~= my_req_id then return end
+      lc_view.result      = resp.data or {}
+      lc_view.result.ok   = resp.ok
+      lc_view.result.err  = resp.error
+      lc_view.result_type = "run"
+      lc_view.state       = "result"
       core.redraw       = true
     end)
   end,
-
   ["leetcode:submit"] = function()
     local meta = get_active_meta()
     local code = get_active_code()
@@ -368,12 +431,12 @@ command.add(nil, {
       core.log("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
       return
     end
-    modal.active      = true
-    modal.state       = "running"
-    modal.loading_msg = "Submitting to LeetCode"
+    if not lc_view or not core.root_view.root_node:get_node_for_view(lc_view) then command.perform("leetcode:toggle") end
+    lc_view.state       = "running"
+    lc_view.loading_msg = "Submitting to LeetCode"
     core.redraw       = true
     local my_req_id = tostring(req_counter + 1)
-    modal.run_req_id = my_req_id
+    lc_view.run_req_id = my_req_id
     api_call({
       cmd         = "submit",
       slug        = meta.slug,
@@ -381,12 +444,12 @@ command.add(nil, {
       lang        = meta.lang,
       code        = code,
     }, function(resp)
-      if modal.run_req_id ~= my_req_id then return end
-      modal.result      = resp.data or {}
-      modal.result.ok   = resp.ok
-      modal.result.err  = resp.error
-      modal.result_type = "submit"
-      modal.state       = "result"
+      if not lc_view or lc_view.run_req_id ~= my_req_id then return end
+      lc_view.result      = resp.data or {}
+      lc_view.result.ok   = resp.ok
+      lc_view.result.err  = resp.error
+      lc_view.result_type = "submit"
+      lc_view.state       = "result"
       core.redraw       = true
     end)
   end,
@@ -416,26 +479,124 @@ local function draw_text_wrap(font, color, text, x, y, max_w)
   return cy + lh
 end
 
--- Overlay renderer
-local old_root_draw = core.root_view.draw
-local spinner_frames = {"⣾","⣽","⣻","⢿","⡿","⣟","⣯","⣷"}
-
-function core.root_view:draw()
-  old_root_draw(self)
-  if not modal.active then return end
+function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
+  local res = LeetCodeView.super.on_mouse_pressed(self, btn, x, y, clicks)
+  if res then return res end
 
   local sw, sh = self.size.x, self.size.y
-  renderer.draw_rect(0, 0, sw, sh, {0, 0, 0, 140})
-  
   local w, h = 700 * SCALE, 500 * SCALE
-  local x, y = (sw - w) / 2, (sh - h) / 2
+  local mx, my = self.position.x + (sw - w) / 2, self.position.y + (sh - h) / 2
+  local cx = mx + 20 * SCALE
+  local cw = w - 40 * SCALE
+
+  if self.state == "auth" and btn == "left" then
+    local cy = my + 20 * SCALE
+    cy = cy + 30*SCALE
+    local auto_btn_y = cy
+    cy = cy + 40*SCALE + 30*SCALE + 20*SCALE
+    local box1_y = cy
+    cy = cy + 40*SCALE + 20*SCALE
+    local box2_y = cy
+    cy = cy + 50*SCALE
+    local btn_y = cy
+    
+    if x >= cx and x <= cx + 320*SCALE and y >= auto_btn_y and y <= auto_btn_y + 30*SCALE then
+      command.perform("leetcode:auto-detect")
+      return true
+    end
+    if x >= cx and x <= cx + 100*SCALE and y >= btn_y and y <= btn_y + 30*SCALE then
+      command.perform("leetcode:connect")
+      return true
+    end
+  end
+
+  if self.state == "list" and btn == "left" then
+    local cy = my + 80 * SCALE
+    -- Search box click
+    if y >= cy and y <= cy + 24*SCALE then
+      if x >= cx + 60*SCALE and x <= cx + cw then
+        self.search_focus = true
+        core.redraw = true
+        return true
+      end
+    end
+    
+    -- Pagination click
+    local btn_cy = my + h - 40*SCALE
+    if y >= btn_cy and y <= btn_cy + 24*SCALE then
+      if x >= cx + cw/2 - 100*SCALE and x <= cx + cw/2 - 20*SCALE then
+        if self.page_skip >= 50 then
+          self.page_skip = self.page_skip - 50
+          command.perform("leetcode:fetch-list")
+        end
+        return true
+      elseif x >= cx + cw/2 + 20*SCALE and x <= cx + cw/2 + 120*SCALE then
+        if self.page_skip + 50 < self.total_problems then
+          self.page_skip = self.page_skip + 50
+          command.perform("leetcode:fetch-list")
+        end
+        return true
+      end
+    end
+    
+    self.search_focus = false
+    core.redraw = true
+    
+    -- Handle click on a problem
+    local list_y = cy + 35*SCALE + 10*SCALE
+    if y >= list_y and y < btn_cy then
+      local idx = math.floor((y - list_y + self.list_scroll_y) / (24*SCALE)) + 1
+      if idx >= 1 and idx <= #self.problems then
+        self.selected_idx = idx
+        command.perform("leetcode:open-problem")
+      end
+      return true
+    end
+  end
+
+  if self.state == "problem" and btn == "left" then
+    local cy = my + h - 50*SCALE + 15*SCALE
+    local bx = mx + 20*SCALE + 80*SCALE
+    if y >= cy and y <= cy + 20*SCALE then
+      for lang, _ in pairs(self.current.starters or {}) do
+        local bw = style.font:get_width("[" .. lang .. "]")
+        if x >= bx and x <= bx + bw then
+          open_problem(self.current, lang)
+          return true
+        end
+        bx = bx + bw + 10*SCALE
+      end
+    end
+  end
+  return false
+end
+
+function LeetCodeView:on_mouse_wheel(delta)
+  if self.state == "problem" then
+    self.scroll_y = math.max(0, self.scroll_y - delta * 40)
+    core.redraw = true
+  elseif self.state == "list" then
+    self.list_scroll_y = math.max(0, (self.list_scroll_y or 0) - delta * 40)
+    core.redraw = true
+  end
+  return true
+end
+
+function LeetCodeView:draw()
+  self:draw_background(style.background)
+
+  local sw, sh = self.size.x, self.size.y
+  local w, h = 700 * SCALE, 500 * SCALE
+  local x, y = self.position.x + (sw - w) / 2, self.position.y + (sh - h) / 2
+  
+  -- We draw the central panel
   renderer.draw_rect(x, y, w, h, style.background)
-  renderer.draw_rect(x, y, w, 2 * SCALE, style.accent) -- Top border
+  renderer.draw_rect(x, y, w, 2 * SCALE, style.accent)
   
   local cx, cy = x + 20 * SCALE, y + 20 * SCALE
   local cw = w - 40 * SCALE
 
-  if modal.state == "auth" then
+  if self.state == "auth" then
     renderer.draw_text(style.font, "> LeetCode - Connect", cx, cy, style.text)
     cy = cy + 30*SCALE
     
@@ -449,14 +610,13 @@ function core.root_view:draw()
     renderer.draw_text(style.font, "Full Cookie String:", cx, cy, style.text)
     cy = cy + 20*SCALE
     renderer.draw_rect(cx, cy, cw, 30*SCALE, style.background2)
-    if modal.cookie_input == "" then
+    if self.cookie_input == "" then
       renderer.draw_text(style.font, "e.g. csrftoken=...; LEETCODE_SESSION=...", cx + 5*SCALE, cy + 5*SCALE, style.dim)
     end
     
-    local cookie_text = modal.cookie_input:gsub(".", "*")
+    local cookie_text = self.cookie_input:gsub(".", "*")
     if os.time() % 2 == 0 then cookie_text = cookie_text .. "|" end
     
-    -- Keep text within the box by showing only the tail if it's too long
     local visible_text = cookie_text
     local tw = style.font:get_width(cookie_text)
     if tw > cw - 20*SCALE then
@@ -473,21 +633,21 @@ function core.root_view:draw()
     renderer.draw_rect(cx, cy, 100*SCALE, 30*SCALE, style.accent)
     renderer.draw_text(style.font, "Connect", cx + 20*SCALE, cy + 5*SCALE, style.background)
     
-    if modal.auth_status ~= "" then
-      renderer.draw_text(style.font, "Status: " .. modal.auth_status, cx, cy + 50*SCALE, style.text)
+    if self.auth_status ~= "" then
+      renderer.draw_text(style.font, "Status: " .. self.auth_status, cx, cy + 50*SCALE, style.text)
     end
     
-  elseif modal.state == "loading" or modal.state == "running" then
+  elseif self.state == "loading" or self.state == "running" then
     local dots = string.rep(".", math.floor(system.get_time() * 3) % 4)
-    local msg = modal.loading_msg .. dots
+    local msg = self.loading_msg .. dots
     local tw = style.font:get_width(msg)
     renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + h/2 - 20*SCALE, style.accent)
     
-  elseif modal.state == "list" then
+  elseif self.state == "list" then
     local diff_color = style.text
-    if modal.difficulty == "EASY" then diff_color = LC_COLORS.easy
-    elseif modal.difficulty == "MEDIUM" then diff_color = LC_COLORS.medium
-    elseif modal.difficulty == "HARD" then diff_color = LC_COLORS.hard end
+    if self.difficulty == "EASY" then diff_color = LC_COLORS.easy
+    elseif self.difficulty == "MEDIUM" then diff_color = LC_COLORS.medium
+    elseif self.difficulty == "HARD" then diff_color = LC_COLORS.hard end
     
     renderer.draw_text(style.font, "LeetCode Browser", cx, cy, style.text)
     renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 150*SCALE, cy, diff_color)
@@ -502,14 +662,14 @@ function core.root_view:draw()
     local search_w = cw - 60*SCALE
     local search_h = 24*SCALE
     
-    local border_color = modal.search_focus and style.accent or style.dim
+    local border_color = self.search_focus and style.accent or style.dim
     renderer.draw_rect(search_x - 1*SCALE, search_y - 1*SCALE, search_w + 2*SCALE, search_h + 2*SCALE, border_color)
     renderer.draw_rect(search_x, search_y, search_w, search_h, style.background2)
     
-    renderer.draw_text(style.font, modal.search_input, search_x + 5*SCALE, search_y + 2*SCALE, style.text)
+    renderer.draw_text(style.font, self.search_input, search_x + 5*SCALE, search_y + 2*SCALE, style.text)
     
-    if modal.search_focus then
-      local text_width = style.font:get_width(modal.search_input)
+    if self.search_focus then
+      local text_width = style.font:get_width(self.search_input)
       local cursor_x = search_x + 5*SCALE + text_width + 2*SCALE
       if (system.get_time() % 1.0) < 0.5 then
         renderer.draw_rect(cursor_x, search_y + 4*SCALE, 2*SCALE, search_h - 8*SCALE, style.text)
@@ -523,20 +683,20 @@ function core.root_view:draw()
     
     local list_h = (y + h - 50*SCALE) - cy
     
-    if modal.is_fetching then
+    if self.is_fetching then
       local dots = string.rep(".", math.floor(system.get_time() * 3) % 4)
       local msg = "Fetching problems" .. dots
       local tw = style.font:get_width(msg)
       renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + list_h/2, style.accent)
     else
-      local max_scroll = math.max(0, #modal.problems * 24*SCALE - list_h)
-      modal.list_scroll_y = math.min(math.max(0, modal.list_scroll_y or 0), max_scroll)
+      local max_scroll = math.max(0, #self.problems * 24*SCALE - list_h)
+      self.list_scroll_y = math.min(math.max(0, self.list_scroll_y or 0), max_scroll)
       
       core.push_clip_rect(cx, cy, cw, list_h)
-      local item_y = cy - modal.list_scroll_y
-      for i, p in ipairs(modal.problems) do
+      local item_y = cy - self.list_scroll_y
+      for i, p in ipairs(self.problems) do
         if item_y + 24*SCALE > cy and item_y < cy + list_h then
-          if i == modal.selected_idx then
+          if i == self.selected_idx then
             renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
           end
           renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
@@ -555,14 +715,14 @@ function core.root_view:draw()
     cy = y + h - 50*SCALE
     
     -- Draw Pagination at bottom
-    local page = math.floor(modal.page_skip / 50) + 1
-    local total_pages = math.max(1, math.ceil(modal.total_problems / 50))
+    local page = math.floor(self.page_skip / 50) + 1
+    local total_pages = math.max(1, math.ceil(self.total_problems / 50))
     renderer.draw_text(style.font, "Page " .. page .. " / " .. total_pages, cx, cy + 10*SCALE, style.dim)
-    renderer.draw_text(style.font, "[< Prev Page]", cx + cw/2 - 100*SCALE, cy + 10*SCALE, modal.page_skip > 0 and style.accent or style.dim)
-    renderer.draw_text(style.font, "[Next Page >]", cx + cw/2 + 20*SCALE, cy + 10*SCALE, (modal.page_skip + 50) < modal.total_problems and style.accent or style.dim)
+    renderer.draw_text(style.font, "[< Prev Page]", cx + cw/2 - 100*SCALE, cy + 10*SCALE, self.page_skip > 0 and style.accent or style.dim)
+    renderer.draw_text(style.font, "[Next Page >]", cx + cw/2 + 20*SCALE, cy + 10*SCALE, (self.page_skip + 50) < self.total_problems and style.accent or style.dim)
     
-  elseif modal.state == "problem" and modal.current then
-    local p = modal.current
+  elseif self.state == "problem" and self.current then
+    local p = self.current
     local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
     renderer.draw_text(style.font, "<- Back", cx, cy, style.dim)
     renderer.draw_text(style.font, p.title, cx + 80*SCALE, cy, style.text)
@@ -590,7 +750,7 @@ function core.root_view:draw()
     cy = cy + 15*SCALE
     
     core.push_clip_rect(cx, cy, cw, h - 120*SCALE)
-    draw_text_wrap(style.font, style.text, p.content_plain, cx, cy - modal.scroll_y, cw)
+    draw_text_wrap(style.font, style.text, p.content_plain, cx, cy - self.scroll_y, cw)
     core.pop_clip_rect()
     
     cy = y + h - 50*SCALE
@@ -603,8 +763,8 @@ function core.root_view:draw()
       bx = next_x + 10*SCALE
     end
     
-  elseif modal.state == "result" and modal.result then
-    local res = modal.result
+  elseif self.state == "result" and self.result then
+    local res = self.result
     local title_c = res.ok and LC_COLORS.accepted or LC_COLORS.wrong
     if res.status:match("Limit Exceeded") then title_c = LC_COLORS.tle end
     if res.status:match("Error") then title_c = LC_COLORS.hard end
@@ -633,253 +793,13 @@ function core.root_view:draw()
       renderer.draw_text(style.font, "Testcases passed: " .. (res.total_correct or 0) .. " / " .. (res.total_testcases or 0), cx, cy, style.text)
       cy = cy + 30*SCALE
       
-      if not res.ok and modal.result_type == "run" then
+      if not res.ok and self.result_type == "run" then
         renderer.draw_text(style.font, "Your output:", cx, cy, style.text)
         cy = draw_text_wrap(style.font, LC_COLORS.wrong, table.concat(res.code_output or {}, "\n"), cx + 120*SCALE, cy, cw - 120*SCALE) + 10*SCALE
         renderer.draw_text(style.font, "Expected:", cx, cy, style.text)
         cy = draw_text_wrap(style.font, LC_COLORS.accepted, table.concat(res.expected_output or {}, "\n"), cx + 120*SCALE, cy, cw - 120*SCALE) + 10*SCALE
       end
     end
-  end
-end
-
-local old_on_event = core.on_event
-function core.on_event(type, ...)
-  if modal.active then
-    if type == "keypressed" then
-      local key = ...
-      -- Allow modifiers to register in the core keymap so we can detect Ctrl
-      if key:match("ctrl") or key:match("shift") or key:match("alt") or key:match("gui") then
-        return old_on_event(type, ...)
-      end
-
-      if key == "escape" then
-        modal.active = false; core.redraw = true; return true
-      end
-      if key == "v" and (keymap.modkeys["ctrl"] or keymap.modkeys["gui"]) then
-        local text = system.get_clipboard()
-        if text then
-          text = text:gsub("[\r\n]", "") -- strip newlines from pasted cookies
-          if modal.state == "auth" then
-            modal.cookie_input = modal.cookie_input .. text
-          elseif modal.state == "list" and modal.search_focus then
-            modal.search_input = modal.search_input .. text
-            modal._search_timer = system.get_time() + 0.4
-          end
-        end
-        core.redraw = true; return true
-      end
-
-      -- Modal State specific keys
-      local handled = false
-      if modal.state == "auth" then
-        if key == "return" then command.perform("leetcode:connect"); handled = true
-        elseif key == "backspace" then
-          modal.cookie_input = modal.cookie_input:sub(1, -2)
-          handled = true
-        elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
-          local char = key
-          if key == "space" then char = " " end
-          if keymap.modkeys["shift"] then char = char:upper() end
-          modal.cookie_input = modal.cookie_input .. char
-          handled = true
-        end
-      elseif modal.state == "list" then
-        if key == "up" then
-          modal.selected_idx = math.max(1, modal.selected_idx - 1)
-          local target_y = (modal.selected_idx - 1) * 24 * SCALE
-          if target_y < modal.list_scroll_y then modal.list_scroll_y = target_y end
-          handled = true
-        elseif key == "down" then
-          modal.selected_idx = math.min(#modal.problems, modal.selected_idx + 1)
-          local target_y = (modal.selected_idx - 1) * 24 * SCALE
-          local list_h = 300 * SCALE
-          if target_y + 24*SCALE > modal.list_scroll_y + list_h then
-            modal.list_scroll_y = target_y + 24*SCALE - list_h
-          end
-          handled = true
-        elseif key == "return" then
-          if modal.search_focus then
-            modal.search_focus = false
-            if modal._search_timer then modal._search_timer = system.get_time() end
-          else
-            command.perform("leetcode:open-problem")
-          end
-          handled = true
-        elseif key == "tab" then modal.search_focus = not modal.search_focus; handled = true
-        elseif key == "backspace" then
-          modal.search_input = modal.search_input:sub(1, -2)
-          modal._search_timer = system.get_time() + 0.4
-          handled = true
-        elseif key == "space" and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]) then
-          modal.search_input = modal.search_input .. " "
-          modal._search_timer = system.get_time() + 0.4
-          handled = true
-        end
-      elseif modal.state == "problem" then
-        if key == "backspace" then modal.state = "list"; modal.search_focus = true; handled = true
-        elseif key == "down" then modal.scroll_y = modal.scroll_y + 40; handled = true
-        elseif key == "up" then modal.scroll_y = math.max(0, modal.scroll_y - 40); handled = true
-        end
-      elseif modal.state == "result" then
-        if key == "backspace" or key == "return" then modal.active = false; handled = true end
-      end
-      
-      if handled then
-        core.redraw = true
-        return true
-      end
-      
-      -- For all other keys: 
-      -- If a modifier like Ctrl/Alt is held, swallow it to prevent bleeding hotkeys (like Ctrl+S)
-      if keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"] then
-        return true
-      end
-      
-      -- Return TRUE for normal character keys to consume them in the UI layer
-      -- and prevent old_on_event from accidentally mapping them to core commands.
-      -- Consuming the keypressed event here STILL allows Lite-XL's engine to 
-      -- emit the actual "textinput" event on the next poll frame!
-      return true
-    end
-    if type == "textinput" then
-      local text = ...
-      if modal.state == "auth" then
-        modal.cookie_input = modal.cookie_input .. text
-        core.redraw = true; return true
-      end
-      if modal.state == "list" then
-        modal.search_input = modal.search_input .. text
-        modal._search_timer = system.get_time() + 0.4
-        core.redraw = true; return true
-      end
-    end
-    if type == "mousepressed" then
-      local btn, x, y = ...
-      if modal.state == "auth" and btn == "left" then
-        local sw, sh = core.root_view.size.x, core.root_view.size.y
-        local w, h = 700 * SCALE, 500 * SCALE
-        local mx, my = (sw - w) / 2, (sh - h) / 2
-        local cx = mx + 20 * SCALE
-        local cw = w - 40 * SCALE
-        
-        local cy = my + 20 * SCALE
-        cy = cy + 30*SCALE
-        local auto_btn_y = cy
-        
-        cy = cy + 40*SCALE
-        cy = cy + 30*SCALE
-        cy = cy + 20*SCALE
-        local box1_y = cy
-        
-        cy = cy + 40*SCALE
-        cy = cy + 20*SCALE
-        local box2_y = cy
-        
-        cy = cy + 50*SCALE
-        local btn_y = cy
-        
-        if x >= cx and x <= cx + 320*SCALE and y >= auto_btn_y and y <= auto_btn_y + 30*SCALE then
-          command.perform("leetcode:auto-detect")
-        end
-        if x >= cx and x <= cx + 100*SCALE and y >= btn_y and y <= btn_y + 30*SCALE then
-          command.perform("leetcode:connect")
-        end
-      end
-      if modal.state == "list" and btn == "left" then
-        local sw, sh = core.root_view.size.x, core.root_view.size.y
-        local w, h = 700 * SCALE, 500 * SCALE
-        local mx, my = (sw - w) / 2, (sh - h) / 2
-        local cx = mx + 20 * SCALE
-        local cw = w - 40 * SCALE
-        local cy = my + 80 * SCALE -- Search box Y
-        
-        -- Search box click
-        if y >= cy and y <= cy + 24*SCALE then
-          if x >= cx + 60*SCALE and x <= cx + cw then
-            modal.search_focus = true
-            core.redraw = true
-            return true
-          end
-        end
-        
-        -- Pagination click
-        local btn_cy = my + h - 40*SCALE
-        if y >= btn_cy and y <= btn_cy + 24*SCALE then
-          if x >= cx + cw/2 - 100*SCALE and x <= cx + cw/2 - 20*SCALE then
-            if modal.page_skip >= 50 then
-              modal.page_skip = modal.page_skip - 50
-              command.perform("leetcode:fetch-list")
-            end
-            return true
-          elseif x >= cx + cw/2 + 20*SCALE and x <= cx + cw/2 + 120*SCALE then
-            if modal.page_skip + 50 < modal.total_problems then
-              modal.page_skip = modal.page_skip + 50
-              command.perform("leetcode:fetch-list")
-            end
-            return true
-          end
-        end
-        
-        -- Handle click outside search area
-        modal.search_focus = false
-        core.redraw = true
-        
-        -- Handle click on a problem
-        local list_y = cy + 35*SCALE + 10*SCALE
-        if y >= list_y and y < btn_cy then
-          local idx = math.floor((y - list_y + modal.list_scroll_y) / (24*SCALE)) + 1
-          if idx >= 1 and idx <= #modal.problems then
-            modal.selected_idx = idx
-            command.perform("leetcode:open-problem")
-          end
-        end
-      end
-      if modal.state == "problem" and btn == "left" then
-        local sw, sh = core.root_view.size.x, core.root_view.size.y
-        local mw, mh = 700 * SCALE, 500 * SCALE
-        local mx, my = (sw - mw) / 2, (sh - mh) / 2
-        local cy = my + mh - 50*SCALE + 15*SCALE
-        local bx = mx + 20*SCALE + 80*SCALE
-        if y >= cy and y <= cy + 20*SCALE then
-          for lang, _ in pairs(modal.current.starters or {}) do
-            local bw = style.font:get_width("[" .. lang .. "]")
-            if x >= bx and x <= bx + bw then
-              open_problem(modal.current, lang)
-              return true
-            end
-            bx = bx + bw + 10*SCALE
-          end
-        end
-      end
-      return true
-    end
-    if type == "mousewheel" then
-      local delta = ...
-      if modal.state == "problem" then
-        modal.scroll_y = math.max(0, modal.scroll_y - delta * 40)
-        core.redraw = true
-      elseif modal.state == "list" then
-        modal.list_scroll_y = math.max(0, (modal.list_scroll_y or 0) - delta * 40)
-        core.redraw = true
-      end
-      return true
-    end
-    return true
-  end
-  return old_on_event(type, ...)
-end
-
-local old_update = core.root_view.update
-function core.root_view:update(...)
-  old_update(self, ...)
-  if modal.active and modal._search_timer then
-    if system.get_time() >= modal._search_timer then
-      modal._search_timer = nil
-      modal.page_skip     = 0
-      command.perform("leetcode:fetch-list")
-    end
-    core.redraw = true
   end
 end
 
@@ -898,8 +818,7 @@ core.add_thread(function()
           }
         end
         return { style.text, " LC ", style.font, " LeetCode" }
-      end,
-      command = "leetcode:toggle",
+      end
     })
   end
 end)
