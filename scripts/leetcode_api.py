@@ -202,6 +202,8 @@ def cmd_problem_detail(params):
     query questionData($titleSlug: String!) {
       question(titleSlug: $titleSlug) {
         questionId title titleSlug content difficulty
+        topicTags { name }
+        companyTagStats
         codeSnippets { lang langSlug code }
         exampleTestcaseList sampleTestCase
       }
@@ -211,6 +213,20 @@ def cmd_problem_detail(params):
         q = r["data"]["question"]
         starters = {s["langSlug"]: s["code"] for s in (q.get("codeSnippets") or [])}
         test_cases = "\n".join(q.get("exampleTestcaseList") or [q.get("sampleTestCase", "")])
+        
+        topics = [t["name"] for t in (q.get("topicTags") or [])]
+        companies = []
+        c_stats = q.get("companyTagStats")
+        if c_stats:
+            try:
+                c_data = json.loads(c_stats)
+                for stage in c_data.values():
+                    for c in stage:
+                        if c.get("name") and c["name"] not in companies:
+                            companies.append(c["name"])
+            except:
+                pass
+                
         return {"ok": True, "data": {
             "question_id":   q["questionId"],
             "title":         q["title"],
@@ -219,6 +235,8 @@ def cmd_problem_detail(params):
             "content_plain": strip_html(q.get("content") or ""),
             "starters":      starters,
             "test_cases":    test_cases,
+            "topics":        topics,
+            "companies":     companies,
         }}
     except Exception as e:
         return {"ok": False, "error": str(e)}
