@@ -440,6 +440,9 @@ function core.root_view:draw()
     renderer.draw_text(style.font, "LEETCODE_SESSION:", cx, cy, style.text)
     cy = cy + 20*SCALE
     renderer.draw_rect(cx, cy, cw, 30*SCALE, style.background2)
+    if modal.session_input == "" then
+      renderer.draw_text(style.font, "e.g. eyJ... or paste the full Cookie string here", cx + 5*SCALE, cy + 5*SCALE, style.dim)
+    end
     local sess_text = modal.session_input:gsub(".", "*")
     if modal.auth_focus == "session" and os.time() % 2 == 0 then sess_text = sess_text .. "|" end
     renderer.draw_text(style.font, sess_text, cx + 5*SCALE, cy + 5*SCALE, style.text)
@@ -448,6 +451,9 @@ function core.root_view:draw()
     renderer.draw_text(style.font, "csrftoken:", cx, cy, style.text)
     cy = cy + 20*SCALE
     renderer.draw_rect(cx, cy, cw, 30*SCALE, style.background2)
+    if modal.csrf_input == "" then
+      renderer.draw_text(style.font, "e.g. WqT9...", cx + 5*SCALE, cy + 5*SCALE, style.dim)
+    end
     local csrf_text = modal.csrf_input
     if modal.auth_focus == "csrf" and os.time() % 2 == 0 then csrf_text = csrf_text .. "|" end
     renderer.draw_text(style.font, csrf_text, cx + 5*SCALE, cy + 5*SCALE, style.text)
