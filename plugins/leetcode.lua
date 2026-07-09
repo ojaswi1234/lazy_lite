@@ -470,7 +470,7 @@ function core.root_view:draw()
     renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 150*SCALE, cy, diff_color)
     cy = cy + 30*SCALE
     
-    renderer.draw_text(style.font, "Ctrl+R: Run Code  |  Ctrl+Shift+S: Submit  |  Ctrl+Shift+L: Toggle Browser", cx, cy, style.accent)
+    renderer.draw_text(style.font, "Ctrl+R: Run Code  |  Ctrl+Shift+S: Submit  |  Tab/Click: Focus Search", cx, cy, style.accent)
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
@@ -767,16 +767,15 @@ function core.on_event(type, ...)
         end
         
         modal.search_focus = false
-          core.redraw = true
-          
-          -- Handle click on a problem
-          local list_y = cy + 35*SCALE + 10*SCALE
-          if y >= list_y then
-            local idx = math.floor((y - list_y + modal.list_scroll_y) / (24*SCALE)) + 1
-            if idx >= 1 and idx <= #modal.problems then
-              modal.selected_idx = idx
-              command.perform("leetcode:open-problem")
-            end
+        core.redraw = true
+        
+        -- Handle click on a problem
+        local list_y = cy + 35*SCALE + 10*SCALE
+        if y >= list_y then
+          local idx = math.floor((y - list_y + modal.list_scroll_y) / (24*SCALE)) + 1
+          if idx >= 1 and idx <= #modal.problems then
+            modal.selected_idx = idx
+            command.perform("leetcode:open-problem")
           end
         end
       end
