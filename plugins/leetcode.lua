@@ -412,9 +412,12 @@ function core.root_view:draw()
   local cw = w - 40 * SCALE
 
   if modal.state == "auth" then
-    cy = renderer.draw_text(style.font, "🟨 LeetCode — Setup", cx, cy, style.text) + 20*SCALE
-    cy = renderer.draw_text(style.font, "Paste your LeetCode session cookies below.", cx, cy, style.text) + 10*SCALE
-    cy = renderer.draw_text(style.font, "Log in at leetcode.com → F12 → Application → Cookies → leetcode.com", cx, cy, style.text) + 20*SCALE
+    renderer.draw_text(style.font, "🟨 LeetCode — Setup", cx, cy, style.text)
+    cy = cy + 30*SCALE
+    renderer.draw_text(style.font, "Paste your LeetCode session cookies below.", cx, cy, style.text)
+    cy = cy + 20*SCALE
+    renderer.draw_text(style.font, "Log in at leetcode.com → F12 → Application → Cookies → leetcode.com", cx, cy, style.text)
+    cy = cy + 40*SCALE
     
     renderer.draw_text(style.font, "LEETCODE_SESSION:", cx, cy, style.text)
     cy = cy + 20*SCALE
@@ -502,8 +505,8 @@ function core.root_view:draw()
     renderer.draw_text(style.font, "Open in:", cx, cy, style.text)
     local bx = cx + 80*SCALE
     for lang, _ in pairs(p.starters or {}) do
-      local bw = renderer.draw_text(style.font, "[" .. lang .. "]", bx, cy, style.accent)
-      bx = bx + 10*SCALE
+      local next_x = renderer.draw_text(style.font, "[" .. lang .. "]", bx, cy, style.accent)
+      bx = next_x + 10*SCALE
     end
     
   elseif modal.state == "result" and modal.result then
