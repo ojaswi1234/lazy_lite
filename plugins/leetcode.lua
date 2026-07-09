@@ -170,11 +170,11 @@ function LeetCodeView:on_text_input(text)
 end
 
 function LeetCodeView:on_key_pressed(key)
+  local handled = false
   if key == "escape" then
     command.perform("leetcode:toggle")
-    return true
-  end
-  if key == "v" and (keymap.modkeys["ctrl"] or keymap.modkeys["gui"]) then
+    handled = true
+  elseif key == "v" and (keymap.modkeys["ctrl"] or keymap.modkeys["gui"]) then
     local text = system.get_clipboard()
     if text then
       text = text:gsub("[\r\n]", "")
@@ -185,28 +185,25 @@ function LeetCodeView:on_key_pressed(key)
         self._search_timer = system.get_time() + 0.4
       end
     end
-    core.redraw = true
-    return true
-  end
-
-  if self.state == "auth" then
-    if key == "return" then command.perform("leetcode:connect"); return true
+    handled = true
+  elseif self.state == "auth" then
+    if key == "return" then command.perform("leetcode:connect"); handled = true
     elseif key == "backspace" then
       self.cookie_input = self.cookie_input:sub(1, -2)
-      return true
+      handled = true
     elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
       local char = key
       if key == "space" then char = " " end
       if keymap.modkeys["shift"] then char = char:upper() end
       self.cookie_input = self.cookie_input .. char
-      return true
+      handled = true
     end
   elseif self.state == "list" then
     if key == "up" then
       self.selected_idx = math.max(1, self.selected_idx - 1)
       local target_y = (self.selected_idx - 1) * 24 * SCALE
       if target_y < self.list_scroll_y then self.list_scroll_y = target_y end
-      return true
+      handled = true
     elseif key == "down" then
       self.selected_idx = math.min(#self.problems, self.selected_idx + 1)
       local target_y = (self.selected_idx - 1) * 24 * SCALE
@@ -214,33 +211,37 @@ function LeetCodeView:on_key_pressed(key)
       if target_y + 24*SCALE > self.list_scroll_y + list_h then
         self.list_scroll_y = target_y + 24*SCALE - list_h
       end
-      return true
+      handled = true
     elseif key == "return" then
       if self.search_focus then
         self.search_focus = false
       else
         command.perform("leetcode:open-problem")
       end
-      return true
-    elseif key == "tab" then self.search_focus = not self.search_focus; return true
+      handled = true
+    elseif key == "tab" then self.search_focus = not self.search_focus; handled = true
     elseif key == "backspace" then
       self.search_input = self.search_input:sub(1, -2)
       self._search_timer = system.get_time() + 0.4
-      return true
+      handled = true
     elseif key == "space" and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]) then
       self.search_input = self.search_input .. " "
       self._search_timer = system.get_time() + 0.4
-      return true
+      handled = true
     end
   elseif self.state == "problem" then
-    if key == "backspace" then self.state = "list"; self.search_focus = true; return true
-    elseif key == "down" then self.scroll_y = self.scroll_y + 40; return true
-    elseif key == "up" then self.scroll_y = math.max(0, self.scroll_y - 40); return true
+    if key == "backspace" then self.state = "list"; self.search_focus = true; handled = true
+    elseif key == "down" then self.scroll_y = self.scroll_y + 40; handled = true
+    elseif key == "up" then self.scroll_y = math.max(0, self.scroll_y - 40); handled = true
     end
   elseif self.state == "result" then
-    if key == "backspace" or key == "return" then command.perform("leetcode:toggle"); return true end
+    if key == "backspace" or key == "return" then command.perform("leetcode:toggle"); handled = true end
   end
 
+  if handled then
+    core.redraw = true
+    return true
+  end
   return false
 end
 
