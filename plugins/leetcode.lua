@@ -488,7 +488,9 @@ function core.root_view:draw()
         renderer.draw_rect(cx - 5*SCALE, cy - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
       end
       renderer.draw_text(style.font, "#" .. p.id, cx, cy, style.dim)
-      renderer.draw_text(style.font, p.title, cx + 50*SCALE, cy, style.text)
+      local title = p.title
+      if #title > 45 then title = title:sub(1, 42) .. "..." end
+      renderer.draw_text(style.font, title, cx + 50*SCALE, cy, style.text)
       local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
       renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, cy, dc)
       renderer.draw_text(style.font, p.ac_rate .. "%", cx + 550*SCALE, cy, style.dim)
@@ -688,6 +690,32 @@ function core.on_event(type, ...)
         end
         if x >= cx and x <= cx + 100*SCALE and y >= btn_y and y <= btn_y + 30*SCALE then
           command.perform("leetcode:connect")
+        end
+      end
+      if modal.state == "list" and btn == "left" then
+        local sw, sh = core.root_view.size.x, core.root_view.size.y
+        local w, h = 700 * SCALE, 500 * SCALE
+        local mx, my = (sw - w) / 2, (sh - h) / 2
+        local cx = mx + 20 * SCALE
+        local cw = w - 40 * SCALE
+        local cy = my + 20 * SCALE + 60*SCALE -- "LeetCode Browser" + "Hotkeys"
+        
+        if x >= cx + 60*SCALE and x <= cx + cw and y >= cy and y <= cy + 24*SCALE then
+          modal.search_focus = true
+          core.redraw = true
+        else
+          modal.search_focus = false
+          core.redraw = true
+          
+          -- Handle click on a problem
+          local list_y = cy + 35*SCALE + 10*SCALE
+          if y >= list_y and y <= list_y + (#modal.problems * 24*SCALE) then
+            local idx = math.floor((y - list_y) / (24*SCALE)) + 1
+            if idx >= 1 and idx <= #modal.problems then
+              modal.selected_idx = idx
+              command.perform("leetcode:open-problem")
+            end
+          end
         end
       end
       if modal.state == "problem" and btn == "left" then
