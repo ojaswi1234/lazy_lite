@@ -633,8 +633,15 @@ function core.on_event(type, ...)
         if text then
           text = text:gsub("[\r\n]", "") -- strip newlines from pasted cookies
           if modal.state == "auth" then
-            if modal.auth_focus == "session" then modal.session_input = modal.session_input .. text
-            else modal.csrf_input = modal.csrf_input .. text end
+            local sess_match = text:match("LEETCODE_SESSION=([^;]+)")
+            local csrf_match = text:match("csrftoken=([^;]+)")
+            if sess_match or csrf_match then
+              if sess_match then modal.session_input = sess_match end
+              if csrf_match then modal.csrf_input = csrf_match end
+            else
+              if modal.auth_focus == "session" then modal.session_input = modal.session_input .. text
+              else modal.csrf_input = modal.csrf_input .. text end
+            end
           elseif modal.state == "list" and modal.search_focus then
             modal.search_input = modal.search_input .. text
             modal._search_timer = system.get_time() + 0.4
