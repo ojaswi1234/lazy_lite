@@ -413,8 +413,8 @@ function core.root_view:draw()
 
   if modal.state == "auth" then
     cy = renderer.draw_text(style.font, "🟨 LeetCode — Setup", cx, cy, style.text) + 20*SCALE
-    cy = renderer.draw_text(style.font, "Paste your LeetCode session cookies below.", cx, cy, style.dim) + 10*SCALE
-    cy = renderer.draw_text(style.font, "Log in at leetcode.com → F12 → Application → Cookies → leetcode.com", cx, cy, style.dim) + 20*SCALE
+    cy = renderer.draw_text(style.font, "Paste your LeetCode session cookies below.", cx, cy, style.text) + 10*SCALE
+    cy = renderer.draw_text(style.font, "Log in at leetcode.com → F12 → Application → Cookies → leetcode.com", cx, cy, style.text) + 20*SCALE
     
     renderer.draw_text(style.font, "LEETCODE_SESSION:", cx, cy, style.text)
     cy = cy + 20*SCALE
@@ -449,8 +449,11 @@ function core.root_view:draw()
     elseif modal.difficulty == "MEDIUM" then diff_color = LC_COLORS.medium
     elseif modal.difficulty == "HARD" then diff_color = LC_COLORS.hard end
     
-    renderer.draw_text(style.font, "LeetCode", cx, cy, style.text)
-    renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 100*SCALE, cy, diff_color)
+    renderer.draw_text(style.font, "LeetCode Browser", cx, cy, style.text)
+    renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 150*SCALE, cy, diff_color)
+    cy = cy + 30*SCALE
+    
+    renderer.draw_text(style.font, "Ctrl+R: Run Code  |  Ctrl+Shift+S: Submit  |  Ctrl+Shift+L: Toggle Browser", cx, cy, style.accent)
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
