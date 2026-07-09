@@ -833,16 +833,11 @@ end
 local old_update = core.root_view.update
 function core.root_view:update(...)
   old_update(self, ...)
-  if modal.active then
-    -- Force text input ON so SDL generates textinput events even if EmptyView is active
-    system.text_input(true)
-    
-    if modal._search_timer then
-      if system.get_time() >= modal._search_timer then
-        modal._search_timer = nil
-        modal.page_skip     = 0
-        command.perform("leetcode:fetch-list")
-      end
+  if modal.active and modal._search_timer then
+    if system.get_time() >= modal._search_timer then
+      modal._search_timer = nil
+      modal.page_skip     = 0
+      command.perform("leetcode:fetch-list")
     end
     core.redraw = true
   end
