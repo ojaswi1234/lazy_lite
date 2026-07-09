@@ -179,12 +179,6 @@ function LeetCodeView:on_key_pressed(key)
     elseif key == "backspace" then
       self.cookie_input = self.cookie_input:sub(1, -2)
       handled = true
-    elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
-      local char = key
-      if key == "space" then char = " " end
-      if keymap.modkeys["shift"] then char = char:upper() end
-      self.cookie_input = self.cookie_input .. char
-      handled = true
     end
   elseif self.state == "list" then
     if key == "up" then
@@ -210,10 +204,6 @@ function LeetCodeView:on_key_pressed(key)
     elseif key == "tab" then self.search_focus = not self.search_focus; handled = true
     elseif key == "backspace" then
       self.search_input = self.search_input:sub(1, -2)
-      self._search_timer = system.get_time() + 0.4
-      handled = true
-    elseif key == "space" and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]) then
-      self.search_input = self.search_input .. " "
       self._search_timer = system.get_time() + 0.4
       handled = true
     end
@@ -515,7 +505,6 @@ command.add(
     ["leetcode:down"] = function() core.active_view:on_key_pressed("down") end,
     ["leetcode:backspace"] = function() core.active_view:on_key_pressed("backspace") end,
     ["leetcode:return"] = function() core.active_view:on_key_pressed("return") end,
-    ["leetcode:space"] = function() core.active_view:on_key_pressed("space") end,
     ["leetcode:tab"] = function() core.active_view:on_key_pressed("tab") end,
     ["leetcode:escape"] = function() core.active_view:on_key_pressed("escape") end,
     ["leetcode:paste"] = function() 
@@ -540,7 +529,6 @@ keymap.add({
   ["down"] = "leetcode:down",
   ["backspace"] = "leetcode:backspace",
   ["return"] = "leetcode:return",
-  ["space"] = "leetcode:space",
   ["tab"] = "leetcode:tab",
   ["escape"] = "leetcode:escape",
   ["ctrl+v"] = "leetcode:paste",
