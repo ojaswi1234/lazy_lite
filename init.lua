@@ -254,3 +254,16 @@ function StatusView:update(...)
     return orig_statusview_update(self, ...)
   end
 end
+
+-- ── 12. Fix Inactive Tab Font Color ──────────────────────────────────────────
+-- The user requested that inactive tabs use the exact same dark text color as active tabs.
+-- We temporarily override style.dim during the drawing of the tab title.
+local Node = require "core.node"
+local old_draw_tab_title = Node.draw_tab_title
+function Node:draw_tab_title(view, font, is_active, is_hovered, x, y, w, h)
+  local old_dim = style.dim
+  -- Force inactive tabs to use the fully dark text color
+  style.dim = style.text 
+  old_draw_tab_title(self, view, font, is_active, is_hovered, x, y, w, h)
+  style.dim = old_dim
+end
