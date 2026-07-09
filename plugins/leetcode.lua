@@ -647,6 +647,13 @@ function core.on_event(type, ...)
           if modal.auth_focus == "session" then modal.session_input = modal.session_input:sub(1, -2)
           else modal.csrf_input = modal.csrf_input:sub(1, -2) end
           handled = true
+        elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
+          local char = key
+          if key == "space" then char = " " end
+          if keymap.modkeys["shift"] then char = char:upper() end
+          if modal.auth_focus == "session" then modal.session_input = modal.session_input .. char
+          else modal.csrf_input = modal.csrf_input .. char end
+          handled = true
         end
       elseif modal.state == "list" then
         if key == "up" then
@@ -666,6 +673,17 @@ function core.on_event(type, ...)
         elseif key == "tab" then modal.search_focus = not modal.search_focus; handled = true
         elseif key == "backspace" and modal.search_focus then
           modal.search_input = modal.search_input:sub(1, -2)
+          modal._search_timer = system.get_time() + 0.4
+          handled = true
+        elseif modal.search_focus and (key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]))) then
+          local char = key
+          if key == "space" then char = " " end
+          if keymap.modkeys["shift"] then
+            if char == "3" then char = "#"
+            elseif char == "2" then char = "@"
+            else char = char:upper() end
+          end
+          modal.search_input = modal.search_input .. char
           modal._search_timer = system.get_time() + 0.4
           handled = true
         end
