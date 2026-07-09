@@ -74,15 +74,6 @@ def strip_html(html):
     return html.strip()
 
 # ── command handlers ───────────────────────────────────────────────────────────
-def cmd_auth_check(params):
-    try:
-        data = http_request("https://leetcode.com/api/problems/all/", method="GET")
-        uname = data.get("user_name", "")
-        if not uname:
-            return {"ok": False, "error": "Not logged in"}
-        return {"ok": True, "data": {"username": uname}}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
 
 def cmd_auth_set(params):
     session = params.get("session", "")
@@ -153,14 +144,17 @@ def cmd_auth_auto(params):
     data["detected_from"] = browser
     return {"ok": True, "data": data}
 
-ALL_PROBLEMS_CACHE = None
-
-def get_all_problems():
-    global ALL_PROBLEMS_CACHE
-    if ALL_PROBLEMS_CACHE: return ALL_PROBLEMS_CACHE
-    data = http_request("https://leetcode.com/api/problems/all/", method="GET")
-    ALL_PROBLEMS_CACHE = data.get("stat_status_pairs", [])
-    return ALL_PROBLEMS_CACHE
+def cmd_auth_check(params):
+    try:
+        r = graphql("{ userStatus { isSignedIn username } }")
+        if not r or "data" not in r or not r["data"].get("userStatus"):
+            return {"ok": False, "error": "Not logged in"}
+        status = r["data"]["userStatus"]
+        if not status.get("isSignedIn"):
+            return {"ok": False, "error": "Not logged in"}
+        return {"ok": True, "data": {"username": status.get("username", "Unknown")}}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def cmd_problem_list(params):
     skip       = params.get("skip", 0)
@@ -194,14 +188,14 @@ def cmd_problem_list(params):
         tags = [c.lower() for c in local_companies.get(slug, [])]
         return all(c in tags for c in companies)
 
-    if topic_tags:
-        # Fallback to GraphQL if topic tags are present, since we don't have offline topics
+    if True: # Always use GraphQL to avoid proxy 502 errors on the REST endpoint
         filters = {}
         if difficulty in ("EASY", "MEDIUM", "HARD"):
             filters["difficulty"] = difficulty
         if keywords:
             filters["searchKeywords"] = " ".join(keywords)
-        filters["tags"] = topic_tags
+        if topic_tags:
+            filters["tags"] = topic_tags
 
         GQL = """
         query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
@@ -212,9 +206,11 @@ def cmd_problem_list(params):
         }"""
         try:
             # We fetch more because local filtering might reduce the list
-            r = graphql(GQL, {"categorySlug": "", "limit": 200, "skip": skip, "filters": filters})
+            r = graphql(GQL, {"categorySlug": "", "limit": 200 if companies else limit, "skip": skip, "filters": filters})
+            if not r or "data" not in r:
+                return {"ok": False, "error": "GraphQL query failed or returned no data"}
+                
             plist = r["data"]["problemsetQuestionList"]
-            
             filtered = [q for q in plist["questions"] if has_company(q["titleSlug"])]
             
             return {"ok": True, "data": {
@@ -229,51 +225,6 @@ def cmd_problem_list(params):
                         "paid":       q["isPaidOnly"],
                     }
                     for q in filtered[:limit]
-                ]
-            }}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-    else:
-        # Ultra-fast local filtering using api/problems/all
-        try:
-            all_probs = get_all_problems()
-            filtered = []
-            for p in all_probs:
-                stat = p["stat"]
-                diff = p["difficulty"]["level"]
-                slug = stat["question__title_slug"]
-
-                if difficulty == "EASY" and diff != 1: continue
-                if difficulty == "MEDIUM" and diff != 2: continue
-                if difficulty == "HARD" and diff != 3: continue
-
-                if keywords:
-                    title = stat["question__title"].lower()
-                    # Frontend ID is also a useful search target
-                    fid = str(stat["frontend_question_id"])
-                    if not all(k in title or k == fid for k in keywords):
-                        continue
-
-                if not has_company(slug):
-                    continue
-
-                filtered.append(p)
-
-            # Sort by ID ascending
-            filtered.sort(key=lambda x: x["stat"]["frontend_question_id"])
-
-            return {"ok": True, "data": {
-                "total": len(filtered),
-                "problems": [
-                    {
-                        "id":         str(q["stat"]["frontend_question_id"]),
-                        "title":      q["stat"]["question__title"],
-                        "slug":       q["stat"]["question__title_slug"],
-                        "difficulty": "Easy" if q["difficulty"]["level"]==1 else ("Medium" if q["difficulty"]["level"]==2 else "Hard"),
-                        "ac_rate":    round(q["stat"]["total_acs"] / max(1, q["stat"]["total_submitted"]) * 100, 1),
-                        "paid":       q["paid_only"],
-                    }
-                    for q in filtered[skip : skip+limit]
                 ]
             }}
         except Exception as e:
