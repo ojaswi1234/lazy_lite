@@ -224,7 +224,7 @@ command.add(nil, {
     api_call({ cmd = "auth_auto" }, function(res)
       if res.ok then
         modal.auth_status = "Connected via " .. (res.data.detected_from or "browser")
-        modal.state = "list"
+        modal.state = "list"; modal.search_focus = true
         command.perform("leetcode:fetch-list")
       else
         modal.state = "auth"
@@ -241,7 +241,7 @@ command.add(nil, {
       api_call({cmd = "auth_check"}, function(resp)
         if resp.ok then
           modal.auth_status = "[+] Logged in as " .. resp.data.username
-          modal.state = "list"
+          modal.state = "list"; modal.search_focus = true
           if #modal.problems == 0 then command.perform("leetcode:fetch-list") end
         else
           modal.auth_status = ""
@@ -272,7 +272,7 @@ command.add(nil, {
     }, function(resp)
       if resp.ok then
         modal.auth_status = "[+] Logged in as " .. resp.data.username
-        modal.state = "list"
+        modal.state = "list"; modal.search_focus = true
         command.perform("leetcode:fetch-list")
       else
         modal.auth_status = "✗ Invalid cookies"
@@ -322,7 +322,7 @@ command.add(nil, {
         modal.state   = "problem"
         modal.scroll_y = 0
       else
-        modal.state = "list"
+        modal.state = "list"; modal.search_focus = true
         core.log("[LeetCode] " .. (resp.error or "Failed to load problem"))
       end
       core.redraw = true
@@ -705,7 +705,7 @@ function core.on_event(type, ...)
           handled = true
         end
       elseif modal.state == "problem" then
-        if key == "backspace" then modal.state = "list"; handled = true
+        if key == "backspace" then modal.state = "list"; modal.search_focus = true; handled = true
         elseif key == "down" then modal.scroll_y = modal.scroll_y + 40; handled = true
         elseif key == "up" then modal.scroll_y = math.max(0, modal.scroll_y - 40); handled = true
         end
