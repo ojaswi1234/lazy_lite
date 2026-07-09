@@ -108,7 +108,7 @@ local function ensure_api()
       stderr = process.REDIRECT_DISCARD }
   )
   if not api_proc then
-    core.log("[LeetCode] Failed to start leetcode_api.py — is Python installed?")
+    core.log("[LeetCode] Failed to start leetcode_api.py - is Python installed?")
     return false
   end
   core.add_thread(function()
@@ -237,7 +237,7 @@ command.add(nil, {
     elseif modal.active and modal.state == "auth" then
       api_call({cmd = "auth_check"}, function(resp)
         if resp.ok then
-          modal.auth_status = "✓ Logged in as " .. resp.data.username
+          modal.auth_status = "[+] Logged in as " .. resp.data.username
           modal.state = "list"
           if #modal.problems == 0 then command.perform("leetcode:fetch-list") end
         else
@@ -258,7 +258,7 @@ command.add(nil, {
       csrf    = modal.csrf_input
     }, function(resp)
       if resp.ok then
-        modal.auth_status = "✓ Logged in as " .. resp.data.username
+        modal.auth_status = "[+] Logged in as " .. resp.data.username
         modal.state = "list"
         command.perform("leetcode:fetch-list")
       else
@@ -270,7 +270,7 @@ command.add(nil, {
 
   ["leetcode:fetch-list"] = function()
     modal.state       = "loading"
-    modal.loading_msg = "Fetching problems…"
+    modal.loading_msg = "Fetching problems"
     core.redraw       = true
     api_call({
       cmd        = "problem_list",
@@ -302,7 +302,7 @@ command.add(nil, {
     local p = modal.problems[modal.selected_idx]
     if not p then return end
     modal.state       = "loading"
-    modal.loading_msg = "Loading " .. p.title .. "…"
+    modal.loading_msg = "Loading " .. p.title
     core.redraw       = true
     api_call({ cmd = "problem_detail", slug = p.slug }, function(resp)
       if resp.ok then
@@ -326,7 +326,7 @@ command.add(nil, {
     end
     modal.active      = true
     modal.state       = "running"
-    modal.loading_msg = "Running test cases…"
+    modal.loading_msg = "Running test cases"
     core.redraw       = true
     local my_req_id = tostring(req_counter + 1)
     modal.run_req_id = my_req_id
@@ -357,7 +357,7 @@ command.add(nil, {
     end
     modal.active      = true
     modal.state       = "running"
-    modal.loading_msg = "Submitting to LeetCode…"
+    modal.loading_msg = "Submitting to LeetCode"
     core.redraw       = true
     local my_req_id = tostring(req_counter + 1)
     modal.run_req_id = my_req_id
@@ -423,14 +423,14 @@ function core.root_view:draw()
   local cw = w - 40 * SCALE
 
   if modal.state == "auth" then
-    renderer.draw_text(style.font, "🟨 LeetCode — Connect", cx, cy, style.text)
+    renderer.draw_text(style.font, "> LeetCode - Connect", cx, cy, style.text)
     cy = cy + 30*SCALE
     
     renderer.draw_rect(cx, cy, 320*SCALE, 30*SCALE, style.accent)
     renderer.draw_text(style.font, "Auto-detect from Chrome / Firefox", cx + 15*SCALE, cy + 5*SCALE, style.background)
     cy = cy + 40*SCALE
     
-    renderer.draw_text(style.font, "─── or paste manually ────────────────────────────", cx, cy, style.dim)
+    renderer.draw_text(style.font, "--- or paste manually ---", cx, cy, style.dim)
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "LEETCODE_SESSION:", cx, cy, style.text)
@@ -457,8 +457,10 @@ function core.root_view:draw()
     end
     
   elseif modal.state == "loading" or modal.state == "running" then
-    local frame = spinner_frames[math.floor(system.get_time() * 10) % #spinner_frames + 1]
-    renderer.draw_text(style.font, frame .. "  " .. modal.loading_msg, cx + cw/2 - 50*SCALE, y + h/2, style.text)
+    local dots = string.rep(".", math.floor(system.get_time() * 3) % 4)
+    local msg = modal.loading_msg .. dots
+    local tw = style.font:get_width(msg)
+    renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + h/2 - 20*SCALE, style.accent)
     
   elseif modal.state == "list" then
     local diff_color = style.text
@@ -519,7 +521,7 @@ function core.root_view:draw()
   elseif modal.state == "problem" and modal.current then
     local p = modal.current
     local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
-    renderer.draw_text(style.font, "← Back", cx, cy, style.dim)
+    renderer.draw_text(style.font, "<- Back", cx, cy, style.dim)
     renderer.draw_text(style.font, p.title, cx + 80*SCALE, cy, style.text)
     renderer.draw_text(style.font, "[" .. p.difficulty .. "]", cx + cw - 100*SCALE, cy, dc)
     cy = cy + 25*SCALE
@@ -564,7 +566,7 @@ function core.root_view:draw()
     if res.status:match("Limit Exceeded") then title_c = LC_COLORS.tle end
     if res.status:match("Error") then title_c = LC_COLORS.hard end
     
-    renderer.draw_text(style.font, res.ok and "✓ " or "✗ ", cx, cy, title_c)
+    renderer.draw_text(style.font, res.ok and "[+] " or "[-] ", cx, cy, title_c)
     renderer.draw_text(style.font, res.status, cx + 20*SCALE, cy, title_c)
     cy = cy + 30*SCALE
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
