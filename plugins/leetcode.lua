@@ -638,6 +638,40 @@ function core.on_event(type, ...)
     end
     if type == "mousepressed" then
       local btn, x, y = ...
+      if modal.state == "auth" and btn == "left" then
+        local sw, sh = core.root_view.size.x, core.root_view.size.y
+        local w, h = 700 * SCALE, 500 * SCALE
+        local mx, my = (sw - w) / 2, (sh - h) / 2
+        local cx = mx + 20 * SCALE
+        local cw = w - 40 * SCALE
+        
+        local cy = my + 20 * SCALE
+        cy = cy + 30*SCALE
+        cy = cy + 20*SCALE
+        cy = cy + 40*SCALE
+        cy = cy + 20*SCALE
+        local box1_y = cy
+        
+        cy = cy + 40*SCALE
+        cy = cy + 20*SCALE
+        local box2_y = cy
+        
+        cy = cy + 50*SCALE
+        local btn_y = cy
+        
+        if x >= cx and x <= cx + cw then
+          if y >= box1_y and y <= box1_y + 30*SCALE then
+            modal.auth_focus = "session"
+            core.redraw = true
+          elseif y >= box2_y and y <= box2_y + 30*SCALE then
+            modal.auth_focus = "csrf"
+            core.redraw = true
+          end
+        end
+        if x >= cx and x <= cx + 100*SCALE and y >= btn_y and y <= btn_y + 30*SCALE then
+          command.perform("leetcode:connect")
+        end
+      end
       if modal.state == "problem" and btn == "left" then
         local sw, sh = core.root_view.size.x, core.root_view.size.y
         local mw, mh = 700 * SCALE, 500 * SCALE
