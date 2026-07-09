@@ -153,48 +153,131 @@ def cmd_auth_auto(params):
     data["detected_from"] = browser
     return {"ok": True, "data": data}
 
+ALL_PROBLEMS_CACHE = None
+
+def get_all_problems():
+    global ALL_PROBLEMS_CACHE
+    if ALL_PROBLEMS_CACHE: return ALL_PROBLEMS_CACHE
+    data = http_request("https://leetcode.com/api/problems/all/", method="GET")
+    ALL_PROBLEMS_CACHE = data.get("stat_status_pairs", [])
+    return ALL_PROBLEMS_CACHE
+
 def cmd_problem_list(params):
     skip       = params.get("skip", 0)
     limit      = params.get("limit", 50)
     difficulty = params.get("difficulty", "")
-    search     = params.get("search", "")
+    search     = params.get("search", "").lower()
 
-    filters = {}
-    if difficulty in ("EASY", "MEDIUM", "HARD"):
-        filters["difficulty"] = difficulty
-    if search.strip():
-        filters["searchKeywords"] = search.strip()
+    topic_tags = []
+    companies = []
+    keywords = []
 
-    GQL = """
-    query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
-      problemsetQuestionList: questionList(
-        categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters
-      ) {
-        total: totalNum
-        questions: data {
-          questionFrontendId title titleSlug difficulty acRate isPaidOnly
-        }
-      }
-    }"""
+    for word in search.split():
+        if word.startswith("#") and len(word) > 1:
+            topic_tags.append(word[1:])
+        elif word.startswith("@") and len(word) > 1:
+            companies.append(word[1:])
+        else:
+            keywords.append(word)
+
+    local_companies = {}
     try:
-        r = graphql(GQL, {"categorySlug": "", "limit": limit, "skip": skip, "filters": filters})
-        plist = r["data"]["problemsetQuestionList"]
-        return {"ok": True, "data": {
-            "total": plist["total"],
-            "problems": [
-                {
-                    "id":         q["questionFrontendId"],
-                    "title":      q["title"],
-                    "slug":       q["titleSlug"],
-                    "difficulty": q["difficulty"],
-                    "ac_rate":    round(q["acRate"], 1),
-                    "paid":       q["isPaidOnly"],
-                }
-                for q in plist["questions"]
-            ]
-        }}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+        local_json_path = os.path.join(USERDIR, "plugins", "company_tags.json")
+        if os.path.exists(local_json_path):
+            with open(local_json_path, "r", encoding="utf-8") as f:
+                local_companies = json.load(f)
+    except:
+        pass
+
+    def has_company(slug):
+        if not companies: return True
+        tags = [c.lower() for c in local_companies.get(slug, [])]
+        return all(c in tags for c in companies)
+
+    if topic_tags:
+        # Fallback to GraphQL if topic tags are present, since we don't have offline topics
+        filters = {}
+        if difficulty in ("EASY", "MEDIUM", "HARD"):
+            filters["difficulty"] = difficulty
+        if keywords:
+            filters["searchKeywords"] = " ".join(keywords)
+        filters["tags"] = topic_tags
+
+        GQL = """
+        query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+          problemsetQuestionList: questionList(categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters) {
+            total: totalNum
+            questions: data { questionFrontendId title titleSlug difficulty acRate isPaidOnly }
+          }
+        }"""
+        try:
+            # We fetch more because local filtering might reduce the list
+            r = graphql(GQL, {"categorySlug": "", "limit": 200, "skip": skip, "filters": filters})
+            plist = r["data"]["problemsetQuestionList"]
+            
+            filtered = [q for q in plist["questions"] if has_company(q["titleSlug"])]
+            
+            return {"ok": True, "data": {
+                "total": plist["total"],
+                "problems": [
+                    {
+                        "id":         q["questionFrontendId"],
+                        "title":      q["title"],
+                        "slug":       q["titleSlug"],
+                        "difficulty": q["difficulty"],
+                        "ac_rate":    round(q["acRate"], 1),
+                        "paid":       q["isPaidOnly"],
+                    }
+                    for q in filtered[:limit]
+                ]
+            }}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    else:
+        # Ultra-fast local filtering using api/problems/all
+        try:
+            all_probs = get_all_problems()
+            filtered = []
+            for p in all_probs:
+                stat = p["stat"]
+                diff = p["difficulty"]["level"]
+                slug = stat["question__title_slug"]
+
+                if difficulty == "EASY" and diff != 1: continue
+                if difficulty == "MEDIUM" and diff != 2: continue
+                if difficulty == "HARD" and diff != 3: continue
+
+                if keywords:
+                    title = stat["question__title"].lower()
+                    # Frontend ID is also a useful search target
+                    fid = str(stat["frontend_question_id"])
+                    if not all(k in title or k == fid for k in keywords):
+                        continue
+
+                if not has_company(slug):
+                    continue
+
+                filtered.append(p)
+
+            # Sort by ID ascending
+            filtered.sort(key=lambda x: x["stat"]["frontend_question_id"])
+
+            return {"ok": True, "data": {
+                "total": len(filtered),
+                "problems": [
+                    {
+                        "id":         str(q["stat"]["frontend_question_id"]),
+                        "title":      q["stat"]["question__title"],
+                        "slug":       q["stat"]["question__title_slug"],
+                        "difficulty": "Easy" if q["difficulty"]["level"]==1 else ("Medium" if q["difficulty"]["level"]==2 else "Hard"),
+                        "ac_rate":    round(q["stat"]["total_acs"] / max(1, q["stat"]["total_submitted"]) * 100, 1),
+                        "paid":       q["paid_only"],
+                    }
+                    for q in filtered[skip : skip+limit]
+                ]
+            }}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
 def cmd_problem_detail(params):
     slug = params.get("slug", "")
