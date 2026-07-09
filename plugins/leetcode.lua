@@ -684,18 +684,27 @@ function core.on_event(type, ...)
             modal.list_scroll_y = target_y + 24*SCALE - list_h
           end
           handled = true
-        elseif key == "return" then command.perform("leetcode:open-problem"); handled = true
+        elseif key == "return" then
+          if modal.search_focus then
+            modal.search_focus = false
+            if modal._search_timer then modal._search_timer = system.get_time() end
+          else
+            command.perform("leetcode:open-problem")
+          end
+          handled = true
         elseif key == "tab" then modal.search_focus = not modal.search_focus; handled = true
         elseif key == "backspace" then
-          -- Backspace always edits search in list state
-          modal.search_input = modal.search_input:sub(1, -2)
-          modal._search_timer = system.get_time() + 0.4
-          handled = true
+          if modal.search_focus then
+            modal.search_input = modal.search_input:sub(1, -2)
+            modal._search_timer = system.get_time() + 0.4
+            handled = true
+          end
         elseif key == "space" and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]) then
-          -- Explicitly handle space in case the OS doesn't send textinput for it
-          modal.search_input = modal.search_input .. " "
-          modal._search_timer = system.get_time() + 0.4
-          handled = true
+          if modal.search_focus then
+            modal.search_input = modal.search_input .. " "
+            modal._search_timer = system.get_time() + 0.4
+            handled = true
+          end
         end
       elseif modal.state == "problem" then
         if key == "backspace" then modal.state = "list"; modal.search_focus = true; handled = true
@@ -729,8 +738,7 @@ function core.on_event(type, ...)
         modal.cookie_input = modal.cookie_input .. text
         core.redraw = true; return true
       end
-      if modal.state == "list" then
-        -- Always accept text input in list state (search is always active)
+      if modal.state == "list" and modal.search_focus then
         modal.search_input = modal.search_input .. text
         modal._search_timer = system.get_time() + 0.4
         core.redraw = true; return true
@@ -803,7 +811,8 @@ function core.on_event(type, ...)
           end
         end
         
-        -- Don't kill search_focus on every click - only kill it if user clicked outside search area
+        -- Handle click outside search area
+        modal.search_focus = false
         core.redraw = true
         
         -- Handle click on a problem
