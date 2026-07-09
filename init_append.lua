@@ -121,23 +121,27 @@ local STARTUP_CWD = system.absolute_path(".")
 
 local original_add_project_directory = core.add_project_directory
 function core.add_project_directory(path)
-  if #ARGS <= 1 and not core._cwd_handled then
+  if not core._cwd_handled then
     core._cwd_handled = true
+    -- If a generic dir (like Desktop) was passed via hardcoded shortcut ARGS,
+    -- but our inherited process CWD is a valid project, prefer the CWD to fix reload bugs!
     if STARTUP_CWD and STARTUP_CWD ~= path and not is_generic_dir(STARTUP_CWD) then
-      path = STARTUP_CWD
-      core.set_project_dir(STARTUP_CWD)
-      
-      -- Update recent projects so restarts (Ctrl+Shift+R) remember this directory
-      local recents = core.recent_projects
-      local dirname = common.normalize_volume(STARTUP_CWD)
-      if recents and dirname then
-        for i, v in ipairs(recents) do
-          if v == dirname then
-            table.remove(recents, i)
-            break
+      if #ARGS <= 1 or is_generic_dir(path) then
+        path = STARTUP_CWD
+        core.set_project_dir(STARTUP_CWD)
+        
+        -- Update recent projects so restarts (Ctrl+Shift+R) remember this directory
+        local recents = core.recent_projects
+        local dirname = common.normalize_volume(STARTUP_CWD)
+        if recents and dirname then
+          for i, v in ipairs(recents) do
+            if v == dirname then
+              table.remove(recents, i)
+              break
+            end
           end
+          table.insert(recents, 1, dirname)
         end
-        table.insert(recents, 1, dirname)
       end
     end
   end
@@ -153,15 +157,6 @@ function core.statusview:update(...)
   if orig_statusview_update then
     return orig_statusview_update(self, ...)
   end
-end
-
--- ── 13. Fix Theme Inconsistency ──────────────────────────────────────────────
-local old_reload = core.reload_module
-function core.reload_module(name)
-  if type(name) == "string" and name:match("^colors%.") then
-    style.mossy = nil
-  end
-  return old_reload(name)
 end
 
 -- [[ End LazyLite Configuration ]]
