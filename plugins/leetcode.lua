@@ -68,6 +68,61 @@ local function json_decode(s)
   return nil, err
 end
 
+local api_proc   = nil
+local pending    = {}
+local req_counter = 0
+
+local function ensure_api()
+  if api_proc and api_proc:returncode() == nil then return true end
+  local script = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "leetcode_api.py"
+  local python_cmd = PLATFORM == "Windows" and "python" or "python3"
+  api_proc = process.start(
+    {python_cmd, script, USERDIR},
+    { stdin  = process.REDIRECT_PIPE,
+      stdout = process.REDIRECT_PIPE,
+      stderr = process.REDIRECT_DISCARD }
+  )
+  if not api_proc then
+    core.log("[LeetCode] Failed to start leetcode_api.py - is Python installed?")
+    return false
+  end
+  core.add_thread(function()
+    local buf = ""
+    while api_proc and api_proc:returncode() == nil do
+      local chunk = api_proc:read_stdout(65536) or ""
+      if chunk ~= "" then
+        buf = buf .. chunk
+      end
+      while true do
+        local line, rest = buf:match("^([^\n]+)\n(.*)")
+        if not line then break end
+        buf = rest
+        local ok, resp = pcall(json_decode, line)
+        if ok and resp and resp.id then
+          local cb = pending[resp.id]
+          if cb then pending[resp.id] = nil; cb(resp) end
+        end
+      end
+      -- Only yield if no data was read, to avoid artificial throttling on large responses
+      if chunk == "" then
+        coroutine.yield(0.01)
+      end
+    end
+  end)
+  return true
+end
+
+local function api_call(params, callback)
+  req_counter = req_counter + 1
+  local id = tostring(req_counter)
+  params.id = id
+  pending[id] = callback
+  if ensure_api() then
+    local line = json_encode(params) .. "\n"
+    api_proc:write(line)
+  end
+end
+
 
 local LeetCodeView = View:extend()
 
