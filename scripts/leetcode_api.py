@@ -93,6 +93,64 @@ def cmd_auth_set(params):
         return {"ok": False, "error": "Cookies are invalid: " + result.get("error", "")}
     return {"ok": True, "data": result["data"]}
 
+import shutil, tempfile
+def auto_get_leetcode_cookies():
+    try:
+        import browser_cookie3
+    except ImportError:
+        return None, None, "missing_lib"
+
+    def safe_chrome():
+        chrome_path = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Default\Network\Cookies")
+        if not os.path.exists(chrome_path):
+            chrome_path = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Default\Cookies")
+        if not os.path.exists(chrome_path):
+            return browser_cookie3.chrome(domain_name=".leetcode.com")
+            
+        tmp = tempfile.mktemp(suffix=".db")
+        shutil.copy2(chrome_path, tmp)
+        try:
+            return browser_cookie3.chrome(cookie_file=tmp, domain_name=".leetcode.com")
+        finally:
+            if os.path.exists(tmp):
+                try: os.remove(tmp)
+                except: pass
+
+    browsers = [
+        ("chrome",   safe_chrome),
+        ("firefox",  lambda: browser_cookie3.firefox(domain_name=".leetcode.com")),
+        ("edge",     lambda: browser_cookie3.edge(domain_name=".leetcode.com")),
+        ("brave",    lambda: browser_cookie3.brave(domain_name=".leetcode.com")),
+        ("chromium", lambda: browser_cookie3.chromium(domain_name=".leetcode.com")),
+    ]
+    for name, fn in browsers:
+        try:
+            cj = fn()
+            session, csrf = "", ""
+            for cookie in cj:
+                if cookie.name == "LEETCODE_SESSION": session = cookie.value
+                if cookie.name == "csrftoken":        csrf    = cookie.value
+            if session and csrf:
+                return session, csrf, name
+        except Exception:
+            continue
+    return None, None, None
+
+def cmd_auth_auto(params):
+    session, csrf, browser = auto_get_leetcode_cookies()
+    if browser == "missing_lib":
+        return {"ok": False, "error": "browser_cookie3 is not installed. Run: pip install browser-cookie3"}
+    if not session:
+        return {"ok": False, "error": "No LeetCode cookies found. Are you logged in at leetcode.com?"}
+    save_session(session, csrf)
+    check = cmd_auth_check({})
+    if not check["ok"]:
+        save_session("", "")
+        return {"ok": False, "error": "Cookies found but invalid — try logging out and back in at leetcode.com"}
+    data = check["data"]
+    data["detected_from"] = browser
+    return {"ok": True, "data": data}
+
 def cmd_problem_list(params):
     skip       = params.get("skip", 0)
     limit      = params.get("limit", 50)

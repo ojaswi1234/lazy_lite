@@ -219,6 +219,22 @@ local function get_active_code()
 end
 
 command.add(nil, {
+  ["leetcode:auto-detect"] = function()
+    modal.state = "loading"
+    modal.loading_msg = "Auto-detecting cookies..."
+    core.redraw = true
+    core.add_thread(function()
+      local ok, res = call_api({"cmd_auth_auto", {}})
+      if ok and res.ok then
+        modal.state = "list"
+        command.perform("leetcode:refresh-list")
+      else
+        modal.state = "auth"
+        modal.auth_status = "Auto-detect failed: " .. (res and res.error or "Unknown error")
+        core.redraw = true
+      end
+    end)
+  end,
   ["leetcode:toggle"] = function()
     modal.active = not modal.active
     if modal.active and modal.state == "list" and #modal.problems == 0 then
@@ -412,12 +428,15 @@ function core.root_view:draw()
   local cw = w - 40 * SCALE
 
   if modal.state == "auth" then
-    renderer.draw_text(style.font, "🟨 LeetCode — Setup", cx, cy, style.text)
+    renderer.draw_text(style.font, "🟨 LeetCode — Connect", cx, cy, style.text)
     cy = cy + 30*SCALE
-    renderer.draw_text(style.font, "Paste your LeetCode session cookies below.", cx, cy, style.text)
-    cy = cy + 20*SCALE
-    renderer.draw_text(style.font, "Log in at leetcode.com → F12 → Application → Cookies → leetcode.com", cx, cy, style.text)
+    
+    renderer.draw_rect(cx, cy, 320*SCALE, 30*SCALE, style.accent)
+    renderer.draw_text(style.font, "Auto-detect from Chrome / Firefox", cx + 15*SCALE, cy + 5*SCALE, style.background)
     cy = cy + 40*SCALE
+    
+    renderer.draw_text(style.font, "─── or paste manually ────────────────────────────", cx, cy, style.dim)
+    cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "LEETCODE_SESSION:", cx, cy, style.text)
     cy = cy + 20*SCALE
@@ -647,8 +666,10 @@ function core.on_event(type, ...)
         
         local cy = my + 20 * SCALE
         cy = cy + 30*SCALE
-        cy = cy + 20*SCALE
+        local auto_btn_y = cy
+        
         cy = cy + 40*SCALE
+        cy = cy + 30*SCALE
         cy = cy + 20*SCALE
         local box1_y = cy
         
@@ -659,6 +680,9 @@ function core.on_event(type, ...)
         cy = cy + 50*SCALE
         local btn_y = cy
         
+        if x >= cx and x <= cx + 320*SCALE and y >= auto_btn_y and y <= auto_btn_y + 30*SCALE then
+          command.perform("leetcode:auto-detect")
+        end
         if x >= cx and x <= cx + cw then
           if y >= box1_y and y <= box1_y + 30*SCALE then
             modal.auth_focus = "session"
