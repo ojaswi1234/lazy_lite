@@ -390,7 +390,7 @@ def to_lua(obj):
     if isinstance(obj, bool): return "true" if obj else "false"
     if obj is None: return "nil"
     if isinstance(obj, (int, float)): return str(obj)
-    if isinstance(obj, str): return json.dumps(obj)
+    if isinstance(obj, str): return json.dumps(obj, ensure_ascii=False)
     if isinstance(obj, list):
         return "{" + ", ".join(to_lua(x) for x in obj) + "}"
     if isinstance(obj, dict):
