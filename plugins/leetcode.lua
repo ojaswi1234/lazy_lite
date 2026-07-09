@@ -221,7 +221,6 @@ end
 command.add(nil, {
   ["leetcode:toggle"] = function()
     modal.active = not modal.active
-    if modal.active then system.set_text_input(true) end
     if modal.active and modal.state == "list" and #modal.problems == 0 then
       command.perform("leetcode:fetch-list")
     elseif modal.active and modal.state == "auth" then
