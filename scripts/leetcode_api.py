@@ -26,6 +26,8 @@ def save_session(session, csrf):
 
 # ── HTTP ───────────────────────────────────────────────────────────────────────
 _ctx = ssl.create_default_context()
+_ctx.check_hostname = False
+_ctx.verify_mode = ssl.CERT_NONE
 
 def http_request(url, data=None, method="POST"):
     session, csrf = load_session()
