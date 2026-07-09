@@ -268,7 +268,8 @@ command.add(nil, {
     api_call({
       cmd     = "auth_set",
       session = sess_match,
-      csrf    = csrf_match
+      csrf    = csrf_match,
+      raw     = modal.cookie_input
     }, function(resp)
       if resp.ok then
         modal.auth_status = "[+] Logged in as " .. resp.data.username

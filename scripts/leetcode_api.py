@@ -15,14 +15,14 @@ def load_session():
     try:
         with open(SESSION_FILE) as f:
             d = json.load(f)
-            return d.get("LEETCODE_SESSION", ""), d.get("csrftoken", "")
+            return d.get("LEETCODE_SESSION", ""), d.get("csrftoken", ""), d.get("raw", "")
     except Exception:
-        return "", ""
+        return "", "", ""
 
-def save_session(session, csrf):
+def save_session(session, csrf, raw=""):
     os.makedirs(USERDIR, exist_ok=True)
     with open(SESSION_FILE, "w") as f:
-        json.dump({"LEETCODE_SESSION": session, "csrftoken": csrf}, f)
+        json.dump({"LEETCODE_SESSION": session, "csrftoken": csrf, "raw": raw}, f)
 
 # ── HTTP ───────────────────────────────────────────────────────────────────────
 _ctx = ssl.create_default_context()
@@ -30,13 +30,13 @@ _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 
 def http_request(url, data=None, method="POST"):
-    session, csrf = load_session()
+    session, csrf, raw = load_session()
     headers = {
         "Content-Type":   "application/json",
         "Referer":        "https://leetcode.com",
-        "User-Agent":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "x-csrftoken":    csrf,
-        "Cookie":         f"LEETCODE_SESSION={session}; csrftoken={csrf}",
+        "Cookie":         raw if raw else f"LEETCODE_SESSION={session}; csrftoken={csrf}",
     }
     body = json.dumps(data).encode() if data else None
     req  = urllib.request.Request(url, data=body, headers=headers, method=method)
@@ -78,11 +78,12 @@ def strip_html(html):
 def cmd_auth_set(params):
     session = params.get("session", "")
     csrf    = params.get("csrf", "")
-    save_session(session, csrf)
+    raw     = params.get("raw", "")
+    save_session(session, csrf, raw)
     result = cmd_auth_check({})
     if not result["ok"]:
         # Revert — don't save bad cookies
-        save_session("", "")
+        save_session("", "", "")
         return {"ok": False, "error": "Cookies are invalid: " + result.get("error", "")}
     return {"ok": True, "data": result["data"]}
 
@@ -148,12 +149,15 @@ def cmd_auth_check(params):
     try:
         r = graphql("{ userStatus { isSignedIn username } }")
         if not r or "data" not in r or not r["data"].get("userStatus"):
+            save_session("", "", "")
             return {"ok": False, "error": "Not logged in"}
         status = r["data"]["userStatus"]
         if not status.get("isSignedIn"):
+            save_session("", "", "")
             return {"ok": False, "error": "Not logged in"}
         return {"ok": True, "data": {"username": status.get("username", "Unknown")}}
     except Exception as e:
+        save_session("", "", "")
         return {"ok": False, "error": str(e)}
 
 def cmd_problem_list(params):
