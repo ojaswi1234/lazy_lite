@@ -316,6 +316,17 @@ HANDLERS = {
     "submit":         cmd_submit,
 }
 
+def to_lua(obj):
+    if isinstance(obj, bool): return "true" if obj else "false"
+    if obj is None: return "nil"
+    if isinstance(obj, (int, float)): return str(obj)
+    if isinstance(obj, str): return json.dumps(obj)
+    if isinstance(obj, list):
+        return "{" + ", ".join(to_lua(x) for x in obj) + "}"
+    if isinstance(obj, dict):
+        return "{" + ", ".join(f"[{to_lua(k)}]={to_lua(v)}" for k, v in obj.items()) + "}"
+    return "nil"
+
 if __name__ == "__main__":
     for line in sys.stdin:
         line = line.strip()
@@ -330,6 +341,6 @@ if __name__ == "__main__":
             else:
                 result = {"ok": False, "error": f"Unknown command: {cmd}"}
             result["id"] = req_id
-            print(json.dumps(result), flush=True)
+            print(to_lua(result), flush=True)
         except Exception as e:
-            print(json.dumps({"id": "", "ok": False, "error": str(e)}), flush=True)
+            print(to_lua({"id": "", "ok": False, "error": str(e)}), flush=True)

@@ -59,13 +59,7 @@ local function json_encode(v)
   return "null"
 end
 
--- Safely parse the python response
 local function json_decode(s)
-  s = s:gsub('"([^"]-)"%s*:', '["%1"]=')
-       :gsub('%[%s*%]', '{}')
-       :gsub('null', 'nil')
-       :gsub('true', 'true')
-       :gsub('false', 'false')
   local fn, err = load("return " .. s)
   if fn then
     local ok, res = pcall(fn)
