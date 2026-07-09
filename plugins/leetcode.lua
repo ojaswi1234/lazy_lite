@@ -71,9 +71,7 @@ end
 local modal = {
   active        = false,
   state         = "auth",
-  session_input = "",
-  csrf_input    = "",
-  auth_focus    = "session",
+  cookie_input  = "",
   auth_status   = "",
   problems      = {},
   total_problems= 0,
@@ -257,10 +255,20 @@ command.add(nil, {
   ["leetcode:connect"] = function()
     modal.auth_status = "checking..."
     core.redraw = true
+    
+    local sess_match = modal.cookie_input:match("LEETCODE_SESSION=([^;]+)")
+    local csrf_match = modal.cookie_input:match("csrftoken=([^;]+)")
+    
+    if not sess_match or not csrf_match then
+      modal.auth_status = "Invalid cookie string"
+      core.redraw = true
+      return
+    end
+    
     api_call({
       cmd     = "auth_set",
-      session = modal.session_input,
-      csrf    = modal.csrf_input
+      session = sess_match,
+      csrf    = csrf_match
     }, function(resp)
       if resp.ok then
         modal.auth_status = "[+] Logged in as " .. resp.data.username
@@ -437,26 +445,28 @@ function core.root_view:draw()
     renderer.draw_text(style.font, "--- or paste manually ---", cx, cy, style.dim)
     cy = cy + 30*SCALE
     
-    renderer.draw_text(style.font, "LEETCODE_SESSION:", cx, cy, style.text)
+    renderer.draw_text(style.font, "Full Cookie String:", cx, cy, style.text)
     cy = cy + 20*SCALE
     renderer.draw_rect(cx, cy, cw, 30*SCALE, style.background2)
-    if modal.session_input == "" then
-      renderer.draw_text(style.font, "e.g. eyJ... or paste the full Cookie string here", cx + 5*SCALE, cy + 5*SCALE, style.dim)
+    if modal.cookie_input == "" then
+      renderer.draw_text(style.font, "e.g. csrftoken=...; LEETCODE_SESSION=...", cx + 5*SCALE, cy + 5*SCALE, style.dim)
     end
-    local sess_text = modal.session_input:gsub(".", "*")
-    if modal.auth_focus == "session" and os.time() % 2 == 0 then sess_text = sess_text .. "|" end
-    renderer.draw_text(style.font, sess_text, cx + 5*SCALE, cy + 5*SCALE, style.text)
-    cy = cy + 40*SCALE
     
-    renderer.draw_text(style.font, "csrftoken:", cx, cy, style.text)
-    cy = cy + 20*SCALE
-    renderer.draw_rect(cx, cy, cw, 30*SCALE, style.background2)
-    if modal.csrf_input == "" then
-      renderer.draw_text(style.font, "e.g. WqT9...", cx + 5*SCALE, cy + 5*SCALE, style.dim)
+    local cookie_text = modal.cookie_input:gsub(".", "*")
+    if os.time() % 2 == 0 then cookie_text = cookie_text .. "|" end
+    
+    -- Keep text within the box by showing only the tail if it's too long
+    local visible_text = cookie_text
+    local tw = style.font:get_width(cookie_text)
+    if tw > cw - 20*SCALE then
+       local char_w = style.font:get_width("*")
+       if char_w > 0 then
+         local chars_fit = math.floor((cw - 20*SCALE) / char_w)
+         visible_text = cookie_text:sub(-chars_fit)
+       end
     end
-    local csrf_text = modal.csrf_input
-    if modal.auth_focus == "csrf" and os.time() % 2 == 0 then csrf_text = csrf_text .. "|" end
-    renderer.draw_text(style.font, csrf_text, cx + 5*SCALE, cy + 5*SCALE, style.text)
+    
+    renderer.draw_text(style.font, visible_text, cx + 5*SCALE, cy + 5*SCALE, style.text)
     cy = cy + 50*SCALE
     
     renderer.draw_rect(cx, cy, 100*SCALE, 30*SCALE, style.accent)
@@ -639,15 +649,7 @@ function core.on_event(type, ...)
         if text then
           text = text:gsub("[\r\n]", "") -- strip newlines from pasted cookies
           if modal.state == "auth" then
-            local sess_match = text:match("LEETCODE_SESSION=([^;]+)")
-            local csrf_match = text:match("csrftoken=([^;]+)")
-            if sess_match or csrf_match then
-              if sess_match then modal.session_input = sess_match end
-              if csrf_match then modal.csrf_input = csrf_match end
-            else
-              if modal.auth_focus == "session" then modal.session_input = modal.session_input .. text
-              else modal.csrf_input = modal.csrf_input .. text end
-            end
+            modal.cookie_input = modal.cookie_input .. text
           elseif modal.state == "list" and modal.search_focus then
             modal.search_input = modal.search_input .. text
             modal._search_timer = system.get_time() + 0.4
@@ -659,20 +661,15 @@ function core.on_event(type, ...)
       -- Modal State specific keys
       local handled = false
       if modal.state == "auth" then
-        if key == "tab" then
-          modal.auth_focus = modal.auth_focus == "session" and "csrf" or "session"
-          handled = true
-        elseif key == "return" then command.perform("leetcode:connect"); handled = true
+        if key == "return" then command.perform("leetcode:connect"); handled = true
         elseif key == "backspace" then
-          if modal.auth_focus == "session" then modal.session_input = modal.session_input:sub(1, -2)
-          else modal.csrf_input = modal.csrf_input:sub(1, -2) end
+          modal.cookie_input = modal.cookie_input:sub(1, -2)
           handled = true
         elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
           local char = key
           if key == "space" then char = " " end
           if keymap.modkeys["shift"] then char = char:upper() end
-          if modal.auth_focus == "session" then modal.session_input = modal.session_input .. char
-          else modal.csrf_input = modal.csrf_input .. char end
+          modal.cookie_input = modal.cookie_input .. char
           handled = true
         end
       elseif modal.state == "list" then
@@ -734,8 +731,7 @@ function core.on_event(type, ...)
     if type == "textinput" then
       local text = ...
       if modal.state == "auth" then
-        if modal.auth_focus == "session" then modal.session_input = modal.session_input .. text
-        else modal.csrf_input = modal.csrf_input .. text end
+        modal.cookie_input = modal.cookie_input .. text
         core.redraw = true; return true
       end
       if modal.state == "list" and modal.search_focus then
@@ -771,15 +767,6 @@ function core.on_event(type, ...)
         
         if x >= cx and x <= cx + 320*SCALE and y >= auto_btn_y and y <= auto_btn_y + 30*SCALE then
           command.perform("leetcode:auto-detect")
-        end
-        if x >= cx and x <= cx + cw then
-          if y >= box1_y and y <= box1_y + 30*SCALE then
-            modal.auth_focus = "session"
-            core.redraw = true
-          elseif y >= box2_y and y <= box2_y + 30*SCALE then
-            modal.auth_focus = "csrf"
-            core.redraw = true
-          end
         end
         if x >= cx and x <= cx + 100*SCALE and y >= btn_y and y <= btn_y + 30*SCALE then
           command.perform("leetcode:connect")
