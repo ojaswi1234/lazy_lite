@@ -274,8 +274,8 @@ command.add(nil, {
   end,
 
   ["leetcode:fetch-list"] = function()
-    modal.state       = "loading"
-    modal.loading_msg = "Fetching problems"
+    modal.state       = "list"
+    modal.is_fetching = true
     core.redraw       = true
     api_call({
       cmd        = "problem_list",
@@ -284,17 +284,16 @@ command.add(nil, {
       difficulty = modal.difficulty,
       search     = modal.search_input,
     }, function(resp)
+      modal.is_fetching = false
       if resp.ok then
         modal.problems       = resp.data.problems
         modal.total_problems = resp.data.total
-        modal.state          = "list"
         modal.selected_idx   = 1
       else
         if resp.error and resp.error:match("Not logged in") then
           modal.state = "auth"
           modal.auth_status = "Session expired"
         else
-          modal.state = "list"
           core.log("[LeetCode] " .. (resp.error or "Unknown error"))
         end
       end
@@ -492,28 +491,36 @@ function core.root_view:draw()
     cy = cy + 10*SCALE
     
     local list_h = (y + h - 50*SCALE) - cy
-    local max_scroll = math.max(0, #modal.problems * 24*SCALE - list_h)
-    modal.list_scroll_y = math.min(math.max(0, modal.list_scroll_y or 0), max_scroll)
     
-    core.push_clip_rect(cx, cy, cw, list_h)
-    local item_y = cy - modal.list_scroll_y
-    for i, p in ipairs(modal.problems) do
-      if item_y + 24*SCALE > cy and item_y < cy + list_h then
-        if i == modal.selected_idx then
-          renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
+    if modal.is_fetching then
+      local dots = string.rep(".", math.floor(system.get_time() * 3) % 4)
+      local msg = "Fetching problems" .. dots
+      local tw = style.font:get_width(msg)
+      renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + list_h/2, style.accent)
+    else
+      local max_scroll = math.max(0, #modal.problems * 24*SCALE - list_h)
+      modal.list_scroll_y = math.min(math.max(0, modal.list_scroll_y or 0), max_scroll)
+      
+      core.push_clip_rect(cx, cy, cw, list_h)
+      local item_y = cy - modal.list_scroll_y
+      for i, p in ipairs(modal.problems) do
+        if item_y + 24*SCALE > cy and item_y < cy + list_h then
+          if i == modal.selected_idx then
+            renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
+          end
+          renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
+          local title = p.title
+          if #title > 45 then title = title:sub(1, 42) .. "..." end
+          renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, style.text)
+          local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
+          renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, item_y, dc)
+          renderer.draw_text(style.font, p.ac_rate .. "%", cx + 550*SCALE, item_y, style.dim)
+          if p.paid then renderer.draw_text(style.font, "(Premium)", cx + 620*SCALE, item_y, LC_COLORS.tle) end
         end
-        renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
-        local title = p.title
-        if #title > 45 then title = title:sub(1, 42) .. "..." end
-        renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, style.text)
-        local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
-        renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, item_y, dc)
-        renderer.draw_text(style.font, p.ac_rate .. "%", cx + 550*SCALE, item_y, style.dim)
-        if p.paid then renderer.draw_text(style.font, "(Premium)", cx + 620*SCALE, item_y, LC_COLORS.tle) end
+        item_y = item_y + 24*SCALE
       end
-      item_y = item_y + 24*SCALE
+      core.pop_clip_rect()
     end
-    core.pop_clip_rect()
     cy = y + h - 50*SCALE
     
     -- Draw Pagination at bottom
