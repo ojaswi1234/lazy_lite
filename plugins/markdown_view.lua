@@ -223,8 +223,14 @@ function MarkdownView:draw()
   self.image_scales = self.image_scales or {}
   
   local y = self.position.y - self.scroll.y + style.padding.y
-  local x_start = self.position.x + style.padding.x
+  local x_start = self.position.x - self.scroll.x + style.padding.x
   local max_w = self.size.x - style.padding.x * 2
+  
+  local bg_w = max_w
+  if self.max_scroll.x and self.max_scroll.x > 0 then
+    bg_w = max_w + self.max_scroll.x
+  end
+  local current_max_content_w = max_w
   
   local in_code = false
   
@@ -252,10 +258,13 @@ function MarkdownView:draw()
         local start_x = x_start
         local start_y = y
         
+        local img_w = img_data.w * scale
+        if img_w > current_max_content_w then current_max_content_w = img_w end
+        
         -- Make the image clickable so the user can see it in full resolution
         table.insert(self.links, {
           x = start_x, y = start_y, 
-          w = img_data.w * scale, h = img_data.h * scale, 
+          w = img_w, h = img_data.h * scale, 
           url = img_url
         })
         
@@ -313,6 +322,8 @@ function MarkdownView:draw()
       font = self.fonts.code
       color = style.syntax.string or style.text
       bg = style.line_highlight
+      local w = font:get_width(line)
+      if w > current_max_content_w then current_max_content_w = w end
       renderer.draw_text(font, line, x, y, color)
     else
       local is_chat_header = (line:match("ago%s*$") or line:match("edited.*$")) and #line < 60
@@ -349,7 +360,7 @@ function MarkdownView:draw()
     
     if y + line_h >= self.position.y and y <= self.position.y + self.size.y then
       if bg then
-        renderer.draw_rect(x_start - 5, y, max_w + 10, line_h, bg)
+        renderer.draw_rect(x_start - 5, y, bg_w + 10, line_h, bg)
       end
       
       if in_code or font ~= self.fonts.normal then
@@ -364,6 +375,7 @@ function MarkdownView:draw()
   end
   
   self.max_scroll.y = math.max(0, y - (self.position.y - self.scroll.y) - self.size.y + style.padding.y)
+  self.max_scroll.x = math.max(0, current_max_content_w - max_w)
 end
 
 function MarkdownView:on_mouse_pressed(button, x, y, clicks)
@@ -405,8 +417,10 @@ function MarkdownView:on_mouse_wheel(dy, x, y)
   if keymap.modkeys["ctrl"] and self.links then
     -- Find if we are hovering over an image URL
     for _, link in ipairs(self.links) do
-      if core.window.mouse_x >= link.x and core.window.mouse_x < link.x + link.w and 
-         core.window.mouse_y >= link.y and core.window.mouse_y < link.y + link.h then
+      local mx = self.mouse_x or 0
+      local my = self.mouse_y or 0
+      if mx >= link.x and mx < link.x + link.w and 
+         my >= link.y and my < link.y + link.h then
         local url = link.url
         self.image_scales[url] = math.max(0.2, (self.image_scales[url] or 1.5) + (dy * 0.1))
         self.zoom_timer = self.zoom_timer or {}

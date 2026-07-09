@@ -691,16 +691,9 @@ function core.on_event(type, ...)
           modal.search_input = modal.search_input:sub(1, -2)
           modal._search_timer = system.get_time() + 0.4
           handled = true
-        elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
-          -- All printable chars go to search in list state
-          local char = key
-          if key == "space" then char = " " end
-          if keymap.modkeys["shift"] then
-            if char == "3" then char = "#"
-            elseif char == "2" then char = "@"
-            else char = char:upper() end
-          end
-          modal.search_input = modal.search_input .. char
+        elseif key == "space" and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]) then
+          -- Explicitly handle space in case the OS doesn't send textinput for it
+          modal.search_input = modal.search_input .. " "
           modal._search_timer = system.get_time() + 0.4
           handled = true
         end
