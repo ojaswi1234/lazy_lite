@@ -223,14 +223,14 @@ command.add(nil, {
     modal.state = "loading"
     modal.loading_msg = "Auto-detecting cookies..."
     core.redraw = true
-    core.add_thread(function()
-      local ok, res = call_api({"cmd_auth_auto", {}})
-      if ok and res.ok then
+    api_call({ cmd = "auth_auto" }, function(res)
+      if res.ok then
+        modal.auth_status = "Connected via " .. (res.data.detected_from or "browser")
         modal.state = "list"
-        command.perform("leetcode:refresh-list")
+        command.perform("leetcode:fetch-list")
       else
         modal.state = "auth"
-        modal.auth_status = "Auto-detect failed: " .. (res and res.error or "Unknown error")
+        modal.auth_status = "Auto-detect failed: " .. (res.error or "Unknown error")
         core.redraw = true
       end
     end)
