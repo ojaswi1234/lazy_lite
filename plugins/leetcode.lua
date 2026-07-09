@@ -81,6 +81,7 @@ local modal = {
   search_focus  = false,
   difficulty    = "",
   scroll_y      = 0,
+  list_scroll_y = 0,
   selected_idx  = 1,
   page_skip     = 0,
   loading_msg   = "",
@@ -107,7 +108,7 @@ local function ensure_api()
       stderr = process.REDIRECT_DISCARD }
   )
   if not api_proc then
-    core.error("[LeetCode] Failed to start leetcode_api.py — is Python installed?")
+    core.log("[LeetCode] Failed to start leetcode_api.py — is Python installed?")
     return false
   end
   core.add_thread(function()
@@ -289,7 +290,7 @@ command.add(nil, {
           modal.auth_status = "Session expired"
         else
           modal.state = "list"
-          core.error("[LeetCode] " .. (resp.error or "Unknown error"))
+          core.log("[LeetCode] " .. (resp.error or "Unknown error"))
         end
       end
       core.redraw = true
@@ -310,7 +311,7 @@ command.add(nil, {
         modal.scroll_y = 0
       else
         modal.state = "list"
-        core.error("[LeetCode] " .. (resp.error or "Failed to load problem"))
+        core.log("[LeetCode] " .. (resp.error or "Failed to load problem"))
       end
       core.redraw = true
     end)
@@ -320,7 +321,7 @@ command.add(nil, {
     local meta = get_active_meta()
     local code = get_active_code()
     if not meta or not code then
-      core.error("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
+      core.log("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
       return
     end
     modal.active      = true
@@ -351,7 +352,7 @@ command.add(nil, {
     local meta = get_active_meta()
     local code = get_active_code()
     if not meta or not code then
-      core.error("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
+      core.log("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
       return
     end
     modal.active      = true
@@ -473,30 +474,46 @@ function core.root_view:draw()
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
-    renderer.draw_rect(cx + 60*SCALE, cy, cw - 60*SCALE, 24*SCALE, style.background2)
+    renderer.draw_rect(cx + 60*SCALE, cy, cw - 260*SCALE, 24*SCALE, style.background2)
     local stext = modal.search_input
     if modal.search_focus and os.time() % 2 == 0 then stext = stext .. "|" end
     renderer.draw_text(style.font, stext, cx + 65*SCALE, cy + 2*SCALE, style.text)
+    
+    local page = math.floor(modal.page_skip / 50) + 1
+    local total_pages = math.max(1, math.ceil(modal.total_problems / 50))
+    renderer.draw_text(style.font, "Page " .. page .. " / " .. total_pages, cx + cw - 180*SCALE, cy + 2*SCALE, style.dim)
+    renderer.draw_text(style.font, "[< Prev]", cx + cw - 100*SCALE, cy + 2*SCALE, modal.page_skip > 0 and style.accent or style.dim)
+    renderer.draw_text(style.font, "[Next >]", cx + cw - 40*SCALE, cy + 2*SCALE, (modal.page_skip + 50) < modal.total_problems and style.accent or style.dim)
+    
     cy = cy + 35*SCALE
     
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 10*SCALE
     
+    local list_h = (y + h - 50*SCALE) - cy
+    local max_scroll = math.max(0, #modal.problems * 24*SCALE - list_h)
+    modal.list_scroll_y = math.min(math.max(0, modal.list_scroll_y or 0), max_scroll)
+    
+    core.push_clip_rect(cx, cy, cw, list_h)
+    local item_y = cy - modal.list_scroll_y
     for i, p in ipairs(modal.problems) do
-      if cy > y + h - 50*SCALE then break end
-      if i == modal.selected_idx then
-        renderer.draw_rect(cx - 5*SCALE, cy - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
+      if item_y + 24*SCALE > cy and item_y < cy + list_h then
+        if i == modal.selected_idx then
+          renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
+        end
+        renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
+        local title = p.title
+        if #title > 45 then title = title:sub(1, 42) .. "..." end
+        renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, style.text)
+        local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
+        renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, item_y, dc)
+        renderer.draw_text(style.font, p.ac_rate .. "%", cx + 550*SCALE, item_y, style.dim)
+        if p.paid then renderer.draw_text(style.font, "(Premium)", cx + 620*SCALE, item_y, LC_COLORS.tle) end
       end
-      renderer.draw_text(style.font, "#" .. p.id, cx, cy, style.dim)
-      local title = p.title
-      if #title > 45 then title = title:sub(1, 42) .. "..." end
-      renderer.draw_text(style.font, title, cx + 50*SCALE, cy, style.text)
-      local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
-      renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, cy, dc)
-      renderer.draw_text(style.font, p.ac_rate .. "%", cx + 550*SCALE, cy, style.dim)
-      if p.paid then renderer.draw_text(style.font, "(Premium)", cx + 620*SCALE, cy, LC_COLORS.tle) end
-      cy = cy + 24*SCALE
+      item_y = item_y + 24*SCALE
     end
+    core.pop_clip_rect()
+    cy = y + h - 50*SCALE
     
   elseif modal.state == "problem" and modal.current then
     local p = modal.current
@@ -605,8 +622,19 @@ function core.on_event(type, ...)
           handled = true
         end
       elseif modal.state == "list" then
-        if key == "up" then modal.selected_idx = math.max(1, modal.selected_idx - 1); handled = true
-        elseif key == "down" then modal.selected_idx = math.min(#modal.problems, modal.selected_idx + 1); handled = true
+        if key == "up" then
+          modal.selected_idx = math.max(1, modal.selected_idx - 1)
+          local target_y = (modal.selected_idx - 1) * 24 * SCALE
+          if target_y < modal.list_scroll_y then modal.list_scroll_y = target_y end
+          handled = true
+        elseif key == "down" then
+          modal.selected_idx = math.min(#modal.problems, modal.selected_idx + 1)
+          local target_y = (modal.selected_idx - 1) * 24 * SCALE
+          local list_h = 300 * SCALE
+          if target_y + 24*SCALE > modal.list_scroll_y + list_h then
+            modal.list_scroll_y = target_y + 24*SCALE - list_h
+          end
+          handled = true
         elseif key == "return" then command.perform("leetcode:open-problem"); handled = true
         elseif key == "tab" then modal.search_focus = not modal.search_focus; handled = true
         elseif key == "backspace" and modal.search_focus then
@@ -700,17 +728,35 @@ function core.on_event(type, ...)
         local cw = w - 40 * SCALE
         local cy = my + 20 * SCALE + 60*SCALE -- "LeetCode Browser" + "Hotkeys"
         
-        if x >= cx + 60*SCALE and x <= cx + cw and y >= cy and y <= cy + 24*SCALE then
-          modal.search_focus = true
-          core.redraw = true
-        else
-          modal.search_focus = false
+        local prev_x = cx + cw - 100*SCALE
+        local next_x = cx + cw - 40*SCALE
+        if y >= cy and y <= cy + 24*SCALE then
+          if x >= prev_x and x < next_x then
+            if modal.page_skip >= 50 then
+              modal.page_skip = modal.page_skip - 50
+              command.perform("leetcode:fetch-list")
+            end
+            return true
+          elseif x >= next_x then
+            if modal.page_skip + 50 < modal.total_problems then
+              modal.page_skip = modal.page_skip + 50
+              command.perform("leetcode:fetch-list")
+            end
+            return true
+          elseif x >= cx + 60*SCALE and x <= cx + cw - 220*SCALE then
+            modal.search_focus = true
+            core.redraw = true
+            return true
+          end
+        end
+        
+        modal.search_focus = false
           core.redraw = true
           
           -- Handle click on a problem
           local list_y = cy + 35*SCALE + 10*SCALE
-          if y >= list_y and y <= list_y + (#modal.problems * 24*SCALE) then
-            local idx = math.floor((y - list_y) / (24*SCALE)) + 1
+          if y >= list_y then
+            local idx = math.floor((y - list_y + modal.list_scroll_y) / (24*SCALE)) + 1
             if idx >= 1 and idx <= #modal.problems then
               modal.selected_idx = idx
               command.perform("leetcode:open-problem")
@@ -737,10 +783,15 @@ function core.on_event(type, ...)
       end
       return true
     end
-    if type == "mousewheel" and modal.state == "problem" then
+    if type == "mousewheel" then
       local delta = ...
-      modal.scroll_y = math.max(0, modal.scroll_y - delta * 40)
-      core.redraw = true
+      if modal.state == "problem" then
+        modal.scroll_y = math.max(0, modal.scroll_y - delta * 40)
+        core.redraw = true
+      elseif modal.state == "list" then
+        modal.list_scroll_y = math.max(0, (modal.list_scroll_y or 0) - delta * 40)
+        core.redraw = true
+      end
       return true
     end
     return true
