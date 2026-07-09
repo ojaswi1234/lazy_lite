@@ -259,11 +259,23 @@ end
 -- The user requested that inactive tabs use the exact same dark text color as active tabs.
 -- We temporarily override style.dim during the drawing of the tab title.
 local Node = require "core.node"
+local style = require "core.style"
 local old_draw_tab_title = Node.draw_tab_title
 function Node:draw_tab_title(view, font, is_active, is_hovered, x, y, w, h)
   local old_dim = style.dim
-  -- Force inactive tabs to use the fully dark text color
   style.dim = style.text 
   old_draw_tab_title(self, view, font, is_active, is_hovered, x, y, w, h)
   style.dim = old_dim
+end
+
+-- ── 13. Fix Theme Inconsistency ──────────────────────────────────────────────
+-- When switching themes, Lua doesn't delete unknown keys from the style table.
+-- We hook module reloading to explicitly wipe style.mossy when a new theme loads,
+-- so the mossy colors don't permanently bleed into standard themes.
+local old_reload = core.reload_module
+function core.reload_module(name)
+  if type(name) == "string" and name:match("^colors%.") then
+    style.mossy = nil
+  end
+  return old_reload(name)
 end
