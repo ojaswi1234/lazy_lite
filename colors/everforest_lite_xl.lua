@@ -14,7 +14,7 @@ style.background3      = c "#B9CFA5"
 
 -- Text
 style.text             = c "#424A3E"
-style.dim              = c "#54634D" -- Darkened for better inactive tab readability
+style.dim              = c "#424A3E" -- Explicitly matched to text color for high-contrast inactive tabs
 style.accent           = c "#68C171"
 
 -- Caret & selection
