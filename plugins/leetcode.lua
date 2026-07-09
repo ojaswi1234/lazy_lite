@@ -114,8 +114,10 @@ local function ensure_api()
   core.add_thread(function()
     local buf = ""
     while api_proc and api_proc:returncode() == nil do
-      local chunk = api_proc:read_stdout(4096) or ""
-      buf = buf .. chunk
+      local chunk = api_proc:read_stdout(65536) or ""
+      if chunk ~= "" then
+        buf = buf .. chunk
+      end
       while true do
         local line, rest = buf:match("^([^\n]+)\n(.*)")
         if not line then break end
@@ -126,7 +128,10 @@ local function ensure_api()
           if cb then pending[resp.id] = nil; cb(resp) end
         end
       end
-      coroutine.yield(0.05)
+      -- Only yield if no data was read, to avoid artificial throttling on large responses
+      if chunk == "" then
+        coroutine.yield(0.01)
+      end
     end
   end)
   return true
