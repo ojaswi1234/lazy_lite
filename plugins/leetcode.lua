@@ -549,6 +549,20 @@ function core.on_event(type, ...)
       if key == "escape" then
         modal.active = false; core.redraw = true; return true
       end
+      if key == "ctrl+v" or key == "cmd+v" then
+        local text = system.get_clipboard()
+        if text then
+          text = text:gsub("[\r\n]", "") -- strip newlines from pasted cookies
+          if modal.state == "auth" then
+            if modal.auth_focus == "session" then modal.session_input = modal.session_input .. text
+            else modal.csrf_input = modal.csrf_input .. text end
+          elseif modal.state == "list" and modal.search_focus then
+            modal.search_input = modal.search_input .. text
+            modal._search_timer = system.get_time() + 0.4
+          end
+        end
+        core.redraw = true; return true
+      end
       if modal.state == "auth" then
         if key == "tab" then
           modal.auth_focus = modal.auth_focus == "session" and "csrf" or "session"
