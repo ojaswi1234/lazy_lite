@@ -497,10 +497,24 @@ function core.root_view:draw()
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
-    renderer.draw_rect(cx + 60*SCALE, cy, cw - 60*SCALE, 24*SCALE, style.background2)
-    local stext = modal.search_input
-    if modal.search_focus and os.time() % 2 == 0 then stext = stext .. "|" end
-    renderer.draw_text(style.font, stext, cx + 65*SCALE, cy + 2*SCALE, style.text)
+    local search_x = cx + 60*SCALE
+    local search_y = cy
+    local search_w = cw - 60*SCALE
+    local search_h = 24*SCALE
+    
+    local border_color = modal.search_focus and style.accent or style.dim
+    renderer.draw_rect(search_x - 1*SCALE, search_y - 1*SCALE, search_w + 2*SCALE, search_h + 2*SCALE, border_color)
+    renderer.draw_rect(search_x, search_y, search_w, search_h, style.background2)
+    
+    renderer.draw_text(style.font, modal.search_input, search_x + 5*SCALE, search_y + 2*SCALE, style.text)
+    
+    if modal.search_focus then
+      local text_width = style.font:get_width(modal.search_input)
+      local cursor_x = search_x + 5*SCALE + text_width + 2*SCALE
+      if (system.get_time() % 1.0) < 0.5 then
+        renderer.draw_rect(cursor_x, search_y + 4*SCALE, 2*SCALE, search_h - 8*SCALE, style.text)
+      end
+    end
     
     cy = cy + 35*SCALE
     
@@ -694,17 +708,13 @@ function core.on_event(type, ...)
           handled = true
         elseif key == "tab" then modal.search_focus = not modal.search_focus; handled = true
         elseif key == "backspace" then
-          if modal.search_focus then
-            modal.search_input = modal.search_input:sub(1, -2)
-            modal._search_timer = system.get_time() + 0.4
-            handled = true
-          end
+          modal.search_input = modal.search_input:sub(1, -2)
+          modal._search_timer = system.get_time() + 0.4
+          handled = true
         elseif key == "space" and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]) then
-          if modal.search_focus then
-            modal.search_input = modal.search_input .. " "
-            modal._search_timer = system.get_time() + 0.4
-            handled = true
-          end
+          modal.search_input = modal.search_input .. " "
+          modal._search_timer = system.get_time() + 0.4
+          handled = true
         end
       elseif modal.state == "problem" then
         if key == "backspace" then modal.state = "list"; modal.search_focus = true; handled = true
@@ -738,7 +748,7 @@ function core.on_event(type, ...)
         modal.cookie_input = modal.cookie_input .. text
         core.redraw = true; return true
       end
-      if modal.state == "list" and modal.search_focus then
+      if modal.state == "list" then
         modal.search_input = modal.search_input .. text
         modal._search_timer = system.get_time() + 0.4
         core.redraw = true; return true
