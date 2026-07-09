@@ -221,6 +221,7 @@ end
 command.add(nil, {
   ["leetcode:toggle"] = function()
     modal.active = not modal.active
+    if modal.active then system.set_text_input(true) end
     if modal.active and modal.state == "list" and #modal.problems == 0 then
       command.perform("leetcode:fetch-list")
     elseif modal.active and modal.state == "auth" then
@@ -546,10 +547,18 @@ function core.on_event(type, ...)
   if modal.active then
     if type == "keypressed" then
       local key = ...
+      -- Let modifiers through so keymap can track them for pasting/shortcuts
+      if key == "lctrl" or key == "rctrl" or key == "ctrl" or
+         key == "lshift" or key == "rshift" or key == "shift" or
+         key == "lalt" or key == "ralt" or key == "alt" or
+         key == "gui" or key == "lgui" or key == "rgui" then
+        return old_on_event(type, ...)
+      end
+
       if key == "escape" then
         modal.active = false; core.redraw = true; return true
       end
-      if key == "ctrl+v" or key == "cmd+v" then
+      if key == "v" and (keymap.modkeys["ctrl"] or keymap.modkeys["gui"]) then
         local text = system.get_clipboard()
         if text then
           text = text:gsub("[\r\n]", "") -- strip newlines from pasted cookies
