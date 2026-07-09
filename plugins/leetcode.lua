@@ -631,9 +631,6 @@ end
 local old_on_event = core.on_event
 function core.on_event(type, ...)
   if modal.active then
-    if type == "keypressed" or type == "textinput" then
-       core.log("EVENT: " .. type .. " ARGS: " .. tostring((...)))
-    end
     if type == "keypressed" then
       local key = ...
       -- Allow modifiers to register in the core keymap so we can detect Ctrl
@@ -688,11 +685,13 @@ function core.on_event(type, ...)
           handled = true
         elseif key == "return" then command.perform("leetcode:open-problem"); handled = true
         elseif key == "tab" then modal.search_focus = not modal.search_focus; handled = true
-        elseif key == "backspace" and modal.search_focus then
+        elseif key == "backspace" then
+          -- Backspace always edits search in list state
           modal.search_input = modal.search_input:sub(1, -2)
           modal._search_timer = system.get_time() + 0.4
           handled = true
-        elseif modal.search_focus and (key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"]))) then
+        elseif key == "space" or (#key == 1 and not (keymap.modkeys["ctrl"] or keymap.modkeys["alt"] or keymap.modkeys["gui"])) then
+          -- All printable chars go to search in list state
           local char = key
           if key == "space" then char = " " end
           if keymap.modkeys["shift"] then
@@ -734,7 +733,8 @@ function core.on_event(type, ...)
         modal.cookie_input = modal.cookie_input .. text
         core.redraw = true; return true
       end
-      if modal.state == "list" and modal.search_focus then
+      if modal.state == "list" then
+        -- Always accept text input in list state (search is always active)
         modal.search_input = modal.search_input .. text
         modal._search_timer = system.get_time() + 0.4
         core.redraw = true; return true
@@ -807,7 +807,7 @@ function core.on_event(type, ...)
           end
         end
         
-        modal.search_focus = false
+        -- Don't kill search_focus on every click - only kill it if user clicked outside search area
         core.redraw = true
         
         -- Handle click on a problem
