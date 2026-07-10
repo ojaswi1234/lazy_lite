@@ -322,14 +322,20 @@ local function open_problem(problem, lang)
   local doc_md = core.open_doc(fpath_md)
   local doc_code = core.open_doc(fpath)
   
-  local node = core.root_view:get_active_node()
-  local view_md = core.root_view.root_node:get_view_for_doc(doc_md)
-  node:add_view(view_md)
+  core.root_view:open_doc(doc_md)
   
-  local new_node = node:split("right")
-  local view_code = core.root_view.root_node:get_view_for_doc(doc_code)
-  new_node:add_view(view_code)
-  core.set_active_view(view_code)
+  local view_code_exists = false
+  for _, n, v in core.root_view.root_node:each_view() do
+    if v.doc == doc_code then view_code_exists = true; break end
+  end
+  
+  if not view_code_exists then
+    local node = core.root_view:get_active_node()
+    local new_node = node:split("right")
+    core.root_view:set_active_node(new_node)
+  end
+  
+  local view_code = core.root_view:open_doc(doc_code)
 
   command.perform("leetcode:toggle")
   core.redraw  = true
