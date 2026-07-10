@@ -324,10 +324,8 @@ local function open_problem(problem, lang)
   
   core.root_view:open_doc(doc_md)
   
-  local view_code_exists = false
-  for _, n, v in core.root_view.root_node:each_view() do
-    if v.doc == doc_code then view_code_exists = true; break end
-  end
+  local views = core.get_views_referencing_doc(doc_code)
+  local view_code_exists = #views > 0
   
   if not view_code_exists then
     local node = core.root_view:get_active_node()
