@@ -376,7 +376,11 @@ command.add(nil, {
             lc_view.state = "list"; lc_view.search_focus = true
             if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
           else
-            lc_view.auth_status = ""
+            if resp.error == "Not logged in" then
+              lc_view.auth_status = ""
+            else
+              lc_view.auth_status = resp.error or "Auth check failed"
+            end
           end
           core.redraw = true
         end)
@@ -409,9 +413,9 @@ command.add(nil, {
         lc_view.auth_status = "[+] Logged in as " .. resp.data.username
         lc_view.state = "list"; lc_view.search_focus = true
         command.perform("leetcode:fetch-list")
-      else
-        lc_view.auth_status = "✗ Invalid cookies"
-      end
+        else
+          lc_view.auth_status = "✗ " .. (resp.error or "Invalid cookies")
+        end
       core.redraw = true
     end)
   end,
