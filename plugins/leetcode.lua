@@ -266,7 +266,7 @@ end
 local function open_problem(problem, lang)
   local dir = USERDIR .. PATHSEP .. "leetcode"
   system.mkdir(dir)
-  local num   = string.format("%04d", tonumber(problem.id) or 0)
+  local num   = string.format("%04d", tonumber(problem.id or problem.question_id) or 0)
   local ext   = LANG_EXT[lang] or "txt"
   local fname = num .. "_" .. problem.slug .. "." .. ext
   local fpath = dir .. PATHSEP .. fname
@@ -275,10 +275,11 @@ local function open_problem(problem, lang)
   if not f then
     local starter = (problem.starters or {})[lang] or ""
     local header = ""
+    local pid = problem.id or problem.question_id or "0"
     if ext == "py" then
-      header = "# " .. problem.id .. ". " .. problem.title .. "\n# " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n\n"
+      header = "# " .. pid .. ". " .. problem.title .. "\n# " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n\n"
     elseif ext == "cpp" or ext == "c" or ext == "java" or ext == "cs" or ext == "js" or ext == "ts" then
-      header = "// " .. problem.id .. ". " .. problem.title .. "\n// " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n\n"
+      header = "// " .. pid .. ". " .. problem.title .. "\n// " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n\n"
     end
     local wf = io.open(fpath, "w")
     if wf then wf:write(header .. starter); wf:close() end
