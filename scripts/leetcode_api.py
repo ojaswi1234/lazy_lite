@@ -40,8 +40,19 @@ def http_request(url, data=None, method="POST"):
     }
     body = json.dumps(data).encode() if data else None
     req  = urllib.request.Request(url, data=body, headers=headers, method=method)
-    with urllib.request.urlopen(req, context=_ctx, timeout=15) as r:
-        return json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req, context=_ctx, timeout=15) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode('utf-8', errors='ignore')
+        if e.code == 429:
+            raise Exception("Too Many Requests: Please wait 10 seconds before submitting again.")
+        elif e.code == 499:
+            raise Exception("Error 499: LeetCode dropped the request. Try again.")
+        elif e.code == 403:
+            raise Exception("403 Forbidden: Your session might be expired. Try re-authenticating.")
+        else:
+            raise Exception(f"HTTP {e.code}: {e.reason or 'Unknown'}. {body_text[:200]}")
 
 def graphql(query_str, variables=None):
     return http_request("https://leetcode.com/graphql",
