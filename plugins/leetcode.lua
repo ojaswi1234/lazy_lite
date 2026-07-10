@@ -325,15 +325,17 @@ local function open_problem(problem, lang)
   core.root_view:open_doc(doc_md)
   
   local views = core.get_views_referencing_doc(doc_code)
-  local view_code_exists = #views > 0
+  local view_code = views[1]
   
-  if not view_code_exists then
+  if not view_code then
+    local DocView = require "core.docview"
+    view_code = DocView(doc_code)
     local node = core.root_view:get_active_node()
     local new_node = node:split("right")
-    core.root_view:set_active_node(new_node)
+    new_node:add_view(view_code)
   end
   
-  local view_code = core.root_view:open_doc(doc_code)
+  core.set_active_view(view_code)
 
   command.perform("leetcode:toggle")
   core.redraw  = true
