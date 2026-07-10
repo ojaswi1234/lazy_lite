@@ -771,7 +771,7 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 150*SCALE, cy, diff_color)
     cy = cy + 30*SCALE
     
-    renderer.draw_text(style.font, "Ctrl+R: Run Code  |  Ctrl+Shift+S: Submit  |  Tab/Click: Focus Search", cx, cy, style.accent)
+    renderer.draw_text(style.font, "Alt+R: Run Code  |  Alt+S: Submit  |  Tab/Click: Focus Search", cx, cy, style.accent)
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
@@ -948,7 +948,7 @@ core.add_thread(function()
           return {
             style.text, " LC ",
             style.font, " " .. (meta.title or "LeetCode"),
-            style.dim, "  [ctrl+r] Run  [ctrl+shift+s] Submit"
+            style.dim, "  [alt+r] Run  [alt+s] Submit"
           }
         end
         return { style.text, " LC ", style.font, " LeetCode" }
