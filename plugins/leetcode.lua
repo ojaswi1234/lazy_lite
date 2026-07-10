@@ -264,9 +264,11 @@ local function get_active_code()
 end
 
 local function open_problem(problem, lang)
-  local dir = USERDIR .. PATHSEP .. "leetcode"
-  system.mkdir(dir)
+  local dir_parent = USERDIR .. PATHSEP .. "leetcode"
+  system.mkdir(dir_parent)
   local num   = string.format("%04d", tonumber(problem.id or problem.question_id) or 0)
+  local dir = dir_parent .. PATHSEP .. "Leetcode " .. num
+  system.mkdir(dir)
   local ext   = LANG_EXT[lang] or "txt"
   
   -- Create markdown description
