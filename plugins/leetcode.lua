@@ -527,12 +527,11 @@ command.add(nil, {
 
 keymap.add({
   ["ctrl+shift+l"] = "leetcode:toggle",
+  ["alt+r"] = "leetcode:run",
+  ["alt+s"] = "leetcode:submit",
 })
 
-command.add(function() return get_active_meta() ~= nil end, {
-  ["ctrl+r"] = "leetcode:run",
-  ["ctrl+shift+s"] = "leetcode:submit",
-})
+
 
 command.add(
   function() return core.active_view and core.active_view:is(LeetCodeView) end,
