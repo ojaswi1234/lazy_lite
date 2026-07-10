@@ -398,6 +398,7 @@ def to_lua(obj):
     return "nil"
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding='utf-8')
     for line in sys.stdin:
         line = line.strip()
         if not line: continue
