@@ -268,9 +268,27 @@ local function open_problem(problem, lang)
   system.mkdir(dir)
   local num   = string.format("%04d", tonumber(problem.id or problem.question_id) or 0)
   local ext   = LANG_EXT[lang] or "txt"
+  
+  -- Create markdown description
+  local fname_md = num .. "_" .. problem.slug .. ".md"
+  local fpath_md = dir .. PATHSEP .. fname_md
+  local f_md = io.open(fpath_md, "r")
+  if not f_md then
+    local content = "# " .. num .. ". " .. problem.title .. "\n"
+    content = content .. "**Difficulty:** " .. (problem.difficulty or "") .. " | [LeetCode Link](https://leetcode.com/problems/" .. problem.slug .. "/)\n\n"
+    content = content .. "---\n\n"
+    content = content .. (problem.content_plain or "")
+    if problem.test_cases and problem.test_cases ~= "" then
+      content = content .. "\n\n### Default Testcases\n```\n" .. problem.test_cases:gsub("\\n", "\n") .. "\n```\n"
+    end
+    local wf_md = io.open(fpath_md, "w")
+    if wf_md then wf_md:write(content); wf_md:close() end
+  else
+    f_md:close()
+  end
+  
   local fname = num .. "_" .. problem.slug .. "." .. ext
   local fpath = dir .. PATHSEP .. fname
-
   local f = io.open(fpath, "r")
   if not f then
     local starter = (problem.starters or {})[lang] or ""
@@ -301,7 +319,18 @@ local function open_problem(problem, lang)
     mf:close()
   end
 
-  core.root_view:open_doc(core.open_doc(fpath))
+  local doc_md = core.open_doc(fpath_md)
+  local doc_code = core.open_doc(fpath)
+  
+  local node = core.root_view:get_active_node()
+  local view_md = core.root_view.root_node:get_view_for_doc(doc_md)
+  node:add_view(view_md)
+  
+  local new_node = node:split("right")
+  local view_code = core.root_view.root_node:get_view_for_doc(doc_code)
+  new_node:add_view(view_code)
+  core.set_active_view(view_code)
+
   command.perform("leetcode:toggle")
   core.redraw  = true
 end
@@ -627,16 +656,28 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
   end
 
   if self.state == "problem" and btn == "left" then
-    local cy = my + h - 50*SCALE + 15*SCALE
-    local bx = mx + 20*SCALE + 80*SCALE
-    if y >= cy and y <= cy + 20*SCALE then
-      for lang, _ in pairs(self.current.starters or {}) do
-        local bw = style.font:get_width("[" .. lang .. "]")
-        if x >= bx and x <= bx + bw then
-          open_problem(self.current, lang)
-          return true
-        end
-        bx = bx + bw + 10*SCALE
+    local cy = my + h - 170*SCALE + 15*SCALE
+    local col1_x = mx + 20*SCALE + 80*SCALE
+    local col2_x = mx + 20*SCALE + 250*SCALE
+    
+    local sorted_langs = {}
+    for lang, _ in pairs(self.current.starters or {}) do table.insert(sorted_langs, lang) end
+    table.sort(sorted_langs)
+    
+    local lang_cy = cy
+    local is_col2 = false
+    for _, lang in ipairs(sorted_langs) do
+      local bx = is_col2 and col2_x or col1_x
+      local bw = style.font:get_width("[" .. lang .. "]")
+      if y >= lang_cy and y <= lang_cy + 20*SCALE and x >= bx and x <= bx + bw then
+        open_problem(self.current, lang)
+        return true
+      end
+      if is_col2 then
+        lang_cy = lang_cy + 24*SCALE
+        is_col2 = false
+      else
+        is_col2 = true
       end
     end
   end
@@ -821,18 +862,34 @@ function LeetCodeView:draw()
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 15*SCALE
     
-    core.push_clip_rect(cx, cy, cw, h - 120*SCALE)
+    local text_area_h = (y + h - 180*SCALE) - cy
+    core.push_clip_rect(cx, cy, cw, text_area_h)
     draw_text_wrap(style.font, style.text, p.content_plain, cx, cy - self.scroll_y, cw)
     core.pop_clip_rect()
     
-    cy = y + h - 50*SCALE
+    cy = y + h - 170*SCALE
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 15*SCALE
     renderer.draw_text(style.font, "Open in:", cx, cy, style.text)
-    local bx = cx + 80*SCALE
-    for lang, _ in pairs(p.starters or {}) do
-      local next_x = renderer.draw_text(style.font, "[" .. lang .. "]", bx, cy, style.accent)
-      bx = next_x + 10*SCALE
+    
+    local col1_x = cx + 80*SCALE
+    local col2_x = cx + 250*SCALE
+    local lang_cy = cy
+    local is_col2 = false
+    
+    local sorted_langs = {}
+    for lang, _ in pairs(p.starters or {}) do table.insert(sorted_langs, lang) end
+    table.sort(sorted_langs)
+    
+    for _, lang in ipairs(sorted_langs) do
+      local bx = is_col2 and col2_x or col1_x
+      renderer.draw_text(style.font, "[" .. lang .. "]", bx, lang_cy, style.accent)
+      if is_col2 then
+        lang_cy = lang_cy + 24*SCALE
+        is_col2 = false
+      else
+        is_col2 = true
+      end
     end
     
   elseif self.state == "result" and self.result then
