@@ -216,7 +216,7 @@ def cmd_problem_list(params):
         query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
           problemsetQuestionList: questionList(categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters) {
             total: totalNum
-            questions: data { questionFrontendId title titleSlug difficulty acRate isPaidOnly status }
+            questions: data { questionFrontendId title titleSlug difficulty acRate isPaidOnly }
           }
         }"""
         try:
@@ -238,27 +238,12 @@ def cmd_problem_list(params):
                         "difficulty": q["difficulty"],
                         "ac_rate":    round(q["acRate"], 1),
                         "paid":       q["isPaidOnly"],
-                        "status":     q.get("status"),
                     }
                     for q in filtered[:limit]
                 ]
             }}
         except Exception as e:
             return {"ok": False, "error": str(e)}
-
-def cmd_daily_challenge(params):
-    GQL = """
-    query {
-      activeDailyCodingChallengeQuestion {
-        question { titleSlug }
-      }
-    }"""
-    try:
-        r = graphql(GQL)
-        slug = r["data"]["activeDailyCodingChallengeQuestion"]["question"]["titleSlug"]
-        return {"ok": True, "data": {"slug": slug}}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
 
 def cmd_problem_detail(params):
     slug = params.get("slug", "")
@@ -403,14 +388,13 @@ def cmd_submit(params):
 
 # ── main loop ──────────────────────────────────────────────────────────────────
 HANDLERS = {
-    "auth_check":      cmd_auth_check,
-    "auth_set":        cmd_auth_set,
-    "auth_auto":       cmd_auth_auto,
-    "problem_list":    cmd_problem_list,
-    "problem_detail":  cmd_problem_detail,
-    "run_code":        cmd_run_code,
-    "submit":          cmd_submit,
-    "daily_challenge": cmd_daily_challenge,
+    "auth_check":     cmd_auth_check,
+    "auth_set":       cmd_auth_set,
+    "auth_auto":      cmd_auth_auto,
+    "problem_list":   cmd_problem_list,
+    "problem_detail": cmd_problem_detail,
+    "run_code":       cmd_run_code,
+    "submit":         cmd_submit,
 }
 
 def to_lua(obj):
