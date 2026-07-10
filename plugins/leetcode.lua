@@ -464,6 +464,31 @@ command.add(nil, {
       core.redraw = true
     end)
   end,
+  ["leetcode:daily-challenge"] = function()
+    core.log("[LeetCode] Fetching Daily Challenge...")
+    api_call({ cmd = "daily_challenge" }, function(resp)
+      if resp.ok and resp.data and resp.data.slug then
+        if not lc_view or not core.root_view.root_node:get_node_for_view(lc_view) then command.perform("leetcode:toggle") end
+        lc_view.state = "loading"
+        lc_view.loading_msg = "Loading Daily Challenge"
+        core.redraw = true
+        api_call({ cmd = "problem_detail", slug = resp.data.slug }, function(p_resp)
+          if not lc_view then return end
+          if p_resp.ok then
+            lc_view.current = p_resp.data
+            lc_view.state   = "problem"
+            lc_view.scroll_y = 0
+          else
+            lc_view.state = "list"
+            core.log("[LeetCode] Failed to load daily problem")
+          end
+          core.redraw = true
+        end)
+      else
+        core.log("[LeetCode] Failed to fetch Daily Challenge")
+      end
+    end)
+  end,
   ["leetcode:run"] = function()
     local meta = get_active_meta()
     local code = get_active_code()
@@ -820,7 +845,10 @@ function LeetCodeView:draw()
           renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
           local title = p.title
           if #title > 45 then title = title:sub(1, 42) .. "..." end
-          renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, style.text)
+          local title_color = style.text
+          if p.status == "ac" then title_color = LC_COLORS.accepted end
+          if p.status == "notac" then title_color = LC_COLORS.tle end
+          renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, title_color)
           local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
           renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, item_y, dc)
           renderer.draw_text(style.font, p.ac_rate .. "%", cx + 550*SCALE, item_y, style.dim)
