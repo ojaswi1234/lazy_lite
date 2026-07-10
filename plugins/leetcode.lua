@@ -899,12 +899,13 @@ function LeetCodeView:draw()
     
   elseif self.state == "result" and self.result then
     local res = self.result
+    local status_text = res.status or res.err or "Unknown Error"
     local title_c = res.ok and LC_COLORS.accepted or LC_COLORS.wrong
-    if res.status:match("Limit Exceeded") then title_c = LC_COLORS.tle end
-    if res.status:match("Error") then title_c = LC_COLORS.hard end
+    if status_text:match("Limit Exceeded") then title_c = LC_COLORS.tle end
+    if status_text:match("Error") then title_c = LC_COLORS.hard end
     
     renderer.draw_text(style.font, res.ok and "[+] " or "[-] ", cx, cy, title_c)
-    renderer.draw_text(style.font, res.status, cx + 20*SCALE, cy, title_c)
+    renderer.draw_text(style.font, status_text, cx + 20*SCALE, cy, title_c)
     cy = cy + 30*SCALE
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 20*SCALE
