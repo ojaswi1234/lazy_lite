@@ -604,16 +604,26 @@ keymap.add({
 -- Drawing utilities
 local function draw_text_wrap(font, color, text, x, y, max_w)
   local lh = font:get_height()
-  local cx, cy = x, y
-  for word in text:gmatch("%S+") do
-    local ww = font:get_width(word .. " ")
-    if cx + ww > x + max_w then
-      cx = x
+  local cy = y
+  if not text or text == "" then return cy end
+  
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    if line == "" then
+      cy = cy + lh
+    else
+      local cx = x
+      for word in line:gmatch("%S+") do
+        local ww = font:get_width(word .. " ")
+        if cx + font:get_width(word) > x + max_w and cx > x then
+          cx = x
+          cy = cy + lh
+        end
+        cx = renderer.draw_text(font, word .. " ", cx, cy, color)
+      end
       cy = cy + lh
     end
-    cx = renderer.draw_text(font, word .. " ", cx, cy, color)
   end
-  return cy + lh
+  return cy
 end
 
 function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
