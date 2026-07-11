@@ -824,7 +824,17 @@ function LeetCodeView:draw()
         if stat.difficulty == "Medium" then stats_str = stats_str .. "M:" .. stat.count .. " " end
         if stat.difficulty == "Hard" then stats_str = stats_str .. "H:" .. stat.count .. ")" end
       end
-      renderer.draw_text(style.font, stats_str, cx + cw - style.font:get_width(stats_str), cy, style.accent)
+      
+      local pad = 6 * SCALE
+      local txt_w = style.font:get_width(stats_str)
+      local box_w = txt_w + pad * 2
+      local box_h = style.font:get_height() + pad * 2
+      local box_x = cx + cw - box_w
+      local box_y = cy - pad + 2*SCALE
+      
+      -- Background = theme text color, Text = theme background color
+      renderer.draw_rect(box_x, box_y, box_w, box_h, style.text)
+      renderer.draw_text(style.font, stats_str, box_x + pad, cy, style.background)
     end
     cy = cy + 30*SCALE
     
