@@ -672,18 +672,32 @@ local function draw_text_wrap(font, color, text, x, y, max_w)
   local cy = y
   if not text or text == "" then return cy end
   
+  if lc_view and lc_view.state == "problem" and not lc_view.is_fetching then
+     -- Clear image links for this frame
+     if y == lc_view.content_y_start then lc_view.image_links = {} end
+  end
+  
   for line in (text .. "\n"):gmatch("(.-)\n") do
     if line == "" then
       cy = cy + lh
     else
       local cx = x
       for word in line:gmatch("%S+") do
-        local ww = font:get_width(word .. " ")
-        if cx + font:get_width(word) > x + max_w and cx > x then
-          cx = x
-          cy = cy + lh
+        local img_url = word:match("^%[Image:(.-)%]$")
+        if img_url then
+          local label = "[View Image]"
+          if cx + font:get_width(label) > x + max_w and cx > x then cx = x; cy = cy + lh end
+          
+          if lc_view and lc_view.state == "problem" then
+            lc_view.image_links = lc_view.image_links or {}
+            table.insert(lc_view.image_links, {x = cx, y = cy, w = font:get_width(label), h = lh, url = img_url})
+          end
+          
+          cx = renderer.draw_text(font, label .. " ", cx, cy, LC_COLORS.accepted or style.accent)
+        else
+          if cx + font:get_width(word) > x + max_w and cx > x then cx = x; cy = cy + lh end
+          cx = renderer.draw_text(font, word .. " ", cx, cy, color)
         end
-        cx = renderer.draw_text(font, word .. " ", cx, cy, color)
       end
       cy = cy + lh
     end
