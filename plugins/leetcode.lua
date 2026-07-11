@@ -907,8 +907,8 @@ function LeetCodeView:draw()
     local search_h = 24*SCALE
     
     local border_color = self.search_focus and style.accent or style.dim
-    renderer.draw_rect(search_x - 1*SCALE, search_y - 1*SCALE, search_w + 2*SCALE, search_h + 2*SCALE, border_color)
-    renderer.draw_rect(search_x, search_y, search_w, search_h, style.background2)
+    -- Minimalist Material-style bottom line
+    renderer.draw_rect(search_x, search_y + search_h, search_w, 2*SCALE, border_color)
     
     renderer.draw_text(style.font, self.search_input, search_x + 5*SCALE, search_y + 2*SCALE, style.text)
     
