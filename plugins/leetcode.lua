@@ -219,25 +219,6 @@ function LeetCodeView:on_key_pressed(key)
       handled = true
     end
   elseif self.state == "problem" then
-    if self.image_links then
-      for _, link in ipairs(self.image_links) do
-        if x >= link.x and x <= link.x + link.w and y >= link.y and y <= link.y + link.h then
-          core.log("[LeetCode] Opening image viewer...")
-          core.root_view:open_doc({filename = link.url})
-          return true
-        end
-      end
-    end
-    
-    if self.lang_buttons then
-      for _, btn in ipairs(self.lang_buttons) do
-        if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
-          open_problem(self.current, btn.lang)
-          return true
-        end
-      end
-    end
-    
     if key == "backspace" then self.state = "list"; self.search_focus = true; handled = true
     elseif key == "down" then self.scroll_y = self.scroll_y + 40; handled = true
     elseif key == "up" then self.scroll_y = math.max(0, self.scroll_y - 40); handled = true
@@ -833,6 +814,25 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
         command.perform("leetcode:open-problem")
       end
       return true
+    end
+  elseif self.state == "problem" and btn == "left" then
+    if self.image_links then
+      for _, link in ipairs(self.image_links) do
+        if x >= link.x and x <= link.x + link.w and y >= link.y and y <= link.y + link.h then
+          core.log("[LeetCode] Opening image viewer...")
+          core.root_view:open_doc({filename = link.url})
+          return true
+        end
+      end
+    end
+    
+    if self.lang_buttons then
+      for _, b in ipairs(self.lang_buttons) do
+        if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
+          open_problem(self.current, b.lang)
+          return true
+        end
+      end
     end
   end
 
