@@ -355,7 +355,7 @@ local function open_problem(problem, lang)
   core.root_view:open_doc(core.open_doc(fpath_md))
   command.perform("line-wrapping:enable")
   
-  local node = core.root_view:get_active_node()
+  local node = core.root_view:get_active_node_default()
   node:split("right")
   core.root_view:open_doc(core.open_doc(fpath))
   
@@ -366,7 +366,7 @@ local function open_problem(problem, lang)
   if not view_code then
     local DocView = require "core.docview"
     view_code = DocView(doc_code)
-    local node = core.root_view:get_active_node()
+    local node = core.root_view:get_active_node_default()
     local new_node = node:split("right")
     new_node:add_view(view_code)
   end
@@ -404,7 +404,7 @@ command.add(nil, {
       lc_view = nil
     else
       lc_view = LeetCodeView()
-      core.root_view:get_active_node():add_view(lc_view)
+      core.root_view:get_active_node_default():add_view(lc_view)
       if lc_view.state == "auth" then
         api_call({cmd = "auth_check"}, function(resp)
           if not lc_view then return end
