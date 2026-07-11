@@ -630,7 +630,7 @@ command.add(nil, {
   end,
   ["leetcode:run"] = function()
     if os.time() - last_run_time < 3 then
-      core.error("[LeetCode] Please wait a few seconds before running again.")
+      core.log("[LeetCode] Please wait a few seconds before running again.")
       return
     end
     
@@ -673,7 +673,7 @@ command.add(nil, {
   
   ["leetcode:submit"] = function()
     if os.time() - last_submit_time < 5 then
-      core.error("[LeetCode] Please wait 5 seconds between submissions.")
+      core.log("[LeetCode] Please wait 5 seconds between submissions.")
       return
     end
     

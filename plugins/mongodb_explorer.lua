@@ -140,7 +140,7 @@ command.add(nil, {
   
   ["mongodb:explore-databases"] = function()
     if not mongo.uri then
-      core.error("Please connect to MongoDB first")
+      core.log_quiet("Please connect to MongoDB first")
       return
     end
     if os.time() - mongo.last_query_time < 2 then return end
@@ -173,7 +173,7 @@ command.add(nil, {
   
   ["mongodb:explore-collections"] = function()
     if not mongo.current_db then
-      core.error("Please select a database first")
+      core.log_quiet("Please select a database first")
       return
     end
     if os.time() - mongo.last_query_time < 2 then return end
