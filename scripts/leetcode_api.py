@@ -72,9 +72,10 @@ def poll(url, interval=1.5, timeout=45):
 # ── HTML stripping ─────────────────────────────────────────────────────────────
 def strip_html(html):
     # Preserve some structure before stripping
+    html = re.sub(r"<img[^>]*?src=[\"'](.*?)[\"'][^>]*?>", r"[Image:\1]", html, flags=re.IGNORECASE)
     html = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
     html = re.sub(r"</?p\s*/?>", "\n", html, flags=re.IGNORECASE)
-    html = re.sub(r"<li\s*/?>", "\n• ", html, flags=re.IGNORECASE)
+    html = re.sub(r"<li\s*/?>", "\n  ", html, flags=re.IGNORECASE)
     html = re.sub(r"<strong>(.*?)</strong>", r"\1", html, flags=re.IGNORECASE|re.DOTALL)
     html = re.sub(r"<code>(.*?)</code>", r"`\1`", html, flags=re.IGNORECASE|re.DOTALL)
     html = re.sub(r"<[^>]+>", "", html)
