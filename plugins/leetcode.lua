@@ -219,6 +219,25 @@ function LeetCodeView:on_key_pressed(key)
       handled = true
     end
   elseif self.state == "problem" then
+    if self.image_links then
+      for _, link in ipairs(self.image_links) do
+        if x >= link.x and x <= link.x + link.w and y >= link.y and y <= link.y + link.h then
+          core.log("[LeetCode] Opening image viewer...")
+          core.root_view:open_doc({filename = link.url})
+          return true
+        end
+      end
+    end
+    
+    if self.lang_buttons then
+      for _, btn in ipairs(self.lang_buttons) do
+        if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
+          open_problem(self.current, btn.lang)
+          return true
+        end
+      end
+    end
+    
     if key == "backspace" then self.state = "list"; self.search_focus = true; handled = true
     elseif key == "down" then self.scroll_y = self.scroll_y + 40; handled = true
     elseif key == "up" then self.scroll_y = math.max(0, self.scroll_y - 40); handled = true
@@ -817,38 +836,12 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     end
   end
 
-  if self.state == "problem" and btn == "left" then
-    local cy = my + h - 170*SCALE + 15*SCALE
-    local col1_x = mx + 20*SCALE + 80*SCALE
-    local col2_x = mx + 20*SCALE + 250*SCALE
-    
-    local sorted_langs = {}
-    for lang, _ in pairs(self.current.starters or {}) do table.insert(sorted_langs, lang) end
-    table.sort(sorted_langs)
-    
-    local lang_cy = cy
-    local is_col2 = false
-    for _, lang in ipairs(sorted_langs) do
-      local bx = is_col2 and col2_x or col1_x
-      local bw = style.font:get_width("[" .. lang .. "]")
-      if y >= lang_cy and y <= lang_cy + 20*SCALE and x >= bx and x <= bx + bw then
-        open_problem(self.current, lang)
-        return true
-      end
-      if is_col2 then
-        lang_cy = lang_cy + 24*SCALE
-        is_col2 = false
-      else
-        is_col2 = true
-      end
-    end
-  end
   return false
 end
 
 function LeetCodeView:on_mouse_wheel(delta)
   if self.state == "problem" then
-    self.scroll_y = math.max(0, self.scroll_y - delta * 40)
+    self.scroll_y = math.max(0, math.min(self.max_scroll or 0, self.scroll_y - delta * 40))
     core.redraw = true
   elseif self.state == "list" then
     self.list_scroll_y = math.max(0, (self.list_scroll_y or 0) - delta * 40)
@@ -1130,28 +1123,37 @@ function LeetCodeView:draw()
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 15*SCALE
     
-    local text_area_h = (y + h - 180*SCALE) - cy
-    core.push_clip_rect(cx, cy, cw, text_area_h)
-    draw_text_wrap(style.font, style.text, p.content_plain, cx, cy - self.scroll_y, cw)
-    core.pop_clip_rect()
+    local scroll_area_h = (y + h - 20*SCALE) - cy
+    core.push_clip_rect(cx, cy, cw, scroll_area_h)
     
-    cy = y + h - 170*SCALE
-    renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
-    cy = cy + 15*SCALE
-    renderer.draw_text(style.font, "Open in:", cx, cy, style.text)
+    local inner_cy = cy - self.scroll_y
+    self.content_y_start = inner_cy
+    
+    inner_cy = draw_text_wrap(style.font, style.text, p.content_plain, cx, inner_cy, cw)
+    
+    inner_cy = inner_cy + 25*SCALE
+    renderer.draw_rect(cx, inner_cy, cw, 1*SCALE, style.dim)
+    inner_cy = inner_cy + 15*SCALE
+    renderer.draw_text(style.font, "Open in:", cx, inner_cy, style.text)
     
     local col1_x = cx + 80*SCALE
     local col2_x = cx + 250*SCALE
-    local lang_cy = cy
+    local lang_cy = inner_cy
     local is_col2 = false
     
     local sorted_langs = {}
     for lang, _ in pairs(p.starters or {}) do table.insert(sorted_langs, lang) end
     table.sort(sorted_langs)
     
+    self.lang_buttons = {}
     for _, lang in ipairs(sorted_langs) do
       local bx = is_col2 and col2_x or col1_x
-      renderer.draw_text(style.font, "[" .. lang .. "]", bx, lang_cy, style.accent)
+      local lbl = "[" .. lang .. "]"
+      local lw = style.font:get_width(lbl)
+      
+      table.insert(self.lang_buttons, { x = bx, y = lang_cy, w = lw, h = 24*SCALE, lang = lang })
+      renderer.draw_text(style.font, lbl, bx, lang_cy, style.accent)
+      
       if is_col2 then
         lang_cy = lang_cy + 24*SCALE
         is_col2 = false
@@ -1159,6 +1161,12 @@ function LeetCodeView:draw()
         is_col2 = true
       end
     end
+    if is_col2 then lang_cy = lang_cy + 24*SCALE end
+    
+    local content_total_h = lang_cy - (cy - self.scroll_y)
+    self.max_scroll = math.max(0, content_total_h - scroll_area_h + 50*SCALE)
+    
+    core.pop_clip_rect()
     
   elseif self.state == "result" and self.result then
     local res = self.result
