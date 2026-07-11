@@ -80,6 +80,10 @@ def strip_html(html):
     html = re.sub(r"<[^>]+>", "", html)
     html = html.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
     html = html.replace("&quot;", '"').replace("&#39;", "'").replace("&nbsp;", " ")
+    
+    # Clean up trailing spaces (which turns space-only lines into empty lines)
+    html = re.sub(r"[ \t]+$", "", html, flags=re.MULTILINE)
+    
     # Collapse excessive blank lines
     html = re.sub(r"\n{3,}", "\n\n", html)
     return html.strip()
