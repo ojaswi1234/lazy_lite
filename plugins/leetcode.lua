@@ -1324,35 +1324,65 @@ function LeetCodeView:draw()
     if status_text:match("Limit Exceeded") then title_c = LC_COLORS.tle end
     if status_text:match("Error") then title_c = LC_COLORS.hard end
     
-    renderer.draw_text(style.font, res.ok and "[+] " or "[-] ", cx, cy, title_c)
-    renderer.draw_text(style.font, status_text, cx + 20*SCALE, cy, title_c)
-    cy = cy + 30*SCALE
+    local old_font = style.font
+    style.font = style.big_font
+    renderer.draw_text(style.font, status_text, cx, cy, title_c)
+    style.font = old_font
+    cy = cy + 40*SCALE
+    
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 20*SCALE
     
     if res.compile_error and res.compile_error ~= "" then
-      draw_text_wrap(style.font, LC_COLORS.hard, "Compile Error:\n" .. res.compile_error, cx, cy, cw)
+      cy = draw_text_wrap(style.font, LC_COLORS.hard, "Compile Error:\n\n" .. res.compile_error, cx, cy, cw)
     elseif res.runtime_error and res.runtime_error ~= "" then
-      draw_text_wrap(style.font, LC_COLORS.hard, "Runtime Error:\n" .. res.runtime_error, cx, cy, cw)
+      cy = draw_text_wrap(style.font, LC_COLORS.hard, "Runtime Error:\n\n" .. res.runtime_error, cx, cy, cw)
     else
-      renderer.draw_text(style.font, "Runtime: " .. (res.runtime or "N/A"), cx, cy, style.text)
+      -- Metrics Cards
+      local card_w = math.max(200*SCALE, (cw - 20*SCALE) / 2)
+      local card_h = 70*SCALE
+      
+      local rt_color = (res.runtime_percentile and res.runtime_percentile > 75) and LC_COLORS.accepted or style.text
+      renderer.draw_rect(cx, cy, card_w, card_h, style.background2)
+      renderer.draw_text(style.font, "Runtime", cx + 10*SCALE, cy + 10*SCALE, style.dim)
+      renderer.draw_text(style.font, res.runtime or "N/A", cx + 10*SCALE, cy + 30*SCALE, rt_color)
       if res.runtime_percentile and res.runtime_percentile > 0 then
-        renderer.draw_text(style.font, "beats " .. res.runtime_percentile .. "%", cx + 200*SCALE, cy, style.dim)
+        renderer.draw_text(style.font, "Beats " .. res.runtime_percentile .. "%", cx + 10*SCALE, cy + 50*SCALE, style.accent)
       end
-      cy = cy + 24*SCALE
-      renderer.draw_text(style.font, "Memory:  " .. (res.memory or "N/A"), cx, cy, style.text)
+      
+      local mem_color = (res.memory_percentile and res.memory_percentile > 75) and LC_COLORS.accepted or style.text
+      renderer.draw_rect(cx + card_w + 10*SCALE, cy, card_w, card_h, style.background2)
+      renderer.draw_text(style.font, "Memory", cx + card_w + 20*SCALE, cy + 10*SCALE, style.dim)
+      renderer.draw_text(style.font, res.memory or "N/A", cx + card_w + 20*SCALE, cy + 30*SCALE, mem_color)
       if res.memory_percentile and res.memory_percentile > 0 then
-        renderer.draw_text(style.font, "beats " .. res.memory_percentile .. "%", cx + 200*SCALE, cy, style.dim)
+        renderer.draw_text(style.font, "Beats " .. res.memory_percentile .. "%", cx + card_w + 20*SCALE, cy + 50*SCALE, style.accent)
       end
-      cy = cy + 30*SCALE
-      renderer.draw_text(style.font, "Testcases passed: " .. (res.total_correct or 0) .. " / " .. (res.total_testcases or 0), cx, cy, style.text)
-      cy = cy + 30*SCALE
+      
+      cy = cy + card_h + 20*SCALE
+      
+      if res.total_testcases then
+        renderer.draw_text(style.font, "Testcases Passed: " .. (res.total_correct or 0) .. " / " .. (res.total_testcases or 0), cx, cy, style.text)
+        cy = cy + 30*SCALE
+      end
       
       if not res.ok and self.result_type == "run" then
-        renderer.draw_text(style.font, "Your output:", cx, cy, style.text)
-        cy = draw_text_wrap(style.font, LC_COLORS.wrong, table.concat(res.code_output or {}, "\n"), cx + 120*SCALE, cy, cw - 120*SCALE) + 10*SCALE
-        renderer.draw_text(style.font, "Expected:", cx, cy, style.text)
-        cy = draw_text_wrap(style.font, LC_COLORS.accepted, table.concat(res.expected_output or {}, "\n"), cx + 120*SCALE, cy, cw - 120*SCALE) + 10*SCALE
+        renderer.draw_text(style.font, "Your Output", cx, cy, style.dim)
+        cy = cy + 20*SCALE
+        renderer.draw_rect(cx, cy, cw, 50*SCALE, style.background2)
+        cy = draw_text_wrap(style.font, LC_COLORS.wrong, table.concat(res.code_output or {}, "\n"), cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 30*SCALE
+        
+        renderer.draw_text(style.font, "Expected", cx, cy, style.dim)
+        cy = cy + 20*SCALE
+        renderer.draw_rect(cx, cy, cw, 50*SCALE, style.background2)
+        cy = draw_text_wrap(style.font, LC_COLORS.accepted, table.concat(res.expected_output or {}, "\n"), cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 20*SCALE
+      end
+      
+      if res.std_output and res.std_output ~= "" then
+        cy = cy + 10*SCALE
+        renderer.draw_text(style.font, "Stdout", cx, cy, style.dim)
+        cy = cy + 20*SCALE
+        renderer.draw_rect(cx, cy, cw, 50*SCALE, style.background2)
+        cy = draw_text_wrap(style.font, style.text, res.std_output, cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 20*SCALE
       end
     end
   end
