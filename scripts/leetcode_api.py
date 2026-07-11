@@ -149,31 +149,38 @@ def cmd_auth_auto(params):
     session, csrf, browser = auto_get_leetcode_cookies()
     if browser == "missing_lib":
         return {"ok": False, "error": "browser_cookie3 is not installed. Run: pip install browser-cookie3"}
-    if not session:
-        return {"ok": False, "error": "No LeetCode cookies found. Are you logged in at leetcode.com?"}
-    save_session(session, csrf)
-    check = cmd_auth_check({})
-    if not check["ok"]:
-        save_session("", "")
-        return {"ok": False, "error": "Cookies found but invalid — try logging out and back in at leetcode.com"}
-    data = check["data"]
-    data["detected_from"] = browser
-    return {"ok": True, "data": data}
+    s, c, _ = auto_get_leetcode_cookies()
+    if s and c:
+        save_session(s, c)
+        return cmd_auth_check({})
+    return {"ok": False, "error": "No browser session found"}
 
 def cmd_auth_check(params):
     try:
-        r = graphql("{ userStatus { isSignedIn username } }")
-        if not r or "data" not in r or not r["data"].get("userStatus"):
-            save_session("", "", "")
-            return {"ok": False, "error": "Not logged in"}
-        status = r["data"]["userStatus"]
-        if not status.get("isSignedIn"):
-            save_session("", "", "")
-            return {"ok": False, "error": "Not logged in"}
-        return {"ok": True, "data": {"username": status.get("username", "Unknown")}}
+        res = graphql("query { userStatus { isSignedIn username avatar } }")
+        if res and res.get("data", {}).get("userStatus", {}).get("isSignedIn"):
+            username = res["data"]["userStatus"]["username"]
+            avatar = res["data"]["userStatus"].get("avatar")
+            
+            GQL2 = """
+            query userProfileUserQuestionProgress($userSlug: String!) {
+              matchedUser(username: $userSlug) {
+                submitStats {
+                  acSubmissionNum { difficulty count }
+                }
+              }
+            }"""
+            stats = []
+            try:
+                r2 = graphql(GQL2, {"userSlug": username})
+                stats = r2["data"]["matchedUser"]["submitStats"]["acSubmissionNum"]
+            except:
+                pass
+                
+            return {"ok": True, "data": {"username": username, "avatar": avatar, "stats": stats}}
+        return {"ok": False, "error": "Not signed in"}
     except Exception as e:
-        save_session("", "", "")
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": f"Network Error: {str(e)}"}
 
 def cmd_problem_list(params):
     difficulty = params.get("difficulty", "ALL")
@@ -302,7 +309,7 @@ def cmd_problem_detail(params):
     GQL  = """
     query questionData($titleSlug: String!) {
       question(titleSlug: $titleSlug) {
-        questionId title titleSlug content difficulty
+        questionId title titleSlug content difficulty isPaidOnly
         topicTags { name }
         companyTagStats
         codeSnippets { lang langSlug code }
@@ -315,6 +322,10 @@ def cmd_problem_detail(params):
         starters = {s["langSlug"]: s["code"] for s in (q.get("codeSnippets") or [])}
         test_cases = "\n".join(q.get("exampleTestcaseList") or [q.get("sampleTestCase", "")])
         
+        content = q.get("content")
+        if not content and q.get("isPaidOnly"):
+            content = "<h3>Premium Required</h3><p>This problem is exclusively for LeetCode Premium users. You must purchase a subscription on LeetCode to view this question's details and submit code.</p>"
+            
         topics = [t["name"] for t in (q.get("topicTags") or [])]
         companies = []
         
@@ -347,7 +358,7 @@ def cmd_problem_detail(params):
             "title":         q["title"],
             "slug":          q["titleSlug"],
             "difficulty":    q["difficulty"],
-            "content_plain": strip_html(q.get("content") or ""),
+            "content_plain": strip_html(content or ""),
             "starters":      starters,
             "test_cases":    test_cases,
             "topics":        topics,
