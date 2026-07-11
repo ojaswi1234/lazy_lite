@@ -146,6 +146,67 @@ keymap.add({
   ["ctrl+alt+o"] = "complexity:analyze"
 })
 
+-- Graph Rendering
+local function draw_graph(cx, cy, w, h, user_tc)
+  local font = style.font
+  -- Draw Axes
+  renderer.draw_rect(cx, cy, 2, h, style.text) -- Y axis
+  renderer.draw_rect(cx, cy + h, w, 2, style.text) -- X axis
+  
+  renderer.draw_text(font, "Operations (Time)", cx + 10, cy - 20, style.dim)
+  renderer.draw_text(font, "Elements (N)", cx + w - 80, cy + h + 10, style.dim)
+  
+  local max_n = 20
+  local max_y = 400
+  
+  local curves = {
+    { label = "O(1)",       func = function(n) return 10 end, color = {x = 0, y = 255, z = 0, a = 255} },
+    { label = "O(log N)",   func = function(n) return math.log(n + 1) * 20 end, color = {x = 100, y = 255, z = 100, a = 255} },
+    { label = "O(N)",       func = function(n) return n * 15 end, color = {x = 255, y = 255, z = 0, a = 255} },
+    { label = "O(N log N)", func = function(n) return n * math.log(n + 1) * 5 end, color = {x = 255, y = 165, z = 0, a = 255} },
+    { label = "O(N^2)",     func = function(n) return n * n end, color = {x = 255, y = 50, z = 50, a = 255} }
+  }
+  
+  local colors = {
+    ["O(1)"] = curves[1].color,
+    ["O(log N)"] = curves[2].color,
+    ["O(N)"] = curves[3].color,
+    ["O(N log N)"] = curves[4].color,
+    ["O(N^2)"] = curves[5].color,
+  }
+  
+  -- We parse user_tc. If it's higher than O(N^2) we treat it as O(N^2) for graphing
+  local active_curve = user_tc
+  if not colors[user_tc] then active_curve = "O(N^2)" end
+  
+  for _, curve in ipairs(curves) do
+    local is_active = (curve.label == active_curve)
+    local col = is_active and curve.color or style.dim
+    local dot_size = is_active and 4 or 2
+    
+    -- Plot points
+    for n = 0, max_n, 0.2 do
+      local val = curve.func(n)
+      if val <= max_y then
+        local px = cx + (n / max_n) * w
+        local py = (cy + h) - (val / max_y) * h
+        if px <= cx + w and py >= cy then
+          renderer.draw_rect(px, py, dot_size, dot_size, col)
+        end
+      end
+    end
+    
+    -- Draw Legend
+    local end_val = curve.func(max_n)
+    if end_val > max_y then end_val = max_y end
+    local lx = cx + w + 10
+    local ly = (cy + h) - (end_val / max_y) * h
+    if curve.label == "O(1)" then ly = (cy + h) - 15 end
+    renderer.draw_text(font, curve.label, lx, ly - 10, col)
+  end
+end
+
 return {
-  analyze_code = analyze_code
+  analyze_code = analyze_code,
+  draw_graph = draw_graph
 }

@@ -1410,6 +1410,12 @@ function LeetCodeView:draw()
       
       cy = c_card_y + card_h + 20*SCALE
       
+      local ok, complexity = pcall(require, "plugins.complexity")
+      if ok and complexity.draw_graph then
+        complexity.draw_graph(cx + 20*SCALE, cy + 30*SCALE, 300*SCALE, 150*SCALE, res.est_tc or "O(?)")
+        cy = cy + 150*SCALE + 60*SCALE
+      end
+      
       if res.total_testcases then
         renderer.draw_text(style.font, "Testcases Passed: " .. (res.total_correct or 0) .. " / " .. (res.total_testcases or 0), cx, cy, style.text)
         cy = cy + 30*SCALE
