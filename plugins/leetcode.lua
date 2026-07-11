@@ -353,6 +353,7 @@ command.add(nil, {
       if not lc_view then return end
       if res.ok then
         lc_view.auth_status = "Connected via " .. (res.data.detected_from or "browser")
+        lc_view.user_stats = res.data.stats
         lc_view.state = "list"; lc_view.search_focus = true
         command.perform("leetcode:fetch-list")
       else
@@ -375,6 +376,7 @@ command.add(nil, {
           if not lc_view then return end
           if resp.ok then
             lc_view.auth_status = "[+] Logged in as " .. resp.data.username
+            lc_view.user_stats = resp.data.stats
             lc_view.state = "list"; lc_view.search_focus = true
             if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
           else
@@ -413,6 +415,7 @@ command.add(nil, {
       if not lc_view then return end
       if resp.ok then
         lc_view.auth_status = "[+] Logged in as " .. resp.data.username
+        lc_view.user_stats = resp.data.stats
         lc_view.state = "list"; lc_view.search_focus = true
         command.perform("leetcode:fetch-list")
         else
@@ -810,6 +813,16 @@ function LeetCodeView:draw()
     
     renderer.draw_text(style.font, "LeetCode Browser", cx, cy, style.text)
     renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 150*SCALE, cy, diff_color)
+    if self.user_stats then
+      local stats_str = "Solved: "
+      for _, stat in ipairs(self.user_stats) do
+        if stat.difficulty == "All" then stats_str = stats_str .. stat.count .. " " end
+        if stat.difficulty == "Easy" then stats_str = stats_str .. "(E:" .. stat.count .. " " end
+        if stat.difficulty == "Medium" then stats_str = stats_str .. "M:" .. stat.count .. " " end
+        if stat.difficulty == "Hard" then stats_str = stats_str .. "H:" .. stat.count .. ")" end
+      end
+      renderer.draw_text(style.font, stats_str, cx + cw - style.font:get_width(stats_str), cy, style.accent)
+    end
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Alt+R: Run Code  |  Alt+S: Submit  |  Tab/Click: Focus Search", cx, cy, style.accent)
@@ -867,7 +880,10 @@ function LeetCodeView:draw()
           renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, title_color)
           local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
           renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, item_y, dc)
-          renderer.draw_text(style.font, p.ac_rate .. "%", cx + 550*SCALE, item_y, style.dim)
+          local stat_str = p.ac_rate .. "%"
+          if p.status == "ac" then stat_str = stat_str .. " ✓" end
+          local stat_color = p.status == "ac" and LC_COLORS.accepted or style.dim
+          renderer.draw_text(style.font, stat_str, cx + 550*SCALE, item_y, stat_color)
           if p.paid then renderer.draw_text(style.font, "(Premium)", cx + 620*SCALE, item_y, LC_COLORS.tle) end
         end
         item_y = item_y + 24*SCALE
