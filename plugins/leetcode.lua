@@ -898,6 +898,16 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       return true
     end
   elseif self.state == "problem" and btn == "left" then
+    if self.copy_btn_rect then
+      local r = self.copy_btn_rect
+      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+        local text_to_copy = self.current.title .. "\n\n" .. (self.current.content_plain or "")
+        system.set_clipboard(text_to_copy)
+        core.log("[LeetCode] Problem description copied to clipboard!")
+        return true
+      end
+    end
+    
     if self.image_links then
       for _, link in ipairs(self.image_links) do
         if x >= link.x and x <= link.x + link.w and y >= link.y and y <= link.y + link.h then
@@ -1182,6 +1192,12 @@ function LeetCodeView:draw()
     local dc = LC_COLORS[p.difficulty:lower()]
     renderer.draw_text(style.font, "<- Back", cx, cy, style.dim)
     renderer.draw_text(style.font, p.title, cx + 80*SCALE, cy, style.text)
+    
+    local copy_text = "[Copy Description]"
+    local copy_w = style.font:get_width(copy_text)
+    self.copy_btn_rect = {x = cx + cw - 120*SCALE - copy_w, y = cy, w = copy_w, h = style.font:get_height()}
+    renderer.draw_text(style.font, copy_text, self.copy_btn_rect.x, self.copy_btn_rect.y, style.accent)
+    
     renderer.draw_text(style.font, "[" .. p.difficulty .. "]", cx + cw - 100*SCALE, cy, dc)
     cy = cy + 25*SCALE
     
