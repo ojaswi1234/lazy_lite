@@ -881,7 +881,7 @@ function LeetCodeView:draw()
           local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
           renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, item_y, dc)
           local stat_str = p.ac_rate .. "%"
-          if p.status == "ac" then stat_str = stat_str .. " ✓" end
+          if p.status == "ac" then stat_str = stat_str .. " [AC]" end
           local stat_color = p.status == "ac" and LC_COLORS.accepted or style.dim
           renderer.draw_text(style.font, stat_str, cx + 550*SCALE, item_y, stat_color)
           if p.paid then renderer.draw_text(style.font, "(Premium)", cx + 620*SCALE, item_y, LC_COLORS.tle) end
