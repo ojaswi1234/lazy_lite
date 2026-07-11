@@ -591,7 +591,7 @@ command.add(nil, {
     
     if lc_is_active and core.active_view.state == "list" then
       local node = core.root_view.root_node:get_node_for_view(core.active_view)
-      if node then node:close_view(core.active_view) end
+      if node then node:close_view(core.root_view, core.active_view) end
       return
     end
 
@@ -612,7 +612,7 @@ command.add(nil, {
         for i = #node.views, 1, -1 do
           local view = node.views[i]
           if view.doc and view.doc.filename and view.doc.filename:find("leetcode[/\\]Leetcode") then
-            node:close_view(view)
+            node:close_view(core.root_view, view)
           end
         end
       end
