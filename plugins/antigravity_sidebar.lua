@@ -1935,7 +1935,7 @@ function AGView:on_paste(text)
       f:close()
       table.insert(self.temp_files, filepath)
       core.log("Saved long paste to %s", filename)
-      paste_txt = " @" .. filename .. " "
+      paste_txt = string.format(" [Pasted long text saved to: %s, please read it] ", filepath)
     end
   end
   local c = self:state().cursor or #self:state().input
