@@ -748,7 +748,10 @@ function LeetCodeView:draw()
   self:draw_background(style.background)
 
   local sw, sh = self.size.x, self.size.y
-  local w, h = 700 * SCALE, 500 * SCALE
+  -- Make it responsive: 95% of screen width (up to 1200px) and 90% of screen height
+  local w = math.min(1200 * SCALE, math.max(700 * SCALE, sw - 80 * SCALE))
+  local h = math.max(500 * SCALE, sh - 80 * SCALE)
+  
   local x, y = self.position.x + (sw - w) / 2, self.position.y + (sh - h) / 2
   
   -- We draw the central panel
@@ -872,19 +875,26 @@ function LeetCodeView:draw()
             renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
           end
           renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
+          
+          local diff_x = cx + cw - 250 * SCALE
+          local stat_x = cx + cw - 150 * SCALE
+          local prem_x = cx + cw - 80 * SCALE
+          
+          local max_title_chars = math.max(15, math.floor((diff_x - (cx + 50*SCALE)) / style.font:get_width("A")) * 1.5)
           local title = p.title
-          if #title > 45 then title = title:sub(1, 42) .. "..." end
+          if #title > max_title_chars then title = title:sub(1, max_title_chars) .. "..." end
+          
           local title_color = style.text
           if p.status == "ac" then title_color = LC_COLORS.accepted end
           if p.status == "notac" then title_color = LC_COLORS.tle end
           renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, title_color)
           local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
-          renderer.draw_text(style.font, p.difficulty, cx + 450*SCALE, item_y, dc)
+          renderer.draw_text(style.font, p.difficulty, diff_x, item_y, dc)
           local stat_str = p.ac_rate .. "%"
           if p.status == "ac" then stat_str = stat_str .. " [AC]" end
           local stat_color = p.status == "ac" and LC_COLORS.accepted or style.dim
-          renderer.draw_text(style.font, stat_str, cx + 550*SCALE, item_y, stat_color)
-          if p.paid then renderer.draw_text(style.font, "(Premium)", cx + 620*SCALE, item_y, LC_COLORS.tle) end
+          renderer.draw_text(style.font, stat_str, stat_x, item_y, stat_color)
+          if p.paid then renderer.draw_text(style.font, "(Premium)", prem_x, item_y, LC_COLORS.tle) end
         end
         item_y = item_y + 24*SCALE
       end
