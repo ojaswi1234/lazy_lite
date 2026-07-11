@@ -652,6 +652,12 @@ command.add(nil, {
       core.log("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
       return
     end
+    
+    local ok, complexity = pcall(require, "plugins.complexity")
+    local est_tc, est_sc = "O(?)", "O(?)"
+    if ok and complexity.analyze_code then
+      est_tc, est_sc = complexity.analyze_code(code, meta.lang)
+    end
     if not lc_view or not core.root_view.root_node:get_node_for_view(lc_view) then command.perform("leetcode:toggle") end
     lc_view.state       = "running"
     lc_view.loading_msg = "Running test cases"
@@ -670,6 +676,8 @@ command.add(nil, {
       lc_view.result      = resp.data or {}
       lc_view.result.ok   = resp.ok
       lc_view.result.err  = resp.error
+      lc_view.result.est_tc = est_tc
+      lc_view.result.est_sc = est_sc
       lc_view.result_type = "run"
       lc_view.state       = "result"
       core.redraw       = true
@@ -698,6 +706,12 @@ command.add(nil, {
       core.log("[LeetCode] Open a LeetCode solution file first (from USERDIR/leetcode/)")
       return
     end
+    
+    local ok, complexity = pcall(require, "plugins.complexity")
+    local est_tc, est_sc = "O(?)", "O(?)"
+    if ok and complexity.analyze_code then
+      est_tc, est_sc = complexity.analyze_code(code, meta.lang)
+    end
     if not lc_view or not core.root_view.root_node:get_node_for_view(lc_view) then command.perform("leetcode:toggle") end
     lc_view.state       = "running"
     lc_view.loading_msg = "Submitting to LeetCode"
@@ -715,6 +729,8 @@ command.add(nil, {
       lc_view.result      = resp.data or {}
       lc_view.result.ok   = resp.ok
       lc_view.result.err  = resp.error
+      lc_view.result.est_tc = est_tc
+      lc_view.result.est_sc = est_sc
       lc_view.result_type = "submit"
       lc_view.state       = "result"
       core.redraw       = true
@@ -1382,7 +1398,17 @@ function LeetCodeView:draw()
         renderer.draw_text(style.font, "Beats " .. res.memory_percentile .. "%", cx + card_w + 20*SCALE, cy + 50*SCALE, style.accent)
       end
       
-      cy = cy + card_h + 20*SCALE
+      -- Complexity Cards (Heuristic)
+      local c_card_y = cy + card_h + 10*SCALE
+      renderer.draw_rect(cx, c_card_y, card_w, card_h, style.background2)
+      renderer.draw_text(style.font, "Est. Time Complexity", cx + 10*SCALE, c_card_y + 10*SCALE, style.dim)
+      renderer.draw_text(style.font, res.est_tc or "O(?)", cx + 10*SCALE, c_card_y + 35*SCALE, style.accent)
+      
+      renderer.draw_rect(cx + card_w + 10*SCALE, c_card_y, card_w, card_h, style.background2)
+      renderer.draw_text(style.font, "Est. Space Complexity", cx + card_w + 20*SCALE, c_card_y + 10*SCALE, style.dim)
+      renderer.draw_text(style.font, res.est_sc or "O(?)", cx + card_w + 20*SCALE, c_card_y + 35*SCALE, style.accent)
+      
+      cy = c_card_y + card_h + 20*SCALE
       
       if res.total_testcases then
         renderer.draw_text(style.font, "Testcases Passed: " .. (res.total_correct or 0) .. " / " .. (res.total_testcases or 0), cx, cy, style.text)
