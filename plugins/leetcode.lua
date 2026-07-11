@@ -26,14 +26,25 @@ local LANG_EXT = {
 }
 
 local LC_COLORS = {
-  accepted  = { 34, 197,  94, 255 },
-  wrong     = {239,  68,  68, 255 },
-  tle       = {234, 179,   8, 255 },
-  mle       = {249, 115,  22, 255 },
-  easy      = { 34, 197,  94, 255 },
-  medium    = {234, 179,   8, 255 },
-  hard      = {239,  68,  68, 255 },
-  badge_bg  = { 30,  30,  46, 255 },
+  easy     = { common.color("#00b8a3") },
+  medium   = { common.color("#ffc01e") },
+  hard     = { common.color("#ff375f") },
+  accepted = { common.color("#2cbb5d") },
+  tle      = { common.color("#ff375f") }
+}
+
+-- Actually, wait, `common.color` returns 4 unpacked values!
+-- By doing `{ common.color(...) }`, I am wrapping the 4 returned values into a single array `{r, g, b, a}`!
+-- So `{ common.color("#00b8a3") }` IS correct for Lite-XL colors!
+
+local TOPIC_TAGS = {
+  "array", "string", "hash-table", "dynamic-programming", "math", "sorting",
+  "greedy", "depth-first-search", "database", "binary-search", "breadth-first-search",
+  "tree", "matrix", "two-pointers", "bit-manipulation", "binary-tree", "heap-priority-queue",
+  "stack", "prefix-sum", "graph", "design", "simulation", "counting", "backtracking",
+  "sliding-window", "union-find", "linked-list", "ordered-set", "monotonic-stack",
+  "enumeration", "recursion", "trie", "divide-and-conquer", "binary-search-tree", "geometry",
+  "queue", "memoization", "topological-sort", "segment-tree", "game-theory"
 }
 
 local function json_encode(v)
@@ -103,7 +114,6 @@ local function ensure_api()
           if cb then pending[resp.id] = nil; cb(resp) end
         end
       end
-      -- Only yield if no data was read, to avoid artificial throttling on large responses
       if chunk == "" then
         coroutine.yield(0.01)
       end
@@ -136,7 +146,7 @@ function LeetCodeView:new()
   self.total_problems= 0
   self.search_input  = ""
   self.search_focus  = false
-  self.difficulty    = ""
+  self.difficulty    = "ALL"
   self.scroll_y      = 0
   self.list_scroll_y = 0
   self.selected_idx  = 1
@@ -232,7 +242,6 @@ function LeetCodeView:update()
   end
 end
 
--- We declare lc_view as the global active instance
 local lc_view = nil
 
 local function get_active_meta()
@@ -271,7 +280,6 @@ local function open_problem(problem, lang)
   system.mkdir(dir)
   local ext   = LANG_EXT[lang] or "txt"
   
-  -- Create markdown description
   local fname_md = num .. "_" .. problem.slug .. ".md"
   local fpath_md = dir .. PATHSEP .. fname_md
   local f_md = io.open(fpath_md, "r")
@@ -433,7 +441,7 @@ command.add(nil, {
       cmd        = "problem_list",
       skip       = lc_view.page_skip,
       limit      = 50,
-      difficulty = lc_view.difficulty,
+      difficulty = lc_view.difficulty == "ALL" and "" or lc_view.difficulty,
       search     = lc_view.search_input,
     }, function(resp)
       if not lc_view then return end
@@ -661,6 +669,33 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
   end
 
   if self.state == "list" and btn == "left" then
+    -- 1. Check dropdown clicks
+    if self.dropdown_rect and self.search_focus then
+      local r = self.dropdown_rect
+      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+        for _, item in ipairs(self.dropdown_items) do
+          if y >= item.y and y < item.y + 24*SCALE then
+            self.search_input = self.search_input:gsub("#[^%s]*$", "#" .. item.t .. " ")
+            self.page_skip = 0
+            command.perform("leetcode:fetch-list")
+            return true
+          end
+        end
+      end
+    end
+    
+    -- 2. Check difficulty toggles
+    if self.diff_buttons then
+      for _, btn in ipairs(self.diff_buttons) do
+        if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + style.font:get_height() then
+          self.difficulty = btn.val
+          self.page_skip = 0
+          command.perform("leetcode:fetch-list")
+          return true
+        end
+      end
+    end
+    
     local cy = my + 80 * SCALE
     -- Search box click
     if y >= cy and y <= cy + 24*SCALE then
@@ -748,13 +783,11 @@ function LeetCodeView:draw()
   self:draw_background(style.background)
 
   local sw, sh = self.size.x, self.size.y
-  -- Make it responsive: 95% of screen width (up to 1200px) and 90% of screen height
   local w = math.min(1200 * SCALE, math.max(700 * SCALE, sw - 80 * SCALE))
   local h = math.max(500 * SCALE, sh - 80 * SCALE)
   
   local x, y = self.position.x + (sw - w) / 2, self.position.y + (sh - h) / 2
   
-  -- We draw the central panel
   renderer.draw_rect(x, y, w, h, style.background)
   renderer.draw_rect(x, y, w, 2 * SCALE, style.accent)
   
@@ -809,13 +842,20 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + h/2 - 20*SCALE, style.accent)
     
   elseif self.state == "list" then
-    local diff_color = style.text
-    if self.difficulty == "EASY" then diff_color = LC_COLORS.easy
-    elseif self.difficulty == "MEDIUM" then diff_color = LC_COLORS.medium
-    elseif self.difficulty == "HARD" then diff_color = LC_COLORS.hard end
-    
     renderer.draw_text(style.font, "LeetCode Browser", cx, cy, style.text)
-    renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 150*SCALE, cy, diff_color)
+    
+    local d_opts = { {"ALL", "ALL"}, {"Easy", "EASY"}, {"Med", "MEDIUM"}, {"Hard", "HARD"} }
+    self.diff_buttons = {}
+    local d_x = cx + 150*SCALE
+    for _, opt in ipairs(d_opts) do
+      local label = "[" .. opt[1] .. "]"
+      local color = self.difficulty == opt[2] and LC_COLORS[opt[2]:lower()] or style.dim
+      
+      renderer.draw_text(style.font, label, d_x, cy, color)
+      table.insert(self.diff_buttons, { label = opt[1], val = opt[2], x = d_x, y = cy, w = style.font:get_width(label) })
+      d_x = d_x + style.font:get_width(label) + 10*SCALE
+    end
+    
     if self.user_stats then
       local s_all, s_easy, s_med, s_hard = 0, 0, 0, 0
       for _, stat in ipairs(self.user_stats) do
@@ -849,7 +889,7 @@ function LeetCodeView:draw()
       for _, s in ipairs(segs) do
         renderer.draw_text(style.font, s.t, curr_x, cy, style.background)
         if s.b then
-          renderer.draw_text(style.font, s.t, curr_x + 1, cy, style.background) -- Bold effect
+          renderer.draw_text(style.font, s.t, curr_x + 1, cy, style.background)
           curr_x = curr_x + 1
         end
         curr_x = curr_x + style.font:get_width(s.t)
@@ -857,7 +897,7 @@ function LeetCodeView:draw()
     end
     cy = cy + 30*SCALE
     
-    renderer.draw_text(style.font, "Alt+R: Run Code  |  Alt+S: Submit  |  Tab/Click: Focus Search", cx, cy, style.accent)
+    renderer.draw_text(style.font, "Alt+R: Run Code  |  Alt+S: Submit  |  #tag for topics", cx, cy, style.accent)
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
@@ -917,7 +957,7 @@ function LeetCodeView:draw()
           if p.status == "ac" then title_color = LC_COLORS.accepted end
           if p.status == "notac" then title_color = LC_COLORS.tle end
           renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, title_color)
-          local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
+          local dc = LC_COLORS[p.difficulty:lower()]
           renderer.draw_text(style.font, p.difficulty, diff_x, item_y, dc)
           local stat_str = p.ac_rate .. "%"
           if p.status == "ac" then stat_str = stat_str .. " [AC]" end
@@ -931,16 +971,48 @@ function LeetCodeView:draw()
     end
     cy = y + h - 50*SCALE
     
-    -- Draw Pagination at bottom
     local page = math.floor(self.page_skip / 50) + 1
     local total_pages = math.max(1, math.ceil(self.total_problems / 50))
     renderer.draw_text(style.font, "Page " .. page .. " / " .. total_pages, cx, cy + 10*SCALE, style.dim)
     renderer.draw_text(style.font, "[< Prev Page]", cx + cw/2 - 100*SCALE, cy + 10*SCALE, self.page_skip > 0 and style.accent or style.dim)
     renderer.draw_text(style.font, "[Next Page >]", cx + cw/2 + 20*SCALE, cy + 10*SCALE, (self.page_skip + 50) < self.total_problems and style.accent or style.dim)
     
+    if self.search_focus then
+      local partial = self.search_input:match("#([^%s]*)$")
+      if partial then
+        local filtered = {}
+        for _, t in ipairs(TOPIC_TAGS) do
+          if t:find(partial, 1, true) then table.insert(filtered, t) end
+        end
+        if #filtered > 0 then
+          local drop_x, drop_y = search_x, search_y + search_h
+          local drop_w = 200 * SCALE
+          local drop_h = math.min(10, #filtered) * 24 * SCALE
+          
+          self.dropdown_rect = {x = drop_x, y = drop_y, w = drop_w, h = drop_h}
+          self.dropdown_items = {}
+          
+          renderer.draw_rect(drop_x, drop_y, drop_w, drop_h, style.background3)
+          renderer.draw_rect(drop_x, drop_y, drop_w, 1*SCALE, style.text)
+          for i, t in ipairs(filtered) do
+            if i > 10 then break end
+            local item_y = drop_y + (i-1)*24*SCALE
+            table.insert(self.dropdown_items, { t = t, y = item_y })
+            renderer.draw_text(style.font, "#" .. t, drop_x + 10*SCALE, item_y + 4*SCALE, style.text)
+          end
+        else
+          self.dropdown_rect = nil
+        end
+      else
+        self.dropdown_rect = nil
+      end
+    else
+      self.dropdown_rect = nil
+    end
+
   elseif self.state == "problem" and self.current then
     local p = self.current
-    local dc = p.difficulty == "Easy" and LC_COLORS.easy or (p.difficulty == "Medium" and LC_COLORS.medium or LC_COLORS.hard)
+    local dc = LC_COLORS[p.difficulty:lower()]
     renderer.draw_text(style.font, "<- Back", cx, cy, style.dim)
     renderer.draw_text(style.font, p.title, cx + 80*SCALE, cy, style.text)
     renderer.draw_text(style.font, "[" .. p.difficulty .. "]", cx + cw - 100*SCALE, cy, dc)
