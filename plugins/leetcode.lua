@@ -320,9 +320,14 @@ local function open_problem(problem, lang)
     local header = ""
     local pid = problem.id or problem.question_id or "0"
     if ext == "py" then
-      header = "# " .. pid .. ". " .. problem.title .. "\n# " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n\n"
+      header = "# " .. pid .. ". " .. problem.title .. "\n# " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n"
+      header = header .. "# Shortcuts: [Ctrl+S] Save | [Alt+R] Run | [Alt+S] Submit | [Ctrl+Q] Close & Return\n\n"
     elseif ext == "cpp" or ext == "c" or ext == "java" or ext == "cs" or ext == "js" or ext == "ts" then
-      header = "// " .. pid .. ". " .. problem.title .. "\n// " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n\n"
+      header = "// " .. pid .. ". " .. problem.title .. "\n// " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n"
+      header = header .. "// Shortcuts: [Ctrl+S] Save | [Alt+R] Run | [Alt+S] Submit | [Ctrl+Q] Close & Return\n\n"
+    else
+      header = "// " .. pid .. ". " .. problem.title .. "\n// " .. (problem.difficulty or "") .. " | https://leetcode.com/problems/" .. problem.slug .. "/\n"
+      header = header .. "// Shortcuts: [Ctrl+S] Save | [Alt+R] Run | [Alt+S] Submit | [Ctrl+Q] Close & Return\n\n"
     end
     local wf = io.open(fpath, "w")
     if wf then wf:write(header .. starter); wf:close() end
