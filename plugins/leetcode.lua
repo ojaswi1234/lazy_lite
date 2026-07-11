@@ -1369,12 +1369,14 @@ function LeetCodeView:draw()
         renderer.draw_text(style.font, "Your Output", cx, cy, style.dim)
         cy = cy + 20*SCALE
         renderer.draw_rect(cx, cy, cw, 50*SCALE, style.background2)
-        cy = draw_text_wrap(style.font, LC_COLORS.wrong, table.concat(res.code_output or {}, "\n"), cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 30*SCALE
+        local co = type(res.code_output) == "table" and table.concat(res.code_output, "\n") or (res.code_output or "")
+        cy = draw_text_wrap(style.font, LC_COLORS.wrong, co, cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 30*SCALE
         
         renderer.draw_text(style.font, "Expected", cx, cy, style.dim)
         cy = cy + 20*SCALE
         renderer.draw_rect(cx, cy, cw, 50*SCALE, style.background2)
-        cy = draw_text_wrap(style.font, LC_COLORS.accepted, table.concat(res.expected_output or {}, "\n"), cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 20*SCALE
+        local eo = type(res.expected_output) == "table" and table.concat(res.expected_output, "\n") or (res.expected_output or "")
+        cy = draw_text_wrap(style.font, LC_COLORS.accepted, eo, cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 20*SCALE
       end
       
       if res.std_output and res.std_output ~= "" then

@@ -59,11 +59,11 @@ def graphql(query_str, variables=None):
                         {"query": query_str, "variables": variables or {}})
 
 def poll(url, interval=1.5, timeout=45):
-    """Poll a LeetCode check endpoint until state != STARTED."""
+    """Poll a LeetCode check endpoint until state is SUCCESS."""
     t0 = time.time()
     while True:
         data = http_request(url, method="GET")
-        if data.get("state") != "STARTED":
+        if data.get("state") not in ("STARTED", "PENDING"):
             return data
         if time.time() - t0 > timeout:
             raise TimeoutError("Judge timed out")
@@ -414,8 +414,8 @@ def cmd_run_code(params):
                 "total_testcases":  1,
                 "runtime":          result.get("status_runtime", "N/A"),
                 "memory":           result.get("status_memory", "N/A"),
-                "code_output":      result.get("code_output", []),
-                "expected_output":  result.get("expected_output", []),
+                "code_output":      result.get("code_answer") or result.get("code_output", []),
+                "expected_output":  result.get("expected_code_answer") or result.get("expected_output", []),
                 "std_output":       result.get("std_output", ""),
                 "compile_error":    result.get("compile_error", ""),
                 "runtime_error":    result.get("runtime_error", ""),
