@@ -891,10 +891,10 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       end
     end
     
-    local cy = my + 80 * SCALE
+    local cy = y + 60 * SCALE
     -- Search box click
-    if y >= cy and y <= cy + 24*SCALE then
-      if x >= cx + 60*SCALE and x <= cx + cw - 100*SCALE then
+    if my >= cy and my <= cy + 24*SCALE then
+      if mx >= cx + 60*SCALE and mx <= cx + cw - 100*SCALE then
         self.search_focus = true
         core.redraw = true
         return true
@@ -902,15 +902,15 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     end
     
     -- Pagination click
-    local btn_cy = my + h - 40*SCALE
-    if y >= btn_cy and y <= btn_cy + 24*SCALE then
-      if x >= cx + cw/2 - 100*SCALE and x <= cx + cw/2 - 20*SCALE then
+    local btn_cy = y + h - 40*SCALE
+    if my >= btn_cy and my <= btn_cy + 24*SCALE then
+      if mx >= cx + cw/2 - 100*SCALE and mx <= cx + cw/2 - 20*SCALE then
         if self.page_skip >= 50 then
           self.page_skip = self.page_skip - 50
           command.perform("leetcode:fetch-list")
         end
         return true
-      elseif x >= cx + cw/2 + 20*SCALE and x <= cx + cw/2 + 120*SCALE then
+      elseif mx >= cx + cw/2 + 20*SCALE and mx <= cx + cw/2 + 120*SCALE then
         if self.page_skip + 50 < self.total_problems then
           self.page_skip = self.page_skip + 50
           command.perform("leetcode:fetch-list")
@@ -923,9 +923,9 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     core.redraw = true
     
     -- Handle click on a problem
-    local list_y = cy + 30*SCALE + 35*SCALE + 10*SCALE
-    if y >= list_y and y < btn_cy then
-      local idx = math.floor((y - list_y + self.list_scroll_y) / (24*SCALE)) + 1
+    local list_y = y + 135*SCALE
+    if my >= list_y and my < btn_cy then
+      local idx = math.floor((my - list_y + self.list_scroll_y) / (24*SCALE)) + 1
       if idx >= 1 and idx <= #self.problems then
         self.selected_idx = idx
         command.perform("leetcode:open-problem")
