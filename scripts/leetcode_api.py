@@ -71,37 +71,21 @@ def poll(url, interval=1.5, timeout=45):
 
 # ── HTML stripping ─────────────────────────────────────────────────────────────
 def strip_html(html):
-    import re
-    if not html: return ""
+    # Preserve some structure before stripping
+    html = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
+    html = re.sub(r"</?p\s*/?>", "\n", html, flags=re.IGNORECASE)
+    html = re.sub(r"<li\s*/?>", "\n• ", html, flags=re.IGNORECASE)
+    html = re.sub(r"<strong>(.*?)</strong>", r"\1", html, flags=re.IGNORECASE|re.DOTALL)
+    html = re.sub(r"<code>(.*?)</code>", r"`\1`", html, flags=re.IGNORECASE|re.DOTALL)
+    html = re.sub(r"<[^>]+>", "", html)
+    html = html.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    html = html.replace("&quot;", '"').replace("&#39;", "'").replace("&nbsp;", " ")
     
-    html = html.replace("<br>", "\n").replace("<br/>", "\n").replace("<p>", "").replace("</p>", "\n\n")
-    html = html.replace("<strong>", "**").replace("</strong>", "**")
-    html = html.replace("<em>", "*").replace("</em>", "*")
-    html = html.replace("<code>", "`").replace("</code>", "`")
+    # Clean up trailing spaces (which turns space-only lines into empty lines)
+    html = re.sub(r"[ \t]+$", "", html, flags=re.MULTILINE)
     
-    # Format Tables
-    html = re.sub(r'<tr[^>]*>\s*', '', html)
-    html = re.sub(r'\s*</tr>', ' |\n', html)
-    html = re.sub(r'\s*<t[dh][^>]*>\s*', ' | ', html)
-    html = re.sub(r'\s*</t[dh]>\s*', ' ', html)
-    html = re.sub(r'<table[^>]*>', '\n', html)
-    html = re.sub(r'</table>', '\n', html)
-    
-    html = re.sub(r'<pre>', '\n```\n', html)
-    html = re.sub(r'</pre>', '\n```\n', html)
-    
-    html = re.sub(r'<img[^>]*src=["\']([^"\']+)["\'][^>]*>', r'[Image:\1]', html)
-    
-    html = re.sub(r'<[^>]+>', '', html)
-    html = re.sub(r'&nbsp;', ' ', html)
-    html = re.sub(r'&lt;', '<', html)
-    html = re.sub(r'&gt;', '>', html)
-    html = re.sub(r'&amp;', '&', html)
-    html = re.sub(r'&quot;', '"', html)
-    html = re.sub(r'&#39;', "'", html)
-    html = re.sub(r'^[ \t]+', '', html, flags=re.MULTILINE)
-    html = re.sub(r'[ \t]+$', '', html, flags=re.MULTILINE)
-    html = re.sub(r'\n{3,}', '\n\n', html)
+    # Collapse excessive blank lines
+    html = re.sub(r"\n{3,}", "\n\n", html)
     return html.strip()
 
 # ── command handlers ───────────────────────────────────────────────────────────
@@ -328,12 +312,23 @@ def cmd_problem_detail(params):
         questionId title titleSlug content difficulty isPaidOnly
         topicTags { name }
         companyTagStats
+        similarQuestions
         codeSnippets { lang langSlug code }
         exampleTestcaseList sampleTestCase
       }
     }"""
     try:
         r = graphql(GQL, {"titleSlug": slug})
+        q = r["data"]["question"]
+        
+        similar_qs = []
+        try:
+            sq_str = q.get("similarQuestions")
+            if sq_str:
+                similar_qs = json.loads(sq_str)
+        except Exception:
+            pass
+
         q = r["data"]["question"]
         starters = {s["langSlug"]: s["code"] for s in (q.get("codeSnippets") or [])}
         test_cases = "\n".join(q.get("exampleTestcaseList") or [q.get("sampleTestCase", "")])
@@ -379,6 +374,7 @@ def cmd_problem_detail(params):
             "test_cases":    test_cases,
             "topics":        topics,
             "companies":     companies,
+            "similar_questions": similar_qs,
         }}
     except Exception as e:
         return {"ok": False, "error": str(e)}

@@ -588,13 +588,6 @@ command.add(nil, {
   end,
   ["leetcode:close"] = function()
     local lc_is_active = (core.active_view and core.active_view:is(LeetCodeView))
-    
-    if lc_is_active and core.active_view.state == "list" then
-      local node = core.root_view.root_node:get_node_for_view(core.active_view)
-      if node then node:close_view(core.root_view, core.active_view) end
-      return
-    end
-
     local in_problem = false
     if lc_is_active and (core.active_view.state == "problem" or core.active_view.state == "running" or core.active_view.state == "result") then
       in_problem = true
@@ -613,7 +606,7 @@ command.add(nil, {
           for i = #node.views, 1, -1 do
             local view = node.views[i]
             if view.doc and view.doc.filename and view.doc.filename:find("leetcode[/\\]Leetcode") then
-              node:close_view(core.root_view, view)
+              node:close_view(core.root_view.root_node, view)
             end
           end
         end
@@ -913,6 +906,29 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
         if x >= link.x and x <= link.x + link.w and y >= link.y and y <= link.y + link.h then
           core.log("[LeetCode] Opening image viewer...")
           core.root_view:open_doc({filename = link.url})
+          return true
+        end
+      end
+    end
+    
+    if self.similar_buttons then
+      for _, b in ipairs(self.similar_buttons) do
+        if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
+          self.state = "loading"
+          self.loading_msg = "Loading similar problem..."
+          core.redraw = true
+          api_call({cmd = "problem_detail", slug = b.slug}, function(res)
+            if not lc_view then return end
+            if res.ok then
+              self.current = res.data
+              self.state = "problem"
+              self.scroll_y = 0
+            else
+              core.error("[LeetCode] Failed to fetch similar problem")
+              self.state = "list"
+            end
+            core.redraw = true
+          end)
           return true
         end
       end
@@ -1260,6 +1276,23 @@ function LeetCodeView:draw()
       end
     end
     if is_col2 then lang_cy = lang_cy + 24*SCALE end
+    
+    self.similar_buttons = {}
+    if p.similar_questions and #p.similar_questions > 0 then
+      lang_cy = lang_cy + 20*SCALE
+      renderer.draw_text(style.font, "Similar Problems:", cx, lang_cy, style.dim)
+      lang_cy = lang_cy + 24*SCALE
+      for _, sq in ipairs(p.similar_questions) do
+        local btn_text = "> " .. sq.title .. " [" .. sq.difficulty .. "]"
+        local bw = style.font:get_width(btn_text)
+        local diff_col = LC_COLORS[sq.difficulty:lower()] or style.text
+        
+        table.insert(self.similar_buttons, { x = cx, y = lang_cy, w = bw, h = 20*SCALE, slug = sq.titleSlug })
+        
+        renderer.draw_text(style.font, btn_text, cx, lang_cy, diff_col)
+        lang_cy = lang_cy + 24*SCALE
+      end
+    end
     
     local content_total_h = lang_cy - (cy - self.scroll_y)
     self.max_scroll = math.max(0, content_total_h - scroll_area_h + 50*SCALE)
