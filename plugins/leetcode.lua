@@ -265,6 +265,23 @@ local function get_active_meta()
   return { slug=slug, question_id=qid, lang=lang, title=title, difficulty=diff, test_cases=tc or "" }
 end
 
+local function has_lint_errors(doc)
+  if not doc or not doc.filename then return false end
+  local lint = package.loaded["plugins.lintplus"]
+  if not lint or not lint.messages then return false end
+  
+  local path = core.project_absolute_path(doc.filename)
+  local errs = lint.messages[path]
+  if errs and errs.lines then
+    for _, msgs in pairs(errs.lines) do
+      for _, msg in ipairs(msgs) do
+        if msg.kind == "error" then return true end
+      end
+    end
+  end
+  return false
+end
+
 local function get_active_code()
   local doc = core.active_view and core.active_view.doc
   if not doc then return nil end
@@ -562,6 +579,12 @@ command.add(nil, {
     pick_random()
   end,
   ["leetcode:run"] = function()
+    local doc = core.active_view and core.active_view.doc
+    if has_lint_errors(doc) then
+      core.error("[LeetCode] Syntax error(s) found locally! Please fix them before running.")
+      return
+    end
+    
     local meta = get_active_meta()
     local code = get_active_code()
     if not meta or not code then
@@ -591,7 +614,14 @@ command.add(nil, {
       core.redraw       = true
     end)
   end,
+  
   ["leetcode:submit"] = function()
+    local doc = core.active_view and core.active_view.doc
+    if has_lint_errors(doc) then
+      core.error("[LeetCode] Syntax error(s) found locally! Please fix them before submitting.")
+      return
+    end
+    
     local meta = get_active_meta()
     local code = get_active_code()
     if not meta or not code then
