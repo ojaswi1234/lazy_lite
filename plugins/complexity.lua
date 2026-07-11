@@ -135,11 +135,8 @@ command.add("core.docview", {
     
     core.log("[Complexity] Estimated Big-O -> Time: %s | Space: %s", tc, sc)
     
-    -- Display a brief floating popup message
-    local msg = string.format("Time: %s   Space: %s", tc, sc)
-    core.command_view:enter("Estimated Complexity", function(text) end)
-    core.command_view.text = msg
-    core.command_view:select_all()
+    local msg = string.format("Estimated Complexity -> Time: %s | Space: %s", tc, sc)
+    core.log_quiet(msg)
   end
 })
 
