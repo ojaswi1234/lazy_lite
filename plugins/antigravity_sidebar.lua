@@ -954,14 +954,21 @@ function AGView:submit(prompt)
   -- We no longer block execution here. The auth_status is unreliable on Windows due to the CLI's stdin behavior.
   -- If they are truly unauthenticated, the chat will hang in the background, but they can use the AGY Auth button to fix it.
 
-  -- Add user message to chat
+  -- Add user message to chat (showing the @ token)
   self:_add_session("user", prompt_text)
+
+  -- Expand any @pasted_text tokens into absolute file paths before sending to AI
+  local tmp_dir = USERDIR .. "/tempfiles"
+  local expanded_prompt = prompt_text:gsub("@(pasted_text_[a-zA-Z0-9_]+%.txt)", function(f)
+    local fp = tmp_dir .. "/" .. f
+    return string.format(" [Read this pasted text from file: %s] ", fp)
+  end)
 
   local fname = nil
   local av = core.active_view
   if av and av.doc then fname = av.doc.filename end
 
-  local full_prompt = prompt_text
+  local full_prompt = expanded_prompt
   if fname then
     full_prompt = string.format("Regarding the active file %s: %s", fname, prompt_text)
   end
@@ -1935,7 +1942,7 @@ function AGView:on_paste(text)
       f:close()
       table.insert(self.temp_files, filepath)
       core.log("Saved long paste to %s", filename)
-      paste_txt = string.format(" [Read: %s] ", filepath)
+      paste_txt = " @" .. filename .. " "
     end
   end
   local c = self:state().cursor or #self:state().input
