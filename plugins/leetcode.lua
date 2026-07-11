@@ -244,6 +244,9 @@ function LeetCodeView:update()
 end
 
 local lc_view = nil
+local last_run_time = 0
+local last_submit_time = 0
+local last_fetch_time = 0
 
 local function get_active_meta()
   local doc = core.active_view and core.active_view.doc
@@ -460,6 +463,9 @@ command.add(nil, {
   end,
   ["leetcode:fetch-list"] = function()
     if not lc_view then return end
+    if os.time() - last_fetch_time < 2 then return end
+    last_fetch_time = os.time()
+    
     lc_view.state       = "list"
     lc_view.is_fetching = true
     core.redraw       = true
@@ -623,12 +629,18 @@ command.add(nil, {
     end
   end,
   ["leetcode:run"] = function()
+    if os.time() - last_run_time < 3 then
+      core.error("[LeetCode] Please wait a few seconds before running again.")
+      return
+    end
+    
     local doc = core.active_view and core.active_view.doc
     if has_lint_errors(doc) then
       core.error("[LeetCode] Syntax error(s) found locally! Please fix them before running.")
       return
     end
     
+    last_run_time = os.time()
     local meta = get_active_meta()
     local code = get_active_code()
     if not meta or not code then
@@ -660,12 +672,18 @@ command.add(nil, {
   end,
   
   ["leetcode:submit"] = function()
+    if os.time() - last_submit_time < 5 then
+      core.error("[LeetCode] Please wait 5 seconds between submissions.")
+      return
+    end
+    
     local doc = core.active_view and core.active_view.doc
     if has_lint_errors(doc) then
       core.error("[LeetCode] Syntax error(s) found locally! Please fix them before submitting.")
       return
     end
     
+    last_submit_time = os.time()
     local meta = get_active_meta()
     local code = get_active_code()
     if not meta or not code then

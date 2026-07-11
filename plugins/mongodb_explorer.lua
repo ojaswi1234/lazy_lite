@@ -48,6 +48,7 @@ end
 local mongo = {
   proc = nil,
   uri = nil,
+  last_query_time = 0,
   current_db = nil,
   buffer = ""
 }
@@ -142,6 +143,8 @@ command.add(nil, {
       core.error("Please connect to MongoDB first")
       return
     end
+    if os.time() - mongo.last_query_time < 2 then return end
+    mongo.last_query_time = os.time()
     
     core.log_quiet("Fetching databases...")
     send_request({action = "list_databases", uri = mongo.uri}, function(res)
@@ -173,6 +176,8 @@ command.add(nil, {
       core.error("Please select a database first")
       return
     end
+    if os.time() - mongo.last_query_time < 2 then return end
+    mongo.last_query_time = os.time()
     
     core.log_quiet("Fetching collections for " .. mongo.current_db .. "...")
     send_request({action = "list_collections", uri = mongo.uri, db = mongo.current_db}, function(res)

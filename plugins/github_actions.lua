@@ -85,6 +85,9 @@ local gh_state = {
   insights_loading = false,
   insights_error  = nil,
   insights_scroll = 0,
+  -- rate limiting
+  last_actions_refresh = 0,
+  last_insights_refresh = 0,
 
   sf = nil,   -- small font (lazy init)
 
@@ -128,6 +131,8 @@ end
 
 local function fetch_actions()
   if gh_state.actions_loading then return end
+  if os.time() - gh_state.last_actions_refresh < 3 then return end
+  gh_state.last_actions_refresh = os.time()
   gh_state.actions_loading = true
   gh_state.actions_error   = nil
   core.redraw = true
@@ -154,6 +159,8 @@ end
 
 local function fetch_insights()
   if gh_state.insights_loading then return end
+  if os.time() - gh_state.last_insights_refresh < 5 then return end
+  gh_state.last_insights_refresh = os.time()
   gh_state.insights_loading = true
   gh_state.insights_error   = nil
   core.redraw = true
