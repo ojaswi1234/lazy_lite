@@ -609,10 +609,12 @@ command.add(nil, {
     if in_problem then
       local nodes = core.root_view.root_node:get_children()
       for _, node in ipairs(nodes) do
-        for i = #node.views, 1, -1 do
-          local view = node.views[i]
-          if view.doc and view.doc.filename and view.doc.filename:find("leetcode[/\\]Leetcode") then
-            node:close_view(core.root_view, view)
+        if node.type == "leaf" and node.views then
+          for i = #node.views, 1, -1 do
+            local view = node.views[i]
+            if view.doc and view.doc.filename and view.doc.filename:find("leetcode[/\\]Leetcode") then
+              node:close_view(core.root_view, view)
+            end
           end
         end
       end
