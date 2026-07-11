@@ -17,7 +17,7 @@ local menu_h = #menu_items * item_h + padding * 2
 -- Remove the individual items by hooking add_item
 local old_add_item = core.status_view.add_item
 function core.status_view:add_item(item)
-  if item.name == "leetcode" or item.name == "mongodb" or item.name == "mongodb_explorer" then
+  if item.name == "leetcode" or item.name == "mongodb" or item.name == "mongodb:status_btn" then
     return -- Block these from cluttering the status bar
   end
   return old_add_item(self, item)
@@ -28,7 +28,7 @@ core.add_thread(function()
   while true do
     core.status_view:remove_item("leetcode")
     core.status_view:remove_item("mongodb")
-    core.status_view:remove_item("mongodb_explorer")
+    core.status_view:remove_item("mongodb:status_btn")
     coroutine.yield(1)
   end
 end)
@@ -37,7 +37,6 @@ end)
 core.status_view:add_item({
   name = "tools_menu",
   alignment = core.status_view.Item.RIGHT,
-  position = 1,
   tooltip = "Tools Menu",
   get_item = function()
     local text = " Tools " .. (show_tools and "▼" or "▲") .. " "
