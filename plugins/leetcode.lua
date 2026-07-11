@@ -270,39 +270,6 @@ local function get_active_code()
   if not doc then return nil end
   local lines = {}
   for i = 1, #doc.lines do lines[i] = doc.lines[i] end
-  return table.concat(lines)
-end
-
-local function word_wrap_markdown(text, width)
-  if not text then return "" end
-  local lines = {}
-  local in_code_block = false
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    if line:match("^```") then
-      in_code_block = not in_code_block
-      table.insert(lines, line)
-    elseif in_code_block or line:match("^%s*|") or line:match("^%s*%-") or line:match("^%s*%*") or line:match("^%s*#") or line:match("^%[Image:") or line:match("^%s*>") then
-      table.insert(lines, line)
-    else
-      local out = ""
-      local len = 0
-      for word in line:gmatch("%S+") do
-        if len + #word + 1 > width and len > 0 then
-          table.insert(lines, out)
-          out = word
-          len = #word
-        else
-          out = out == "" and word or (out .. " " .. word)
-          len = len + #word + 1
-        end
-      end
-      if out ~= "" then table.insert(lines, out) end
-      if line == "" then table.insert(lines, "") end
-    end
-  end
-  return table.concat(lines, "\n")
-end
-
 local function open_problem(problem, lang)
   local dir_parent = USERDIR .. PATHSEP .. "leetcode"
   system.mkdir(dir_parent)
@@ -318,7 +285,7 @@ local function open_problem(problem, lang)
     local content = "# " .. num .. ". " .. problem.title .. "\n"
     content = content .. "**Difficulty:** " .. (problem.difficulty or "") .. " | [LeetCode Link](https://leetcode.com/problems/" .. problem.slug .. "/)\n\n"
     content = content .. "---\n\n"
-    content = content .. word_wrap_markdown(problem.content_plain or "", 85)
+    content = content .. (problem.content_plain or "")
     if problem.test_cases and problem.test_cases ~= "" then
       content = content .. "\n\n### Default Testcases\n```\n" .. problem.test_cases:gsub("\\n", "\n") .. "\n```\n"
     end
@@ -360,11 +327,14 @@ local function open_problem(problem, lang)
     mf:close()
   end
 
-  local doc_md = core.open_doc(fpath_md)
+  core.root_view:open_doc(core.open_doc(fpath_md))
+  command.perform("line-wrapping:enable")
+  
+  local node = core.root_view:get_active_node()
+  node:split("right")
+  core.root_view:open_doc(core.open_doc(fpath))
+  
   local doc_code = core.open_doc(fpath)
-  
-  core.root_view:open_doc(doc_md)
-  
   local views = core.get_views_referencing_doc(doc_code)
   local view_code = views[1]
   
