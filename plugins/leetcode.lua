@@ -506,6 +506,60 @@ command.add(nil, {
       end
     end)
   end,
+  ["leetcode:random"] = function()
+    if not lc_view or lc_view.total_problems == 0 then return end
+    
+    lc_view.loading_msg = "Picking a random problem"
+    lc_view.state = "loading"
+    core.redraw = true
+    
+    local function pick_random()
+      local idx = math.random(1, lc_view.total_problems)
+      api_call({
+        cmd = "problem_list",
+        skip = idx - 1,
+        limit = 1,
+        difficulty = lc_view.difficulty == "ALL" and "" or lc_view.difficulty,
+        search = lc_view.search_input,
+      }, function(resp)
+        if not lc_view then return end
+        if resp.ok and resp.data and resp.data.problems and #resp.data.problems > 0 then
+          local p = resp.data.problems[1]
+          if p.paid then
+             lc_view.random_retries = (lc_view.random_retries or 0) + 1
+             if lc_view.random_retries < 15 then
+               pick_random()
+               return
+             end
+          end
+          lc_view.random_retries = 0
+          
+          lc_view.loading_msg = "Loading " .. p.title
+          core.redraw = true
+          
+          api_call({ cmd = "problem_detail", slug = p.slug }, function(det_resp)
+            if not lc_view then return end
+            if det_resp.ok then
+              lc_view.current = det_resp.data
+              lc_view.state   = "problem"
+              lc_view.scroll_y = 0
+            else
+              lc_view.state = "list"
+              core.log("[LeetCode] " .. (det_resp.error or "Failed to load random problem"))
+            end
+            core.redraw = true
+          end)
+        else
+          lc_view.state = "list"
+          core.log("[LeetCode] Failed to fetch random problem")
+          core.redraw = true
+        end
+      end)
+    end
+    
+    lc_view.random_retries = 0
+    pick_random()
+  end,
   ["leetcode:run"] = function()
     local meta = get_active_meta()
     local code = get_active_code()
@@ -696,10 +750,19 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       end
     end
     
+    -- 2.5 Check Pick One button
+    if self.random_btn_rect then
+      local r = self.random_btn_rect
+      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+        command.perform("leetcode:random")
+        return true
+      end
+    end
+    
     local cy = my + 80 * SCALE
     -- Search box click
     if y >= cy and y <= cy + 24*SCALE then
-      if x >= cx + 60*SCALE and x <= cx + cw then
+      if x >= cx + 60*SCALE and x <= cx + cw - 100*SCALE then
         self.search_focus = true
         core.redraw = true
         return true
@@ -903,7 +966,7 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
     local search_x = cx + 60*SCALE
     local search_y = cy
-    local search_w = cw - 60*SCALE
+    local search_w = cw - 200*SCALE
     local search_h = 24*SCALE
     
     local border_color = self.search_focus and style.accent or style.dim
@@ -911,6 +974,20 @@ function LeetCodeView:draw()
     renderer.draw_rect(search_x, search_y + search_h, search_w, 2*SCALE, border_color)
     
     renderer.draw_text(style.font, self.search_input, search_x + 5*SCALE, search_y + 2*SCALE, style.text)
+    
+    -- Draw Pick One button
+    local r_x = search_x + search_w + 30*SCALE
+    local r_y = search_y
+    local r_w = 90*SCALE
+    local r_h = 24*SCALE
+    self.random_btn_rect = {x = r_x, y = r_y, w = r_w, h = r_h}
+    
+    renderer.draw_rect(r_x, r_y, r_w, r_h, style.background2)
+    renderer.draw_rect(r_x, r_y, r_w, 1*SCALE, LC_COLORS.accepted)
+    renderer.draw_rect(r_x, r_y + r_h - 1*SCALE, r_w, 1*SCALE, LC_COLORS.accepted)
+    renderer.draw_text(style.font, "Pick One", r_x + 14*SCALE, r_y + 4*SCALE, LC_COLORS.accepted)
+    
+    cy = cy + 30*SCALE
     
     if self.search_focus then
       local text_width = style.font:get_width(self.search_input)
