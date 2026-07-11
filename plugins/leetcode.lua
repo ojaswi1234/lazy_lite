@@ -287,6 +287,9 @@ local function get_active_code()
   if not doc then return nil end
   local lines = {}
   for i = 1, #doc.lines do lines[i] = doc.lines[i] end
+  return table.concat(lines)
+end
+
 local function open_problem(problem, lang)
   local dir_parent = USERDIR .. PATHSEP .. "leetcode"
   system.mkdir(dir_parent)
