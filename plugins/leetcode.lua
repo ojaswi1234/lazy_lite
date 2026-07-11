@@ -1237,17 +1237,17 @@ function LeetCodeView:draw()
     
     if p.topics and #p.topics > 0 then
       local topics_str = "Topics: " .. table.concat(p.topics, ", ")
-      renderer.draw_text(style.font, topics_str, cx, cy, style.dim)
-      cy = cy + 25*SCALE
+      cy = draw_text_wrap(style.font, style.dim, topics_str, cx, cy, cw)
+      cy = cy + 10*SCALE
     end
     
     if p.companies and #p.companies > 0 then
       local comp_str = "Companies: " .. table.concat(p.companies, ", ")
-      renderer.draw_text(style.font, comp_str, cx, cy, style.accent)
-      cy = cy + 25*SCALE
+      cy = draw_text_wrap(style.font, style.accent, comp_str, cx, cy, cw)
+      cy = cy + 10*SCALE
     elseif p.companies and #p.companies == 0 then
-      renderer.draw_text(style.font, "Companies: [Premium Required / Not Available]", cx, cy, style.dim)
-      cy = cy + 25*SCALE
+      cy = draw_text_wrap(style.font, style.dim, "Companies: [Premium Required / Not Available]", cx, cy, cw)
+      cy = cy + 10*SCALE
     end
     
     renderer.draw_text(style.font, "Click a language below to scaffold your local solution file.", cx, cy, style.accent)
