@@ -1692,9 +1692,9 @@ function AGView:draw()
     end
 
     local msg_h = 2 * msg_pad
-    for _, blk in ipairs(sess.blocks) do
+    for _b, blk in ipairs(sess.blocks) do
       if blk.type == "code" then
-        msg_h = msg_h + #blk.raw_lines * lh_c + 8 * SCALE
+        msg_h = msg_h + #blk.raw_lines * lh_c + 8 * SCALE + 24 * SCALE
       elseif blk.type == "empty" then
         msg_h = msg_h + lh_f
       elseif blk.type == "paragraph" then
@@ -1720,16 +1720,36 @@ function AGView:draw()
 
     -- Blocks inside bubble
     local line_y = ty + msg_pad
-    for _, blk in ipairs(sess.blocks) do
+    for _b, blk in ipairs(sess.blocks) do
       if blk.type == "code" and #blk.raw_lines > 0 then
         local b_h = #blk.raw_lines * lh_c + 8 * SCALE
+        local hdr_h = 24 * SCALE
+        local lang = blk.lang or "txt"
+        
+        if line_y + hdr_h >= chat_top and line_y <= chat_bot then
+          renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, hdr_h, P.bg_darker)
+          draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, hdr_h, P.border)
+          renderer.draw_text(style.font, lang, x + pad + 10 * SCALE, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_muted)
+          
+          local c_id = tostring(_) .. "_code_" .. tostring(_b)
+          local copy_txt = self.copy_flash_idx == c_id and "Copied!" or "Copy"
+          local ccol = self.copy_flash_idx == c_id and P.fg_accent or P.fg_muted
+          local cw = style.font:get_width(copy_txt)
+          renderer.draw_text(style.font, copy_txt, x + pad + msg_w - 14 * SCALE - cw, line_y + math.floor((hdr_h - style.font:get_height())/2), ccol)
+          
+          table.insert(self._copy_rects, {
+            x = x + pad + msg_w - 24 * SCALE - cw, y = line_y, w = cw + 20 * SCALE, h = hdr_h,
+            text = table.concat(blk.raw_lines, "\n"), idx = c_id
+          })
+        end
+        line_y = line_y + hdr_h
+        
         if line_y + b_h >= chat_top and line_y <= chat_bot then
           renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.bg_darker)
           draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.border)
         end
         line_y = line_y + 4 * SCALE
         
-        local lang = blk.lang or "txt"
         local synt = syntax.get("dummy." .. lang) or syntax.get(lang)
         local state = nil
         
