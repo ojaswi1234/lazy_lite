@@ -578,6 +578,47 @@ command.add(nil, {
     lc_view.random_retries = 0
     pick_random()
   end,
+  ["leetcode:close"] = function()
+    local lc_is_active = (core.active_view and core.active_view:is(LeetCodeView))
+    
+    if lc_is_active and core.active_view.state == "list" then
+      local node = core.root_view.root_node:get_node_for_view(core.active_view)
+      if node then node:close_view(core.active_view) end
+      return
+    end
+
+    local in_problem = false
+    if lc_is_active and (core.active_view.state == "problem" or core.active_view.state == "running" or core.active_view.state == "result") then
+      in_problem = true
+    else
+      if core.active_view and core.active_view.doc and core.active_view.doc.filename then
+        if core.active_view.doc.filename:find("leetcode[/\\]Leetcode") then
+          in_problem = true
+        end
+      end
+    end
+
+    if in_problem then
+      local nodes = core.root_view.root_node:get_children()
+      for _, node in ipairs(nodes) do
+        for i = #node.views, 1, -1 do
+          local view = node.views[i]
+          if view.doc and view.doc.filename and view.doc.filename:find("leetcode[/\\]Leetcode") then
+            node:close_view(view)
+          end
+        end
+      end
+      
+      if not lc_view or not core.root_view.root_node:get_node_for_view(lc_view) then
+        command.perform("leetcode:toggle")
+      end
+      if lc_view then
+        lc_view.state = "list"
+        lc_view.search_focus = true
+        core.root_view:set_active_view(lc_view)
+      end
+    end
+  end,
   ["leetcode:run"] = function()
     local doc = core.active_view and core.active_view.doc
     if has_lint_errors(doc) then
@@ -656,6 +697,7 @@ keymap.add({
   ["ctrl+shift+l"] = "leetcode:toggle",
   ["alt+r"] = "leetcode:run",
   ["alt+s"] = "leetcode:submit",
+  ["ctrl+q"] = "leetcode:close",
 })
 
 
