@@ -899,7 +899,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     core.redraw = true
     
     -- Handle click on a problem
-    local list_y = cy + 35*SCALE + 10*SCALE
+    local list_y = cy + 30*SCALE + 35*SCALE + 10*SCALE
     if y >= list_y and y < btn_cy then
       local idx = math.floor((y - list_y + self.list_scroll_y) / (24*SCALE)) + 1
       if idx >= 1 and idx <= #self.problems then
