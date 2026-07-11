@@ -176,9 +176,9 @@ def cmd_auth_check(params):
         return {"ok": False, "error": str(e)}
 
 def cmd_problem_list(params):
+    difficulty = params.get("difficulty", "ALL")
     skip       = params.get("skip", 0)
     limit      = params.get("limit", 50)
-    difficulty = params.get("difficulty", "")
     search     = params.get("search", "").lower()
 
     topic_tags = []
@@ -193,62 +193,95 @@ def cmd_problem_list(params):
         else:
             keywords.append(word)
 
-    local_companies = {}
+    local_db = {}
     try:
-        local_json_path = os.path.join(USERDIR, "plugins", "company_tags.json")
-        if os.path.exists(local_json_path):
-            with open(local_json_path, "r", encoding="utf-8") as f:
-                local_companies = json.load(f)
-    except:
+        db_path = os.path.join(USERDIR, "plugins", "company_tags.json")
+        if os.path.exists(db_path):
+            with open(db_path, "r", encoding="utf-8") as f:
+                local_db = json.load(f)
+    except Exception:
         pass
 
-    def has_company(slug):
-        if not companies: return True
-        tags = [c.lower() for c in local_companies.get(slug, [])]
-        return all(c in tags for c in companies)
-
-    if True: # Always use GraphQL to avoid proxy 502 errors on the REST endpoint
-        filters = {}
-        if difficulty in ("EASY", "MEDIUM", "HARD"):
-            filters["difficulty"] = difficulty
-        if keywords:
-            filters["searchKeywords"] = " ".join(keywords)
-        if topic_tags:
-            filters["tags"] = topic_tags
-
-        GQL = """
-        query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
-          problemsetQuestionList: questionList(categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters) {
-            total: totalNum
-            questions: data { questionFrontendId title titleSlug difficulty acRate isPaidOnly status }
-          }
-        }"""
-        try:
-            # We fetch more because local filtering might reduce the list
-            r = graphql(GQL, {"categorySlug": "", "limit": 200 if companies else limit, "skip": skip, "filters": filters})
-            if not r or "data" not in r:
-                return {"ok": False, "error": "GraphQL query failed or returned no data"}
-                
-            plist = r["data"]["problemsetQuestionList"]
-            filtered = [q for q in plist["questions"] if has_company(q["titleSlug"])]
+    if companies:
+        matching_slugs = []
+        for slug, tags in local_db.items():
+            tags_lower = [t.lower().replace(" ", "-") for t in tags]
+            if all(c in tags_lower for c in companies):
+                if all(kw in slug for kw in keywords):
+                    matching_slugs.append(slug)
+        
+        total = len(matching_slugs)
+        page_slugs = matching_slugs[skip : skip + limit]
+        
+        if not page_slugs:
+            return {"ok": True, "data": {"total": total, "problems": []}}
             
-            return {"ok": True, "data": {
-                "total": plist["total"],
-                "problems": [
-                    {
+        gql_queries = []
+        for i, slug in enumerate(page_slugs):
+            gql_queries.append(f'q{i}: question(titleSlug: "{slug}") {{ questionFrontendId title titleSlug difficulty acRate isPaidOnly status }}')
+        
+        GQL = "query { " + " ".join(gql_queries) + " }"
+        
+        try:
+            r = graphql(GQL)
+            if not r or "data" not in r:
+                return {"ok": False, "error": "GraphQL query failed"}
+                
+            problems = []
+            for i in range(len(page_slugs)):
+                q = r["data"].get(f"q{i}")
+                if q:
+                    problems.append({
                         "id":         q["questionFrontendId"],
                         "title":      q["title"],
                         "slug":       q["titleSlug"],
                         "difficulty": q["difficulty"],
-                        "ac_rate":    round(q["acRate"], 1),
+                        "ac_rate":    round(q.get("acRate") or 0, 1),
                         "paid":       q["isPaidOnly"],
                         "status":     q.get("status"),
-                    }
-                    for q in filtered[:limit]
-                ]
-            }}
+                    })
+            return {"ok": True, "data": {"total": total, "problems": problems}}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    filters = {}
+    if difficulty in ("EASY", "MEDIUM", "HARD"):
+        filters["difficulty"] = difficulty
+    if keywords:
+        filters["searchKeywords"] = " ".join(keywords)
+    if topic_tags:
+        filters["tags"] = topic_tags
+
+    GQL = """
+    query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+      problemsetQuestionList: questionList(categorySlug: $categorySlug limit: $limit skip: $skip filters: $filters) {
+        total: totalNum
+        questions: data { questionFrontendId title titleSlug difficulty acRate isPaidOnly status }
+      }
+    }"""
+    try:
+        r = graphql(GQL, {"categorySlug": "", "limit": limit, "skip": skip, "filters": filters})
+        if not r or "data" not in r:
+            return {"ok": False, "error": "GraphQL query failed or returned no data"}
+            
+        plist = r["data"]["problemsetQuestionList"]
+        return {"ok": True, "data": {
+            "total": plist["total"],
+            "problems": [
+                {
+                    "id":         q["questionFrontendId"],
+                    "title":      q["title"],
+                    "slug":       q["titleSlug"],
+                    "difficulty": q["difficulty"],
+                    "ac_rate":    round(q.get("acRate") or 0, 1),
+                    "paid":       q["isPaidOnly"],
+                    "status":     q.get("status"),
+                }
+                for q in plist["questions"]
+            ]
+        }}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def cmd_daily_challenge(params):
     GQL = """
