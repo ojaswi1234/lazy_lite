@@ -997,6 +997,22 @@ function LeetCodeView:draw()
   local cx, cy = x + 20 * SCALE, y + 20 * SCALE
   local cw = w - 40 * SCALE
 
+  local rem_run = 3 - (os.time() - last_run_time)
+  local rem_sub = 10 - (os.time() - last_submit_time)
+  local cd_msg = nil
+  if rem_sub > 0 then
+    cd_msg = string.format("Submit Cooldown: %02d:%02d", math.floor(rem_sub / 60), rem_sub % 60)
+    core.redraw = true
+  elseif rem_run > 0 then
+    cd_msg = string.format("Run Cooldown: %02d:%02d", math.floor(rem_run / 60), rem_run % 60)
+    core.redraw = true
+  end
+  
+  if cd_msg then
+    local tw = style.font:get_width(cd_msg)
+    renderer.draw_text(style.font, cd_msg, x + w - 10*SCALE - tw, y + 10*SCALE, style.accent)
+  end
+
   if self.state == "auth" then
     renderer.draw_text(style.font, "> LeetCode - Connect", cx, cy, style.text)
     cy = cy + 30*SCALE
