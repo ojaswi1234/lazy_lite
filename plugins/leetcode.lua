@@ -624,7 +624,7 @@ command.add(nil, {
       if lc_view then
         lc_view.state = "list"
         lc_view.search_focus = true
-        core.root_view:set_active_view(lc_view)
+        core.set_active_view(lc_view)
       end
     end
   end,
