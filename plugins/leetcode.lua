@@ -817,24 +817,43 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, "LeetCode Browser", cx, cy, style.text)
     renderer.draw_text(style.font, "[ALL]  [Easy]  [Med]  [Hard]", cx + 150*SCALE, cy, diff_color)
     if self.user_stats then
-      local stats_str = "Solved: "
+      local s_all, s_easy, s_med, s_hard = 0, 0, 0, 0
       for _, stat in ipairs(self.user_stats) do
-        if stat.difficulty == "All" then stats_str = stats_str .. stat.count .. " " end
-        if stat.difficulty == "Easy" then stats_str = stats_str .. "(E:" .. stat.count .. " " end
-        if stat.difficulty == "Medium" then stats_str = stats_str .. "M:" .. stat.count .. " " end
-        if stat.difficulty == "Hard" then stats_str = stats_str .. "H:" .. stat.count .. ")" end
+        if stat.difficulty == "All" then s_all = stat.count end
+        if stat.difficulty == "Easy" then s_easy = stat.count end
+        if stat.difficulty == "Medium" then s_med = stat.count end
+        if stat.difficulty == "Hard" then s_hard = stat.count end
+      end
+
+      local segs = {
+        { t = "Solved ", b = false }, { t = tostring(s_all), b = true },
+        { t = "  |  Easy ", b = false }, { t = tostring(s_easy), b = true },
+        { t = "  |  Med ", b = false }, { t = tostring(s_med), b = true },
+        { t = "  |  Hard ", b = false }, { t = tostring(s_hard), b = true },
+      }
+      
+      local total_w = 0
+      for _, s in ipairs(segs) do
+        total_w = total_w + style.font:get_width(s.t) + (s.b and 1 or 0)
       end
       
-      local pad = 6 * SCALE
-      local txt_w = style.font:get_width(stats_str)
-      local box_w = txt_w + pad * 2
-      local box_h = style.font:get_height() + pad * 2
+      local pad_x, pad_y = 10 * SCALE, 6 * SCALE
+      local box_w = total_w + pad_x * 2
+      local box_h = style.font:get_height() + pad_y * 2
       local box_x = cx + cw - box_w
-      local box_y = cy - pad + 2*SCALE
+      local box_y = cy - pad_y + 2*SCALE
       
-      -- Background = theme text color, Text = theme background color
       renderer.draw_rect(box_x, box_y, box_w, box_h, style.text)
-      renderer.draw_text(style.font, stats_str, box_x + pad, cy, style.background)
+      
+      local curr_x = box_x + pad_x
+      for _, s in ipairs(segs) do
+        renderer.draw_text(style.font, s.t, curr_x, cy, style.background)
+        if s.b then
+          renderer.draw_text(style.font, s.t, curr_x + 1, cy, style.background) -- Bold effect
+          curr_x = curr_x + 1
+        end
+        curr_x = curr_x + style.font:get_width(s.t)
+      end
     end
     cy = cy + 30*SCALE
     
