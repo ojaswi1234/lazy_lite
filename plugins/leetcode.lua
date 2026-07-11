@@ -414,8 +414,10 @@ command.add(nil, {
           if resp.ok then
             lc_view.auth_status = "[+] Logged in as " .. resp.data.username
             lc_view.user_stats = resp.data.stats
-            lc_view.state = "list"; lc_view.search_focus = true
-            if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
+            if lc_view.state == "auth" then
+              lc_view.state = "list"; lc_view.search_focus = true
+              if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
+            end
           else
             if resp.error == "Not logged in" then
               lc_view.auth_status = ""
