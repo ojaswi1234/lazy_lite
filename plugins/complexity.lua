@@ -158,11 +158,11 @@ local function draw_graph(cx, cy, w, h, user_tc)
   local max_y = 400
   
   local curves = {
-    { label = "O(1)",       func = function(n) return 10 end, color = {x = 0, y = 255, z = 0, a = 255} },
-    { label = "O(log N)",   func = function(n) return math.log(n + 1) * 20 end, color = {x = 100, y = 255, z = 100, a = 255} },
-    { label = "O(N)",       func = function(n) return n * 15 end, color = {x = 255, y = 255, z = 0, a = 255} },
-    { label = "O(N log N)", func = function(n) return n * math.log(n + 1) * 5 end, color = {x = 255, y = 165, z = 0, a = 255} },
-    { label = "O(N^2)",     func = function(n) return n * n end, color = {x = 255, y = 50, z = 50, a = 255} }
+    { label = "O(1)",       func = function(n) return 10 end, color = {0, 255, 0, 255} },
+    { label = "O(log N)",   func = function(n) return math.log(n + 1) * 20 end, color = {100, 255, 100, 255} },
+    { label = "O(N)",       func = function(n) return n * 15 end, color = {255, 255, 0, 255} },
+    { label = "O(N log N)", func = function(n) return n * math.log(n + 1) * 5 end, color = {255, 165, 0, 255} },
+    { label = "O(N^2)",     func = function(n) return n * n end, color = {255, 50, 50, 255} }
   }
   
   local colors = {
