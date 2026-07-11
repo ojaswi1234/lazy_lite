@@ -629,8 +629,11 @@ command.add(nil, {
     end
   end,
   ["leetcode:run"] = function()
-    if os.time() - last_run_time < 3 then
-      core.log("[LeetCode] Please wait a few seconds before running again.")
+    local rem_run = 3 - (os.time() - last_run_time)
+    if rem_run > 0 then
+      local mm = math.floor(rem_run / 60)
+      local ss = rem_run % 60
+      core.log_quiet(string.format("[LeetCode] You can Run again in %02d:%02d", mm, ss))
       return
     end
     
@@ -672,8 +675,11 @@ command.add(nil, {
   end,
   
   ["leetcode:submit"] = function()
-    if os.time() - last_submit_time < 5 then
-      core.log("[LeetCode] Please wait 5 seconds between submissions.")
+    local rem_sub = 10 - (os.time() - last_submit_time)
+    if rem_sub > 0 then
+      local mm = math.floor(rem_sub / 60)
+      local ss = rem_sub % 60
+      core.log_quiet(string.format("[LeetCode] You can Submit again in %02d:%02d", mm, ss))
       return
     end
     
