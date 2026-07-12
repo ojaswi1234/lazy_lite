@@ -829,18 +829,18 @@ local function draw_text_wrap(font, color, text, x, y, max_w)
   return cy
 end
 
-function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
-  local res = LeetCodeView.super.on_mouse_pressed(self, btn, x, y, clicks)
+function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
+  local res = LeetCodeView.super.on_mouse_pressed(self, btn, mouse_x, mouse_y, clicks)
   if res then return res end
 
   local sw, sh = self.size.x, self.size.y
   local w, h = 700 * SCALE, 500 * SCALE
-  local mx, my = self.position.x + (sw - w) / 2, self.position.y + (sh - h) / 2
-  local cx = mx + 20 * SCALE
+  local bg_x, bg_y = self.position.x + (sw - w) / 2, self.position.y + (sh - h) / 2
+  local cx = bg_x + 20 * SCALE
   local cw = w - 40 * SCALE
 
   if self.state == "auth" and btn == "left" then
-    local cy = my + 20 * SCALE
+    local cy = bg_y + 20 * SCALE
     cy = cy + 30*SCALE
     local auto_btn_y = cy
     cy = cy + 40*SCALE + 30*SCALE + 20*SCALE
@@ -850,11 +850,11 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     cy = cy + 50*SCALE
     local btn_y = cy
     
-    if x >= cx and x <= cx + 320*SCALE and y >= auto_btn_y and y <= auto_btn_y + 30*SCALE then
+    if mouse_x >= cx and mouse_x <= cx + 320*SCALE and mouse_y >= auto_btn_y and mouse_y <= auto_btn_y + 30*SCALE then
       command.perform("leetcode:auto-detect")
       return true
     end
-    if x >= cx and x <= cx + 100*SCALE and y >= btn_y and y <= btn_y + 30*SCALE then
+    if mouse_x >= cx and mouse_x <= cx + 100*SCALE and mouse_y >= btn_y and mouse_y <= btn_y + 30*SCALE then
       command.perform("leetcode:connect")
       return true
     end
@@ -864,9 +864,9 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     -- 1. Check dropdown clicks
     if self.dropdown_rect and self.search_focus then
       local r = self.dropdown_rect
-      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+      if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
         for _, item in ipairs(self.dropdown_items) do
-          if y >= item.y and y < item.y + 24*SCALE then
+          if mouse_y >= item.y and mouse_y < item.y + 24*SCALE then
             self.search_input = self.search_input:gsub(item.prefix .. "[^%s]*$", item.prefix .. item.t .. " ")
             self.page_skip = 0
             command.perform("leetcode:fetch-list")
@@ -878,10 +878,10 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     
     -- 2. Check difficulty toggles
     if self.diff_buttons then
-      for _, btn in ipairs(self.diff_buttons) do
-        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
-          core.log("[LeetCode] Difficulty " .. btn.val .. " clicked.")
-          self.difficulty = btn.val
+      for _, btn_obj in ipairs(self.diff_buttons) do
+        if mouse_x >= btn_obj.x and mouse_x <= btn_obj.x + btn_obj.w and mouse_y >= btn_obj.y and mouse_y <= btn_obj.y + btn_obj.h then
+          core.log("[LeetCode] Difficulty " .. btn_obj.val .. " clicked.")
+          self.difficulty = btn_obj.val
           self.page_skip = 0
           command.perform("leetcode:fetch-list")
           return true
@@ -892,16 +892,17 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     -- 2.5 Check Pick One button
     if self.random_btn_rect then
       local r = self.random_btn_rect
-      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+      if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
         command.perform("leetcode:random")
         return true
       end
     end
     
-    local search_cy = self.search_y_start or (y + 80 * SCALE)
+    local view_x, view_y, view_w, view_h = get_view_rect(self)
+    local search_cy = self.search_y_start or (view_y + 80 * SCALE)
     -- Search box click
-    if my >= search_cy and my <= search_cy + 24*SCALE then
-      if mx >= cx + 60*SCALE and mx <= cx + cw - 100*SCALE then
+    if mouse_y >= search_cy and mouse_y <= search_cy + 24*SCALE then
+      if mouse_x >= cx + 60*SCALE and mouse_x <= cx + cw - 100*SCALE then
         self.search_focus = true
         core.redraw = true
         return true
@@ -911,7 +912,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     -- Pagination click
     if self.page_prev_rect then
       local r = self.page_prev_rect
-      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
         if self.page_skip >= 50 then
           core.log("[LeetCode] Prev Page clicked. Old skip: " .. self.page_skip)
           self.page_skip = self.page_skip - 50
@@ -923,7 +924,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     
     if self.page_next_rect then
       local r = self.page_next_rect
-      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
         if self.page_skip + 50 < self.total_problems then
           core.log("[LeetCode] Next Page clicked. Old skip: " .. self.page_skip)
           self.page_skip = self.page_skip + 50
@@ -937,9 +938,10 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     core.redraw = true
     
     -- Handle click on a problem
-    local list_y = self.list_y_start or (y + 155*SCALE)
-    if my >= list_y and my < btn_cy then
-      local idx = math.floor((my - list_y + self.list_scroll_y) / (24*SCALE)) + 1
+    local list_y = self.list_y_start or (view_y + 155*SCALE)
+    local list_bottom = bg_y + h - 50*SCALE
+    if mouse_y >= list_y and mouse_y < list_bottom then
+      local idx = math.floor((mouse_y - list_y + self.list_scroll_y) / (24*SCALE)) + 1
       if idx >= 1 and idx <= #self.problems then
         self.selected_idx = idx
         command.perform("leetcode:open-problem")
@@ -949,7 +951,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
   elseif self.state == "problem" and btn == "left" then
     if self.back_btn_rect then
       local r = self.back_btn_rect
-      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
         self.state = "list"
         self.current = nil
         core.redraw = true
