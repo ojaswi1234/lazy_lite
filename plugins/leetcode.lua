@@ -388,19 +388,27 @@ end
 command.add(nil, {
   ["leetcode:auto-detect"] = function()
     if not lc_view then return end
-    lc_view.state = "loading"
-    lc_view.loading_msg = "Auto-detecting cookies..."
+    lc_view.state = "auth"
+    lc_view.auth_status = "checking for old creds..... "
     core.redraw = true
     api_call({ cmd = "auth_auto" }, function(res)
       if not lc_view then return end
       if res.ok then
-        lc_view.auth_status = "Connected via " .. (res.data.detected_from or "browser")
+        lc_view.auth_status = "checking for old creds..... Found !! ....... "
         lc_view.user_stats = res.data.stats
-        lc_view.state = "list"; lc_view.search_focus = true
-        command.perform("leetcode:fetch-list")
+        core.redraw = true
+        core.add_thread(function()
+          local start = system.get_time()
+          while system.get_time() - start < 0.8 do coroutine.yield(0.1) end
+          if lc_view and lc_view.state == "auth" then
+            lc_view.state = "list"; lc_view.search_focus = true
+            command.perform("leetcode:fetch-list")
+            core.redraw = true
+          end
+        end)
       else
         lc_view.state = "auth"
-        lc_view.auth_status = "Auto-detect failed: " .. (res.error or "Unknown error")
+        lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
         core.redraw = true
       end
     end)
@@ -414,20 +422,27 @@ command.add(nil, {
       lc_view = LeetCodeView()
       core.root_view:get_active_node_default():add_view(lc_view)
       if lc_view.state == "auth" then
+        lc_view.auth_status = "checking for old creds..... "
         api_call({cmd = "auth_check"}, function(resp)
           if not lc_view then return end
           if resp.ok then
-            lc_view.auth_status = "[+] Logged in as " .. resp.data.username
+            lc_view.auth_status = "checking for old creds..... Found !! ....... "
             lc_view.user_stats = resp.data.stats
-            if lc_view.state == "auth" then
-              lc_view.state = "list"; lc_view.search_focus = true
-              if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
-            end
+            core.redraw = true
+            core.add_thread(function()
+              local start = system.get_time()
+              while system.get_time() - start < 0.8 do coroutine.yield(0.1) end
+              if lc_view and lc_view.state == "auth" then
+                lc_view.state = "list"; lc_view.search_focus = true
+                if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
+                core.redraw = true
+              end
+            end)
           else
             if resp.error == "Not logged in" then
-              lc_view.auth_status = ""
+              lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
             else
-              lc_view.auth_status = resp.error or "Auth check failed"
+              lc_view.auth_status = resp.error or "creds expired...... Paste/Auto fetch new cookies"
             end
           end
           core.redraw = true
@@ -438,14 +453,14 @@ command.add(nil, {
   end,
   ["leetcode:connect"] = function()
     if not lc_view then return end
-    lc_view.auth_status = "checking..."
+    lc_view.auth_status = "checking for old creds..... "
     core.redraw = true
     
     local sess_match = lc_view.cookie_input:match("LEETCODE_SESSION=([^;]+)")
     local csrf_match = lc_view.cookie_input:match("csrftoken=([^;]+)")
     
     if not sess_match or not csrf_match then
-      lc_view.auth_status = "Invalid cookie string"
+      lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
       core.redraw = true
       return
     end
@@ -458,13 +473,21 @@ command.add(nil, {
     }, function(resp)
       if not lc_view then return end
       if resp.ok then
-        lc_view.auth_status = "[+] Logged in as " .. resp.data.username
+        lc_view.auth_status = "checking for old creds..... Found !! ....... "
         lc_view.user_stats = resp.data.stats
-        lc_view.state = "list"; lc_view.search_focus = true
-        command.perform("leetcode:fetch-list")
-        else
-          lc_view.auth_status = "✗ " .. (resp.error or "Invalid cookies")
-        end
+        core.redraw = true
+        core.add_thread(function()
+          local start = system.get_time()
+          while system.get_time() - start < 0.8 do coroutine.yield(0.1) end
+          if lc_view and lc_view.state == "auth" then
+            lc_view.state = "list"; lc_view.search_focus = true
+            command.perform("leetcode:fetch-list")
+            core.redraw = true
+          end
+        end)
+      else
+        lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
+      end
       core.redraw = true
     end)
   end,
@@ -493,7 +516,7 @@ command.add(nil, {
       else
         if resp.error and resp.error:match("Not logged in") then
           lc_view.state = "auth"
-          lc_view.auth_status = "Session expired"
+          lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
         else
           core.log("[LeetCode] " .. (resp.error or "Unknown error"))
         end
@@ -1062,7 +1085,14 @@ function LeetCodeView:draw()
   end
 
   if self.state == "auth" then
-    renderer.draw_text(style.font, "> LeetCode - Connect", cx, cy, style.text)
+    if self.auth_status then
+      local col = style.text
+      if self.auth_status:match("expired") then col = LC_COLORS.wrong or style.error end
+      if self.auth_status:match("Found") then col = LC_COLORS.accepted or style.accent end
+      renderer.draw_text(style.font, self.auth_status, cx, cy, col)
+    else
+      renderer.draw_text(style.font, "> LeetCode - Connect", cx, cy, style.text)
+    end
     cy = cy + 30*SCALE
     
     renderer.draw_rect(cx, cy, 320*SCALE, 30*SCALE, LC_COLORS.accepted)
