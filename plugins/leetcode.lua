@@ -1038,7 +1038,7 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, "> LeetCode - Connect", cx, cy, style.text)
     cy = cy + 30*SCALE
     
-    renderer.draw_rect(cx, cy, 320*SCALE, 30*SCALE, style.accent)
+    renderer.draw_rect(cx, cy, 320*SCALE, 30*SCALE, LC_COLORS.accepted)
     renderer.draw_text(style.font, "Auto-detect from Chrome / Firefox", cx + 15*SCALE, cy + 5*SCALE, style.background)
     cy = cy + 40*SCALE
     
@@ -1047,7 +1047,8 @@ function LeetCodeView:draw()
     
     renderer.draw_text(style.font, "Full Cookie String:", cx, cy, style.text)
     cy = cy + 20*SCALE
-    renderer.draw_rect(cx, cy, cw, 30*SCALE, style.background2)
+    renderer.draw_rect(cx, cy, cw, 30*SCALE, style.dim)
+    renderer.draw_rect(cx + 1*SCALE, cy + 1*SCALE, cw - 2*SCALE, 28*SCALE, style.background2)
     if self.cookie_input == "" then
       renderer.draw_text(style.font, "e.g. csrftoken=...; LEETCODE_SESSION=...", cx + 5*SCALE, cy + 5*SCALE, style.dim)
     end
@@ -1072,29 +1073,20 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, "Connect", cx + 20*SCALE, cy + 5*SCALE, style.background)
     
     if self.auth_status ~= "" then
-      renderer.draw_text(style.font, "Status: " .. self.auth_status, cx, cy + 50*SCALE, style.text)
+      local prefix = (self.auth_status:match("Successfully") or self.auth_status:match("Connected")) and "✓ " or "✗ "
+      local stat_c = (prefix == "✓ ") and LC_COLORS.accepted or LC_COLORS.wrong
+      renderer.draw_text(style.font, prefix .. self.auth_status, cx, cy + 50*SCALE, stat_c)
     end
     
   elseif self.state == "loading" or self.state == "running" then
-    local dots = string.rep(".", math.floor(system.get_time() * 3) % 4)
+    local SPINNER = {"⣾","⣽","⣻","⢿","⡿","⣟","⣯","⣷"}
+    local dots = " " .. SPINNER[math.floor(system.get_time() * 8) % 8 + 1]
     local msg = self.loading_msg .. dots
     local tw = style.font:get_width(msg)
     renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + h/2 - 20*SCALE, style.accent)
     
   elseif self.state == "list" then
     renderer.draw_text(style.font, "LeetCode Browser", cx, cy, style.text)
-    
-    local d_opts = { {"ALL", "ALL"}, {"Easy", "EASY"}, {"Med", "MEDIUM"}, {"Hard", "HARD"} }
-    self.diff_buttons = {}
-    local d_x = cx + 150*SCALE
-    for _, opt in ipairs(d_opts) do
-      local label = "[" .. opt[1] .. "]"
-      local color = self.difficulty == opt[2] and LC_COLORS[opt[2]:lower()] or style.dim
-      
-      renderer.draw_text(style.font, label, d_x, cy, color)
-      table.insert(self.diff_buttons, { label = opt[1], val = opt[2], x = d_x, y = cy, w = style.font:get_width(label) })
-      d_x = d_x + style.font:get_width(label) + 10*SCALE
-    end
     
     if self.user_stats then
       local s_all, s_easy, s_med, s_hard = 0, 0, 0, 0
@@ -1104,36 +1096,25 @@ function LeetCodeView:draw()
         if stat.difficulty == "Medium" then s_med = stat.count end
         if stat.difficulty == "Hard" then s_hard = stat.count end
       end
-
-      local segs = {
-        { t = "Solved ", b = false }, { t = tostring(s_all), b = true },
-        { t = "  |  Easy ", b = false }, { t = tostring(s_easy), b = true },
-        { t = "  |  Med ", b = false }, { t = tostring(s_med), b = true },
-        { t = "  |  Hard ", b = false }, { t = tostring(s_hard), b = true },
-      }
+      local stat_str = string.format("  |  %d Solved (E:%d M:%d H:%d)", s_all, s_easy, s_med, s_hard)
+      renderer.draw_text(style.font, stat_str, cx + style.font:get_width("LeetCode Browser"), cy, style.dim)
+    end
+    
+    local d_opts = { {"ALL", "ALL"}, {"Easy", "EASY"}, {"Med", "MEDIUM"}, {"Hard", "HARD"} }
+    self.diff_buttons = {}
+    local d_x = cx + 150*SCALE
+    for _, opt in ipairs(d_opts) do
+      local label = opt[1]
+      local is_active = self.difficulty == opt[2]
+      local dc = LC_COLORS[opt[2]:lower()] or style.text
+      local bg_color = is_active and {dc[1], dc[2], dc[3], dc[4] * 0.15} or style.background2
+      local text_color = is_active and dc or style.dim
       
-      local total_w = 0
-      for _, s in ipairs(segs) do
-        total_w = total_w + style.font:get_width(s.t) + (s.b and 1 or 0)
-      end
-      
-      local pad_x, pad_y = 10 * SCALE, 6 * SCALE
-      local box_w = total_w + pad_x * 2
-      local box_h = style.font:get_height() + pad_y * 2
-      local box_x = cx + cw - box_w
-      local box_y = cy - pad_y + 2*SCALE
-      
-      renderer.draw_rect(box_x, box_y, box_w, box_h, style.text)
-      
-      local curr_x = box_x + pad_x
-      for _, s in ipairs(segs) do
-        renderer.draw_text(style.font, s.t, curr_x, cy, style.background)
-        if s.b then
-          renderer.draw_text(style.font, s.t, curr_x + 1, cy, style.background)
-          curr_x = curr_x + 1
-        end
-        curr_x = curr_x + style.font:get_width(s.t)
-      end
+      local lw = style.font:get_width(label)
+      renderer.draw_rect(d_x, cy - 2*SCALE, lw + 12*SCALE, style.font:get_height() + 4*SCALE, bg_color)
+      renderer.draw_text(style.font, label, d_x + 6*SCALE, cy, text_color)
+      table.insert(self.diff_buttons, { label = opt[1], val = opt[2], x = d_x, y = cy, w = lw + 12*SCALE })
+      d_x = d_x + lw + 22*SCALE
     end
     cy = cy + 30*SCALE
     
@@ -1196,6 +1177,7 @@ function LeetCodeView:draw()
         if item_y + 24*SCALE > cy and item_y < cy + list_h then
           if i == self.selected_idx then
             renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, cw + 10*SCALE, 24*SCALE, style.line_highlight)
+            renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, 3*SCALE, 24*SCALE, style.accent)
           end
           renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
           
@@ -1212,6 +1194,9 @@ function LeetCodeView:draw()
           if p.status == "notac" then title_color = LC_COLORS.tle end
           renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, title_color)
           local dc = LC_COLORS[p.difficulty:lower()]
+          local bg_dc = {dc[1], dc[2], dc[3], dc[4] * 0.15}
+          local dw = style.font:get_width(p.difficulty)
+          renderer.draw_rect(diff_x - 6*SCALE, item_y - 2*SCALE, dw + 12*SCALE, style.font:get_height() + 4*SCALE, bg_dc)
           renderer.draw_text(style.font, p.difficulty, diff_x, item_y, dc)
           local stat_str = p.ac_rate .. "%"
           if p.status == "ac" then stat_str = stat_str .. " [AC]" end
@@ -1228,8 +1213,15 @@ function LeetCodeView:draw()
     local page = math.floor(self.page_skip / 50) + 1
     local total_pages = math.max(1, math.ceil(self.total_problems / 50))
     renderer.draw_text(style.font, "Page " .. page .. " / " .. total_pages, cx, cy + 10*SCALE, style.dim)
-    renderer.draw_text(style.font, "[< Prev Page]", cx + cw/2 - 100*SCALE, cy + 10*SCALE, self.page_skip > 0 and style.accent or style.dim)
-    renderer.draw_text(style.font, "[Next Page >]", cx + cw/2 + 20*SCALE, cy + 10*SCALE, (self.page_skip + 50) < self.total_problems and style.accent or style.dim)
+    local prev_lbl = "  < Prev Page  "
+    local next_lbl = "  Next Page >  "
+    local p_w, n_w = style.font:get_width(prev_lbl), style.font:get_width(next_lbl)
+    local p_col = self.page_skip > 0 and style.accent or style.dim
+    local n_col = (self.page_skip + 50) < self.total_problems and style.accent or style.dim
+    renderer.draw_rect(cx + cw/2 - 100*SCALE, cy + 8*SCALE, p_w, style.font:get_height() + 4*SCALE, style.background2)
+    renderer.draw_text(style.font, prev_lbl, cx + cw/2 - 100*SCALE, cy + 10*SCALE, p_col)
+    renderer.draw_rect(cx + cw/2 + 20*SCALE, cy + 8*SCALE, n_w, style.font:get_height() + 4*SCALE, style.background2)
+    renderer.draw_text(style.font, next_lbl, cx + cw/2 + 20*SCALE, cy + 10*SCALE, n_col)
     
     if self.search_focus then
       local partial = self.search_input:match("#([^%s]*)$")
@@ -1268,7 +1260,7 @@ function LeetCodeView:draw()
     local p = self.current
     local dc = LC_COLORS[p.difficulty:lower()]
     renderer.draw_text(style.font, "<- Back", cx, cy, style.dim)
-    renderer.draw_text(style.font, p.title, cx + 80*SCALE, cy, style.text)
+    renderer.draw_text(style.big_font, p.title, cx + 80*SCALE, cy - 4*SCALE, style.text)
     
     local copy_text = "[Copy Description]"
     local copy_w = style.font:get_width(copy_text)
@@ -1311,10 +1303,8 @@ function LeetCodeView:draw()
     inner_cy = inner_cy + 15*SCALE
     renderer.draw_text(style.font, "Open in:", cx, inner_cy, style.text)
     
-    local col1_x = cx + 80*SCALE
-    local col2_x = cx + 250*SCALE
     local lang_cy = inner_cy
-    local is_col2 = false
+    local bx = cx
     
     local sorted_langs = {}
     for lang, _ in pairs(p.starters or {}) do table.insert(sorted_langs, lang) end
@@ -1322,21 +1312,22 @@ function LeetCodeView:draw()
     
     self.lang_buttons = {}
     for _, lang in ipairs(sorted_langs) do
-      local bx = is_col2 and col2_x or col1_x
-      local lbl = "[" .. lang .. "]"
+      local lbl = lang
       local lw = style.font:get_width(lbl)
       
-      table.insert(self.lang_buttons, { x = bx, y = lang_cy, w = lw, h = 24*SCALE, lang = lang })
-      renderer.draw_text(style.font, lbl, bx, lang_cy, style.accent)
-      
-      if is_col2 then
-        lang_cy = lang_cy + 24*SCALE
-        is_col2 = false
-      else
-        is_col2 = true
+      if bx + lw + 20*SCALE > cx + cw then
+        bx = cx
+        lang_cy = lang_cy + 28*SCALE
       end
+      
+      renderer.draw_rect(bx, lang_cy, lw + 12*SCALE, 22*SCALE, style.dim)
+      renderer.draw_rect(bx+1, lang_cy+1, lw + 10*SCALE, 20*SCALE, style.background2)
+      renderer.draw_text(style.font, lbl, bx + 6*SCALE, lang_cy + 3*SCALE, style.text)
+      table.insert(self.lang_buttons, { x = bx, y = lang_cy, w = lw + 12*SCALE, h = 22*SCALE, lang = lang })
+      
+      bx = bx + lw + 20*SCALE
     end
-    if is_col2 then lang_cy = lang_cy + 24*SCALE end
+    lang_cy = lang_cy + 24*SCALE
     
     self.similar_buttons = {}
     if p.similar_questions and #p.similar_questions > 0 then
@@ -1367,10 +1358,10 @@ function LeetCodeView:draw()
     if status_text:match("Limit Exceeded") then title_c = LC_COLORS.tle end
     if status_text:match("Error") then title_c = LC_COLORS.hard end
     
-    local old_font = style.font
-    style.font = style.big_font
-    renderer.draw_text(style.font, status_text, cx, cy, title_c)
-    style.font = old_font
+    -- Result area accent bar
+    renderer.draw_rect(x + 10*SCALE, y + 20*SCALE, 4*SCALE, h - 40*SCALE, title_c)
+    
+    renderer.draw_text(style.big_font, status_text, cx, cy, title_c)
     cy = cy + 40*SCALE
     
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
@@ -1391,6 +1382,9 @@ function LeetCodeView:draw()
       renderer.draw_text(style.font, res.runtime or "N/A", cx + 10*SCALE, cy + 30*SCALE, rt_color)
       if res.runtime_percentile and res.runtime_percentile > 0 then
         renderer.draw_text(style.font, "Beats " .. res.runtime_percentile .. "%", cx + 10*SCALE, cy + 50*SCALE, style.accent)
+        local bar_y = cy + 70*SCALE - 6*SCALE
+        renderer.draw_rect(cx + 10*SCALE, bar_y, card_w - 20*SCALE, 3*SCALE, style.background3)
+        renderer.draw_rect(cx + 10*SCALE, bar_y, (card_w - 20*SCALE) * res.runtime_percentile / 100, 3*SCALE, LC_COLORS.accepted)
       end
       
       local mem_color = (res.memory_percentile and res.memory_percentile > 75) and LC_COLORS.accepted or style.text
@@ -1399,6 +1393,9 @@ function LeetCodeView:draw()
       renderer.draw_text(style.font, res.memory or "N/A", cx + card_w + 20*SCALE, cy + 30*SCALE, mem_color)
       if res.memory_percentile and res.memory_percentile > 0 then
         renderer.draw_text(style.font, "Beats " .. res.memory_percentile .. "%", cx + card_w + 20*SCALE, cy + 50*SCALE, style.accent)
+        local bar_y = cy + 70*SCALE - 6*SCALE
+        renderer.draw_rect(cx + card_w + 20*SCALE, bar_y, card_w - 20*SCALE, 3*SCALE, style.background3)
+        renderer.draw_rect(cx + card_w + 20*SCALE, bar_y, (card_w - 20*SCALE) * res.memory_percentile / 100, 3*SCALE, LC_COLORS.accepted)
       end
       
       -- Complexity Cards (Heuristic)
@@ -1429,13 +1426,13 @@ function LeetCodeView:draw()
         cy = cy + 20*SCALE
         renderer.draw_rect(cx, cy, cw, 50*SCALE, style.background2)
         local co = type(res.code_output) == "table" and table.concat(res.code_output, "\n") or (res.code_output or "")
-        cy = draw_text_wrap(style.font, LC_COLORS.wrong, co, cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 30*SCALE
+        cy = draw_text_wrap(style.code_font, LC_COLORS.hard, co, cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 30*SCALE
         
         renderer.draw_text(style.font, "Expected", cx, cy, style.dim)
         cy = cy + 20*SCALE
         renderer.draw_rect(cx, cy, cw, 50*SCALE, style.background2)
         local eo = type(res.expected_output) == "table" and table.concat(res.expected_output, "\n") or (res.expected_output or "")
-        cy = draw_text_wrap(style.font, LC_COLORS.accepted, eo, cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 20*SCALE
+        cy = draw_text_wrap(style.code_font, LC_COLORS.accepted, eo, cx + 10*SCALE, cy + 10*SCALE, cw - 20*SCALE) + 20*SCALE
       end
       
       if res.std_output and res.std_output ~= "" then
