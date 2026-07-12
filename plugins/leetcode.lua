@@ -468,8 +468,8 @@ command.add(nil, {
   end,
   ["leetcode:fetch-list"] = function()
     if not lc_view then return end
-    if os.time() - last_fetch_time < 2 then return end
-    last_fetch_time = os.time()
+    if system.get_time() - (last_fetch_time or 0) < 0.5 then return end
+    last_fetch_time = system.get_time()
     
     lc_view.state       = "list"
     lc_view.is_fetching = true
@@ -905,18 +905,27 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     end
     
     -- Pagination click
-    local btn_cy = y + h - 40*SCALE
-    if my >= btn_cy and my <= btn_cy + 24*SCALE then
-      if mx >= cx + cw/2 - 100*SCALE and mx <= cx + cw/2 - 20*SCALE then
+    if self.page_prev_rect then
+      local r = self.page_prev_rect
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
         if self.page_skip >= 50 then
-          self.page_skip = self.page_skip - 50
-          command.perform("leetcode:fetch-list")
+          if system.get_time() - (last_fetch_time or 0) >= 0.5 then
+            self.page_skip = self.page_skip - 50
+            command.perform("leetcode:fetch-list")
+          end
         end
         return true
-      elseif mx >= cx + cw/2 + 20*SCALE and mx <= cx + cw/2 + 120*SCALE then
+      end
+    end
+    
+    if self.page_next_rect then
+      local r = self.page_next_rect
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
         if self.page_skip + 50 < self.total_problems then
-          self.page_skip = self.page_skip + 50
-          command.perform("leetcode:fetch-list")
+          if system.get_time() - (last_fetch_time or 0) >= 0.5 then
+            self.page_skip = self.page_skip + 50
+            command.perform("leetcode:fetch-list")
+          end
         end
         return true
       end
@@ -1237,10 +1246,16 @@ function LeetCodeView:draw()
     local p_w, n_w = style.font:get_width(prev_lbl), style.font:get_width(next_lbl)
     local p_col = self.page_skip > 0 and style.accent or style.dim
     local n_col = (self.page_skip + 50) < self.total_problems and style.accent or style.dim
-    renderer.draw_rect(cx + cw/2 - 100*SCALE, cy + 8*SCALE, p_w, style.font:get_height() + 4*SCALE, style.background2)
-    renderer.draw_text(style.font, prev_lbl, cx + cw/2 - 100*SCALE, cy + 10*SCALE, p_col)
-    renderer.draw_rect(cx + cw/2 + 20*SCALE, cy + 8*SCALE, n_w, style.font:get_height() + 4*SCALE, style.background2)
-    renderer.draw_text(style.font, next_lbl, cx + cw/2 + 20*SCALE, cy + 10*SCALE, n_col)
+    
+    local bh = style.font:get_height() + 4*SCALE
+    self.page_prev_rect = { x = cx + cw/2 - 100*SCALE, y = cy + 8*SCALE, w = p_w, h = bh }
+    self.page_next_rect = { x = cx + cw/2 + 20*SCALE, y = cy + 8*SCALE, w = n_w, h = bh }
+    
+    renderer.draw_rect(self.page_prev_rect.x, self.page_prev_rect.y, self.page_prev_rect.w, self.page_prev_rect.h, style.background2)
+    renderer.draw_text(style.font, prev_lbl, self.page_prev_rect.x, cy + 10*SCALE, p_col)
+    
+    renderer.draw_rect(self.page_next_rect.x, self.page_next_rect.y, self.page_next_rect.w, self.page_next_rect.h, style.background2)
+    renderer.draw_text(style.font, next_lbl, self.page_next_rect.x, cy + 10*SCALE, n_col)
     
     if self.search_focus then
       local partial = self.search_input:match("#([^%s]*)$")
