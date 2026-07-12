@@ -639,6 +639,17 @@ function TermView:draw()
     else
       self.dropdown_btn_rect = nil
     end
+    
+    -- "P" port manager button
+    if PLATFORM == "Windows" then
+      local pm_w = style.font:get_width("P") + 16 * SCALE
+      renderer.draw_rect(cur_x, y + 2 * SCALE, pm_w, hdr_h, hdr_bg)
+      renderer.draw_text(style.font, "P", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), { common.color("#E67E80") } or col_inf)
+      self.portmgr_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = pm_w, h = hdr_h }
+      cur_x = cur_x + pm_w + 2 * SCALE
+    else
+      self.portmgr_btn_rect = nil
+    end
   
   -- "x" button (close active)
   if #self.sessions > 1 then
@@ -1102,6 +1113,24 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
             return res
           end
         })
+        return true
+      end
+    end
+    if self.portmgr_btn_rect then
+      local r = self.portmgr_btn_rect
+      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+        local found = false
+        for i, s in ipairs(self.sessions) do
+          if s.shell.is_port_manager then
+            self.active_idx = i
+            found = true
+            break
+          end
+        end
+        if not found then
+          self:add_session({ name = "Port Manager", is_port_manager = true })
+        end
+        core.redraw = true
         return true
       end
     end
