@@ -42,13 +42,14 @@ local function utf8_next_index(text, cursor)
 end
 
 local function get_prompt(s)
+  if s.shell.is_port_manager then return "" end
   if s.proc then return "" end
   if core.active_codespace then
     if s.waiting_sentinel then return "" end  -- running, no input prompt
     local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
     return "\u{f09b} /workspaces/" .. repo_only .. "$ "
   end
-  return s.shell.prompt_prefix .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
+  return (s.shell.prompt_prefix or "") .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
 end
 
 local shells = {}
