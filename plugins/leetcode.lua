@@ -468,8 +468,8 @@ command.add(nil, {
   end,
   ["leetcode:fetch-list"] = function()
     if not lc_view then return end
-    if system.get_time() - (last_fetch_time or 0) < 0.5 then return end
-    last_fetch_time = system.get_time()
+    if not lc_view then return end
+    -- Throttle removed to prevent missed clicks
     
     lc_view.state       = "list"
     lc_view.is_fetching = true
@@ -487,6 +487,7 @@ command.add(nil, {
         lc_view.problems       = resp.data.problems
         lc_view.total_problems = resp.data.total
         lc_view.selected_idx   = 1
+        lc_view.list_scroll_y  = 0
       else
         if resp.error and resp.error:match("Not logged in") then
           lc_view.state = "auth"
@@ -877,11 +878,10 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     if self.diff_buttons then
       for _, btn in ipairs(self.diff_buttons) do
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
-          if system.get_time() - (last_fetch_time or 0) >= 0.5 then
-            self.difficulty = btn.val
-            self.page_skip = 0
-            command.perform("leetcode:fetch-list")
-          end
+          core.log("[LeetCode] Difficulty " .. btn.val .. " clicked.")
+          self.difficulty = btn.val
+          self.page_skip = 0
+          command.perform("leetcode:fetch-list")
           return true
         end
       end
@@ -911,10 +911,9 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       local r = self.page_prev_rect
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
         if self.page_skip >= 50 then
-          if system.get_time() - (last_fetch_time or 0) >= 0.5 then
-            self.page_skip = self.page_skip - 50
-            command.perform("leetcode:fetch-list")
-          end
+          core.log("[LeetCode] Prev Page clicked. Old skip: " .. self.page_skip)
+          self.page_skip = self.page_skip - 50
+          command.perform("leetcode:fetch-list")
         end
         return true
       end
@@ -924,10 +923,9 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       local r = self.page_next_rect
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
         if self.page_skip + 50 < self.total_problems then
-          if system.get_time() - (last_fetch_time or 0) >= 0.5 then
-            self.page_skip = self.page_skip + 50
-            command.perform("leetcode:fetch-list")
-          end
+          core.log("[LeetCode] Next Page clicked. Old skip: " .. self.page_skip)
+          self.page_skip = self.page_skip + 50
+          command.perform("leetcode:fetch-list")
         end
         return true
       end
