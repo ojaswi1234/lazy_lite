@@ -936,6 +936,16 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       return true
     end
   elseif self.state == "problem" and btn == "left" then
+    if self.back_btn_rect then
+      local r = self.back_btn_rect
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.state = "list"
+        self.current = nil
+        core.redraw = true
+        return true
+      end
+    end
+    
     if self.copy_btn_rect then
       local r = self.copy_btn_rect
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
@@ -956,7 +966,12 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       end
     end
     
-    if self.similar_buttons then
+    local in_scroll_area = true
+    if self.problem_scroll_y_start and self.problem_scroll_h then
+      in_scroll_area = (my >= self.problem_scroll_y_start and my <= self.problem_scroll_y_start + self.problem_scroll_h)
+    end
+    
+    if in_scroll_area and self.similar_buttons then
       for _, b in ipairs(self.similar_buttons) do
         if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
           self.state = "loading"
@@ -979,7 +994,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       end
     end
     
-    if self.lang_buttons then
+    if in_scroll_area and self.lang_buttons then
       for _, b in ipairs(self.lang_buttons) do
         if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
           core.log("[LeetCode] Bootstrapping " .. b.lang .. " environment...")
@@ -1263,6 +1278,8 @@ function LeetCodeView:draw()
   elseif self.state == "problem" and self.current then
     local p = self.current
     local dc = LC_COLORS[p.difficulty:lower()]
+    local back_w = style.font:get_width("<- Back")
+    self.back_btn_rect = {x = cx, y = cy, w = back_w, h = style.font:get_height()}
     renderer.draw_text(style.font, "<- Back", cx, cy, style.dim)
     renderer.draw_text(style.big_font, p.title, cx + 80*SCALE, cy - 4*SCALE, style.text)
     
@@ -1295,6 +1312,8 @@ function LeetCodeView:draw()
     cy = cy + 15*SCALE
     
     local scroll_area_h = (y + h - 20*SCALE) - cy
+    self.problem_scroll_y_start = cy
+    self.problem_scroll_h = scroll_area_h
     core.push_clip_rect(cx, cy, cw, scroll_area_h)
     
     local inner_cy = cy - self.scroll_y
