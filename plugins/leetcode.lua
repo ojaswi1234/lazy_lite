@@ -355,9 +355,12 @@ local function open_problem(problem, lang)
     mf:close()
   end
 
-  core.root_view:open_doc(core.open_doc(fpath_md))
+  local node = core.root_view:get_active_node_default()
+  node:add_view(core.open_doc(fpath_md))
   command.perform("line-wrapping:enable")
   
+  -- Open the code file natively for editing
+  node:add_view(core.open_doc(fpath))
   local node = core.root_view:get_active_node_default()
   node:split("right")
   core.root_view:open_doc(core.open_doc(fpath))
@@ -1465,3 +1468,34 @@ core.add_thread(function()
     })
   end
 end)
+
+-- Inject a floating "Copy Code" button into the actual Code Editor for LeetCode files
+local DocView = require "core.docview"
+local old_docview_draw = DocView.draw
+function DocView:draw(...)
+  old_docview_draw(self, ...)
+  if self.doc and self.doc.filename and self.doc.filename:find("leetcode[/\\]Leetcode") then
+    local cx = self.position.x + self.size.x - 110 * SCALE
+    local cy = self.position.y + 10 * SCALE
+    self.editor_copy_btn = {x = cx, y = cy, w = 90*SCALE, h = 28*SCALE}
+    
+    renderer.draw_rect(cx, cy, self.editor_copy_btn.w, self.editor_copy_btn.h, style.background2)
+    renderer.draw_rect(cx, cy, self.editor_copy_btn.w, 1*SCALE, LC_COLORS.accepted)
+    renderer.draw_text(style.font, "Copy Code", cx + 12*SCALE, cy + 6*SCALE, style.text)
+  else
+    self.editor_copy_btn = nil
+  end
+end
+
+local old_docview_on_mouse_pressed = DocView.on_mouse_pressed
+function DocView:on_mouse_pressed(button, x, y, clicks)
+  if button == "left" and self.editor_copy_btn then
+    local r = self.editor_copy_btn
+    if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+      system.set_clipboard(self.doc:get_text(1, 1, math.huge, math.huge))
+      core.log("[LeetCode] Your code has been copied to the clipboard!")
+      return true
+    end
+  end
+  return old_docview_on_mouse_pressed(self, button, x, y, clicks)
+end
