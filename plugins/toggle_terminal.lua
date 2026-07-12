@@ -161,6 +161,37 @@ function TermView:add_session(shell_opts)
   end
 end
 
+local ignore_procs = {
+  ["svchost.exe"] = true,
+  ["system"] = true,
+  ["lsass.exe"] = true,
+  ["wininit.exe"] = true,
+  ["smss.exe"] = true,
+  ["csrss.exe"] = true,
+  ["services.exe"] = true,
+  ["wlanext.exe"] = true,
+  ["spoolsv.exe"] = true,
+  ["explorer.exe"] = true,
+  ["searchapp.exe"] = true,
+  ["dashost.exe"] = true,
+  ["taskhostw.exe"] = true,
+  ["winlogon.exe"] = true,
+  ["dwm.exe"] = true,
+  ["fontdrvhost.exe"] = true,
+  ["wmiprvse.exe"] = true,
+  ["conhost.exe"] = true,
+  ["searchindexer.exe"] = true,
+  ["securityhealthservice.exe"] = true,
+  ["lsaiso.exe"] = true,
+  ["wudfhost.exe"] = true,
+  ["system idle process"] = true,
+  ["registry"] = true,
+  ["secure system"] = true,
+  ["ctfmon.exe"] = true,
+  ["sihost.exe"] = true,
+  ["rtkngui64.exe"] = true,
+}
+
 function TermView:refresh_ports(s)
   s.fetching = true
   s.ports = {}
@@ -182,10 +213,13 @@ function TermView:refresh_ports(s)
       if p2 then
         for line in p2:lines() do
           local proto, local_addr, foreign_addr, state, pid = line:match("%s*(%w+)%s+([%w%.%:%[%]]+)%s+([%w%.%:%[%]]+)%s+(%w+)%s+(%d+)")
-          if proto and local_addr and pid and pid ~= "0" then
+          if proto and local_addr and pid and pid ~= "0" and pid ~= "4" then
             local ip, port = local_addr:match("^(.*):(%d+)$")
-            if port then
-               table.insert(s.ports, { proto = proto, port = port, pid = pid, name = p_names[pid] or "Unknown" })
+            if port and (ip == "0.0.0.0" or ip == "127.0.0.1" or ip == "[::]" or ip == "[::1]") then
+               local pname = p_names[pid] or "Unknown"
+               if not ignore_procs[pname:lower()] then
+                 table.insert(s.ports, { proto = proto, port = port, pid = pid, name = pname })
+               end
             end
           end
         end
@@ -501,15 +535,17 @@ function TermView:update()
 
   -- Handle scroll snapping & clamp on resize
   local s = self:state()
-  local lh = style.code_font:get_height() + 2 * SCALE
-  local total = (#s.lines + 1) * lh
-  local inner = math.max(0, self.size.y - 31 * SCALE)
-  local max_scroll = math.max(0, total - inner)
-  if s.scroll_to_bottom and total > 0 then
-    s.scroll_y = max_scroll
-    s.scroll_to_bottom = false
-  elseif s.scroll_y > max_scroll then
-    s.scroll_y = max_scroll
+  if not s.shell.is_port_manager then
+    local lh = style.code_font:get_height() + 2 * SCALE
+    local total = (#s.lines + 1) * lh
+    local inner = math.max(0, self.size.y - 31 * SCALE)
+    local max_scroll = math.max(0, total - inner)
+    if s.scroll_to_bottom and total > 0 then
+      s.scroll_y = max_scroll
+      s.scroll_to_bottom = false
+    elseif s.scroll_y > max_scroll then
+      s.scroll_y = max_scroll
+    end
   end
 end
 
