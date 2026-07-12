@@ -232,7 +232,7 @@ function TreeView:on_mouse_released(button, x, y)
               end
             end
           else
-            core.error("Failed to move %s: %s", self.dnd_item.name, err)
+            core.log("Failed to move %s: %s", self.dnd_item.name, err)
           end
         end
       end
