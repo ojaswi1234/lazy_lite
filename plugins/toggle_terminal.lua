@@ -661,9 +661,6 @@ function TermView:draw()
     self.close_btn_rect = nil
   end
 
-  local hint = "ctrl+` to hide"
-  local hint_w = style.font:get_width(hint)
-  
   -- Button rendering
   local btn_text = self.is_fullscreen and "RESTORE" or "MAXIMIZE"
   local btn_w = style.font:get_width(btn_text) + 20 * SCALE
@@ -679,12 +676,6 @@ function TermView:draw()
     btn_x + 10 * SCALE,
     btn_y + math.floor((hdr_h - style.font:get_height()) / 2),
     btn_fg)
-
-  -- Draw hint to the left of the button
-  renderer.draw_text(style.font, hint,
-    btn_x - hint_w - 15 * SCALE,
-    y + 2 * SCALE + math.floor((hdr_h - style.font:get_height()) / 2),
-    col_inf)
 
   -- Divider
   renderer.draw_rect(x, y + hdr_h + 2 * SCALE, w, 1 * SCALE, border)
