@@ -49,7 +49,7 @@ config.draw_whitespace        = false
 config.max_undos              = 10000
 config.file_size_limit        = 10
 config.ignore_files           = {
-  "^%.git", "^node_modules", "^__pycache__", "^%.env$", "^%.DS_Store",
+  "^%.git$", "^node_modules", "^__pycache__", "^%.DS_Store",
   "^venv$", "^%.venv$", "^build$", "^dist$", "^%.next$", "^vendor$"
 }
 
@@ -255,18 +255,7 @@ function StatusView:update(...)
   end
 end
 
--- ── 12. Fix Inactive Tab Font Color ──────────────────────────────────────────
--- The user requested that inactive tabs use the exact same dark text color as active tabs.
--- We temporarily override style.dim during the drawing of the tab title.
-local Node = require "core.node"
-local style = require "core.style"
-local old_draw_tab_title = Node.draw_tab_title
-function Node:draw_tab_title(view, font, is_active, is_hovered, x, y, w, h)
-  local old_dim = style.dim
-  style.dim = style.text 
-  old_draw_tab_title(self, view, font, is_active, is_hovered, x, y, w, h)
-  style.dim = old_dim
-end
+
 
 -- ── 13. Fix Theme Inconsistency ──────────────────────────────────────────────
 -- When switching themes, Lua doesn't delete unknown keys from the style table.
