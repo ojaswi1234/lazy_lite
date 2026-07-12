@@ -935,7 +935,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
   elseif self.state == "problem" and btn == "left" then
     if self.copy_btn_rect then
       local r = self.copy_btn_rect
-      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
         local text_to_copy = self.current.title .. "\n\n" .. (self.current.content_plain or "")
         system.set_clipboard(text_to_copy)
         core.log("[LeetCode] Problem description copied to clipboard!")
@@ -945,7 +945,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     
     if self.image_links then
       for _, link in ipairs(self.image_links) do
-        if x >= link.x and x <= link.x + link.w and y >= link.y and y <= link.y + link.h then
+        if mx >= link.x and mx <= link.x + link.w and my >= link.y and my <= link.y + link.h then
           core.log("[LeetCode] Opening image viewer...")
           core.root_view:open_doc({filename = link.url})
           return true
@@ -955,7 +955,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     
     if self.similar_buttons then
       for _, b in ipairs(self.similar_buttons) do
-        if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
+        if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
           self.state = "loading"
           self.loading_msg = "Loading similar problem..."
           core.redraw = true
@@ -978,7 +978,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     
     if self.lang_buttons then
       for _, b in ipairs(self.lang_buttons) do
-        if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
+        if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
           open_problem(self.current, b.lang)
           return true
         end
