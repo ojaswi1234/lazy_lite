@@ -675,17 +675,6 @@ function TermView:draw()
     else
       self.dropdown_btn_rect = nil
     end
-    
-    -- "P" port manager button
-    if PLATFORM == "Windows" then
-      local pm_w = style.font:get_width("P") + 16 * SCALE
-      renderer.draw_rect(cur_x, y + 2 * SCALE, pm_w, hdr_h, hdr_bg)
-      renderer.draw_text(style.font, "P", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), { common.color("#E67E80") } or col_inf)
-      self.portmgr_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = pm_w, h = hdr_h }
-      cur_x = cur_x + pm_w + 2 * SCALE
-    else
-      self.portmgr_btn_rect = nil
-    end
   
   -- "x" button (close active)
   if #self.sessions > 1 then
@@ -712,6 +701,22 @@ function TermView:draw()
     btn_x + 10 * SCALE,
     btn_y + math.floor((hdr_h - style.font:get_height()) / 2),
     btn_fg)
+
+  -- Port Manager button (Icon)
+  if PLATFORM == "Windows" then
+    local pm_icon = "\u{f1e6}" -- fa-plug
+    local pm_font = style.icon_font or style.font
+    local pm_w = pm_font:get_width(pm_icon) + 20 * SCALE
+    local pm_x = btn_x - pm_w
+    renderer.draw_rect(pm_x, btn_y, pm_w, hdr_h, hdr_bg)
+    renderer.draw_text(pm_font, pm_icon,
+      pm_x + 10 * SCALE,
+      btn_y + math.floor((hdr_h - pm_font:get_height()) / 2),
+      style.accent or { common.color("#E67E80") })
+    self.portmgr_btn_rect = { x = pm_x, y = btn_y, w = pm_w, h = hdr_h }
+  else
+    self.portmgr_btn_rect = nil
+  end
 
   -- Divider
   renderer.draw_rect(x, y + hdr_h + 2 * SCALE, w, 1 * SCALE, border)
