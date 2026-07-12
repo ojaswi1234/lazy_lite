@@ -880,7 +880,6 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
     if self.diff_buttons then
       for _, btn_obj in ipairs(self.diff_buttons) do
         if mouse_x >= btn_obj.x and mouse_x <= btn_obj.x + btn_obj.w and mouse_y >= btn_obj.y and mouse_y <= btn_obj.y + btn_obj.h then
-          core.log("[LeetCode] Difficulty " .. btn_obj.val .. " clicked.")
           self.difficulty = btn_obj.val
           self.page_skip = 0
           command.perform("leetcode:fetch-list")
@@ -914,7 +913,6 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
       local r = self.page_prev_rect
       if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
         if self.page_skip >= 50 then
-          core.log("[LeetCode] Prev Page clicked. Old skip: " .. self.page_skip)
           self.page_skip = self.page_skip - 50
           command.perform("leetcode:fetch-list")
         end
@@ -926,7 +924,6 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
       local r = self.page_next_rect
       if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
         if self.page_skip + 50 < self.total_problems then
-          core.log("[LeetCode] Next Page clicked. Old skip: " .. self.page_skip)
           self.page_skip = self.page_skip + 50
           command.perform("leetcode:fetch-list")
         end
