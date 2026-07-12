@@ -591,6 +591,24 @@ function TermView:resolve_position(x, y)
   return line_idx, #text + 1
 end
 
+function TermView:get_url_at(x, y)
+  local l, c = self:resolve_position(x, y)
+  local line = self:state().lines[l]
+  if not line or not line.text then return nil end
+  local text = line.text
+  
+  local start_idx = 1
+  while true do
+    local s, e = text:find("https?://[^%s\"'<>%)]+", start_idx)
+    if not s then break end
+    if c >= s and c <= e then
+      return text:sub(s, e)
+    end
+    start_idx = e + 1
+  end
+  return nil
+end
+
 function TermView:draw()
   if self.size.y < 2 then return end  -- fully hidden
 
@@ -1109,6 +1127,18 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
     local hdr_h = 26 * SCALE
     local out_top = self.position.y + hdr_h + 3 * SCALE
     if y > out_top then
+      local url = self:get_url_at(x, y)
+      if url then
+        if PLATFORM == "Windows" then
+          os.execute('start "" "' .. url .. '"')
+        elseif PLATFORM == "Mac OS X" then
+          os.execute('open "' .. url .. '"')
+        else
+          os.execute('xdg-open "' .. url .. '"')
+        end
+        return true
+      end
+      
       local l, c = self:resolve_position(x, y)
       self:state().selection = { l1 = l, c1 = c, l2 = l, c2 = c }
       self.dragging_selection = true
@@ -1195,6 +1225,22 @@ function TermView:on_mouse_moved(x, y, dx, dy)
     self:state().selection.c2 = c
     core.redraw = true
     return true
+  end
+
+  local hdr_h = 26 * SCALE
+  local out_top = self.position.y + hdr_h + 3 * SCALE
+  if y > out_top then
+    local url = self:get_url_at(x, y)
+    if url then
+      system.set_cursor("hand")
+      self.hovering_url = true
+    elseif self.hovering_url then
+      system.set_cursor("arrow")
+      self.hovering_url = false
+    end
+  elseif self.hovering_url then
+    system.set_cursor("arrow")
+    self.hovering_url = false
   end
 
   local hover = false
