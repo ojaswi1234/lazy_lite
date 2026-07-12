@@ -1180,7 +1180,7 @@ function LeetCodeView:draw()
     end
     cy = cy + 30*SCALE
     
-    renderer.draw_text(style.font, "Alt+R: Run Code  |  Alt+S: Submit  |  #tag for topics", cx, cy, style.accent)
+    renderer.draw_text(style.font, "Alt+R: Run Code  |  Alt+S: Submit  |  #tag for topics  |  @company for companies", cx, cy, style.accent)
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
