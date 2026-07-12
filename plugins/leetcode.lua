@@ -876,7 +876,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     -- 2. Check difficulty toggles
     if self.diff_buttons then
       for _, btn in ipairs(self.diff_buttons) do
-        if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + style.font:get_height() then
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + style.font:get_height() + 4*SCALE then
           self.difficulty = btn.val
           self.page_skip = 0
           command.perform("leetcode:fetch-list")
@@ -894,9 +894,9 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       end
     end
     
-    local cy = y + 60 * SCALE
+    local search_cy = self.search_y_start or (y + 80 * SCALE)
     -- Search box click
-    if my >= cy and my <= cy + 24*SCALE then
+    if my >= search_cy and my <= search_cy + 24*SCALE then
       if mx >= cx + 60*SCALE and mx <= cx + cw - 100*SCALE then
         self.search_focus = true
         core.redraw = true
@@ -926,7 +926,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     core.redraw = true
     
     -- Handle click on a problem
-    local list_y = y + 135*SCALE
+    local list_y = self.list_y_start or (y + 155*SCALE)
     if my >= list_y and my < btn_cy then
       local idx = math.floor((my - list_y + self.list_scroll_y) / (24*SCALE)) + 1
       if idx >= 1 and idx <= #self.problems then
@@ -982,7 +982,9 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     if self.lang_buttons then
       for _, b in ipairs(self.lang_buttons) do
         if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
-          open_problem(self.current, b.lang)
+          core.log("[LeetCode] Bootstrapping " .. b.lang .. " environment...")
+          local ok, err = pcall(open_problem, self.current, b.lang)
+          if not ok then core.error("[LeetCode] Failed to open problem: " .. tostring(err)) end
           return true
         end
       end
@@ -1124,6 +1126,7 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
     local search_x = cx + 60*SCALE
     local search_y = cy
+    self.search_y_start = search_y
     local search_w = cw - 200*SCALE
     local search_h = 24*SCALE
     
@@ -1159,6 +1162,7 @@ function LeetCodeView:draw()
     
     renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
     cy = cy + 10*SCALE
+    self.list_y_start = cy
     
     local list_h = (y + h - 50*SCALE) - cy
     
