@@ -43,7 +43,6 @@ command.add(nil, {
         
         -- Prompt for window mode
         core.command_view:enter("Open mode for " .. common.home_encode(abs_path), {
-          text = "Open Here only",
           submit = function(choice)
             if choice == "Open Here only" then
               core.open_folder_project(abs_path)
