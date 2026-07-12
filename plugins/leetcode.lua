@@ -898,7 +898,7 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
       end
     end
     
-    local view_x, view_y, view_w, view_h = get_view_rect(self)
+    local view_x, view_y, view_w, view_h = bg_x, bg_y, w, h
     local search_cy = self.search_y_start or (view_y + 80 * SCALE)
     -- Search box click
     if mouse_y >= search_cy and mouse_y <= search_cy + 24*SCALE then
