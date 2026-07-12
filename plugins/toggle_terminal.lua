@@ -61,6 +61,7 @@ else
   if has_cmd("zsh") then table.insert(shells, { name = "zsh", cmd = {"zsh", "-c"}, prompt_prefix = "" }) end
   table.insert(shells, { name = "sh", cmd = {"sh", "-c"}, prompt_prefix = "" })
 end
+table.insert(shells, { name = "Port Manager", is_port_manager = true })
 
 
 -- ── Config ────────────────────────────────────────────────────────────────────
@@ -153,7 +154,50 @@ function TermView:add_session(shell_opts)
   }
   table.insert(self.sessions, s)
   self.active_idx = #self.sessions
-  self:_push("info", shell_opts.name)
+  if shell_opts.is_port_manager then
+    self:refresh_ports(s)
+  else
+    self:_push("info", shell_opts.name)
+  end
+end
+
+function TermView:refresh_ports(s)
+  s.fetching = true
+  s.ports = {}
+  s.port_buttons = {}
+  
+  core.add_thread(function()
+    local p_names = {}
+    if PLATFORM == "Windows" then
+      local p1 = io.popen("tasklist /FO CSV /NH")
+      if p1 then
+        for line in p1:lines() do
+          local name, pid = line:match('^"([^"]+)","(%d+)"')
+          if name and pid then p_names[pid] = name end
+        end
+        p1:close()
+      end
+      
+      local p2 = io.popen("netstat -ano | findstr LISTENING")
+      if p2 then
+        for line in p2:lines() do
+          local proto, local_addr, foreign_addr, state, pid = line:match("%s*(%w+)%s+([%w%.%:%[%]]+)%s+([%w%.%:%[%]]+)%s+(%w+)%s+(%d+)")
+          if proto and local_addr and pid and pid ~= "0" then
+            local ip, port = local_addr:match("^(.*):(%d+)$")
+            if port then
+               table.insert(s.ports, { proto = proto, port = port, pid = pid, name = p_names[pid] or "Unknown" })
+            end
+          end
+        end
+        p2:close()
+      end
+    end
+    
+    table.sort(s.ports, function(a, b) return tonumber(a.port) < tonumber(b.port) end)
+    
+    s.fetching = false
+    core.redraw = true
+  end)
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -638,6 +682,11 @@ function TermView:draw()
   local out_top = y + hdr_h + 3 * SCALE
   local out_bot = y + h - 2 * SCALE
   local out_h   = out_bot - out_top
+  
+  if self:state().shell.is_port_manager then
+    self:draw_port_manager(x, out_top, w, out_h)
+    return
+  end
 
   local lh     = style.code_font:get_height() + 2 * SCALE
   local text_y = out_top + 4 * SCALE - self:state().scroll_y
@@ -715,6 +764,83 @@ function TermView:draw()
         renderer.draw_rect(cx, text_y, 2 * SCALE, style.code_font:get_height(), { common.color("#A9DC76") })
       end
     end
+  end
+  
+  core.pop_clip_rect()
+end
+
+function TermView:draw_port_manager(x, y, w, h)
+  local s = self:state()
+  local cx, cy = x + 20 * SCALE, y + 20 * SCALE
+  
+  -- Header
+  local title_font = style.big_font or style.font
+  renderer.draw_text(title_font, "PORT MANAGER", cx, cy, style.accent or {common.color "#E67E80"})
+  
+  -- Refresh button
+  local ref_w = style.font:get_width("Refresh") + 20*SCALE
+  local ref_h = 24*SCALE
+  local ref_x = cx + w - 40*SCALE - ref_w
+  s.refresh_btn_rect = { x = ref_x, y = cy, w = ref_w, h = ref_h }
+  
+  local ref_bg = style.background3 or {common.color "#444444"}
+  renderer.draw_rect(ref_x, cy, ref_w, ref_h, ref_bg)
+  renderer.draw_text(style.font, "Refresh", ref_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), style.text)
+  
+  cy = cy + 40*SCALE
+  
+  if s.fetching then
+    renderer.draw_text(style.font, "Scanning active ports...", cx, cy, style.dim)
+    return
+  end
+  
+  if not s.ports or #s.ports == 0 then
+    renderer.draw_text(style.font, "No listening ports found.", cx, cy, style.dim)
+    return
+  end
+  
+  -- Table Header
+  local c_port = cx
+  local c_name = cx + 100*SCALE
+  local c_pid = cx + 350*SCALE
+  local c_act = cx + 450*SCALE
+  
+  renderer.draw_text(style.font, "PORT", c_port, cy, style.dim)
+  renderer.draw_text(style.font, "PROCESS", c_name, cy, style.dim)
+  renderer.draw_text(style.font, "PID", c_pid, cy, style.dim)
+  renderer.draw_text(style.font, "ACTION", c_act, cy, style.dim)
+  
+  cy = cy + 30*SCALE
+  renderer.draw_rect(cx, cy, w - 40*SCALE, 1*SCALE, style.dim)
+  cy = cy + 10*SCALE
+  
+  s.port_buttons = {}
+  
+  local lh = 30 * SCALE
+  local max_scroll = math.max(0, #s.ports * lh - (h - 100*SCALE))
+  s.scroll_y = math.min(math.max(0, s.scroll_y or 0), max_scroll)
+  
+  core.push_clip_rect(x, cy, w, h - (cy - y))
+  local item_y = cy - s.scroll_y
+  
+  for i, p in ipairs(s.ports) do
+    if item_y + lh > cy and item_y < y + h then
+      renderer.draw_text(style.font, tostring(p.port), c_port, item_y, style.text)
+      renderer.draw_text(style.font, tostring(p.name), c_name, item_y, style.text)
+      renderer.draw_text(style.font, tostring(p.pid), c_pid, item_y, style.dim)
+      
+      -- Kill button
+      local btn_w = style.font:get_width("KILL") + 16*SCALE
+      local btn_h = 20*SCALE
+      local btn_x = c_act
+      local btn_y = item_y + 2*SCALE
+      
+      table.insert(s.port_buttons, { x = btn_x, y = btn_y, w = btn_w, h = btn_h, pid = p.pid, port = p.port })
+      
+      renderer.draw_rect(btn_x, btn_y, btn_w, btn_h, {common.color "#FB4934"})
+      renderer.draw_text(style.font, "KILL", btn_x + 8*SCALE, btn_y + math.floor((btn_h - style.font:get_height())/2), {255, 255, 255, 255})
+    end
+    item_y = item_y + lh
   end
   
   core.pop_clip_rect()
@@ -914,6 +1040,29 @@ end
 
 function TermView:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
+    local s = self:state()
+    if s.shell.is_port_manager then
+      if s.refresh_btn_rect then
+        local r = s.refresh_btn_rect
+        if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+          self:refresh_ports(s)
+          return true
+        end
+      end
+      if s.port_buttons then
+        for _, btn in ipairs(s.port_buttons) do
+          if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
+            core.log("Killing process %s on port %s...", btn.pid, btn.port)
+            if PLATFORM == "Windows" then
+              os.execute("taskkill /F /PID " .. btn.pid)
+            end
+            self:refresh_ports(s)
+            return true
+          end
+        end
+      end
+    end
+
     local hdr_h = 26 * SCALE
     local out_top = self.position.y + hdr_h + 3 * SCALE
     if y > out_top then
@@ -1021,6 +1170,12 @@ function TermView:on_mouse_released(button, x, y)
 end
 
 function TermView:on_mouse_wheel(dy)
+  if self:state().shell.is_port_manager then
+    self:state().scroll_y = math.max(0, (self:state().scroll_y or 0) - dy * 40)
+    core.redraw = true
+    return true
+  end
+
   local lh = style.code_font:get_height() + 2 * SCALE
   self:state().scroll_y = math.max(0, self:state().scroll_y - dy * lh * 3)
   
