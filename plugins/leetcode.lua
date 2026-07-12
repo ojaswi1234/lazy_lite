@@ -48,6 +48,8 @@ local TOPIC_TAGS = {
   "queue", "memoization", "topological-sort", "segment-tree", "game-theory"
 }
 
+local COMPANIES = { "amazon", "google", "microsoft", "facebook", "apple", "adobe", "bloomberg", "uber", "oracle", "goldman-sachs", "linkedin", "yahoo", "salesforce", "bytedance", "tiktok", "doordash", "samsung", "snapchat", "cisco", "flipkart", "vmware", "twitter", "infosys", "expedia", "walmart-global-tech", "ibm", "intuit", "atlassian", "nvidia", "visa", "airbnb", "sprinklr", "yandex", "de-shaw", "ebay", "paypal", "accenture", "tcs", "morgan-stanley", "paytm", "phonepe", "jpmorgan", "dunzo", "citadel", "makemytrip", "american-express", "walmart-labs", "accolite", "servicenow", "qualtrics", "spotify", "mathworks", "capital-one", "wayfair", "pinterest", "twilio", "zoho", "grab", "walmart", "sap", "nutanix", "square", "oyo", "rubrik", "deutsche-bank", "media.net", "tesla", "nagarro", "karat", "cognizant", "jpmorgan-and-chase", "akuna-capital", "indeed", "dropbox", "publicis-sapient", "zomato", "arcesium", "qualcomm", "lyft", "quora", "sap-labs", "meesho", "databricks", "capgemini", "booking.com", "barclays", "snowflake", "wipro", "snapdeal", "geico", "robinhood", "airtel", "swiggy", "docusign", "directi", "sharechat", "hrt", "roblox", "shopee", "expedia-group", "hsbc", "cruise-automation", "coursera", "intel", "codenation", "spinny", "ola", "optum", "wish", "zoom", "amdocs", "two-sigma", "morgan-stanely" }
+
 local function json_encode(v)
   local t = type(v)
   if t == "nil" then return "null"
@@ -865,7 +867,7 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
         for _, item in ipairs(self.dropdown_items) do
           if y >= item.y and y < item.y + 24*SCALE then
-            self.search_input = self.search_input:gsub("#[^%s]*$", "#" .. item.t .. " ")
+            self.search_input = self.search_input:gsub(item.prefix .. "[^%s]*$", item.prefix .. item.t .. " ")
             self.page_skip = 0
             command.perform("leetcode:fetch-list")
             return true
@@ -1263,10 +1265,16 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, next_lbl, self.page_next_rect.x, cy + 10*SCALE, n_col)
     
     if self.search_focus then
-      local partial = self.search_input:match("#([^%s]*)$")
+      local p_topic = self.search_input:match("#([^%s]*)$")
+      local p_comp = self.search_input:match("@([^%s]*)$")
+      local partial = p_topic or p_comp
+      
       if partial then
         local filtered = {}
-        for _, t in ipairs(TOPIC_TAGS) do
+        local src_list = p_topic and TOPIC_TAGS or COMPANIES
+        local prefix = p_topic and "#" or "@"
+        
+        for _, t in ipairs(src_list) do
           if t:find(partial, 1, true) then table.insert(filtered, t) end
         end
         if #filtered > 0 then
@@ -1282,8 +1290,8 @@ function LeetCodeView:draw()
           for i, t in ipairs(filtered) do
             if i > 10 then break end
             local item_y = drop_y + (i-1)*24*SCALE
-            table.insert(self.dropdown_items, { t = t, y = item_y })
-            renderer.draw_text(style.font, "#" .. t, drop_x + 10*SCALE, item_y + 4*SCALE, style.text)
+            table.insert(self.dropdown_items, { t = t, y = item_y, prefix = prefix })
+            renderer.draw_text(style.font, prefix .. t, drop_x + 10*SCALE, item_y + 4*SCALE, style.text)
           end
         else
           self.dropdown_rect = nil
