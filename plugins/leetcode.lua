@@ -876,10 +876,12 @@ function LeetCodeView:on_mouse_pressed(btn, x, y, clicks)
     -- 2. Check difficulty toggles
     if self.diff_buttons then
       for _, btn in ipairs(self.diff_buttons) do
-        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + style.font:get_height() + 4*SCALE then
-          self.difficulty = btn.val
-          self.page_skip = 0
-          command.perform("leetcode:fetch-list")
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          if system.get_time() - (last_fetch_time or 0) >= 0.5 then
+            self.difficulty = btn.val
+            self.page_skip = 0
+            command.perform("leetcode:fetch-list")
+          end
           return true
         end
       end
@@ -1122,13 +1124,14 @@ function LeetCodeView:draw()
         if stat.difficulty == "Medium" then s_med = stat.count end
         if stat.difficulty == "Hard" then s_hard = stat.count end
       end
-      local stat_str = string.format("  |  %d Solved (E:%d M:%d H:%d)", s_all, s_easy, s_med, s_hard)
-      renderer.draw_text(style.font, stat_str, cx + style.font:get_width("LeetCode Browser"), cy, style.dim)
+      local stat_str = string.format("%d Solved (E:%d M:%d H:%d)", s_all, s_easy, s_med, s_hard)
+      local tw = style.font:get_width(stat_str)
+      renderer.draw_text(style.font, stat_str, cx + cw - tw, cy, style.dim)
     end
     
     local d_opts = { {"ALL", "ALL"}, {"Easy", "EASY"}, {"Med", "MEDIUM"}, {"Hard", "HARD"} }
     self.diff_buttons = {}
-    local d_x = cx + 150*SCALE
+    local d_x = cx + 160*SCALE
     for _, opt in ipairs(d_opts) do
       local label = opt[1]
       local is_active = self.difficulty == opt[2]
@@ -1137,9 +1140,13 @@ function LeetCodeView:draw()
       local text_color = is_active and dc or style.dim
       
       local lw = style.font:get_width(label)
-      renderer.draw_rect(d_x, cy - 2*SCALE, lw + 12*SCALE, style.font:get_height() + 4*SCALE, bg_color)
+      local bh = style.font:get_height() + 4*SCALE
+      local btn_rect = { x = d_x, y = cy - 2*SCALE, w = lw + 12*SCALE, h = bh, val = opt[2] }
+      
+      renderer.draw_rect(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, bg_color)
       renderer.draw_text(style.font, label, d_x + 6*SCALE, cy, text_color)
-      table.insert(self.diff_buttons, { label = opt[1], val = opt[2], x = d_x, y = cy, w = lw + 12*SCALE })
+      
+      table.insert(self.diff_buttons, btn_rect)
       d_x = d_x + lw + 22*SCALE
     end
     cy = cy + 30*SCALE
