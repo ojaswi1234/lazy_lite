@@ -358,26 +358,17 @@ local function open_problem(problem, lang)
   end
 
   local node = core.root_view:get_active_node_default()
-  node:add_view(core.open_doc(fpath_md))
+  
+  local doc_md = core.open_doc(fpath_md)
+  core.root_view:open_doc(doc_md)
   command.perform("line-wrapping:enable")
   
-  -- Open the code file natively for editing
-  node:add_view(core.open_doc(fpath))
-  local node = core.root_view:get_active_node_default()
-  node:split("right")
-  core.root_view:open_doc(core.open_doc(fpath))
+  -- Open the code file natively for editing in a right split
+  local new_node = node:split("right")
+  core.root_view:set_active_node(new_node)
   
   local doc_code = core.open_doc(fpath)
-  local views = core.get_views_referencing_doc(doc_code)
-  local view_code = views[1]
-  
-  if not view_code then
-    local DocView = require "core.docview"
-    view_code = DocView(doc_code)
-    local node = core.root_view:get_active_node_default()
-    local new_node = node:split("right")
-    new_node:add_view(view_code)
-  end
+  local view_code = core.root_view:open_doc(doc_code)
   
   core.set_active_view(view_code)
 
