@@ -1029,7 +1029,7 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
     
     if in_scroll_area and self.lang_buttons then
       for _, b in ipairs(self.lang_buttons) do
-        if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
+        if mouse_x >= b.x and mouse_x <= b.x + b.w and mouse_y >= b.y and mouse_y <= b.y + b.h then
           core.log("[LeetCode] Bootstrapping " .. b.lang .. " environment...")
           local ok, err = pcall(open_problem, self.current, b.lang)
           if not ok then core.error("[LeetCode] Failed to open problem: " .. tostring(err)) end
