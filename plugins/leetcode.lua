@@ -364,11 +364,16 @@ local function open_problem(problem, lang)
   command.perform("line-wrapping:enable")
   
   -- Open the code file natively for editing in a right split
-  local new_node = node:split("right")
-  core.root_view:set_active_node(new_node)
-  
   local doc_code = core.open_doc(fpath)
-  local view_code = core.root_view:open_doc(doc_code)
+  local views = core.get_views_referencing_doc(doc_code)
+  local view_code = views[1]
+  
+  if not view_code then
+    local DocView = require "core.docview"
+    view_code = DocView(doc_code)
+    local new_node = node:split("right")
+    new_node:add_view(view_code)
+  end
   
   core.set_active_view(view_code)
 
