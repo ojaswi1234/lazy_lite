@@ -1001,12 +1001,12 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
     
     local in_scroll_area = true
     if self.problem_scroll_y_start and self.problem_scroll_h then
-      in_scroll_area = (my >= self.problem_scroll_y_start and my <= self.problem_scroll_y_start + self.problem_scroll_h)
+      in_scroll_area = (mouse_y >= self.problem_scroll_y_start and mouse_y <= self.problem_scroll_y_start + self.problem_scroll_h)
     end
     
     if in_scroll_area and self.similar_buttons then
       for _, b in ipairs(self.similar_buttons) do
-        if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
+        if mouse_x >= b.x and mouse_x <= b.x + b.w and mouse_y >= b.y and mouse_y <= b.y + b.h then
           self.state = "loading"
           self.loading_msg = "Loading similar problem..."
           core.redraw = true
