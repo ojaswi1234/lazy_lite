@@ -2554,3 +2554,25 @@ if ok then
   })
 end
 
+core.status_view:add_item({
+  name = "ag_status",
+  alignment = core.status_view.Item.RIGHT,
+  get_item = function()
+    local text = "\u{eb53} AGY"
+    if auth_key then
+      text = text .. " Auth"
+    else
+      text = text .. " Unauth"
+    end
+    return {
+      core.status_view.separator2,
+      style.text,
+      text
+    }
+  end,
+  on_click = function()
+    command.perform("antigravity:toggle")
+  end
+})
+
+

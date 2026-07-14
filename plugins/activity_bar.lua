@@ -14,12 +14,11 @@ function ActivityBar:new()
   self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
-    { id = "antigravity", icon = "\u{eb53}", command = "antigravity:toggle", tooltip = "Antigravity AI" },
     { id = "docker", icon = "\u{f308}", command = "docker:toggle", tooltip = "Docker" },
     { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle", tooltip = "LeetCode" },
     { id = "mongodb", icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
   }
-  self.active_id = "antigravity"
+  self.active_id = "docker"
   self.target_size = 48 * SCALE
   self.visible = false -- Start hidden; will be pulled open by the AI Sidebar
 end
