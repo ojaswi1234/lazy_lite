@@ -119,22 +119,33 @@ rawset(_G, "get_sidebar_node", function()
 end)
 
 local function init_activity_bar()
+  local target_node = nil
   -- Find the TreeView node
   for _, node in ipairs(core.root_view.root_node:get_children()) do
-    for _, view in ipairs(node.views) do
-      if view.name == "Tree" or view.class_name == "TreeView" then
-        sidebar_node = node
-        break
+    if node and node.views then
+      for _, view in ipairs(node.views) do
+        if view and (view.name == "Tree" or view.class_name == "TreeView") then
+          sidebar_node = node
+          target_node = node
+          break
+        end
       end
     end
     if sidebar_node then break end
   end
   
-  if sidebar_node then
-    sidebar_node.should_show_tabs = function() return false end
+  if not target_node then
+    target_node = core.root_view:get_primary_node()
+  end
+  
+  if target_node then
+    if sidebar_node then
+      sidebar_node.should_show_tabs = function() return false end
+    end
+    
     activity_bar = ActivityBar()
-    -- Split the sidebar node to the left for the activity bar
-    local ab_node = sidebar_node:split("left", activity_bar, {x = true}, true)
+    -- Split the target node to the left for the activity bar
+    local ab_node = target_node:split("left", activity_bar, {x = true}, true)
     
     -- Override Ctrl+B to toggle both Activity Bar and Sidebar Node
     command.add(nil, {
