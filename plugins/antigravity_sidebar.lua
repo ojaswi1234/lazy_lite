@@ -2332,33 +2332,40 @@ command.add(nil, {
     if not instance then instance = AGView() end
     
     local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
+    local node = core.root_view.root_node:get_node_for_view(instance)
     
-    if instance and core.root_view.root_node:get_node_for_view(instance) then
-      local node = core.root_view.root_node:get_node_for_view(instance)
-      if sidebar and node == sidebar then
-        if node.active_view == instance then
-          node:close_view(core.root_view.root_node, instance)
-          instance.visible = false
-        else
-          node:set_active_view(instance)
-          instance.visible = true
-        end
-      else
-        node:close_view(core.root_view.root_node, instance)
-        instance.visible = false
+    if sidebar and (sidebar.active_view == instance) then
+      -- AI is actively visible. User wants to toggle it OFF.
+      -- Close EVERYTHING in the sidebar to ensure it completely collapses.
+      for i = #sidebar.views, 1, -1 do
+        sidebar:close_view(core.root_view.root_node, sidebar.views[i])
       end
+      instance.visible = false
     else
+      -- Either AI is not in the sidebar, or another plugin is active.
+      -- We must close everything else and force AI open!
       local target = sidebar or core.root_view:get_primary_node()
-      local new_node
-      if sidebar then
-        sidebar:add_view(instance)
-        sidebar:set_active_view(instance)
-        new_node = sidebar
-      else
-        new_node = target:split("right", instance, { x = true }, true)
+      local new_node = sidebar
+      
+      if not sidebar then
+        new_node = target:split("right", nil, { x = true }, true)
       end
       
       if new_node then
+        -- Close all OTHER views in this node so AI takes over completely
+        for i = #new_node.views, 1, -1 do
+          if new_node.views[i] ~= instance then
+            new_node:close_view(core.root_view.root_node, new_node.views[i])
+          end
+        end
+        
+        -- Add AI if not present, and activate it
+        if not core.root_view.root_node:get_node_for_view(instance) then
+           new_node:add_view(instance)
+        end
+        
+        new_node:set_active_view(instance)
+        
         if not sidebar then
           new_node.size.x = 0
           instance.size.x = 0
