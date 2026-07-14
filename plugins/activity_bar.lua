@@ -119,33 +119,36 @@ rawset(_G, "get_sidebar_node", function()
 end)
 
 local function init_activity_bar()
-  local target_node = nil
-  -- Find the TreeView node
-  for _, node in ipairs(core.root_view.root_node:get_children()) do
-    if node and node.views then
-      for _, view in ipairs(node.views) do
-        if view and (view.name == "Tree" or view.class_name == "TreeView") then
-          sidebar_node = node
-          target_node = node
-          break
-        end
+  -- Always find the absolute far-left node on the screen
+  local far_left_node = core.root_view.root_node:get_children()[1]
+  
+  -- Create the Activity Bar
+  activity_bar = ActivityBar()
+  
+  -- Split the far left node to place Activity Bar on the absolute edge
+  local ab_node = far_left_node:split("left", activity_bar, {x = true}, false)
+  
+  -- Because far_left_node was split, it was converted into an hsplit.
+  -- The original contents (like TreeView) are now in far_left_node.b
+  local sibling_node = far_left_node.b
+  
+  -- Check if the sibling node is the TreeView or another sidebar panel
+  local is_sidebar = false
+  if sibling_node and sibling_node.views then
+    for _, view in ipairs(sibling_node.views) do
+      if view and (view.name == "Tree" or view.class_name == "TreeView" or view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+        is_sidebar = true
+        break
       end
     end
-    if sidebar_node then break end
   end
   
-  if not target_node then
-    target_node = core.root_view:get_primary_node()
+  if is_sidebar then
+    sidebar_node = sibling_node
+    sidebar_node.should_show_tabs = function() return false end
+  else
+    sidebar_node = nil
   end
-  
-  if target_node then
-    if sidebar_node then
-      sidebar_node.should_show_tabs = function() return false end
-    end
-    
-    activity_bar = ActivityBar()
-    -- Split the target node to the left for the activity bar
-    local ab_node = target_node:split("left", activity_bar, {x = true}, false)
     
     -- Override Ctrl+B to toggle both Activity Bar and Sidebar Node
     command.add(nil, {
@@ -185,7 +188,6 @@ local function init_activity_bar()
         end
       end
     })
-  end
 end
 
 core.add_thread(function()
