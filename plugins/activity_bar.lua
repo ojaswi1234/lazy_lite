@@ -138,9 +138,23 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   
   if dont_create then return nil end
   
-  -- If destroyed and no other sidebar exists, recreate it to the LEFT of the Activity Bar
-  sidebar_node = ab_node:split("left")
+  -- Create the sidebar node by splitting the primary editor space.
+  -- This safely places it between the Editor and the Activity Bar without
+  -- breaking the Activity Bar's locked width state.
+  sidebar_node = core.root_view:get_primary_node():split("right", nil, {x = true}, true)
   sidebar_node.should_show_tabs = function() return false end
+  
+  -- Lite XL's core/node.lua explicitly blocks adding views to locked nodes via assert(not self.locked).
+  -- We monkey-patch add_view here to temporarily unlock it, allowing plugins to add themselves 
+  -- without crashing, while still preserving our awesome auto-resizing locked layout.
+  local old_add_view = sidebar_node.add_view
+  sidebar_node.add_view = function(self, view)
+    local l = self.locked
+    self.locked = nil
+    old_add_view(self, view)
+    self.locked = l
+  end
+  
   return sidebar_node
 end)
 
