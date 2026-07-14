@@ -74,13 +74,18 @@ function ActivityBar:draw()
   local x, y = self.position.x, self.position.y
   local cell = 48 * SCALE
   
+  -- Suppress active highlight when the AI sidebar is the active view
+  local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
+  local ag_inst = rawget(_G, "_ag_instance")
+  local ai_is_open = ag_inst and sidebar and (sidebar.active_view == ag_inst)
+
   -- Draw top regular items
   local item_y = y
   for _, item in ipairs(self.items) do
-    local is_active = (self.active_id == item.id)
+    local is_active = (not ai_is_open) and (self.active_id == item.id)
     local hovered = self.mouse_y and self.mouse_y >= item_y and self.mouse_y < item_y + cell
     local color = (is_active or hovered) and style.text or style.dim
-    
+
     if is_active then
       renderer.draw_rect(x, item_y, 2 * SCALE, cell, style.accent)
     end
