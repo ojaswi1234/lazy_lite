@@ -99,8 +99,15 @@ end
 local function get_far_right_node(node)
   if not node then return nil end
   if node.type == "leaf" then return node end
-  -- 'b' is the right child in an hsplit, representing the rightmost edge.
-  return get_far_right_node(node.b)
+  
+  -- For horizontal splits, the rightmost child is 'b'.
+  -- For vertical splits (like the terminal at the bottom), both 'a' (top) and 'b' (bottom) touch the right edge.
+  -- We want to stay in the main editor pane (the top one), so we pick 'a' for vsplits.
+  if node.type == "hsplit" then
+    return get_far_right_node(node.b)
+  else
+    return get_far_right_node(node.a)
+  end
 end
 
 rawset(_G, "get_sidebar_node", function(dont_create)
@@ -112,9 +119,29 @@ rawset(_G, "get_sidebar_node", function(dont_create)
     return sidebar_node
   end
   
+  -- Dynamically search for any existing custom sidebar in the tree
+  local found_sidebar = nil
+  for _, node in ipairs(core.root_view.root_node:get_children()) do
+    if node and node.views then
+      for _, view in ipairs(node.views) do
+        if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+          found_sidebar = node
+          break
+        end
+      end
+    end
+    if found_sidebar then break end
+  end
+  
+  if found_sidebar then
+    sidebar_node = found_sidebar
+    sidebar_node.should_show_tabs = function() return false end
+    return sidebar_node
+  end
+  
   if dont_create then return nil end
   
-  -- If destroyed, recreate it to the LEFT of the Activity Bar
+  -- If destroyed and no other sidebar exists, recreate it to the LEFT of the Activity Bar
   sidebar_node = ab_node:split("left")
   sidebar_node.should_show_tabs = function() return false end
   return sidebar_node
