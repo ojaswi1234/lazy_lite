@@ -18,7 +18,6 @@ function ActivityBar:new()
     { id = "antigravity", icon = "\u{eb53}", command = "antigravity:toggle", tooltip = "Antigravity AI" },
     { id = "leetcode", icon = "\u{f121}", command = "leetcode:toggle", tooltip = "LeetCode" },
     { id = "docker", icon = "\u{f38b}", command = "docker:toggle", tooltip = "Docker" },
-    { id = "git", icon = "\u{f1d3}", command = "git-timeline:toggle", tooltip = "Git Timeline" },
     { id = "mongodb", icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
   }
   self.active_id = "treeview"
@@ -104,7 +103,7 @@ local function is_node_in_tree(root, target)
   return false
 end
 
-function _G.get_sidebar_node()
+rawset(_G, "get_sidebar_node", function()
   if not activity_bar then return nil end
   local ab_node = core.root_view.root_node:get_node_for_view(activity_bar)
   if not ab_node then return nil end
@@ -117,7 +116,7 @@ function _G.get_sidebar_node()
   sidebar_node = ab_node:split("right")
   sidebar_node.should_show_tabs = function() return false end
   return sidebar_node
-end
+end)
 
 local function init_activity_bar()
   -- Find the TreeView node
