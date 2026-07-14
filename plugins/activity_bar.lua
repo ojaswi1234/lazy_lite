@@ -188,7 +188,17 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
     -- Auth button is drawn at the bottom: from (position.y + size.y - cell) to (position.y + size.y)
     local auth_y_top = self.position.y + self.size.y - cell
     if y >= auth_y_top and y < self.position.y + self.size.y then
-      command.perform(self.auth_item.command)
+      local inst = rawget(_G, "_ag_instance")
+      local is_authed = inst and inst.auth_status == "logged_in"
+      
+      if not is_authed then
+        command.perform("antigravity:auth")
+      else
+        local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
+        if not sidebar or sidebar.active_view ~= inst then
+          command.perform("antigravity:toggle")
+        end
+      end
       return true
     end
     
