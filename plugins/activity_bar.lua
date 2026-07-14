@@ -18,7 +18,8 @@ function ActivityBar:new()
     { id = "antigravity", icon = "\u{eb53}", command = "antigravity:toggle", tooltip = "Antigravity AI" },
     { id = "leetcode", icon = "\u{f121}", command = "leetcode:toggle", tooltip = "LeetCode" },
     { id = "docker", icon = "\u{f38b}", command = "docker:toggle", tooltip = "Docker" },
-    { id = "git", icon = "\u{f1d3}", command = "git-timeline:toggle", tooltip = "Git Timeline" }
+    { id = "git", icon = "\u{f1d3}", command = "git-timeline:toggle", tooltip = "Git Timeline" },
+    { id = "mongodb", icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
   }
   self.active_id = "treeview"
   self.target_size = 48 * SCALE
@@ -163,6 +164,14 @@ local function init_activity_bar()
               node:close_view(core.root_view.root_node, node.views[i])
             end
           end
+        end
+      end,
+      ["mongodb:activity-bar"] = function()
+        local mongo = require("plugins.mongodb_explorer")
+        if not mongo.uri then
+          command.perform("mongodb:connect")
+        else
+          command.perform("mongodb:explore-databases")
         end
       end
     })

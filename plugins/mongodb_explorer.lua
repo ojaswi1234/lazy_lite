@@ -269,24 +269,7 @@ core.add_thread(function()
   end
   
   -- Add a native clickable button to the bottom status bar
-  if core.status_view and core.status_view.add_item then
-    core.status_view:add_item({
-      name = "mongodb:status_btn",
-      alignment = core.status_view.Item.RIGHT,
-      get_item = function()
-        return { style.text, "MongoDB" }
-      end,
-      command = function()
-        -- If not connected, connect. If connected, explore databases.
-        if not mongo.uri then
-          command.perform("mongodb:connect")
-        else
-          command.perform("mongodb:explore-databases")
-        end
-      end,
-      tooltip = "MongoDB Explorer"
-    })
-  end
+  -- [REMOVED STATUS BAR ITEM]
 end)
 
 
