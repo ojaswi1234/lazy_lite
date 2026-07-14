@@ -11,7 +11,7 @@ local ActivityBar = View:extend()
 function ActivityBar:new()
   ActivityBar.super.new(self)
   self.name = "ActivityBar"
-  self.locked_size = { x = 48 * SCALE, y = true }
+  self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
     { id = "treeview", icon = "\u{f07b}", command = "treeview:toggle", tooltip = "Explorer" },
@@ -30,7 +30,7 @@ function ActivityBar:get_name() return self.name end
 function ActivityBar:update()
   ActivityBar.super.update(self)
   local dest = self.visible and self.target_size or 0
-  self:move_towards(self.locked_size, "x", dest, nil, "activity_bar")
+  self:move_towards(self.size, "x", dest, nil, "activity_bar")
 end
 
 function ActivityBar:draw()
@@ -145,7 +145,7 @@ local function init_activity_bar()
     
     activity_bar = ActivityBar()
     -- Split the target node to the left for the activity bar
-    local ab_node = target_node:split("left", activity_bar, {x = true}, true)
+    local ab_node = target_node:split("left", activity_bar, {x = true}, false)
     
     -- Override Ctrl+B to toggle both Activity Bar and Sidebar Node
     command.add(nil, {
