@@ -14,13 +14,12 @@ function ActivityBar:new()
   self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
-    { id = "treeview", icon = "\u{f07b}", command = "treeview:toggle", tooltip = "Explorer" },
     { id = "antigravity", icon = "\u{eb53}", command = "antigravity:toggle", tooltip = "Antigravity AI" },
-    { id = "leetcode", icon = "\u{f121}", command = "leetcode:toggle", tooltip = "LeetCode" },
-    { id = "docker", icon = "\u{f38b}", command = "docker:toggle", tooltip = "Docker" },
+    { id = "docker", icon = "\u{f308}", command = "docker:toggle", tooltip = "Docker" },
+    { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle", tooltip = "LeetCode" },
     { id = "mongodb", icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
   }
-  self.active_id = "treeview"
+  self.active_id = "antigravity"
   self.target_size = 48 * SCALE
   self.visible = true
 end
@@ -80,16 +79,7 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
         end
       else
         self.active_id = item.id
-        if item.command == "treeview:toggle" then
-          local tv = require "plugins.treeview"
-          local node = _G.get_sidebar_node()
-          if tv and tv.view and node then
-            if not node:get_view_idx(tv.view) then node:add_view(tv.view) end
-            node:set_active_view(tv.view)
-          end
-        else
-          command.perform(item.command)
-        end
+        command.perform(item.command)
       end
       return true
     end
@@ -126,11 +116,11 @@ end)
 local function init_activity_bar()
   local target_node = nil
   
-  -- Find the TreeView node or any existing sidebar if it is already open
+  -- Find any existing custom sidebar if it is already open
   for _, node in ipairs(core.root_view.root_node:get_children()) do
     if node and node.views then
       for _, view in ipairs(node.views) do
-        if view and (view.name == "Tree" or view.class_name == "TreeView" or view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+        if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
           target_node = node
           break
         end
@@ -155,11 +145,11 @@ local function init_activity_bar()
   -- The original contents (TreeView or Editor) are now in target_node.b
   local sibling_node = target_node.b
   
-  -- Check if the sibling node is actually a sidebar panel (and not the editor)
+  -- Check if the sibling node is actually a custom sidebar panel (and not the editor)
   local is_sidebar = false
   if sibling_node and sibling_node.views then
     for _, view in ipairs(sibling_node.views) do
-      if view and (view.name == "Tree" or view.class_name == "TreeView" or view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+      if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
         is_sidebar = true
         break
       end
@@ -173,24 +163,8 @@ local function init_activity_bar()
     sidebar_node = nil
   end
     
-    -- Override Ctrl+B to toggle only the Sidebar Node
+    -- Do not override treeview:toggle anymore. Let it function normally.
     command.add(nil, {
-      ["treeview:toggle"] = function()
-        local current_node = _G.get_sidebar_node(true)
-        if current_node and #current_node.views > 0 then
-          for i = #current_node.views, 1, -1 do
-            current_node:close_view(core.root_view.root_node, current_node.views[i])
-          end
-        else
-          activity_bar.active_id = "treeview"
-          local tv = require "plugins.treeview"
-          local node = _G.get_sidebar_node()
-          if tv and tv.view and node then
-            if not node:get_view_idx(tv.view) then node:add_view(tv.view) end
-            node:set_active_view(tv.view)
-          end
-        end
-      end,
       ["mongodb:activity-bar"] = function()
         local mongo = require("plugins.mongodb_explorer")
         if not mongo.uri then
