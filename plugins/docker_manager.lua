@@ -330,15 +330,20 @@ local docker_view = nil
 
 command.add(nil, {
   ["docker:toggle"] = function()
+    local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
     if docker_view and core.root_view.root_node:get_node_for_view(docker_view) then
       local node = core.root_view.root_node:get_node_for_view(docker_view)
-      node:close_view(core.root_view.root_node, docker_view)
-      docker_view = nil
+      if sidebar and node == sidebar then
+        node:set_active_view(docker_view)
+      else
+        node:close_view(core.root_view.root_node, docker_view)
+        docker_view = nil
+      end
     else
       docker_view = DockerView()
-      local node = core.root_view:get_active_node_default()
-      local right_node = node:split("right")
-      right_node:add_view(docker_view)
+      local node = sidebar or core.root_view:get_active_node_default():split("right")
+      node:add_view(docker_view)
+      if sidebar then node:set_active_view(docker_view) end
       docker_view.visible = true
     end
   end

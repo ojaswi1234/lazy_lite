@@ -410,13 +410,20 @@ command.add(nil, {
     end)
   end,
   ["leetcode:toggle"] = function()
+    local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
     if lc_view and core.root_view.root_node:get_node_for_view(lc_view) then
       local node = core.root_view.root_node:get_node_for_view(lc_view)
-      node:close_view(core.root_view.root_node, lc_view)
-      lc_view = nil
+      if sidebar and node == sidebar then
+        node:set_active_view(lc_view)
+      else
+        node:close_view(core.root_view.root_node, lc_view)
+        lc_view = nil
+      end
     else
       lc_view = LeetCodeView()
-      core.root_view:get_active_node_default():add_view(lc_view)
+      local node = sidebar or core.root_view:get_active_node_default()
+      node:add_view(lc_view)
+      if sidebar then node:set_active_view(lc_view) end
       if lc_view.state == "auth" then
         lc_view.auth_status = "checking for old creds..... "
         api_call({cmd = "auth_check"}, function(resp)
