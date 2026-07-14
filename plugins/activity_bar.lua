@@ -108,22 +108,66 @@ function ActivityBar:draw()
     local inst = rawget(_G, "_ag_instance")
     local is_authed = inst and inst.auth_status == "logged_in"
     local hovered = self.mouse_y and self.mouse_y >= auth_y and self.mouse_y < auth_y + cell
-    local auth_color = is_authed and (style.accent or style.text)
-                    or (hovered and style.text or style.dim)
-    
+
     -- Subtle separator line above auth button
     renderer.draw_rect(x + 8 * SCALE, auth_y, self.size.x - 16 * SCALE, math.max(1, SCALE), { 255, 255, 255, 30 })
-    
+
     if hovered then
       renderer.draw_rect(x, auth_y, self.size.x, cell, { 255, 255, 255, 15 })
     end
-    
-    local icon = auth.icon
-    local icon_w = style.icon_font:get_width(icon)
-    local icon_h = style.icon_font:get_height()
-    local hx = x + (self.size.x - icon_w) / 2
-    local hy = auth_y + (cell - icon_h) / 2
-    renderer.draw_text(style.icon_font, icon, hx, hy, auth_color)
+
+    if is_authed then
+      -- Get the user's first initial
+      local initial = "A"
+      local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+      local sep = PLATFORM == "Windows" and "\\" or "/"
+      local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
+      local f = io.open(state_path, "r")
+      if f then
+        local content = f:read("*a"); f:close()
+        local email = content:match('email:%s*"([^"]+)"') or content:match("email:%s*'([^']+)'")
+        if email then
+          local name = email:match("^([^@]+)")
+          if name and #name > 0 then initial = name:sub(1,1):upper() end
+        end
+      end
+      if initial == "A" then
+        local uname = os.getenv("USER") or os.getenv("USERNAME") or "A"
+        initial = uname:sub(1,1):upper()
+      end
+
+      -- Draw filled avatar circle (approximated with a square + corner clips)
+      local avatar_size = 28 * SCALE
+      local ax = x + (self.size.x - avatar_size) / 2
+      local ay = auth_y + (cell - avatar_size) / 2
+      local r = 6 * SCALE  -- corner clip radius
+      local accent = style.accent or {100, 180, 255, 255}
+
+      -- Main filled square
+      renderer.draw_rect(ax, ay, avatar_size, avatar_size, accent)
+      -- Clip corners with background color to fake circle
+      local bg = style.background3 or style.background
+      renderer.draw_rect(ax,                   ay,                   r, r, bg)
+      renderer.draw_rect(ax + avatar_size - r, ay,                   r, r, bg)
+      renderer.draw_rect(ax,                   ay + avatar_size - r, r, r, bg)
+      renderer.draw_rect(ax + avatar_size - r, ay + avatar_size - r, r, r, bg)
+
+      -- Draw the initial letter centered in the avatar
+      local fw = style.font:get_width(initial)
+      local fh = style.font:get_height()
+      local lx = ax + (avatar_size - fw) / 2
+      local ly = ay + (avatar_size - fh) / 2
+      renderer.draw_text(style.font, initial, lx, ly, {255, 255, 255, 255})
+    else
+      -- Not logged in: show key icon
+      local auth_color = hovered and style.text or style.dim
+      local icon = auth.icon
+      local icon_w = style.icon_font:get_width(icon)
+      local icon_h = style.icon_font:get_height()
+      local hx = x + (self.size.x - icon_w) / 2
+      local hy = auth_y + (cell - icon_h) / 2
+      renderer.draw_text(style.icon_font, icon, hx, hy, auth_color)
+    end
   end
 end
 
