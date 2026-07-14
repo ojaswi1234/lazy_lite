@@ -41,7 +41,8 @@ local function async_exec(cmd_str, on_result)
     end
     out = out .. (p:read_stdout() or "")
     err = err .. (p:read_stderr() or "")
-    if on_result then on_result(out, err) end
+    local rc = p:returncode()
+    if on_result then on_result(out, err, rc) end
   end)
 end
 
@@ -118,7 +119,8 @@ function DockerView:refresh_k8s()
   local sec = self.sections[3]
   sec.loading = true
   core.redraw = true
-  async_exec('kubectl get pods -A --no-headers', function(out, err)
+  
+  local function process_out(out, err)
     sec.data = {}
     if out and not out:match("not found") and not out:match("error") then
       for line in out:gmatch("[^\r\n]+") do
@@ -130,6 +132,16 @@ function DockerView:refresh_k8s()
     end
     sec.loading = false
     core.redraw = true
+  end
+
+  async_exec('kubectl get pods -A --no-headers', function(out, err, rc)
+    if rc ~= 0 and (err:match("not recognized") or err:match("not found") or out:match("not recognized") or out:match("not found")) then
+      self.k8s_cmd = "k3s kubectl"
+      async_exec('k3s kubectl get pods -A --no-headers', process_out)
+    else
+      self.k8s_cmd = "kubectl"
+      process_out(out, err)
+    end
   end)
 end
 
@@ -247,11 +259,18 @@ function DockerView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = item.name, cmd = {"kubectl", "logs", "-f", item.name, "-n", item.ns}, prompt_prefix = "" })
+                local cmd_parts = {}
+                for w in (self.k8s_cmd or "kubectl"):gmatch("%S+") do table.insert(cmd_parts, w) end
+                table.insert(cmd_parts, "logs")
+                table.insert(cmd_parts, "-f")
+                table.insert(cmd_parts, item.name)
+                table.insert(cmd_parts, "-n")
+                table.insert(cmd_parts, item.ns)
+                core.active_view:add_session({ name = item.name, cmd = cmd_parts, prompt_prefix = "" })
               end)
             end)
             -- Trash
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("kubectl delete pod " .. item.name .. " -n " .. item.ns, function() self:refresh_k8s() end) end)
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec((self.k8s_cmd or "kubectl") .. " delete pod " .. item.name .. " -n " .. item.ns, function() self:refresh_k8s() end) end)
           end
         end
         
