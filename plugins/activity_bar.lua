@@ -96,6 +96,13 @@ local function is_node_in_tree(root, target)
   return is_node_in_tree(root.a, target) or is_node_in_tree(root.b, target)
 end
 
+local function get_far_right_node(node)
+  if not node then return nil end
+  if node.type == "leaf" then return node end
+  -- 'b' is the right child in an hsplit, representing the rightmost edge.
+  return get_far_right_node(node.b)
+end
+
 rawset(_G, "get_sidebar_node", function(dont_create)
   if not activity_bar then return nil end
   local ab_node = core.root_view.root_node:get_node_for_view(activity_bar)
@@ -107,8 +114,8 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   
   if dont_create then return nil end
   
-  -- If destroyed (e.g. user closed all sidebar views), recreate it
-  sidebar_node = ab_node:split("right")
+  -- If destroyed, recreate it to the LEFT of the Activity Bar
+  sidebar_node = ab_node:split("left")
   sidebar_node.should_show_tabs = function() return false end
   return sidebar_node
 end)
@@ -129,21 +136,21 @@ local function init_activity_bar()
     if target_node then break end
   end
   
-  -- If no sidebar exists, attach to the primary editor node
+  -- If no sidebar exists, find the absolute far-right leaf node on the screen
   if not target_node then
-    target_node = core.root_view:get_primary_node()
+    target_node = get_far_right_node(core.root_view.root_node)
   end
   if not target_node then return end
   
   -- Create the Activity Bar
   activity_bar = ActivityBar()
   
-  -- Split the target node to place Activity Bar on its left edge
-  local ab_node = target_node:split("left", activity_bar, {x = true}, false)
+  -- Split the target node to place Activity Bar on its extreme RIGHT edge
+  local ab_node = target_node:split("right", activity_bar, {x = true}, false)
   
   -- Because target_node was split, it was converted into an hsplit.
-  -- The original contents (TreeView or Editor) are now in target_node.b
-  local sibling_node = target_node.b
+  -- The original contents (Editor or old sidebar) are now in target_node.a
+  local sibling_node = target_node.a
   
   -- Check if the sibling node is actually a custom sidebar panel (and not the editor)
   local is_sidebar = false
