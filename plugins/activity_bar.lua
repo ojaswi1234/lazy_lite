@@ -140,16 +140,16 @@ end
 function ActivityBar:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
     local cell = 48 * SCALE
-    local rel_y = y - self.position.y
-    local auth_y_start = self.size.y - cell
     
-    -- Check if click is in the bottom auth button zone
-    if rel_y >= auth_y_start and rel_y < self.size.y then
+    -- Auth button is drawn at the bottom: from (position.y + size.y - cell) to (position.y + size.y)
+    local auth_y_top = self.position.y + self.size.y - cell
+    if y >= auth_y_top and y < self.position.y + self.size.y then
       command.perform(self.auth_item.command)
       return true
     end
     
-    -- Check regular items
+    -- Check regular items (drawn top-down from position.y)
+    local rel_y = y - self.position.y
     local idx = math.floor(rel_y / cell) + 1
     if self.items[idx] then
       local item = self.items[idx]
