@@ -2331,48 +2331,59 @@ command.add(nil, {
   ["antigravity:toggle"] = function()
     if not instance then instance = AGView() end
     
-    local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
+    local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true) -- dont_create=true
     local node = core.root_view.root_node:get_node_for_view(instance)
     
-    if sidebar and (sidebar.active_view == instance) then
-      -- AI is actively visible. User wants to toggle it OFF.
-      -- Close EVERYTHING in the sidebar to ensure it completely collapses.
+    -- Determine if AI is currently visible and active
+    local ai_is_active = sidebar and (sidebar.active_view == instance)
+    
+    if ai_is_active then
+      -- Toggle OFF: close everything in the sidebar
       for i = #sidebar.views, 1, -1 do
         sidebar:close_view(core.root_view.root_node, sidebar.views[i])
       end
       instance.visible = false
     else
-      -- Either AI is not in the sidebar, or another plugin is active.
-      -- We must close everything else and force AI open!
-      local target = sidebar or core.root_view:get_primary_node()
-      local new_node = sidebar
-      
-      if not sidebar then
-        new_node = target:split("right", instance, { x = true }, true)
-      end
-      
-      if new_node then
-        -- Close all OTHER views in this node so AI takes over completely
-        for i = #new_node.views, 1, -1 do
-          if new_node.views[i] ~= instance then
-            new_node:close_view(core.root_view.root_node, new_node.views[i])
+      -- Toggle ON: force AI open, closing any other plugin in the sidebar
+      if sidebar then
+        -- Sidebar exists — close other views and add/activate AI
+        for i = #sidebar.views, 1, -1 do
+          if sidebar.views[i] ~= instance then
+            sidebar:close_view(core.root_view.root_node, sidebar.views[i])
           end
         end
-        
-        -- Add AI if not present, and activate it
         if not core.root_view.root_node:get_node_for_view(instance) then
-           new_node:add_view(instance)
+          sidebar:add_view(instance)
         end
-        
-        new_node:set_active_view(instance)
-        
-        if not sidebar then
-          new_node.size.x = 0
-          instance.size.x = 0
-        end
+        sidebar:set_active_view(instance)
         instance.visible = true
         node_built = true
         core.set_active_view(instance)
+      else
+        -- No sidebar yet — create one by splitting with instance directly.
+        -- Passing instance into split() avoids ever having an empty EmptyView placeholder.
+        local primary = core.root_view:get_primary_node()
+        local new_node = primary:split("right", instance, { x = true }, true)
+        if new_node then
+          new_node.should_show_tabs = function() return false end
+          -- Patch: allow add_view on this locked node
+          if not new_node._ab_patched then
+            local old_av = new_node.add_view
+            new_node.add_view = function(self, view)
+              local l = self.locked; self.locked = nil
+              old_av(self, view)
+              self.locked = l
+            end
+            new_node._ab_patched = true
+          end
+          -- Register as the global sidebar so other plugins can find it
+          rawset(_G, "_ag_sidebar_node", new_node)
+          new_node.size.x = 0
+          instance.size.x = 0
+          instance.visible = true
+          node_built = true
+          core.set_active_view(instance)
+        end
       end
     end
   end,

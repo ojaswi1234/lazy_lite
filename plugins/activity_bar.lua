@@ -123,10 +123,22 @@ rawset(_G, "get_sidebar_node", function(dont_create)
       end
       node._ab_patched = true
     end
+    -- Ensure the active_view always has set_target_size to prevent node.lua:682 crash
+    -- when user drags the resize divider on a node whose view doesn't implement it.
+    if node.active_view and not node.active_view.set_target_size then
+      node.active_view.set_target_size = function(self, axis, value) return true end
+    end
     return node
   end
   
   if sidebar_node and is_node_in_tree(core.root_view.root_node, sidebar_node) then
+    return apply_monkey_patch(sidebar_node)
+  end
+  
+  -- Also check if toggle registered a node directly
+  local ag_node = rawget(_G, "_ag_sidebar_node")
+  if ag_node and is_node_in_tree(core.root_view.root_node, ag_node) then
+    sidebar_node = ag_node
     return apply_monkey_patch(sidebar_node)
   end
   
@@ -145,15 +157,10 @@ rawset(_G, "get_sidebar_node", function(dont_create)
     return apply_monkey_patch(sidebar_node)
   end
   
+  -- Return nil so the caller (antigravity:toggle) can do split with the actual view.
+  -- This avoids ever creating an empty sidebar node with no set_target_size on its EmptyView.
   if dont_create then return nil end
-  
-  -- Create the sidebar node by splitting the primary editor space.
-  -- This safely places it between the Editor and the Activity Bar without
-  -- breaking the Activity Bar's locked width state.
-  sidebar_node = core.root_view:get_primary_node():split("right", nil, {x = true}, true)
-  sidebar_node.should_show_tabs = function() return false end
-  
-  return apply_monkey_patch(sidebar_node)
+  return nil
 end)
 
 local function init_activity_bar()
