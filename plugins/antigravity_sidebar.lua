@@ -2336,8 +2336,13 @@ command.add(nil, {
     if instance and core.root_view.root_node:get_node_for_view(instance) then
       local node = core.root_view.root_node:get_node_for_view(instance)
       if sidebar and node == sidebar then
-        node:set_active_view(instance)
-        instance.visible = true
+        if node.active_view == instance then
+          node:close_view(core.root_view.root_node, instance)
+          instance.visible = false
+        else
+          node:set_active_view(instance)
+          instance.visible = true
+        end
       else
         node:close_view(core.root_view.root_node, instance)
         instance.visible = false
