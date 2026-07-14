@@ -2330,34 +2330,39 @@ end
 command.add(nil, {
   ["antigravity:toggle"] = function()
     if not instance then instance = AGView() end
-
-    if not node_built then
-      -- Always split from the PRIMARY node (main editor area), never from
-      -- get_active_node_default() which returns whatever panel the user last
-      -- clicked — that could be the git graph, terminal, etc.
-      local target = core.root_view:get_primary_node()
-      -- resizable=true makes the divider draggable by the user
-      local new_node = target:split("right", instance, { x = true }, true)
-      if new_node then
-        new_node.size.x = 0
-        instance.size.x = 0
+    
+    local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
+    
+    if instance and core.root_view.root_node:get_node_for_view(instance) then
+      local node = core.root_view.root_node:get_node_for_view(instance)
+      if sidebar and node == sidebar then
+        node:set_active_view(instance)
+        instance.visible = true
+      else
+        node:close_view(core.root_view.root_node, instance)
+        instance.visible = false
       end
-      node_built = true
-    end
-
-    instance.visible = not instance.visible
-    if instance.visible then
-      core.set_active_view(instance)
     else
-      local views = core.root_view.root_node:get_children()
-      for _, v in ipairs(views) do
-        if v ~= instance and v.doc then
-          core.set_active_view(v)
-          break
+      local target = sidebar or core.root_view:get_primary_node()
+      local new_node
+      if sidebar then
+        sidebar:add_view(instance)
+        sidebar:set_active_view(instance)
+        new_node = sidebar
+      else
+        new_node = target:split("right", instance, { x = true }, true)
+      end
+      
+      if new_node then
+        if not sidebar then
+          new_node.size.x = 0
+          instance.size.x = 0
         end
+        instance.visible = true
+        node_built = true
+        core.set_active_view(instance)
       end
     end
-    core.redraw = true
   end,
 
   ["antigravity:focus"] = function()
