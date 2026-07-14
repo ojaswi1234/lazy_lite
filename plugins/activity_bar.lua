@@ -100,11 +100,18 @@ local activity_bar = nil
 local sidebar_node = nil
 
 local function is_node_in_tree(root, target)
+  if not root then return false end
   if root == target then return true end
-  if root.type == "split" then
-    return is_node_in_tree(root.a, target) or is_node_in_tree(root.b, target)
-  end
-  return false
+  if root.type == "leaf" then return false end
+  return is_node_in_tree(root.a, target) or is_node_in_tree(root.b, target)
+end
+
+local function get_far_left_node(node)
+  if not node then return nil end
+  if node.type == "leaf" then return node end
+  -- 'a' is the left child in an hsplit, and the top child in a vsplit.
+  -- In either case, 'a' represents the leftmost edge.
+  return get_far_left_node(node.a)
 end
 
 rawset(_G, "get_sidebar_node", function(dont_create)
@@ -125,8 +132,9 @@ rawset(_G, "get_sidebar_node", function(dont_create)
 end)
 
 local function init_activity_bar()
-  -- Always find the absolute far-left node on the screen
-  local far_left_node = core.root_view.root_node:get_children()[1]
+  -- Always find the absolute far-left leaf node on the screen
+  local far_left_node = get_far_left_node(core.root_view.root_node)
+  if not far_left_node then return end
   
   -- Create the Activity Bar
   activity_bar = ActivityBar()
