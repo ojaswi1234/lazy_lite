@@ -101,7 +101,7 @@ function DockerView:refresh_compose()
   
   sec.data = {}
   if has_compose then
-    local name = core.project_dir:match("([^/\]+)$") or "Project"
+    local name = core.project_dir:match("([^/\\]+)$") or "Project"
     table.insert(sec.data, { name = "Project: " .. name })
   end
   sec.loading = false
