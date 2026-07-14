@@ -57,6 +57,7 @@ function DockerView:new()
   self.visible = false
   
   self.sections = {
+    { id = "compose", name = "Docker Compose", expanded = true, data = {}, loading = false },
     { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
     { id = "images", name = "Images", expanded = false, data = {}, loading = false },
     { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
@@ -73,23 +74,51 @@ end
 function DockerView:get_name() return self.name end
 
 function DockerView:refresh_all()
+  self:refresh_compose()
   self:refresh_containers()
   self:refresh_images()
   self:refresh_k8s()
   self:refresh_k3s()
 end
 
+function DockerView:refresh_compose()
+  local sec = nil
+  for _, s in ipairs(self.sections) do if s.id == "compose" then sec = s; break end end
+  if not sec then return end
+  sec.loading = true
+  core.redraw = true
+  
+  local has_compose = false
+  for _, f in ipairs({"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}) do
+    local p = core.project_dir .. PATHSEP .. f
+    local file = io.open(p, "r")
+    if file then
+      file:close()
+      has_compose = true
+      break
+    end
+  end
+  
+  sec.data = {}
+  if has_compose then
+    local name = core.project_dir:match("([^/\]+)$") or "Project"
+    table.insert(sec.data, { name = "Project: " .. name })
+  end
+  sec.loading = false
+  core.redraw = true
+end
+
 function DockerView:refresh_containers()
   local sec = self.sections[1]
   sec.loading = true
   core.redraw = true
-  async_exec('docker ps -a --format "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}"', function(out, err)
+  async_exec('docker ps -a --format "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}"', function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
         local parts = split(line, "\t")
         if #parts >= 4 then
-          table.insert(sec.data, { id = parts[1], name = parts[2], status = parts[3], image = parts[4] })
+          table.insert(sec.data, { id = parts[1], name = parts[2], status = parts[3], image = parts[4], ports = parts[5] or "" })
         end
       end
     end
@@ -223,13 +252,44 @@ function DockerView:draw()
         local item_hovered = (self.mouse_y and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
         if item_hovered then renderer.draw_rect(x, y, w, 30 * SCALE, style.line_highlight) end
         
-        if sec.id == "containers" then
-          local c_col = item.status:match("Up") and DOCKER_COLORS.up or DOCKER_COLORS.exited
-          renderer.draw_text(style.icon_font, "\u{f38b}", x + 20 * SCALE, y + 5 * SCALE, c_col)
+        if sec.id == "compose" then
+          renderer.draw_text(style.icon_font, "\u{f490}", x + 20 * SCALE, y + 5 * SCALE, style.accent)
           renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
           
           if item_hovered then
             local bx = x + w - 110 * SCALE
+            -- Logs
+            bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
+              command.perform("terminal:toggle")
+              core.add_thread(function()
+                while not core.active_view.add_session do coroutine.yield(0.1) end
+                core.active_view:add_session({ name = "Compose Logs", cmd = {"docker-compose", "logs", "-f"}, prompt_prefix = "" })
+              end)
+            end)
+            -- Down
+            bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker-compose down", function() self:refresh_all() end) end)
+            -- Up
+            bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker-compose up -d", function() self:refresh_all() end) end)
+          end
+          
+        elseif sec.id == "containers" then
+          local c_col = item.status:match("Up") and DOCKER_COLORS.up or DOCKER_COLORS.exited
+          renderer.draw_text(style.icon_font, "\u{f38b}", x + 20 * SCALE, y + 5 * SCALE, c_col)
+          local nx = renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
+          if item.ports and item.ports ~= "" then
+            renderer.draw_text(style.font, "  [" .. item.ports .. "]", nx, y + 5 * SCALE, style.dim)
+          end
+          
+          if item_hovered then
+            local bx = x + w - 160 * SCALE
+            -- Logs
+            bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
+              command.perform("terminal:toggle")
+              core.add_thread(function()
+                while not core.active_view.add_session do coroutine.yield(0.1) end
+                core.active_view:add_session({ name = item.name, cmd = {"docker", "logs", "-f", item.id}, prompt_prefix = "" })
+              end)
+            end)
             -- Exec terminal
             bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
               command.perform("terminal:toggle")
@@ -238,6 +298,8 @@ function DockerView:draw()
                 core.active_view:add_session({ name = item.name, cmd = {"docker", "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
               end)
             end)
+            -- Restart
+            bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker restart " .. item.id, function() self:refresh_containers() end) end)
             -- Stop/Start
             if item.status:match("Up") then
               bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker stop " .. item.id, function() self:refresh_containers() end) end)
@@ -263,8 +325,20 @@ function DockerView:draw()
           renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
           
           if item_hovered then
-            local bx = x + w - 80 * SCALE
+            local bx = x + w - 110 * SCALE
             local cmd_prefix = sec.id == "k3s" and "k3s kubectl" or "kubectl"
+            -- Exec
+            bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
+              command.perform("terminal:toggle")
+              core.add_thread(function()
+                while not core.active_view.add_session do coroutine.yield(0.1) end
+                local cmd_parts = {}
+                for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
+                table.insert(cmd_parts, "exec"); table.insert(cmd_parts, "-it"); table.insert(cmd_parts, item.name)
+                table.insert(cmd_parts, "-n"); table.insert(cmd_parts, item.ns); table.insert(cmd_parts, "--"); table.insert(cmd_parts, "sh")
+                core.active_view:add_session({ name = item.name, cmd = cmd_parts, prompt_prefix = "" })
+              end)
+            end)
             -- Logs
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
               command.perform("terminal:toggle")
