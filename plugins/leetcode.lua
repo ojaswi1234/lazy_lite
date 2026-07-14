@@ -1540,25 +1540,6 @@ function LeetCodeView:draw()
   end
 end
 
-core.add_thread(function()
-  if core.status_view and core.status_view.add_item then
-    core.status_view:add_item({
-      name      = "leetcode",
-      alignment = core.status_view.Item.RIGHT,
-      get_item  = function()
-        local meta = get_active_meta()
-        if meta then
-          return {
-            style.text, " LC ",
-            style.font, " " .. (meta.title or "LeetCode"),
-            style.dim, "  [alt+r] Run  [alt+s] Submit"
-          }
-        end
-        return { style.text, " LC ", style.font, " LeetCode" }
-      end
-    })
-  end
-end)
 
 -- Inject a floating "Copy Code" button into the actual Code Editor for LeetCode files
 local DocView = require "core.docview"

@@ -14,10 +14,12 @@ function ActivityBar:new()
   self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
-    { id = "docker", icon = "\u{f308}", command = "docker:toggle", tooltip = "Docker" },
-    { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle", tooltip = "LeetCode" },
-    { id = "mongodb", icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
+    { id = "docker",   icon = "\u{f308}", command = "docker:toggle",    tooltip = "Docker" },
+    { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle",   tooltip = "LeetCode" },
+    { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
   }
+  -- Bottom-anchored auth button
+  self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "AGY Auth / Toggle AI" }
   self.active_id = "docker"
   self.target_size = 48 * SCALE
   self.visible = false -- Start hidden; will be pulled open by the AI Sidebar
@@ -43,27 +45,80 @@ function ActivityBar:update()
   self:move_towards(self.size, "x", dest)
 end
 
+function ActivityBar:get_auth_label()
+  -- Read auth info from the global AGView instance if available
+  local inst = rawget(_G, "_ag_instance")
+  if inst and inst.auth_status == "logged_in" then
+    local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+    local sep = PLATFORM == "Windows" and "\\" or "/"
+    local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
+    local f = io.open(state_path, "r")
+    if f then
+      local content = f:read("*a")
+      f:close()
+      local email = content:match('email:%s*"([^"]+)"')
+                 or content:match("email:%s*'([^']+)'")
+      if email then
+        return email:match("^([^@]+)") or email
+      end
+    end
+    return os.getenv("USER") or os.getenv("USERNAME") or "AGY"
+  elseif inst and inst.auth_status == "auth_error" then
+    return "Auth Error!"
+  end
+  return "AGY Auth"
+end
+
 function ActivityBar:draw()
   self:draw_background(style.background3 or style.background)
   local x, y = self.position.x, self.position.y
+  local cell = 48 * SCALE
   
+  -- Draw top regular items
+  local item_y = y
   for _, item in ipairs(self.items) do
     local is_active = (self.active_id == item.id)
-    local hovered = self.mouse_y and self.mouse_y >= y and self.mouse_y < y + 48 * SCALE
-    local color = is_active and style.text or (hovered and style.text or style.dim)
+    local hovered = self.mouse_y and self.mouse_y >= item_y and self.mouse_y < item_y + cell
+    local color = (is_active or hovered) and style.text or style.dim
+    
+    if is_active then
+      renderer.draw_rect(x, item_y, 2 * SCALE, cell, style.accent)
+    end
+    if hovered then
+      renderer.draw_rect(x, item_y, self.size.x, cell, { 255, 255, 255, 15 })
+    end
     
     local icon_w = style.icon_font:get_width(item.icon)
     local icon_h = style.icon_font:get_height()
+    local hx = x + (self.size.x - icon_w) / 2
+    local hy = item_y + (cell - icon_h) / 2
+    renderer.draw_text(style.icon_font, item.icon, hx, hy, color)
+    item_y = item_y + cell
+  end
+  
+  -- Draw bottom-anchored AGY Auth button
+  local auth = self.auth_item
+  local auth_y = y + self.size.y - cell
+  if auth_y > item_y then -- only draw if it doesn't overlap items
+    local inst = rawget(_G, "_ag_instance")
+    local is_authed = inst and inst.auth_status == "logged_in"
+    local hovered = self.mouse_y and self.mouse_y >= auth_y and self.mouse_y < auth_y + cell
+    local auth_color = is_authed and (style.accent or style.text)
+                    or (hovered and style.text or style.dim)
     
-    if is_active then
-      renderer.draw_rect(x, y, 2 * SCALE, 48 * SCALE, style.accent)
+    -- Subtle separator line above auth button
+    renderer.draw_rect(x + 8 * SCALE, auth_y, self.size.x - 16 * SCALE, math.max(1, SCALE), { 255, 255, 255, 30 })
+    
+    if hovered then
+      renderer.draw_rect(x, auth_y, self.size.x, cell, { 255, 255, 255, 15 })
     end
     
+    local icon = auth.icon
+    local icon_w = style.icon_font:get_width(icon)
+    local icon_h = style.icon_font:get_height()
     local hx = x + (self.size.x - icon_w) / 2
-    local hy = y + (48 * SCALE - icon_h) / 2
-    
-    renderer.draw_text(style.icon_font, item.icon, hx, hy, color)
-    y = y + 48 * SCALE
+    local hy = auth_y + (cell - icon_h) / 2
+    renderer.draw_text(style.icon_font, icon, hx, hy, auth_color)
   end
 end
 
@@ -79,7 +134,18 @@ end
 
 function ActivityBar:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
-    local idx = math.floor((y - self.position.y) / (48 * SCALE)) + 1
+    local cell = 48 * SCALE
+    local rel_y = y - self.position.y
+    local auth_y_start = self.size.y - cell
+    
+    -- Check if click is in the bottom auth button zone
+    if rel_y >= auth_y_start and rel_y < self.size.y then
+      command.perform(self.auth_item.command)
+      return true
+    end
+    
+    -- Check regular items
+    local idx = math.floor(rel_y / cell) + 1
     if self.items[idx] then
       local item = self.items[idx]
       local current_node = _G.get_sidebar_node and _G.get_sidebar_node(true)

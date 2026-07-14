@@ -2329,7 +2329,10 @@ end
 -- ── Commands ──────────────────────────────────────────────────────────────────
 command.add(nil, {
   ["antigravity:toggle"] = function()
-    if not instance then instance = AGView() end
+    if not instance then
+      instance = AGView()
+      rawset(_G, "_ag_instance", instance) -- expose for activity_bar auth display
+    end
     
     local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true) -- dont_create=true
     local node = core.root_view.root_node:get_node_for_view(instance)
@@ -2453,52 +2456,8 @@ command.add(nil, {
   end,
 })
 
--- ── Status Bar Item ───────────────────────────────────────────────────────────
-local StatusView = require "core.statusview"
-
-core.status_view:add_item({
-  name = "antigravity:auth",
-  alignment = StatusView.Item.RIGHT,
-  get_item = function()
-    local text = "AGY Auth"
-    if instance then
-      if instance.auth_status == "logged_in" then
-        -- Try to read the actual Google account email from agy's state file
-        local account_name = nil
-        local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
-        local sep = PLATFORM == "Windows" and "\\" or "/"
-        local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
-        local f = io.open(state_path, "r")
-        if f then
-          local content = f:read("*a")
-          f:close()
-          account_name = content:match('email:%s*"([^"]+)"')
-                      or content:match("email:%s*'([^']+)'")
-                      or content:match("account_email:%s*([^%s]+)")
-          if account_name then
-            account_name = account_name:match("^([^@]+)") or account_name
-          end
-        end
-        -- Linux uses $USER, Windows uses $USERNAME
-        local sys_user = os.getenv("USER") or os.getenv("USERNAME") or "AGY"
-        text = account_name or (sys_user .. " (agy)")
-      elseif instance.auth_status == "auth_error" then
-        text = "Retry Auth[click here again]"
-      end
-    end
-    return {
-      style.text,
-      style.icon_font,
-      "\u{f084} ",
-      style.font,
-      text
-    }
-  end,
-  command = "antigravity:toggle",
-  tooltip = "Toggle Antigravity AI"
-})
-
 -- Hook the StatusView draw function to guarantee the entire status bar text is highly contrasted
+local StatusView = require "core.statusview"
 local old_sv_draw = StatusView.draw
 function StatusView:draw(...)
   local old_text = style.text
