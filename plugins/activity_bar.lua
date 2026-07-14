@@ -72,8 +72,12 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
     local idx = math.floor((y - self.position.y) / (48 * SCALE)) + 1
     if self.items[idx] then
       local item = self.items[idx]
-      if self.active_id == item.id then
-        command.perform("treeview:toggle")
+      local current_node = _G.get_sidebar_node and _G.get_sidebar_node(true)
+      
+      if self.active_id == item.id and current_node and #current_node.views > 0 then
+        for i = #current_node.views, 1, -1 do
+          current_node:close_view(core.root_view.root_node, current_node.views[i])
+        end
       else
         self.active_id = item.id
         if item.command == "treeview:toggle" then
@@ -103,7 +107,7 @@ local function is_node_in_tree(root, target)
   return false
 end
 
-rawset(_G, "get_sidebar_node", function()
+rawset(_G, "get_sidebar_node", function(dont_create)
   if not activity_bar then return nil end
   local ab_node = core.root_view.root_node:get_node_for_view(activity_bar)
   if not ab_node then return nil end
@@ -111,6 +115,8 @@ rawset(_G, "get_sidebar_node", function()
   if sidebar_node and is_node_in_tree(core.root_view.root_node, sidebar_node) then
     return sidebar_node
   end
+  
+  if dont_create then return nil end
   
   -- If destroyed (e.g. user closed all sidebar views), recreate it
   sidebar_node = ab_node:split("right")
@@ -150,32 +156,21 @@ local function init_activity_bar()
     sidebar_node = nil
   end
     
-    -- Override Ctrl+B to toggle both Activity Bar and Sidebar Node
+    -- Override Ctrl+B to toggle only the Sidebar Node
     command.add(nil, {
       ["treeview:toggle"] = function()
-        activity_bar.visible = not activity_bar.visible
-        if activity_bar.visible then
-          for _, item in ipairs(activity_bar.items) do
-            if item.id == activity_bar.active_id then
-              if item.command == "treeview:toggle" then
-                local tv = require "plugins.treeview"
-                local node = _G.get_sidebar_node()
-                if tv and tv.view and node then
-                  if not node:get_view_idx(tv.view) then node:add_view(tv.view) end
-                  node:set_active_view(tv.view)
-                end
-              else
-                command.perform(item.command)
-              end
-              break
-            end
+        local current_node = _G.get_sidebar_node(true)
+        if current_node and #current_node.views > 0 then
+          for i = #current_node.views, 1, -1 do
+            current_node:close_view(core.root_view.root_node, current_node.views[i])
           end
         else
+          activity_bar.active_id = "treeview"
+          local tv = require "plugins.treeview"
           local node = _G.get_sidebar_node()
-          if node then
-            for i = #node.views, 1, -1 do
-              node:close_view(core.root_view.root_node, node.views[i])
-            end
+          if tv and tv.view and node then
+            if not node:get_view_idx(tv.view) then node:add_view(tv.view) end
+            node:set_active_view(tv.view)
           end
         end
       end,
