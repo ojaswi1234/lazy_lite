@@ -100,13 +100,18 @@ local function get_far_right_node(node)
   if not node then return nil end
   if node.type == "leaf" then return node end
   
-  -- For horizontal splits, the rightmost child is 'b'.
-  -- For vertical splits (like the terminal at the bottom), both 'a' (top) and 'b' (bottom) touch the right edge.
-  -- We want to stay in the main editor pane (the top one), so we pick 'a' for vsplits.
   if node.type == "hsplit" then
+    -- For horizontal splits, the rightmost child is 'b'.
     return get_far_right_node(node.b)
   else
-    return get_far_right_node(node.a)
+    -- For vertical splits (top/bottom), we must follow the branch that contains the primary editor.
+    -- This prevents the Activity Bar from shrinking into top Resource Monitors or bottom Terminals.
+    local primary = core.root_view:get_primary_node()
+    if is_node_in_tree(node.a, primary) then
+      return get_far_right_node(node.a)
+    else
+      return get_far_right_node(node.b)
+    end
   end
 end
 
