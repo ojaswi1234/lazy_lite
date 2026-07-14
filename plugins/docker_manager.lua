@@ -60,6 +60,7 @@ function DockerView:new()
     { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
     { id = "images", name = "Images", expanded = false, data = {}, loading = false },
     { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
+    { id = "k3s", name = "K3s Pods", expanded = false, data = {}, loading = false },
   }
   
   self.hovered_item = nil
@@ -75,6 +76,7 @@ function DockerView:refresh_all()
   self:refresh_containers()
   self:refresh_images()
   self:refresh_k8s()
+  self:refresh_k3s()
 end
 
 function DockerView:refresh_containers()
@@ -119,10 +121,9 @@ function DockerView:refresh_k8s()
   local sec = self.sections[3]
   sec.loading = true
   core.redraw = true
-  
-  local function process_out(out, err)
+  async_exec('kubectl get pods -A --no-headers', function(out, err, rc)
     sec.data = {}
-    if out and not out:match("not found") and not out:match("error") then
+    if out and rc == 0 and not out:match("not found") and not out:match("error") then
       for line in out:gmatch("[^\r\n]+") do
         local ns, name, ready, status, restarts, age = line:match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
         if name then
@@ -132,16 +133,25 @@ function DockerView:refresh_k8s()
     end
     sec.loading = false
     core.redraw = true
-  end
+  end)
+end
 
-  async_exec('kubectl get pods -A --no-headers', function(out, err, rc)
-    if rc ~= 0 and (err:match("not recognized") or err:match("not found") or out:match("not recognized") or out:match("not found")) then
-      self.k8s_cmd = "k3s kubectl"
-      async_exec('k3s kubectl get pods -A --no-headers', process_out)
-    else
-      self.k8s_cmd = "kubectl"
-      process_out(out, err)
+function DockerView:refresh_k3s()
+  local sec = self.sections[4]
+  sec.loading = true
+  core.redraw = true
+  async_exec('k3s kubectl get pods -A --no-headers', function(out, err, rc)
+    sec.data = {}
+    if out and rc == 0 and not out:match("not found") and not out:match("error") then
+      for line in out:gmatch("[^\r\n]+") do
+        local ns, name, ready, status, restarts, age = line:match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
+        if name then
+          table.insert(sec.data, { ns = ns, name = name, status = status })
+        end
+      end
     end
+    sec.loading = false
+    core.redraw = true
   end)
 end
 
@@ -247,20 +257,21 @@ function DockerView:draw()
             draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker rmi -f " .. item.id, function() self:refresh_images() end) end)
           end
           
-        elseif sec.id == "k8s" then
+        elseif sec.id == "k8s" or sec.id == "k3s" then
           local is_running = item.status == "Running"
           renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and DOCKER_COLORS.up or DOCKER_COLORS.exited)
           renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
           
           if item_hovered then
             local bx = x + w - 80 * SCALE
+            local cmd_prefix = sec.id == "k3s" and "k3s kubectl" or "kubectl"
             -- Logs
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
                 local cmd_parts = {}
-                for w in (self.k8s_cmd or "kubectl"):gmatch("%S+") do table.insert(cmd_parts, w) end
+                for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
                 table.insert(cmd_parts, "logs")
                 table.insert(cmd_parts, "-f")
                 table.insert(cmd_parts, item.name)
@@ -270,7 +281,11 @@ function DockerView:draw()
               end)
             end)
             -- Trash
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec((self.k8s_cmd or "kubectl") .. " delete pod " .. item.name .. " -n " .. item.ns, function() self:refresh_k8s() end) end)
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() 
+              async_exec(cmd_prefix .. " delete pod " .. item.name .. " -n " .. item.ns, function() 
+                if sec.id == "k3s" then self:refresh_k3s() else self:refresh_k8s() end 
+              end) 
+            end)
           end
         end
         
