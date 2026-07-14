@@ -132,16 +132,11 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   
   -- Dynamically search for any existing custom sidebar in the tree
   local found_sidebar = nil
-  for _, node in ipairs(core.root_view.root_node:get_children()) do
-    if node and node.views then
-      for _, view in ipairs(node.views) do
-        if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
-          found_sidebar = node
-          break
-        end
-      end
+  for _, view in ipairs(core.root_view.root_node:get_children()) do
+    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+      found_sidebar = core.root_view.root_node:get_node_for_view(view)
+      break
     end
-    if found_sidebar then break end
   end
   
   if found_sidebar then
@@ -165,16 +160,11 @@ local function init_activity_bar()
   local target_node = nil
   
   -- Find any existing custom sidebar if it is already open
-  for _, node in ipairs(core.root_view.root_node:get_children()) do
-    if node and node.views then
-      for _, view in ipairs(node.views) do
-        if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
-          target_node = node
-          break
-        end
-      end
+  for _, view in ipairs(core.root_view.root_node:get_children()) do
+    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+      target_node = core.root_view.root_node:get_node_for_view(view)
+      break
     end
-    if target_node then break end
   end
   
   -- If no sidebar exists, safely attach directly to the primary editor node

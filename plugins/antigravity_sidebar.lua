@@ -2348,7 +2348,7 @@ command.add(nil, {
       local new_node = sidebar
       
       if not sidebar then
-        new_node = target:split("right", nil, { x = true }, true)
+        new_node = target:split("right", instance, { x = true }, true)
       end
       
       if new_node then
