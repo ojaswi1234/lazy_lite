@@ -112,8 +112,22 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   local ab_node = core.root_view.root_node:get_node_for_view(activity_bar)
   if not ab_node then return nil end
   
+  local function apply_monkey_patch(node)
+    if not node._ab_patched then
+      local old_add_view = node.add_view
+      node.add_view = function(self, view)
+        local l = self.locked
+        self.locked = nil
+        old_add_view(self, view)
+        self.locked = l
+      end
+      node._ab_patched = true
+    end
+    return node
+  end
+  
   if sidebar_node and is_node_in_tree(core.root_view.root_node, sidebar_node) then
-    return sidebar_node
+    return apply_monkey_patch(sidebar_node)
   end
   
   -- Dynamically search for any existing custom sidebar in the tree
@@ -133,7 +147,7 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   if found_sidebar then
     sidebar_node = found_sidebar
     sidebar_node.should_show_tabs = function() return false end
-    return sidebar_node
+    return apply_monkey_patch(sidebar_node)
   end
   
   if dont_create then return nil end
@@ -144,18 +158,7 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   sidebar_node = core.root_view:get_primary_node():split("right", nil, {x = true}, true)
   sidebar_node.should_show_tabs = function() return false end
   
-  -- Lite XL's core/node.lua explicitly blocks adding views to locked nodes via assert(not self.locked).
-  -- We monkey-patch add_view here to temporarily unlock it, allowing plugins to add themselves 
-  -- without crashing, while still preserving our awesome auto-resizing locked layout.
-  local old_add_view = sidebar_node.add_view
-  sidebar_node.add_view = function(self, view)
-    local l = self.locked
-    self.locked = nil
-    old_add_view(self, view)
-    self.locked = l
-  end
-  
-  return sidebar_node
+  return apply_monkey_patch(sidebar_node)
 end)
 
 local function init_activity_bar()
