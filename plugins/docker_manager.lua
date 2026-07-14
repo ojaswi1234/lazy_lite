@@ -1,0 +1,311 @@
+-- mod-version:3
+-- Unified Docker, Compose, and Kubernetes Manager for Lite XL
+local core    = require "core"
+local command = require "core.command"
+local style   = require "core.style"
+local View    = require "core.view"
+local process = require "process"
+local system  = require "system"
+
+local DOCKER_COLORS = {
+  up = {100, 255, 100, 255},
+  exited = {255, 100, 100, 255},
+  header = style.accent,
+}
+
+local function split(str, sep)
+  local res = {}
+  for w in str:gmatch("([^" .. sep .. "]+)") do
+    table.insert(res, w)
+  end
+  return res
+end
+
+local function async_exec(cmd_str, on_result)
+  core.add_thread(function()
+    local p
+    if PLATFORM == "Windows" then
+      p = process.start({"cmd.exe", "/c", cmd_str})
+    else
+      p = process.start({"bash", "-c", cmd_str})
+    end
+    if not p then 
+      if on_result then on_result(nil, "Failed to start process") end
+      return 
+    end
+    local out, err = "", ""
+    while p:running() do
+      out = out .. (p:read_stdout() or "")
+      err = err .. (p:read_stderr() or "")
+      coroutine.yield(0.1)
+    end
+    out = out .. (p:read_stdout() or "")
+    err = err .. (p:read_stderr() or "")
+    if on_result then on_result(out, err) end
+  end)
+end
+
+local DockerView = View:extend()
+
+function DockerView:new()
+  DockerView.super.new(self)
+  self.scrollable = true
+  self.focusable = true
+  self.name = "Docker Manager"
+  self.target_size = 350 * SCALE
+  self.visible = false
+  
+  self.sections = {
+    { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
+    { id = "images", name = "Images", expanded = false, data = {}, loading = false },
+    { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
+  }
+  
+  self.hovered_item = nil
+  self.hovered_btn = nil
+  self.buttons = {} -- stores click rects for the current frame
+  
+  self:refresh_all()
+end
+
+function DockerView:get_name() return self.name end
+
+function DockerView:refresh_all()
+  self:refresh_containers()
+  self:refresh_images()
+  self:refresh_k8s()
+end
+
+function DockerView:refresh_containers()
+  local sec = self.sections[1]
+  sec.loading = true
+  core.redraw = true
+  async_exec('docker ps -a --format "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}"', function(out, err)
+    sec.data = {}
+    if out then
+      for line in out:gmatch("[^\r\n]+") do
+        local parts = split(line, "\t")
+        if #parts >= 4 then
+          table.insert(sec.data, { id = parts[1], name = parts[2], status = parts[3], image = parts[4] })
+        end
+      end
+    end
+    sec.loading = false
+    core.redraw = true
+  end)
+end
+
+function DockerView:refresh_images()
+  local sec = self.sections[2]
+  sec.loading = true
+  core.redraw = true
+  async_exec('docker images --format "{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}"', function(out, err)
+    sec.data = {}
+    if out then
+      for line in out:gmatch("[^\r\n]+") do
+        local parts = split(line, "\t")
+        if #parts >= 4 then
+          table.insert(sec.data, { id = parts[1], repo = parts[2], tag = parts[3], size = parts[4] })
+        end
+      end
+    end
+    sec.loading = false
+    core.redraw = true
+  end)
+end
+
+function DockerView:refresh_k8s()
+  local sec = self.sections[3]
+  sec.loading = true
+  core.redraw = true
+  async_exec('kubectl get pods -A --no-headers', function(out, err)
+    sec.data = {}
+    if out and not out:match("not found") and not out:match("error") then
+      for line in out:gmatch("[^\r\n]+") do
+        local ns, name, ready, status, restarts, age = line:match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
+        if name then
+          table.insert(sec.data, { ns = ns, name = name, status = status })
+        end
+      end
+    end
+    sec.loading = false
+    core.redraw = true
+  end)
+end
+
+function DockerView:update()
+  DockerView.super.update(self)
+  local dest = self.visible and self.target_size or 0
+  self:move_towards(self.size, "x", dest, nil, "docker_view")
+end
+
+local function draw_icon_btn(self, icon, bx, by, color, action_fn, tooltip)
+  local bw = style.icon_font:get_width(icon) + 10 * SCALE
+  local bh = style.icon_font:get_height()
+  table.insert(self.buttons, { x = bx, y = by, w = bw, h = bh, action = action_fn })
+  
+  local hovered = false
+  if self.mouse_x and self.mouse_y then
+    if self.mouse_x >= bx and self.mouse_x <= bx + bw and self.mouse_y >= by and self.mouse_y <= by + bh then
+      hovered = true
+      self.hovered_btn = true
+    end
+  end
+  
+  local c = hovered and style.text or color
+  renderer.draw_text(style.icon_font, icon, bx + 5 * SCALE, by, c)
+  return bx + bw
+end
+
+function DockerView:draw()
+  self:draw_background(style.background2)
+  local x, y = self.position.x, self.position.y - self.scroll.y
+  local w, h = self.size.x, self.size.y
+  
+  self.buttons = {}
+  self.hovered_btn = false
+  
+  -- Header
+  renderer.draw_text(style.font, "Docker Manager", x + 10 * SCALE, y + 10 * SCALE, style.accent)
+  local h_refresh = y + 10 * SCALE
+  draw_icon_btn(self, "\u{f021}", x + w - 30 * SCALE, h_refresh, style.text, function() self:refresh_all() end, "Refresh All")
+  
+  y = y + 40 * SCALE
+  
+  for _, sec in ipairs(self.sections) do
+    -- Section Header
+    local chevron = sec.expanded and "\u{f078}" or "\u{f054}"
+    local sec_hovered = (self.mouse_y and self.mouse_y >= y and self.mouse_y < y + 25 * SCALE)
+    if sec_hovered then renderer.draw_rect(x, y, w, 25 * SCALE, style.line_highlight) end
+    
+    renderer.draw_text(style.icon_font, chevron, x + 10 * SCALE, y + 5 * SCALE, style.text)
+    renderer.draw_text(style.font, sec.name, x + 30 * SCALE, y + 5 * SCALE, style.text)
+    
+    if sec.loading then
+      renderer.draw_text(style.font, "...", x + w - 30 * SCALE, y + 5 * SCALE, style.dim)
+    else
+      renderer.draw_text(style.font, tostring(#sec.data), x + w - 30 * SCALE, y + 5 * SCALE, style.dim)
+    end
+    
+    table.insert(self.buttons, { x = x, y = y, w = w, h = 25 * SCALE, action = function() sec.expanded = not sec.expanded; core.redraw = true end })
+    y = y + 25 * SCALE
+    
+    -- Items
+    if sec.expanded then
+      if #sec.data == 0 and not sec.loading then
+        renderer.draw_text(style.font, "No items found", x + 30 * SCALE, y + 5 * SCALE, style.dim)
+        y = y + 25 * SCALE
+      end
+      
+      for _, item in ipairs(sec.data) do
+        local item_hovered = (self.mouse_y and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
+        if item_hovered then renderer.draw_rect(x, y, w, 30 * SCALE, style.line_highlight) end
+        
+        if sec.id == "containers" then
+          local c_col = item.status:match("Up") and DOCKER_COLORS.up or DOCKER_COLORS.exited
+          renderer.draw_text(style.icon_font, "\u{f38b}", x + 20 * SCALE, y + 5 * SCALE, c_col)
+          renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
+          
+          if item_hovered then
+            local bx = x + w - 110 * SCALE
+            -- Exec terminal
+            bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
+              command.perform("terminal:toggle")
+              core.add_thread(function()
+                while not core.active_view.add_session do coroutine.yield(0.1) end
+                core.active_view:add_session({ name = item.name, cmd = {"docker", "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
+              end)
+            end)
+            -- Stop/Start
+            if item.status:match("Up") then
+              bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker stop " .. item.id, function() self:refresh_containers() end) end)
+            else
+              bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker start " .. item.id, function() self:refresh_containers() end) end)
+            end
+            -- Trash
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker rm -f " .. item.id, function() self:refresh_containers() end) end)
+          end
+          
+        elseif sec.id == "images" then
+          renderer.draw_text(style.icon_font, "\u{f490}", x + 20 * SCALE, y + 5 * SCALE, style.dim)
+          renderer.draw_text(style.font, item.repo .. ":" .. item.tag, x + 40 * SCALE, y + 5 * SCALE, style.text)
+          
+          if item_hovered then
+            local bx = x + w - 30 * SCALE
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker rmi -f " .. item.id, function() self:refresh_images() end) end)
+          end
+          
+        elseif sec.id == "k8s" then
+          local is_running = item.status == "Running"
+          renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and DOCKER_COLORS.up or DOCKER_COLORS.exited)
+          renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
+          
+          if item_hovered then
+            local bx = x + w - 80 * SCALE
+            -- Logs
+            bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
+              command.perform("terminal:toggle")
+              core.add_thread(function()
+                while not core.active_view.add_session do coroutine.yield(0.1) end
+                core.active_view:add_session({ name = item.name, cmd = {"kubectl", "logs", "-f", item.name, "-n", item.ns}, prompt_prefix = "" })
+              end)
+            end)
+            -- Trash
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("kubectl delete pod " .. item.name .. " -n " .. item.ns, function() self:refresh_k8s() end) end)
+          end
+        end
+        
+        y = y + 30 * SCALE
+      end
+    end
+  end
+end
+
+function DockerView:on_mouse_moved(x, y, dx, dy)
+  self.mouse_x = x
+  self.mouse_y = y
+  core.redraw = true
+  if self.hovered_btn then
+    system.set_cursor("hand")
+  else
+    system.set_cursor("arrow")
+  end
+end
+
+function DockerView:on_mouse_left()
+  self.mouse_x = nil
+  self.mouse_y = nil
+  system.set_cursor("arrow")
+  core.redraw = true
+end
+
+function DockerView:on_mouse_pressed(button, x, y, clicks)
+  if button == "left" then
+    for i = #self.buttons, 1, -1 do
+      local r = self.buttons[i]
+      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+        r.action()
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local docker_view = nil
+
+command.add(nil, {
+  ["docker:toggle"] = function()
+    if docker_view and core.root_view.root_node:get_node_for_view(docker_view) then
+      local node = core.root_view.root_node:get_node_for_view(docker_view)
+      node:close_view(core.root_view.root_node, docker_view)
+      docker_view = nil
+    else
+      docker_view = DockerView()
+      local node = core.root_view:get_active_node_default()
+      local right_node = node:split("right")
+      right_node:add_view(docker_view)
+      docker_view.visible = true
+    end
+  end
+})
