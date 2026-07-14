@@ -106,14 +106,6 @@ local function is_node_in_tree(root, target)
   return is_node_in_tree(root.a, target) or is_node_in_tree(root.b, target)
 end
 
-local function get_far_left_node(node)
-  if not node then return nil end
-  if node.type == "leaf" then return node end
-  -- 'a' is the left child in an hsplit, and the top child in a vsplit.
-  -- In either case, 'a' represents the leftmost edge.
-  return get_far_left_node(node.a)
-end
-
 rawset(_G, "get_sidebar_node", function(dont_create)
   if not activity_bar then return nil end
   local ab_node = core.root_view.root_node:get_node_for_view(activity_bar)
@@ -132,21 +124,38 @@ rawset(_G, "get_sidebar_node", function(dont_create)
 end)
 
 local function init_activity_bar()
-  -- Always find the absolute far-left leaf node on the screen
-  local far_left_node = get_far_left_node(core.root_view.root_node)
-  if not far_left_node then return end
+  local target_node = nil
+  
+  -- Find the TreeView node or any existing sidebar if it is already open
+  for _, node in ipairs(core.root_view.root_node:get_children()) do
+    if node and node.views then
+      for _, view in ipairs(node.views) do
+        if view and (view.name == "Tree" or view.class_name == "TreeView" or view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+          target_node = node
+          break
+        end
+      end
+    end
+    if target_node then break end
+  end
+  
+  -- If no sidebar exists, attach to the primary editor node
+  if not target_node then
+    target_node = core.root_view:get_primary_node()
+  end
+  if not target_node then return end
   
   -- Create the Activity Bar
   activity_bar = ActivityBar()
   
-  -- Split the far left node to place Activity Bar on the absolute edge
-  local ab_node = far_left_node:split("left", activity_bar, {x = true}, false)
+  -- Split the target node to place Activity Bar on its left edge
+  local ab_node = target_node:split("left", activity_bar, {x = true}, false)
   
-  -- Because far_left_node was split, it was converted into an hsplit.
-  -- The original contents (like TreeView) are now in far_left_node.b
-  local sibling_node = far_left_node.b
+  -- Because target_node was split, it was converted into an hsplit.
+  -- The original contents (TreeView or Editor) are now in target_node.b
+  local sibling_node = target_node.b
   
-  -- Check if the sibling node is the TreeView or another sidebar panel
+  -- Check if the sibling node is actually a sidebar panel (and not the editor)
   local is_sidebar = false
   if sibling_node and sibling_node.views then
     for _, view in ipairs(sibling_node.views) do
