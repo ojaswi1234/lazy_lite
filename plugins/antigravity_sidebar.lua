@@ -2476,8 +2476,8 @@ core.status_view:add_item({
       text
     }
   end,
-  command = "antigravity:auth",
-  tooltip = "Sign in to Antigravity / Manage Auth"
+  command = "antigravity:toggle",
+  tooltip = "Toggle Antigravity AI"
 })
 
 -- Hook the StatusView draw function to guarantee the entire status bar text is highly contrasted
