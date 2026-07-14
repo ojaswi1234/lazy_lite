@@ -142,6 +142,7 @@ local LeetCodeView = View:extend()
 function LeetCodeView:new()
   LeetCodeView.super.new(self)
   self.scrollable = true
+  self.target_size   = 800 * SCALE
   self.state         = "auth"
   self.cookie_input  = ""
   self.auth_status   = ""
@@ -238,10 +239,20 @@ end
 
 function LeetCodeView:update()
   LeetCodeView.super.update(self)
+  
+  self.target_size = self.target_size or (800 * SCALE)
+  self:move_towards(self.size, "x", self.target_size)
+  
   if self._search_timer and system.get_time() >= self._search_timer then
     self._search_timer = nil
     self.page_skip     = 0
     command.perform("leetcode:fetch-list")
+  end
+end
+
+function LeetCodeView:set_target_size(axis, value)
+  if axis == "x" then
+    self.target_size = math.max(400 * SCALE, value)
   end
 end
 
