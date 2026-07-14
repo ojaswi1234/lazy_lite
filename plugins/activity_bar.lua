@@ -21,15 +21,27 @@ function ActivityBar:new()
   }
   self.active_id = "antigravity"
   self.target_size = 48 * SCALE
-  self.visible = true
+  self.visible = false -- Start hidden; will be pulled open by the AI Sidebar
 end
 
 function ActivityBar:get_name() return self.name end
 
 function ActivityBar:update()
   ActivityBar.super.update(self)
+  
+  -- Dynamically check if the AI sidebar is active and has views
+  local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
+  local has_views = sidebar and sidebar.views and #sidebar.views > 0
+  
+  -- If sidebar is closed/empty, hide the Activity Bar so it "slides along with it"
+  if has_views and not self.visible then
+    self.visible = true
+  elseif not has_views and self.visible then
+    self.visible = false
+  end
+  
   local dest = self.visible and self.target_size or 0
-  self:move_towards(self.size, "x", dest, nil, "activity_bar")
+  self:move_towards(self.size, "x", dest)
 end
 
 function ActivityBar:draw()
@@ -96,25 +108,6 @@ local function is_node_in_tree(root, target)
   return is_node_in_tree(root.a, target) or is_node_in_tree(root.b, target)
 end
 
-local function get_far_right_node(node)
-  if not node then return nil end
-  if node.type == "leaf" then return node end
-  
-  if node.type == "hsplit" then
-    -- For horizontal splits, the rightmost child is 'b'.
-    return get_far_right_node(node.b)
-  else
-    -- For vertical splits (top/bottom), we must follow the branch that contains the primary editor.
-    -- This prevents the Activity Bar from shrinking into top Resource Monitors or bottom Terminals.
-    local primary = core.root_view:get_primary_node()
-    if is_node_in_tree(node.a, primary) then
-      return get_far_right_node(node.a)
-    else
-      return get_far_right_node(node.b)
-    end
-  end
-end
-
 rawset(_G, "get_sidebar_node", function(dont_create)
   if not activity_bar then return nil end
   local ab_node = core.root_view.root_node:get_node_for_view(activity_bar)
@@ -168,9 +161,10 @@ local function init_activity_bar()
     if target_node then break end
   end
   
-  -- If no sidebar exists, find the absolute far-right leaf node on the screen
+  -- If no sidebar exists, safely attach directly to the primary editor node
+  -- This prevents the Activity Bar from getting trapped in top/bottom/side Resource Monitors!
   if not target_node then
-    target_node = get_far_right_node(core.root_view.root_node)
+    target_node = core.root_view:get_primary_node()
   end
   if not target_node then return end
   
