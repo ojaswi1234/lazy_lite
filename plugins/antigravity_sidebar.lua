@@ -645,6 +645,7 @@ function AGView:new()
   self.active_idx = 0
   self.hover_btn = nil
   self.hover_send = false
+  self.hover_attach = false
   self.tick = 0
   self:_add_chat()
   -- Model picker state
@@ -1586,23 +1587,38 @@ function AGView:draw()
     inp_y + input_h - style.font:get_height() - 5 * SCALE,
     P.fg_muted)
 
-  -- Send/Stop button
+  -- Send/Stop button and Attachment button
   local send_y = inp_y + input_h + 4 * SCALE
+  local attach_w = 34 * SCALE
+  local send_w = inp_w - attach_w - 4 * SCALE
   local is_running = self:state().process ~= nil
+  
+  -- Draw attachment button
+  local attach_bg = self.hover_attach and P.bg_send_hl or P.bg_send
+  renderer.draw_rect(inp_x, send_y, attach_w, send_h, attach_bg)
+  local attach_icon = "\u{f0c6}" -- paperclip icon
+  renderer.draw_text(style.icon_font, attach_icon,
+    inp_x + math.floor((attach_w - style.icon_font:get_width(attach_icon)) / 2),
+    send_y + math.floor((send_h - style.icon_font:get_height()) / 2),
+    P.fg_send)
+  self._attach_rect = { x = inp_x, y = send_y, w = attach_w, h = send_h }
+  
+  -- Draw Send button
+  local send_x = inp_x + attach_w + 4 * SCALE
   local send_bg = is_running and { common.color "#D94C4C" } or P.bg_send
   if self.hover_send then
     send_bg = is_running and { common.color "#F26363" } or P.bg_send_hl
   end
-  renderer.draw_rect(inp_x, send_y, inp_w, send_h, send_bg)
+  renderer.draw_rect(send_x, send_y, send_w, send_h, send_bg)
 
   local send_lbl = is_running and "      [x] STOP GENERATING      " or "  Send"
   renderer.draw_text(style.font, send_lbl,
-    inp_x + math.floor((inp_w - style.font:get_width(send_lbl)) / 2),
+    send_x + math.floor((send_w - style.font:get_width(send_lbl)) / 2),
     send_y + math.floor((send_h - style.font:get_height()) / 2),
     P.fg_send)
 
   -- Store send button bounds for click detection
-  self._send_rect = { x = inp_x, y = send_y, w = inp_w, h = send_h }
+  self._send_rect = { x = send_x, y = send_y, w = send_w, h = send_h }
 
   -- ═══════════════════════════════════════════════════════════════════
   -- CHAT HISTORY (scrollable, between quick-actions and input)
@@ -2103,6 +2119,7 @@ function AGView:on_mouse_moved(mx, my, ...)
   AGView.super.on_mouse_moved(self, mx, my, ...)
   self.hover_btn  = nil
   self.hover_send = false
+  self.hover_attach = false
 
   local x     = self.position.x
   local w     = self.size.x
@@ -2124,6 +2141,11 @@ function AGView:on_mouse_moved(mx, my, ...)
   if self._send_rect then
     local r = self._send_rect
     self.hover_send = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+  self.hover_attach = false
+  if self._attach_rect then
+    local r = self._attach_rect
+    self.hover_attach = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
   end
 
   self.hover_copy_idx = nil
@@ -2296,6 +2318,12 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     end
   end
 
+  -- Attachment button
+  if self.hover_attach then
+    self:open_artifacts_popup()
+    return true
+  end
+
   -- Send/Stop button
   if self.hover_send then
     if self:state().process then
@@ -2324,6 +2352,50 @@ function AGView:on_mouse_wheel(dy)
   self:state().scroll_y = math.max(0, math.min(self:state().max_scroll, self:state().scroll_y - dy * (style.font:get_height() + 2 * SCALE) * 3))
   core.redraw = true
   return true
+end
+
+function AGView:open_artifacts_popup()
+  local cid = self:state().cid
+  if not cid then
+    core.error("No active conversation to find artifacts.")
+    return
+  end
+  
+  local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
+  local artifacts_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. cid
+  
+  local files = system.list_dir(artifacts_path)
+  if not files or #files == 0 then
+    core.log("No artifacts found for this conversation.")
+    return
+  end
+  
+  local items = {}
+  for _, f in ipairs(files) do
+    if not f:match("^%.") then -- skip hidden
+      local path = artifacts_path .. "/" .. f
+      local info = system.get_file_info(path)
+      if info and info.type == "file" then
+        table.insert(items, { text = f, path = path })
+      end
+    end
+  end
+  
+  if #items == 0 then
+    core.log("No artifact files found.")
+    return
+  end
+  
+  core.command_view:enter("Open Artifact", {
+    submit = function(text, item)
+      if item and item.path then
+        core.root_view:open_doc(core.open_doc(item.path))
+      end
+    end,
+    suggest = function(text)
+      return common.fuzzy_match(items, text)
+    end
+  })
 end
 
 -- ── Commands ──────────────────────────────────────────────────────────────────
