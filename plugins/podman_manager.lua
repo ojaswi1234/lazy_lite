@@ -141,6 +141,12 @@ function PodmanView:refresh_images()
   sec.loading = true
   core.redraw = true
   async_exec('podman images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"', function(out, err)
+    local f = io.open("C:/Users/ojasw/podman_debug.log", "a")
+    if f then
+      f:write("Podman Images Out: " .. tostring(out) .. "\n")
+      f:write("Podman Images Err: " .. tostring(err) .. "\n")
+      f:close()
+    end
     core.log("Podman Images Out: " .. tostring(out))
     core.log("Podman Images Err: " .. tostring(err))
     sec.data = {}
