@@ -41,6 +41,8 @@ local function async_exec(cmd_str, on_result)
     end
     out = out .. (p:read_stdout() or "")
     err = err .. (p:read_stderr() or "")
+    out = out:gsub("%z", "")
+    err = err:gsub("%z", "")
     local rc = p:returncode()
     if on_result then on_result(out, err, rc) end
   end)
