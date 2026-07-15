@@ -2357,7 +2357,7 @@ end
 function AGView:open_artifacts_popup()
   local cid = self:state().cid
   if not cid then
-    core.error("No active conversation to find artifacts.")
+    core.log("No active conversation to find artifacts.")
     return
   end
   
