@@ -51,6 +51,13 @@ local function async_exec(cmd_args, on_result)
       local out = h and h:read("*a") or ""
       if h then h:close() end
       out = out:gsub("%z", "")
+      -- Debug: write cmd and output to file
+      local dbg = io.open("C:/Users/ojasw/popen_debug.log", "a")
+      if dbg then
+        dbg:write("CMD: " .. tostring(cmd_str) .. "\n")
+        dbg:write("OUT: " .. tostring(out) .. "\n---\n")
+        dbg:close()
+      end
       if on_result then on_result(out, "", 0) end
     else
       local args = type(cmd_args) == "table" and cmd_args or {"bash", "-c", cmd_args}
