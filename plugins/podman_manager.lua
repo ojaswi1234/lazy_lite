@@ -13,11 +13,67 @@ local PODMAN_COLORS = {
   header = style.accent,
 }
 
--- Full paths needed because Lite XL's process module does not inherit the system PATH on Windows.
--- Using Windows 8.3 short paths to avoid spaces that break CreateProcess command-line parsing.
-local PODMAN_EXE   = PLATFORM == "Windows" and "C:\\PROGRA~1\\RedHat\\Podman\\podman.exe" or "podman"
-local KUBECTL_EXE  = PLATFORM == "Windows" and "kubectl.exe" or "kubectl"
-local K3S_EXE      = PLATFORM == "Windows" and "k3s.exe"    or "k3s"
+-- Full exe paths. On Windows we embed them in quoted strings for io.popen / cmd.exe.
+local PODMAN_EXE   = PLATFORM == "Windows" and '"C:\\Program Files\\RedHat\\Podman\\podman.exe"' or "podman"
+local KUBECTL_EXE  = PLATFORM == "Windows" and "kubectl" or "kubectl"
+local K3S_EXE      = PLATFORM == "Windows" and "k3s"     or "k3s"
+
+-- Build a cmd.exe-safe command string from a table of args.
+-- The first element (exe) is already pre-quoted if needed via the PODMAN_EXE constant.
+-- Other args get quoted if they contain spaces.
+local function build_win_cmd(args)
+  local parts = {}
+  for i, v in ipairs(args) do
+    -- First element is already quoted via constants, rest get quoted if they have spaces
+    if i > 1 and v:find(" ") then
+      parts[#parts+1] = '"' .. v:gsub('"', '\\"') .. '"'
+    else
+      parts[#parts+1] = v
+    end
+  end
+  return table.concat(parts, " ")
+end
+
+-- async_exec: on Windows use io.popen (cmd.exe), on Unix use process.start.
+-- io.popen is used on Windows because process.start's CreateProcess has issues
+-- finding executables in paths with spaces on this setup.
+local function async_exec(cmd_args, on_result)
+  core.add_thread(function()
+    if PLATFORM == "Windows" then
+      local cmd_str
+      if type(cmd_args) == "table" then
+        cmd_str = build_win_cmd(cmd_args)
+      else
+        cmd_str = cmd_args
+      end
+      -- io.popen goes through cmd.exe which handles quoted paths and PATH lookup
+      local h = io.popen(cmd_str .. " 2>nul", "r")
+      local out = h and h:read("*a") or ""
+      if h then h:close() end
+      out = out:gsub("%z", "")
+      if on_result then on_result(out, "", 0) end
+    else
+      local args = type(cmd_args) == "table" and cmd_args or {"bash", "-c", cmd_args}
+      local p = process.start(args)
+      if not p then
+        if on_result then on_result(nil, "Failed to start process") end
+        return
+      end
+      local out, err = "", ""
+      while p:running() do
+        out = out .. (p:read_stdout() or "")
+        err = err .. (p:read_stderr() or "")
+        coroutine.yield(0.1)
+      end
+      out = out .. (p:read_stdout() or "")
+      err = err .. (p:read_stderr() or "")
+      local rc = p:returncode()
+      if on_result then on_result(out, err, rc) end
+    end
+  end)
+end
+
+local PodmanView = View:extend()
 
 local function split(str, sep)
   local res = {}
@@ -27,43 +83,6 @@ local function split(str, sep)
   return res
 end
 
--- async_exec accepts either a table of args (preferred, no shell) or a plain string.
-local function async_exec(cmd_args, on_result)
-  core.add_thread(function()
-    local args
-    if type(cmd_args) == "table" then
-      args = cmd_args
-    else
-      -- legacy string path: use shell only as fallback
-      if PLATFORM == "Windows" then
-        args = {"C:\\Windows\\System32\\cmd.exe", "/c", cmd_args}
-      else
-        args = {"bash", "-c", cmd_args}
-      end
-    end
-    -- Pass system PATH so executables can be found regardless of Lite XL env
-    local p = process.start(args)
-    if not p then
-      if on_result then on_result(nil, "Failed to start process") end
-      return
-    end
-    local out, err = "", ""
-    while p:running() do
-      out = out .. (p:read_stdout() or "")
-      err = err .. (p:read_stderr() or "")
-      coroutine.yield(0.1)
-    end
-    out = out .. (p:read_stdout() or "")
-    err = err .. (p:read_stderr() or "")
-    -- strip UTF-16 NUL bytes in case Windows returns UTF-16
-    out = out:gsub("%z", "")
-    err = err:gsub("%z", "")
-    local rc = p:returncode()
-    if on_result then on_result(out, err, rc) end
-  end)
-end
-
-local PodmanView = View:extend()
 
 function PodmanView:new()
   PodmanView.super.new(self)
