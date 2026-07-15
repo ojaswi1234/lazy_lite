@@ -13,11 +13,11 @@ local PODMAN_COLORS = {
   header = style.accent,
 }
 
--- Full paths needed because Lite XL's process module does not inherit the system PATH on Windows
-local PODMAN_EXE   = PLATFORM == "Windows" and "C:\\Program Files\\RedHat\\Podman\\podman.exe" or "podman"
+-- Full paths needed because Lite XL's process module does not inherit the system PATH on Windows.
+-- Using Windows 8.3 short paths to avoid spaces that break CreateProcess command-line parsing.
+local PODMAN_EXE   = PLATFORM == "Windows" and "C:\\PROGRA~1\\RedHat\\Podman\\podman.exe" or "podman"
 local KUBECTL_EXE  = PLATFORM == "Windows" and "kubectl.exe" or "kubectl"
 local K3S_EXE      = PLATFORM == "Windows" and "k3s.exe"    or "k3s"
-
 
 local function split(str, sep)
   local res = {}
@@ -42,8 +42,7 @@ local function async_exec(cmd_args, on_result)
       end
     end
     -- Pass system PATH so executables can be found regardless of Lite XL env
-    local env_path = os.getenv("PATH") or ""
-    local p = process.start(args, { env = { PATH = env_path } })
+    local p = process.start(args)
     if not p then
       if on_result then on_result(nil, "Failed to start process") end
       return
