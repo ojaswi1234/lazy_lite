@@ -36,7 +36,7 @@ local function async_exec(cmd_args, on_result)
     else
       -- legacy string path: use shell only as fallback
       if PLATFORM == "Windows" then
-        args = {"cmd.exe", "/c", cmd_args}
+        args = {"C:\\Windows\\System32\\cmd.exe", "/c", cmd_args}
       else
         args = {"bash", "-c", cmd_args}
       end
