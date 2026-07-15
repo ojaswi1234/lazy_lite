@@ -21,17 +21,24 @@ local function split(str, sep)
   return res
 end
 
-local function async_exec(cmd_str, on_result)
+-- async_exec accepts either a table of args (preferred, no shell) or a plain string.
+local function async_exec(cmd_args, on_result)
   core.add_thread(function()
-    local p
-    if PLATFORM == "Windows" then
-      p = process.start({"cmd.exe", "/c", cmd_str})
+    local args
+    if type(cmd_args) == "table" then
+      args = cmd_args
     else
-      p = process.start({"bash", "-c", cmd_str})
+      -- legacy string path: use shell only as fallback
+      if PLATFORM == "Windows" then
+        args = {"cmd.exe", "/c", cmd_args}
+      else
+        args = {"bash", "-c", cmd_args}
+      end
     end
-    if not p then 
+    local p = process.start(args)
+    if not p then
       if on_result then on_result(nil, "Failed to start process") end
-      return 
+      return
     end
     local out, err = "", ""
     while p:running() do
@@ -41,6 +48,7 @@ local function async_exec(cmd_str, on_result)
     end
     out = out .. (p:read_stdout() or "")
     err = err .. (p:read_stderr() or "")
+    -- strip UTF-16 NUL bytes in case Windows returns UTF-16
     out = out:gsub("%z", "")
     err = err:gsub("%z", "")
     local rc = p:returncode()
@@ -118,16 +126,14 @@ function PodmanView:refresh_containers()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec('podman ps -a --format "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"', function(out, err)
-    core.log("Podman PS Out: " .. tostring(out))
-    core.log("Podman PS Err: " .. tostring(err))
+  async_exec({"podman", "ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"}, function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
         local parts = split(line, "|")
         if #parts >= 4 then
           local ports = parts[5] or ""
-          table.insert(sec.data, { id = parts[1]:gsub('^"', ''), name = parts[2], status = parts[3], image = parts[4], ports = ports:gsub('"$', '') })
+          table.insert(sec.data, { id = parts[1], name = parts[2], status = parts[3], image = parts[4], ports = ports })
         end
       end
     end
@@ -142,21 +148,13 @@ function PodmanView:refresh_images()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec('podman images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"', function(out, err)
-    local f = io.open("C:/Users/ojasw/podman_debug.log", "a")
-    if f then
-      f:write("Podman Images Out: " .. tostring(out) .. "\n")
-      f:write("Podman Images Err: " .. tostring(err) .. "\n")
-      f:close()
-    end
-    core.log("Podman Images Out: " .. tostring(out))
-    core.log("Podman Images Err: " .. tostring(err))
+  async_exec({"podman", "images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"}, function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
         local parts = split(line, "|")
         if #parts >= 4 then
-          table.insert(sec.data, { id = parts[1]:gsub('^"', ''), repo = parts[2], tag = parts[3], size = parts[4]:gsub('"$', '') })
+          table.insert(sec.data, { id = parts[1], repo = parts[2], tag = parts[3], size = parts[4] })
         end
       end
     end
@@ -171,7 +169,7 @@ function PodmanView:refresh_k8s()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec('kubectl get pods -A --no-headers', function(out, err, rc)
+  async_exec({"kubectl", "get", "pods", "-A", "--no-headers"}, function(out, err, rc)
     sec.data = {}
     if out and rc == 0 and not out:match("not found") and not out:match("error") then
       for line in out:gmatch("[^\r\n]+") do
@@ -192,7 +190,7 @@ function PodmanView:refresh_k3s()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec('k3s kubectl get pods -A --no-headers', function(out, err, rc)
+  async_exec({"k3s", "kubectl", "get", "pods", "-A", "--no-headers"}, function(out, err, rc)
     sec.data = {}
     if out and rc == 0 and not out:match("not found") and not out:match("error") then
       for line in out:gmatch("[^\r\n]+") do
