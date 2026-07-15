@@ -269,7 +269,7 @@ function PodmanView:draw()
         
         if sec.id == "compose" then
           renderer.draw_text(style.icon_font, "\u{f490}", x + 20 * SCALE, y + 5 * SCALE, style.accent)
-          renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
+          renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
           
           if item_hovered then
             local bx = x + w - 110 * SCALE
@@ -288,9 +288,9 @@ function PodmanView:draw()
           end
           
         elseif sec.id == "containers" then
-          local c_col = item.status:match("Up") and PODMAN_COLORS.up or PODMAN_COLORS.exited
+          local c_col = (item.status or ""):match("Up") and PODMAN_COLORS.up or PODMAN_COLORS.exited
           renderer.draw_text(style.icon_font, "\u{f38b}", x + 20 * SCALE, y + 5 * SCALE, c_col)
-          local nx = renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
+          local nx = renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
           if item.ports and item.ports ~= "" then
             renderer.draw_text(style.font, "  [" .. item.ports .. "]", nx, y + 5 * SCALE, style.dim)
           end
@@ -302,7 +302,7 @@ function PodmanView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = item.name, cmd = {"podman", "logs", "-f", item.id}, prompt_prefix = "" })
+                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {"podman", "logs", "-f", item.id}, prompt_prefix = "" })
               end)
             end)
             -- Exec terminal
@@ -310,13 +310,13 @@ function PodmanView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = item.name, cmd = {"podman", "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
+                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {"podman", "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
               end)
             end)
             -- Restart
             bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman restart " .. item.id, function() self:refresh_containers() end) end)
             -- Stop/Start
-            if item.status:match("Up") then
+            if (item.status or ""):match("Up") then
               bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman stop " .. item.id, function() self:refresh_containers() end) end)
             else
               bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman start " .. item.id, function() self:refresh_containers() end) end)
@@ -337,7 +337,7 @@ function PodmanView:draw()
         elseif sec.id == "k8s" or sec.id == "k3s" then
           local is_running = item.status == "Running"
           renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and PODMAN_COLORS.up or PODMAN_COLORS.exited)
-          renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
+          renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
           
           if item_hovered then
             local bx = x + w - 110 * SCALE
@@ -351,7 +351,7 @@ function PodmanView:draw()
                 for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
                 table.insert(cmd_parts, "exec"); table.insert(cmd_parts, "-it"); table.insert(cmd_parts, item.name)
                 table.insert(cmd_parts, "-n"); table.insert(cmd_parts, item.ns); table.insert(cmd_parts, "--"); table.insert(cmd_parts, "sh")
-                core.active_view:add_session({ name = item.name, cmd = cmd_parts, prompt_prefix = "" })
+                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
               end)
             end)
             -- Logs
@@ -366,7 +366,7 @@ function PodmanView:draw()
                 table.insert(cmd_parts, item.name)
                 table.insert(cmd_parts, "-n")
                 table.insert(cmd_parts, item.ns)
-                core.active_view:add_session({ name = item.name, cmd = cmd_parts, prompt_prefix = "" })
+                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
               end)
             end)
             -- Trash
