@@ -7,9 +7,7 @@ def main():
     client = None
     uri = None
     
-    # Send ready signal
-    print(json.dumps({"status": "ready"}))
-    sys.stdout.flush()
+    # Ready signal removed to prevent race condition with first command response
     
     for line in sys.stdin:
         try:
