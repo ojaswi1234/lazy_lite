@@ -1,5 +1,5 @@
 -- mod-version:3
--- Unified Docker, Compose, and Kubernetes Manager for Lite XL
+-- Unified Podman, Compose, and Kubernetes Manager for Lite XL
 local core    = require "core"
 local command = require "core.command"
 local style   = require "core.style"
@@ -7,7 +7,7 @@ local View    = require "core.view"
 local process = require "process"
 local system  = require "system"
 
-local DOCKER_COLORS = {
+local PODMAN_COLORS = {
   up = {100, 255, 100, 255},
   exited = {255, 100, 100, 255},
   header = style.accent,
@@ -46,18 +46,18 @@ local function async_exec(cmd_str, on_result)
   end)
 end
 
-local DockerView = View:extend()
+local PodmanView = View:extend()
 
-function DockerView:new()
-  DockerView.super.new(self)
+function PodmanView:new()
+  PodmanView.super.new(self)
   self.scrollable = true
   self.focusable = true
-  self.name = "Docker Manager"
+  self.name = "Podman Manager"
   self.target_size = 350 * SCALE
   self.visible = false
   
   self.sections = {
-    { id = "compose", name = "Docker Compose", expanded = true, data = {}, loading = false },
+    { id = "compose", name = "Podman Compose", expanded = true, data = {}, loading = false },
     { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
     { id = "images", name = "Images", expanded = false, data = {}, loading = false },
     { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
@@ -71,9 +71,9 @@ function DockerView:new()
   self:refresh_all()
 end
 
-function DockerView:get_name() return self.name end
+function PodmanView:get_name() return self.name end
 
-function DockerView:refresh_all()
+function PodmanView:refresh_all()
   self:refresh_compose()
   self:refresh_containers()
   self:refresh_images()
@@ -81,7 +81,7 @@ function DockerView:refresh_all()
   self:refresh_k3s()
 end
 
-function DockerView:refresh_compose()
+function PodmanView:refresh_compose()
   local sec = nil
   for _, s in ipairs(self.sections) do if s.id == "compose" then sec = s; break end end
   if not sec then return end
@@ -89,7 +89,7 @@ function DockerView:refresh_compose()
   core.redraw = true
   
   local has_compose = false
-  for _, f in ipairs({"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}) do
+  for _, f in ipairs({"docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "compose.yml", "compose.yaml"}) do
     local p = core.project_dir .. PATHSEP .. f
     local file = io.open(p, "r")
     if file then
@@ -108,11 +108,11 @@ function DockerView:refresh_compose()
   core.redraw = true
 end
 
-function DockerView:refresh_containers()
+function PodmanView:refresh_containers()
   local sec = self.sections[1]
   sec.loading = true
   core.redraw = true
-  async_exec('docker ps -a --format "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}"', function(out, err)
+  async_exec('podman ps -a --format "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}"', function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
@@ -127,11 +127,11 @@ function DockerView:refresh_containers()
   end)
 end
 
-function DockerView:refresh_images()
+function PodmanView:refresh_images()
   local sec = self.sections[2]
   sec.loading = true
   core.redraw = true
-  async_exec('docker images --format "{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}"', function(out, err)
+  async_exec('podman images --format "{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}"', function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
@@ -146,7 +146,7 @@ function DockerView:refresh_images()
   end)
 end
 
-function DockerView:refresh_k8s()
+function PodmanView:refresh_k8s()
   local sec = self.sections[3]
   sec.loading = true
   core.redraw = true
@@ -165,7 +165,7 @@ function DockerView:refresh_k8s()
   end)
 end
 
-function DockerView:refresh_k3s()
+function PodmanView:refresh_k3s()
   local sec = self.sections[4]
   sec.loading = true
   core.redraw = true
@@ -184,10 +184,10 @@ function DockerView:refresh_k3s()
   end)
 end
 
-function DockerView:update()
-  DockerView.super.update(self)
+function PodmanView:update()
+  PodmanView.super.update(self)
   local dest = self.visible and self.target_size or 0
-  self:move_towards(self.size, "x", dest, nil, "docker_view")
+  self:move_towards(self.size, "x", dest, nil, "podman_view")
 end
 
 local function draw_icon_btn(self, icon, bx, by, color, action_fn, tooltip)
@@ -208,7 +208,7 @@ local function draw_icon_btn(self, icon, bx, by, color, action_fn, tooltip)
   return bx + bw
 end
 
-function DockerView:draw()
+function PodmanView:draw()
   self:draw_background(style.background2)
   local x, y = self.position.x, self.position.y - self.scroll.y
   local w, h = self.size.x, self.size.y
@@ -217,7 +217,7 @@ function DockerView:draw()
   self.hovered_btn = false
   
   -- Header
-  renderer.draw_text(style.font, "Docker Manager", x + 10 * SCALE, y + 10 * SCALE, style.accent)
+  renderer.draw_text(style.font, "Podman Manager", x + 10 * SCALE, y + 10 * SCALE, style.accent)
   local h_refresh = y + 10 * SCALE
   draw_icon_btn(self, "\u{f021}", x + w - 30 * SCALE, h_refresh, style.text, function() self:refresh_all() end, "Refresh All")
   
@@ -263,17 +263,17 @@ function DockerView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = "Compose Logs", cmd = {"docker-compose", "logs", "-f"}, prompt_prefix = "" })
+                core.active_view:add_session({ name = "Compose Logs", cmd = {"podman-compose", "logs", "-f"}, prompt_prefix = "" })
               end)
             end)
             -- Down
-            bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker-compose down", function() self:refresh_all() end) end)
+            bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman-compose down", function() self:refresh_all() end) end)
             -- Up
-            bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker-compose up -d", function() self:refresh_all() end) end)
+            bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman-compose up -d", function() self:refresh_all() end) end)
           end
           
         elseif sec.id == "containers" then
-          local c_col = item.status:match("Up") and DOCKER_COLORS.up or DOCKER_COLORS.exited
+          local c_col = item.status:match("Up") and PODMAN_COLORS.up or PODMAN_COLORS.exited
           renderer.draw_text(style.icon_font, "\u{f38b}", x + 20 * SCALE, y + 5 * SCALE, c_col)
           local nx = renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
           if item.ports and item.ports ~= "" then
@@ -287,7 +287,7 @@ function DockerView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = item.name, cmd = {"docker", "logs", "-f", item.id}, prompt_prefix = "" })
+                core.active_view:add_session({ name = item.name, cmd = {"podman", "logs", "-f", item.id}, prompt_prefix = "" })
               end)
             end)
             -- Exec terminal
@@ -295,19 +295,19 @@ function DockerView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = item.name, cmd = {"docker", "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
+                core.active_view:add_session({ name = item.name, cmd = {"podman", "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
               end)
             end)
             -- Restart
-            bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker restart " .. item.id, function() self:refresh_containers() end) end)
+            bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman restart " .. item.id, function() self:refresh_containers() end) end)
             -- Stop/Start
             if item.status:match("Up") then
-              bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker stop " .. item.id, function() self:refresh_containers() end) end)
+              bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman stop " .. item.id, function() self:refresh_containers() end) end)
             else
-              bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker start " .. item.id, function() self:refresh_containers() end) end)
+              bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman start " .. item.id, function() self:refresh_containers() end) end)
             end
             -- Trash
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker rm -f " .. item.id, function() self:refresh_containers() end) end)
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman rm -f " .. item.id, function() self:refresh_containers() end) end)
           end
           
         elseif sec.id == "images" then
@@ -316,12 +316,12 @@ function DockerView:draw()
           
           if item_hovered then
             local bx = x + w - 30 * SCALE
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("docker rmi -f " .. item.id, function() self:refresh_images() end) end)
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman rmi -f " .. item.id, function() self:refresh_images() end) end)
           end
           
         elseif sec.id == "k8s" or sec.id == "k3s" then
           local is_running = item.status == "Running"
-          renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and DOCKER_COLORS.up or DOCKER_COLORS.exited)
+          renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and PODMAN_COLORS.up or PODMAN_COLORS.exited)
           renderer.draw_text(style.font, item.name, x + 40 * SCALE, y + 5 * SCALE, style.text)
           
           if item_hovered then
@@ -369,7 +369,7 @@ function DockerView:draw()
   end
 end
 
-function DockerView:on_mouse_moved(x, y, dx, dy)
+function PodmanView:on_mouse_moved(x, y, dx, dy)
   self.mouse_x = x
   self.mouse_y = y
   core.redraw = true
@@ -380,14 +380,14 @@ function DockerView:on_mouse_moved(x, y, dx, dy)
   end
 end
 
-function DockerView:on_mouse_left()
+function PodmanView:on_mouse_left()
   self.mouse_x = nil
   self.mouse_y = nil
   system.set_cursor("arrow")
   core.redraw = true
 end
 
-function DockerView:on_mouse_pressed(button, x, y, clicks)
+function PodmanView:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
     for i = #self.buttons, 1, -1 do
       local r = self.buttons[i]
@@ -400,25 +400,25 @@ function DockerView:on_mouse_pressed(button, x, y, clicks)
   return false
 end
 
-local docker_view = nil
+local podman_view = nil
 
 command.add(nil, {
-  ["docker:toggle"] = function()
+  ["podman:toggle"] = function()
     local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
-    if docker_view and core.root_view.root_node:get_node_for_view(docker_view) then
-      local node = core.root_view.root_node:get_node_for_view(docker_view)
+    if podman_view and core.root_view.root_node:get_node_for_view(podman_view) then
+      local node = core.root_view.root_node:get_node_for_view(podman_view)
       if sidebar and node == sidebar then
-        node:set_active_view(docker_view)
+        node:set_active_view(podman_view)
       else
-        node:close_view(core.root_view.root_node, docker_view)
-        docker_view = nil
+        node:close_view(core.root_view.root_node, podman_view)
+        podman_view = nil
       end
     else
-      docker_view = DockerView()
+      podman_view = PodmanView()
       local node = sidebar or core.root_view:get_active_node_default():split("right")
-      node:add_view(docker_view)
-      if sidebar then node:set_active_view(docker_view) end
-      docker_view.visible = true
+      node:add_view(podman_view)
+      if sidebar then node:set_active_view(podman_view) end
+      podman_view.visible = true
     end
   end
 })

@@ -14,13 +14,13 @@ function ActivityBar:new()
   self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
-    { id = "docker",   icon = "\u{f308}", command = "docker:toggle",    tooltip = "Docker" },
+    { id = "podman",   icon = "\u{f308}", command = "podman:toggle",    tooltip = "Podman" },
     { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle",   tooltip = "LeetCode" },
     { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
   }
   -- Bottom-anchored auth button
   self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "AGY Auth / Toggle AI" }
-  self.active_id = "docker"
+  self.active_id = "podman"
   self.target_size = 48 * SCALE
   self.visible = false -- Start hidden; will be pulled open by the AI Sidebar
 end
@@ -353,3 +353,5 @@ core.add_thread(function()
   coroutine.yield(0.1)
   init_activity_bar()
 end)
+
+
