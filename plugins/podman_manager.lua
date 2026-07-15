@@ -13,8 +13,11 @@ local PODMAN_COLORS = {
   header = style.accent,
 }
 
--- Full exe paths. On Windows we embed them in quoted strings for io.popen / cmd.exe.
-local PODMAN_EXE   = PLATFORM == "Windows" and '"C:\\Program Files\\RedHat\\Podman\\podman.exe"' or "podman"
+-- Full exe paths. On Windows, use 8.3 short path for podman (no spaces) so the
+-- io.popen command string doesn't START with a quote. When cmd.exe /c sees a command
+-- starting with ", it strips the first and last " from the whole string, breaking inner quotes.
+-- 8.3 short path has no spaces -> no quote needed -> cmd.exe parses normally.
+local PODMAN_EXE   = PLATFORM == "Windows" and "C:\\PROGRA~1\\RedHat\\Podman\\podman.exe" or "podman"
 local KUBECTL_EXE  = PLATFORM == "Windows" and "kubectl" or "kubectl"
 local K3S_EXE      = PLATFORM == "Windows" and "k3s"     or "k3s"
 
