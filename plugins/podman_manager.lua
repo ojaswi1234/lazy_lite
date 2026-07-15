@@ -114,11 +114,11 @@ function PodmanView:refresh_containers()
   local sec = self.sections[1]
   sec.loading = true
   core.redraw = true
-  async_exec('podman ps -a --format "{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}"', function(out, err)
+  async_exec('podman ps -a --format "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"', function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
-        local parts = split(line, "\t")
+        local parts = split(line, "|")
         if #parts >= 4 then
           table.insert(sec.data, { id = parts[1], name = parts[2], status = parts[3], image = parts[4], ports = parts[5] or "" })
         end
@@ -133,11 +133,11 @@ function PodmanView:refresh_images()
   local sec = self.sections[2]
   sec.loading = true
   core.redraw = true
-  async_exec('podman images --format "{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Size}}"', function(out, err)
+  async_exec('podman images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"', function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
-        local parts = split(line, "\t")
+        local parts = split(line, "|")
         if #parts >= 4 then
           table.insert(sec.data, { id = parts[1], repo = parts[2], tag = parts[3], size = parts[4] })
         end
