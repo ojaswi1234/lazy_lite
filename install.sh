@@ -90,6 +90,40 @@ if ! command -v agy &> /dev/null; then
     fi
 fi
 
+# 3. Optional Features Setup
+INSTALL_PODMAN=true
+read -p "Do you want to setup Podman support in the editor? (y/n): " prompt_podman
+if [[ "$prompt_podman" =~ ^[Yy]$ ]]; then
+    if ! command -v podman &> /dev/null; then
+        echo "Installing Podman..."
+        sudo apt-get update && sudo apt-get -y install podman
+    fi
+else
+    INSTALL_PODMAN=false
+fi
+
+INSTALL_LEETCODE=true
+read -p "Do you want to setup LeetCode plugin? (y/n): " prompt_leetcode
+if [[ "$prompt_leetcode" =~ ^[Nn]$ ]]; then
+    INSTALL_LEETCODE=false
+fi
+
+INSTALL_MONGO=true
+read -p "Do you want to setup MongoDB Explorer? (y/n): " prompt_mongo
+if [[ "$prompt_mongo" =~ ^[Yy]$ ]]; then
+    if ! command -v mongosh &> /dev/null; then
+        echo "Installing MongoDB Shell (mongosh)..."
+        wget -qO- https://www.mongodb.org/static/pgp/server-7.0.asc | sudo tee /etc/apt/trusted.gpg.d/server-7.0.asc >/dev/null
+        echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list >/dev/null
+        sudo apt-get update && sudo apt-get install -y mongodb-mongosh
+    fi
+    if command -v python3 &> /dev/null; then
+        python3 -m pip install pymongo --quiet || true
+    fi
+else
+    INSTALL_MONGO=false
+fi
+
 echo "Installing Lite-XL Mossy Configuration..."
 
 mkdir -p "$CONFIG_DIR/plugins"
@@ -102,6 +136,18 @@ for plugin in "$SRC_DIR"/plugins/*.lua; do
     plugin_name=$(basename "$plugin")
     if [ "$plugin_name" = "antigravity_sidebar.lua" ] && [ "$INSTALL_AGY_SIDEBAR" = false ]; then
         echo "Skipping antigravity_sidebar.lua..."
+        continue
+    fi
+    if [ "$plugin_name" = "podman_manager.lua" ] && [ "$INSTALL_PODMAN" = false ]; then
+        echo "Skipping podman_manager.lua..."
+        continue
+    fi
+    if [ "$plugin_name" = "leetcode.lua" ] && [ "$INSTALL_LEETCODE" = false ]; then
+        echo "Skipping leetcode.lua..."
+        continue
+    fi
+    if [ "$plugin_name" = "mongodb_explorer.lua" ] && [ "$INSTALL_MONGO" = false ]; then
+        echo "Skipping mongodb_explorer.lua..."
         continue
     fi
     cp -f "$plugin" "$CONFIG_DIR/plugins/"
@@ -120,7 +166,18 @@ cp -f "$SRC_DIR"/fonts/*.ttf "$CONFIG_DIR/fonts/" 2>/dev/null || true
 
 # Copy scripts (remote LSP proxy for Codespaces)
 if [ -d "$SRC_DIR/scripts" ]; then
-    cp -f "$SRC_DIR/scripts/"* "$CONFIG_DIR/scripts/"
+    for script in "$SRC_DIR"/scripts/*; do
+        script_name=$(basename "$script")
+        if [ "$script_name" = "leetcode_api.py" ] && [ "$INSTALL_LEETCODE" = false ]; then
+            echo "Skipping leetcode_api.py..."
+            continue
+        fi
+        if [ "$script_name" = "mongodb_bridge.py" ] && [ "$INSTALL_MONGO" = false ]; then
+            echo "Skipping mongodb_bridge.py..."
+            continue
+        fi
+        cp -f "$script" "$CONFIG_DIR/scripts/"
+    done
 fi
 
 # Copy sub-directories (third-party and custom plugins)

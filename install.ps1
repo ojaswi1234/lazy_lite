@@ -86,6 +86,36 @@ if (-not $agyInstalled) {
         Write-Host "If you change your mind, you can run this script again later to add it."
         Write-Host ""
         $installAgySidebar = $false
+
+# 3. Optional Features Setup
+$installPodman = Read-Host "Do you want to setup Podman support in the editor? (Y/N)"
+$setupPodman = ($installPodman -match "^[yY]")
+
+$installLeetcode = Read-Host "Do you want to setup LeetCode plugin? (Y/N)"
+$setupLeetcode = ($installLeetcode -match "^[yY]")
+
+$installMongo = Read-Host "Do you want to setup MongoDB Explorer? (Y/N)"
+$setupMongo = ($installMongo -match "^[yY]")
+
+if ($setupPodman) {
+    $podmanCheck = Get-Command "podman" -ErrorAction SilentlyContinue
+    if (-not $podmanCheck) {
+        Write-Host "Installing Podman..."
+        winget install -e --id RedHat.Podman --accept-source-agreements --accept-package-agreements
+    }
+}
+
+if ($setupMongo) {
+    $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
+    if (-not $mongoshCheck) {
+        Write-Host "Installing MongoDB Shell (mongosh)..."
+        winget install -e --id MongoDB.mongosh --accept-source-agreements --accept-package-agreements
+    }
+    $pythonCheck = Get-Command "python" -ErrorAction SilentlyContinue
+    if ($pythonCheck) {
+        python -m pip install pymongo --quiet
+    } else {
+        Write-Host "WARNING: Python is required for MongoDB Explorer."
     }
 }
 
@@ -101,6 +131,12 @@ New-Item -ItemType Directory -Force -Path "$configDir\scripts" | Out-Null
 Get-ChildItem -Path "$srcDir\plugins\*.lua" | ForEach-Object {
     if ($_.Name -eq "antigravity_sidebar.lua" -and -not $installAgySidebar) {
         Write-Host "Skipping antigravity_sidebar.lua..."
+    } elseif ($_.Name -eq "podman_manager.lua" -and -not $setupPodman) {
+        Write-Host "Skipping podman_manager.lua..."
+    } elseif ($_.Name -eq "leetcode.lua" -and -not $setupLeetcode) {
+        Write-Host "Skipping leetcode.lua..."
+    } elseif ($_.Name -eq "mongodb_explorer.lua" -and -not $setupMongo) {
+        Write-Host "Skipping mongodb_explorer.lua..."
     } else {
         Copy-Item -Path $_.FullName -Destination "$configDir\plugins\" -Force
     }
@@ -121,7 +157,15 @@ if (Test-Path "$srcDir\fonts\*.ttf") {
 
 # Copy scripts (remote LSP proxy for Codespaces)
 if (Test-Path "$srcDir\scripts") {
-    Copy-Item -Path "$srcDir\scripts\*" -Destination "$configDir\scripts\" -Force
+    Get-ChildItem -Path "$srcDir\scripts\*" | ForEach-Object {
+        if ($_.Name -eq "leetcode_api.py" -and -not $setupLeetcode) {
+            Write-Host "Skipping leetcode_api.py..."
+        } elseif ($_.Name -eq "mongodb_bridge.py" -and -not $setupMongo) {
+            Write-Host "Skipping mongodb_bridge.py..."
+        } else {
+            Copy-Item -Path $_.FullName -Destination "$configDir\scripts\" -Force
+        }
+    }
 }
 
 # Copy sub-directories (third-party and custom plugins)
