@@ -331,7 +331,7 @@ function PodmanView:draw()
           
         elseif sec.id == "containers" then
           local c_col = (item.status or ""):match("Up") and PODMAN_COLORS.up or PODMAN_COLORS.exited
-          renderer.draw_text(style.icon_font, "\u{f38b}", x + 20 * SCALE, y + 5 * SCALE, c_col)
+          renderer.draw_text(style.icon_font, "\u{f1b2}", x + 20 * SCALE, y + 5 * SCALE, c_col)
           local nx = renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
           if item.ports and item.ports ~= "" then
             renderer.draw_text(style.font, "  [" .. item.ports .. "]", nx, y + 5 * SCALE, style.dim)
@@ -344,7 +344,7 @@ function PodmanView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {"podman", "logs", "-f", item.id}, prompt_prefix = "" })
+                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "logs", "-f", item.id}, prompt_prefix = "" })
               end)
             end)
             -- Exec terminal
@@ -352,7 +352,7 @@ function PodmanView:draw()
               command.perform("terminal:toggle")
               core.add_thread(function()
                 while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {"podman", "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
+                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
               end)
             end)
             -- Restart
@@ -455,7 +455,7 @@ function PodmanView:on_mouse_pressed(button, x, y, clicks)
       end
     end
   end
-  return false
+  return PodmanView.super.on_mouse_pressed(self, button, x, y, clicks)
 end
 
 local podman_view = nil
