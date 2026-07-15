@@ -24,8 +24,8 @@ local K3S_EXE      = PLATFORM == "Windows" and "k3s"     or "k3s"
 local function build_win_cmd(args)
   local parts = {}
   for i, v in ipairs(args) do
-    -- First element is already quoted via constants, rest get quoted if they have spaces
-    if i > 1 and v:find(" ") then
+    -- Quote args that contain spaces OR cmd.exe special chars (|, &, <, >, ^, %)
+    if i > 1 and v:find("[%s|&<>^%%]") then
       parts[#parts+1] = '"' .. v:gsub('"', '\\"') .. '"'
     else
       parts[#parts+1] = v
