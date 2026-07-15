@@ -41,7 +41,9 @@ local function async_exec(cmd_args, on_result)
         args = {"bash", "-c", cmd_args}
       end
     end
-    local p = process.start(args)
+    -- Pass system PATH so executables can be found regardless of Lite XL env
+    local env_path = os.getenv("PATH") or ""
+    local p = process.start(args, { env = { PATH = env_path } })
     if not p then
       if on_result then on_result(nil, "Failed to start process") end
       return
@@ -326,15 +328,15 @@ function PodmanView:draw()
               end)
             end)
             -- Restart
-            bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman restart " .. item.id, function() self:refresh_containers() end) end)
+            bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "restart", item.id}, function() self:refresh_containers() end) end)
             -- Stop/Start
             if (item.status or ""):match("Up") then
-              bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman stop " .. item.id, function() self:refresh_containers() end) end)
+              bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "stop", item.id}, function() self:refresh_containers() end) end)
             else
-              bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman start " .. item.id, function() self:refresh_containers() end) end)
+              bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "start", item.id}, function() self:refresh_containers() end) end)
             end
             -- Trash
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman rm -f " .. item.id, function() self:refresh_containers() end) end)
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rm", "-f", item.id}, function() self:refresh_containers() end) end)
           end
           
         elseif sec.id == "images" then
@@ -343,7 +345,7 @@ function PodmanView:draw()
           
           if item_hovered then
             local bx = x + w - 30 * SCALE
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman rmi -f " .. item.id, function() self:refresh_images() end) end)
+            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rmi", "-f", item.id}, function() self:refresh_images() end) end)
           end
           
         elseif sec.id == "k8s" or sec.id == "k3s" then
@@ -383,8 +385,9 @@ function PodmanView:draw()
             end)
             -- Trash
             draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() 
-              async_exec(cmd_prefix .. " delete pod " .. item.name .. " -n " .. item.ns, function() 
-                if sec.id == "k3s" then self:refresh_k3s() else self:refresh_k8s() end 
+              local del_cmd = sec.id == "k3s" and {K3S_EXE, "kubectl", "delete", "pod", item.name, "-n", item.ns} or {KUBECTL_EXE, "delete", "pod", item.name, "-n", item.ns}
+              async_exec(del_cmd, function()
+                if sec.id == "k3s" then self:refresh_k3s() else self:refresh_k8s() end
               end) 
             end)
           end
