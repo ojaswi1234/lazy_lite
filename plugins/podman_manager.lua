@@ -111,7 +111,9 @@ function PodmanView:refresh_compose()
 end
 
 function PodmanView:refresh_containers()
-  local sec = self.sections[1]
+  local sec = nil
+  for _, s in ipairs(self.sections) do if s.id == "containers" then sec = s; break end end
+  if not sec then return end
   sec.loading = true
   core.redraw = true
   async_exec('podman ps -a --format "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"', function(out, err)
@@ -133,7 +135,9 @@ function PodmanView:refresh_containers()
 end
 
 function PodmanView:refresh_images()
-  local sec = self.sections[2]
+  local sec = nil
+  for _, s in ipairs(self.sections) do if s.id == "images" then sec = s; break end end
+  if not sec then return end
   sec.loading = true
   core.redraw = true
   async_exec('podman images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"', function(out, err)
@@ -154,7 +158,9 @@ function PodmanView:refresh_images()
 end
 
 function PodmanView:refresh_k8s()
-  local sec = self.sections[3]
+  local sec = nil
+  for _, s in ipairs(self.sections) do if s.id == "k8s" then sec = s; break end end
+  if not sec then return end
   sec.loading = true
   core.redraw = true
   async_exec('kubectl get pods -A --no-headers', function(out, err, rc)
@@ -173,7 +179,9 @@ function PodmanView:refresh_k8s()
 end
 
 function PodmanView:refresh_k3s()
-  local sec = self.sections[4]
+  local sec = nil
+  for _, s in ipairs(self.sections) do if s.id == "k3s" then sec = s; break end end
+  if not sec then return end
   sec.loading = true
   core.redraw = true
   async_exec('k3s kubectl get pods -A --no-headers', function(out, err, rc)
