@@ -13,6 +13,12 @@ local PODMAN_COLORS = {
   header = style.accent,
 }
 
+-- Full paths needed because Lite XL's process module does not inherit the system PATH on Windows
+local PODMAN_EXE   = PLATFORM == "Windows" and "C:\\Program Files\\RedHat\\Podman\\podman.exe" or "podman"
+local KUBECTL_EXE  = PLATFORM == "Windows" and "kubectl.exe" or "kubectl"
+local K3S_EXE      = PLATFORM == "Windows" and "k3s.exe"    or "k3s"
+
+
 local function split(str, sep)
   local res = {}
   for w in str:gmatch("([^" .. sep .. "]+)") do
@@ -126,7 +132,7 @@ function PodmanView:refresh_containers()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec({"podman", "ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"}, function(out, err)
+  async_exec({PODMAN_EXE, "ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"}, function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
@@ -148,7 +154,7 @@ function PodmanView:refresh_images()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec({"podman", "images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"}, function(out, err)
+  async_exec({PODMAN_EXE, "images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"}, function(out, err)
     sec.data = {}
     if out then
       for line in out:gmatch("[^\r\n]+") do
@@ -169,7 +175,7 @@ function PodmanView:refresh_k8s()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec({"kubectl", "get", "pods", "-A", "--no-headers"}, function(out, err, rc)
+  async_exec({KUBECTL_EXE, "get", "pods", "-A", "--no-headers"}, function(out, err, rc)
     sec.data = {}
     if out and rc == 0 and not out:match("not found") and not out:match("error") then
       for line in out:gmatch("[^\r\n]+") do
@@ -190,7 +196,7 @@ function PodmanView:refresh_k3s()
   if not sec then return end
   sec.loading = true
   core.redraw = true
-  async_exec({"k3s", "kubectl", "get", "pods", "-A", "--no-headers"}, function(out, err, rc)
+  async_exec({K3S_EXE, "kubectl", "get", "pods", "-A", "--no-headers"}, function(out, err, rc)
     sec.data = {}
     if out and rc == 0 and not out:match("not found") and not out:match("error") then
       for line in out:gmatch("[^\r\n]+") do
