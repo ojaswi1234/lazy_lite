@@ -88,9 +88,11 @@ function PodmanView:refresh_compose()
   sec.loading = true
   core.redraw = true
   
+  local proj_dir = core.project_dir or (core.project_directories and core.project_directories[1] and core.project_directories[1].name) or system.absolute_path(".") or ""
+  
   local has_compose = false
   for _, f in ipairs({"docker-compose.yml", "docker-compose.yaml", "podman-compose.yml", "compose.yml", "compose.yaml"}) do
-    local p = core.project_dir .. PATHSEP .. f
+    local p = proj_dir .. PATHSEP .. f
     local file = io.open(p, "r")
     if file then
       file:close()
@@ -101,7 +103,7 @@ function PodmanView:refresh_compose()
   
   sec.data = {}
   if has_compose then
-    local name = core.project_dir:match("([^/\\]+)$") or "Project"
+    local name = proj_dir:match("([^/\\]+)$") or "Project"
     table.insert(sec.data, { name = "Project: " .. name })
   end
   sec.loading = false
@@ -422,3 +424,4 @@ command.add(nil, {
     end
   end
 })
+
