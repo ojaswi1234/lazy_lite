@@ -221,3 +221,34 @@ When connected to a codespace, the status bar displays:
 - **Git Awareness**: Real-time git status without terminal
 - **Seamless Integration**: Works with existing Lite-XL features including LSP and AI sidebar
 - **Antigravity Compatibility**: AI CLI works perfectly with remote files via path translation
+## lazy-lite Web Preview
+
+The web_preview plugin launches a fast, native C-based local web server to preview static sites (HTML/CSS/JS) directly from your Lite-XL project directory. It supports live-reloading and SPA fallback routing.
+
+### Keybindings
+- Ctrl+Alt+P : Start Web Preview (launches server and opens default browser)
+- Ctrl+Alt+Shift+P : Stop Web Preview
+
+### Commands
+- web-preview:start - Starts the server and opens the browser.
+- web-preview:stop - Stops the preview server.
+- web-preview:restart - Restarts the preview server.
+- web-preview:copy-url - Copies the current preview URL to your clipboard.
+
+### Configuration
+You can configure the plugin in your init.lua by modifying config.plugins.web_preview:
+\\\lua
+config.plugins.web_preview = {
+  port = 8080,                -- Preferred port
+  spa_fallback = false,       -- Enable SPA fallback to index.html for 404s
+  live_reload = true,         -- Auto-reload on file changes
+  ignore_dirs = { ".git", "node_modules" }, -- Dirs to ignore for live reload
+  bind_host = "127.0.0.1",    -- Host IP to bind to
+  keybind_start = "ctrl+alt+p",
+  keybind_stop = "ctrl+alt+shift+p",
+}
+\\\
+
+### Building the Server
+The plugin requires the native server binary. Source code and a Makefile are located in the preview_server directory.
+Run make windows (or make mac, make linux) and ensure the resulting executable (lazy_lite_preview_server.exe) is copied to your plugins directory.
