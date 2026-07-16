@@ -20,6 +20,13 @@ end
 local command = require "core.command"
 local keymap  = require "core.keymap"
 local View    = require "core.view"
+
+-- Monkey-patch View to provide a default set_target_size for all views (like EmptyView).
+-- This prevents the node.lua:682 crash when resizing a locked node that became empty.
+if not View.set_target_size then
+  function View:set_target_size(axis, value) return false end
+end
+
 local common  = require "core.common"
 local process = require "process"
 local system  = require "system"
