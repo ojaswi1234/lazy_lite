@@ -199,6 +199,9 @@ function TermView:refresh_ports(s)
   s.fetching = true
   s.ports = {}
   s.port_buttons = {}
+  s.selected_ports = {}
+  s.checkbox_rects = {}
+  s.filtered_ports = {}
   
   core.add_thread(function()
     local p_names = {}
@@ -885,10 +888,33 @@ function TermView:draw_port_manager(x, y, w, h)
   local ref_h = 24*SCALE
   local ref_x = cx + w - 40*SCALE - ref_w
   s.refresh_btn_rect = { x = ref_x, y = cy, w = ref_w, h = ref_h }
-  
   local ref_bg = style.background3 or {common.color "#444444"}
   renderer.draw_rect(ref_x, cy, ref_w, ref_h, ref_bg)
   renderer.draw_text(style.font, "Refresh", ref_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), style.text)
+  
+  -- Kill Selected button
+  local kill_sel_w = style.font:get_width("Kill Selected") + 20*SCALE
+  local kill_sel_x = ref_x - kill_sel_w - 10*SCALE
+  s.kill_sel_btn_rect = { x = kill_sel_x, y = cy, w = kill_sel_w, h = ref_h }
+  renderer.draw_rect(kill_sel_x, cy, kill_sel_w, ref_h, {common.color "#FB4934"})
+  renderer.draw_text(style.font, "Kill Selected", kill_sel_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), {255, 255, 255, 255})
+  
+  cy = cy + 40*SCALE
+  
+  -- Search Box
+  local search_h = 24*SCALE
+  local search_w = math.min(w - 40*SCALE, 400*SCALE)
+  renderer.draw_rect(cx, cy, search_w, search_h, style.background3 or {common.color "#444444"})
+  
+  local placeholder = "Search ports/process..."
+  local display_text = (s.input and #s.input > 0) and s.input or placeholder
+  local text_color = (s.input and #s.input > 0) and style.text or style.dim
+  renderer.draw_text(style.font, display_text, cx + 10*SCALE, cy + math.floor((search_h - style.font:get_height())/2), text_color)
+  
+  if core.active_view == self and (system.get_time() % 1 < 0.5) then
+    local cursor_x = cx + 10*SCALE + style.font:get_width(s.input:sub(1, (s.cursor or (#s.input + 1)) - 1))
+    renderer.draw_rect(cursor_x, cy + 4*SCALE, 2*SCALE, search_h - 8*SCALE, style.accent or {common.color "#A9DC76"})
+  end
   
   cy = cy + 40*SCALE
   
@@ -902,11 +928,39 @@ function TermView:draw_port_manager(x, y, w, h)
     return
   end
   
+  -- Filter ports
+  local filter_text = (s.input or ""):lower()
+  s.filtered_ports = {}
+  for _, p in ipairs(s.ports) do
+    if filter_text == "" or p.port:lower():find(filter_text, 1, true) or p.name:lower():find(filter_text, 1, true) then
+      table.insert(s.filtered_ports, p)
+    end
+  end
+  
+  if #s.filtered_ports == 0 then
+    renderer.draw_text(style.font, "No matches found.", cx, cy, style.dim)
+    return
+  end
+  
   -- Table Header
-  local c_port = cx
-  local c_name = cx + 100*SCALE
-  local c_pid = cx + 350*SCALE
-  local c_act = cx + 450*SCALE
+  local c_check = cx
+  local c_port = cx + 40*SCALE
+  local c_name = cx + 120*SCALE
+  local c_pid = cx + 370*SCALE
+  local c_act = cx + 470*SCALE
+  
+  -- Select All Button
+  local sa_w = 14*SCALE
+  s.select_all_btn_rect = { x = c_check, y = cy + math.floor((style.font:get_height() - sa_w)/2), w = sa_w, h = sa_w }
+  renderer.draw_rect(s.select_all_btn_rect.x, s.select_all_btn_rect.y, sa_w, sa_w, style.dim)
+  
+  local any_unsel = false
+  for _, p in ipairs(s.filtered_ports) do
+    if not (s.selected_ports and s.selected_ports[p.pid]) then any_unsel = true break end
+  end
+  if not any_unsel and #s.filtered_ports > 0 then
+    renderer.draw_rect(s.select_all_btn_rect.x + 2*SCALE, s.select_all_btn_rect.y + 2*SCALE, sa_w - 4*SCALE, sa_w - 4*SCALE, style.accent or {common.color "#E67E80"})
+  end
   
   renderer.draw_text(style.font, "PORT", c_port, cy, style.dim)
   renderer.draw_text(style.font, "PROCESS", c_name, cy, style.dim)
@@ -918,16 +972,26 @@ function TermView:draw_port_manager(x, y, w, h)
   cy = cy + 10*SCALE
   
   s.port_buttons = {}
+  s.checkbox_rects = {}
   
   local lh = 30 * SCALE
-  local max_scroll = math.max(0, #s.ports * lh - (h - 100*SCALE))
+  local max_scroll = math.max(0, #s.filtered_ports * lh - (h - cy - 20*SCALE))
   s.scroll_y = math.min(math.max(0, s.scroll_y or 0), max_scroll)
   
   core.push_clip_rect(x, cy, w, h - (cy - y))
   local item_y = cy - s.scroll_y
   
-  for i, p in ipairs(s.ports) do
+  for i, p in ipairs(s.filtered_ports) do
     if item_y + lh > cy and item_y < y + h then
+      -- Checkbox
+      local cb_size = 14*SCALE
+      local cb_y = item_y + math.floor((lh - cb_size)/2)
+      table.insert(s.checkbox_rects, { x = c_check, y = cb_y, w = cb_size, h = cb_size, pid = p.pid })
+      renderer.draw_rect(c_check, cb_y, cb_size, cb_size, style.dim)
+      if s.selected_ports and s.selected_ports[p.pid] then
+        renderer.draw_rect(c_check + 2*SCALE, cb_y + 2*SCALE, cb_size - 4*SCALE, cb_size - 4*SCALE, style.accent or {common.color "#E67E80"})
+      end
+      
       renderer.draw_text(style.font, tostring(p.port), c_port, item_y, style.text)
       renderer.draw_text(style.font, tostring(p.name), c_name, item_y, style.text)
       renderer.draw_text(style.font, tostring(p.pid), c_pid, item_y, style.dim)
@@ -936,7 +1000,7 @@ function TermView:draw_port_manager(x, y, w, h)
       local btn_w = style.font:get_width("KILL") + 16*SCALE
       local btn_h = 20*SCALE
       local btn_x = c_act
-      local btn_y = item_y + 2*SCALE
+      local btn_y = item_y + math.floor((lh - btn_h)/2)
       
       table.insert(s.port_buttons, { x = btn_x, y = btn_y, w = btn_w, h = btn_h, pid = p.pid, port = p.port })
       
@@ -959,6 +1023,10 @@ function TermView:on_text_input(text)
 end
 
 function TermView:on_key_pressed(key)
+  if self:state().shell.is_port_manager and key == "return" then
+    return true
+  end
+
   if key == "return" then
     local cmd = self:state().input:match("^%s*(.-)%s*$")
     self:state().input = ""
@@ -1185,6 +1253,44 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           return true
         end
       end
+      if s.kill_sel_btn_rect then
+        local r = s.kill_sel_btn_rect
+        if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+          for pid, sel in pairs(s.selected_ports or {}) do
+            if sel then
+              core.log("Killing process %s...", pid)
+              if PLATFORM == "Windows" then os.execute("taskkill /F /PID " .. pid) end
+            end
+          end
+          self:refresh_ports(s)
+          return true
+        end
+      end
+      if s.select_all_btn_rect then
+        local r = s.select_all_btn_rect
+        if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+          s.selected_ports = s.selected_ports or {}
+          local any_unsel = false
+          for _, p in ipairs(s.filtered_ports or s.ports or {}) do
+            if not s.selected_ports[p.pid] then any_unsel = true break end
+          end
+          for _, p in ipairs(s.filtered_ports or s.ports or {}) do
+            s.selected_ports[p.pid] = any_unsel
+          end
+          core.redraw = true
+          return true
+        end
+      end
+      if s.checkbox_rects then
+        for _, cb in ipairs(s.checkbox_rects) do
+          if x >= cb.x and x <= cb.x + cb.w and y >= cb.y and y <= cb.y + cb.h then
+            s.selected_ports = s.selected_ports or {}
+            s.selected_ports[cb.pid] = not s.selected_ports[cb.pid]
+            core.redraw = true
+            return true
+          end
+        end
+      end
       if s.port_buttons then
         for _, btn in ipairs(s.port_buttons) do
           if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
@@ -1197,6 +1303,7 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           end
         end
       end
+      -- Fall through allows focus/clicking inside the terminal input logic if needed
     end
 
     local hdr_h = 26 * SCALE
