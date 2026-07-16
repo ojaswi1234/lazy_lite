@@ -70,44 +70,33 @@ local function file_exists(path)
   return system.get_file_info(path) ~= nil
 end
 
--- Framework default ports
-local FRAMEWORK_PORTS = {
-  vite   = 5173,
-  next   = 3000,
-  react  = 3000,
-  django = 8000,
-  fastapi= 8000,
-  go     = 8080,
-  static = nil,
-}
-
--- Probe if a TCP port is already bound using netstat (fast, no PowerShell startup cost)
--- Must be called from inside a coroutine (core.add_thread)
+-- Probe if a TCP port is already bound using netstat (coroutine-safe)
+-- Returns the accessible URL if bound, or nil
 local function port_in_use(port)
-  local cmd, pattern
-  if PLATFORM == "Windows" then
-    cmd = { "netstat", "-ano" }
-    pattern = ":%d+%s+[%d%.]+:" .. port .. "%s"
-  else
-    cmd = { "sh", "-c", string.format("ss -tnlp | grep ':%d '", port) }
-    pattern = ":" .. port
-  end
-  local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
-  if not p then return false end
+  local p = process.start({ "netstat", "-ano" }, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+  if not p then return nil end
   local out = ""
   local deadline = system.get_time() + 3
   while p:running() and system.get_time() < deadline do
-    coroutine.yield(0.05)  -- yield to keep editor responsive
+    coroutine.yield(0.05)
   end
   while true do
-    local chunk = p:read_stdout(4096)
+    local chunk = p:read_stdout(65536)
     if not chunk or #chunk == 0 then break end
     out = out .. chunk
   end
-  -- On Windows, netstat output: "  TCP    0.0.0.0:5173    ..." 
-  return out:find(":" .. tostring(port) .. " ") ~= nil
-    or out:find(":" .. tostring(port) .. "\r") ~= nil
-    or out:find(":" .. tostring(port) .. "\n") ~= nil
+  local sport = tostring(port)
+  -- netstat lines on Windows: "  TCP  0.0.0.0:PORT  ..." or "  TCP  [::1]:PORT  ..."
+  local found = out:find(":" .. sport .. " ") or out:find(":" .. sport .. "\r") or out:find(":" .. sport .. "\n")
+  if not found then return nil end
+  -- Prefer 127.0.0.1 over ::1 since browsers may not resolve ::1 from localhost
+  if out:find("127%.0%.0%.1:" .. sport) then
+    return "http://127.0.0.1:" .. sport
+  elseif out:find("%[::1%]:" .. sport) or out:find("%[::%]:" .. sport) then
+    return "http://localhost:" .. sport  -- browser resolves localhost → ::1 on IPv6-first systems
+  else
+    return "http://localhost:" .. sport
+  end
 end
 
 -- Strip ANSI escape codes from output before URL parsing
@@ -135,29 +124,70 @@ local function make_cmd(cmd_list)
   return cmd_list
 end
 
+-- Scan a package.json for framework markers; returns a result table or nil
+local function check_pkg_json(pkg_path, subdir)
+  local pkg = read_file(pkg_path) or ""
+  local cmd_prefix = subdir and {"cmd.exe", "/c", "cd", subdir, "&&"} or nil
+  local function cmd(args)
+    if PLATFORM == "Windows" and subdir then
+      local out = {"cmd.exe", "/c", "cd", subdir, "&&"}
+      for _, v in ipairs(args) do table.insert(out, v) end
+      return out
+    elseif PLATFORM == "Windows" then
+      local out = {"cmd.exe", "/c"}
+      for _, v in ipairs(args) do table.insert(out, v) end
+      return out
+    elseif subdir then
+      local out = {"sh", "-c", "cd '" .. subdir .. "' && " .. table.concat(args, " ")}
+      return out
+    end
+    return args
+  end
+  if pkg:find('"next"') then return { type = "next", cmd = cmd({"npm", "run", "dev"}), port = 3000 } end
+  if pkg:find('"vite"') then return { type = "vite", cmd = cmd({"npm", "run", "dev"}), port = 5173 } end
+  if pkg:find('"react%-scripts"') then return { type = "react", cmd = cmd({"npm", "start"}), port = 3000 } end
+  return nil
+end
+
+-- Sub-directories to check for front-end projects in monorepos
+local FRONTEND_SUBDIRS = { "client", "frontend", "web", "app", "ui", "src", "packages/web", "packages/app" }
+
 local function detect_framework(root)
+  -- 1. Check root package.json
   local pkg_path = root .. PATHSEP .. "package.json"
   if file_exists(pkg_path) then
-    local pkg = read_file(pkg_path) or ""
-    if pkg:find('"next"') then return { type = "next", cmd = make_cmd({"npm", "run", "dev"}) } end
-    if pkg:find('"vite"') then return { type = "vite", cmd = make_cmd({"npm", "run", "dev"}) } end
-    if pkg:find('"react%-scripts"') then return { type = "react", cmd = make_cmd({"npm", "start"}) } end
+    local res = check_pkg_json(pkg_path, nil)
+    if res then return res end
   end
   
+  -- 2. Check common monorepo subdirectories
+  for _, subname in ipairs(FRONTEND_SUBDIRS) do
+    local sub = root .. PATHSEP .. subname
+    local sub_pkg = sub .. PATHSEP .. "package.json"
+    if file_exists(sub_pkg) then
+      local res = check_pkg_json(sub_pkg, sub)
+      if res then
+        core.log("Web Preview: Found %s framework in subdirectory '%s'", res.type, subname)
+        return res
+      end
+    end
+  end
+
+  -- 3. Python backends
   if file_exists(root .. PATHSEP .. "manage.py") then
-    return { type = "django", cmd = make_cmd({"python", "manage.py", "runserver"}) }
+    return { type = "django", cmd = make_cmd({"python", "manage.py", "runserver"}), port = 8000 }
   end
-  
   local main_py = root .. PATHSEP .. "main.py"
   if file_exists(main_py) then
     local c = read_file(main_py) or ""
     if c:find("FastAPI") then
-      return { type = "fastapi", cmd = make_cmd({"uvicorn", "main:app", "--reload"}) }
+      return { type = "fastapi", cmd = make_cmd({"uvicorn", "main:app", "--reload"}), port = 8000 }
     end
   end
   
+  -- 4. Go
   if file_exists(root .. PATHSEP .. "go.mod") then
-    return { type = "go", cmd = make_cmd({"go", "run", "."}), default_url = "http://127.0.0.1:8080" }
+    return { type = "go", cmd = make_cmd({"go", "run", "."}), port = 8080 }
   end
   
   return { type = "static" }
@@ -177,14 +207,14 @@ command.add(nil, {
     local cfg = config.plugins.web_preview
 
     -- ── Attach mode: if the server is already running on its default port, just open browser ──
-    local default_port = fw.type ~= "static" and FRAMEWORK_PORTS[fw.type] or nil
+    local default_port = fw.port  -- set by detect_framework (nil for static)
     if default_port then
       core.add_thread(function()
         core.log("Web Preview: Checking if %s dev server is already running on port %d...", fw.type, default_port)
-        local already_up = port_in_use(default_port)
-        if already_up then
+        local bound_url = port_in_use(default_port)
+        if bound_url then
           active_port = default_port
-          active_url = "http://localhost:" .. default_port
+          active_url = bound_url
           core.log("Web Preview: Attached to existing %s server on %s", fw.type, active_url)
           open_browser(active_url)
           return
