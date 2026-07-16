@@ -396,12 +396,13 @@ function TermView:run(cmd_str)
 
   local final_cmd = cmd_str
   if s.venv_path then
+    local safe_path = string.format("%q", s.venv_path)
     if s.shell.name == "PowerShell" then
-      final_cmd = s.venv_path .. " ; " .. cmd_str
+      final_cmd = "& " .. safe_path .. " ; " .. cmd_str
     elseif s.shell.name == "Command Prompt" then
-      final_cmd = s.venv_path .. " && " .. cmd_str
+      final_cmd = safe_path .. " && " .. cmd_str
     else
-      final_cmd = "source " .. s.venv_path .. " && " .. cmd_str
+      final_cmd = "source " .. safe_path .. " && " .. cmd_str
     end
   end
 
@@ -966,7 +967,8 @@ function TermView:on_key_pressed(key)
               local vname = venv_path:match("([^/\\]+)$") or venv_path
               if vname == "." or vname == ".." then vname = "env" end
               vname = vname:gsub("%.%a+$", "")
-              venv_cmd = { name = vname, path = cmd }
+              -- Store the absolute path so changing directories doesn't break future commands
+              venv_cmd = { name = vname, path = full_path }
             end
           end
         end
