@@ -1,3 +1,4 @@
+-- mod-version:3
 -- lazy_lite_web_preview.lua
 -- A Web Preview Plugin for Lite-XL (lazy-lite suite)
 
@@ -283,3 +284,4 @@ function core.quit(force)
   end
   return old_quit(force)
 end
+
