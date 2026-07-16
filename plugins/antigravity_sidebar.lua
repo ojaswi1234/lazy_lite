@@ -2576,18 +2576,18 @@ command.add(
 
 local keymap = require "core.keymap"
 keymap.add {
-  ["return"]    = { "antigravity:return", "command:submit", "doc:newline", "dialog:select" },
-  ["backspace"] = { "antigravity:backspace", "doc:backspace" },
-  ["up"]        = { "antigravity:scroll-up", "command:select-previous", "doc:move-to-previous-line", "command:select-previous-char" },
-  ["down"]      = { "antigravity:scroll-down", "command:select-next", "doc:move-to-next-line", "command:select-next-char" },
-  ["escape"]    = { "antigravity:escape", "command:escape", "core:cancel", "doc:select-none", "dialog:close" },
-  ["ctrl+v"]    = { "antigravity:paste", "core:paste" },
-  ["cmd+v"]     = { "antigravity:paste", "core:paste" },
-  ["delete"]    = { "antigravity:delete", "doc:delete", "command:delete" },
-  ["left"]      = { "antigravity:cursor-left", "doc:move-to-previous-char", "command:select-previous-char" },
-  ["right"]     = { "antigravity:cursor-right", "doc:move-to-next-char", "command:select-next-char" },
-  ["home"]      = { "antigravity:cursor-home", "doc:move-to-start-of-line" },
-  ["end"]       = { "antigravity:cursor-end", "doc:move-to-end-of-line" },
+  ["return"]    = "antigravity:return",
+  ["backspace"] = "antigravity:backspace",
+  ["up"]        = "antigravity:scroll-up",
+  ["down"]      = "antigravity:scroll-down",
+  ["escape"]    = "antigravity:escape",
+  ["ctrl+v"]    = "antigravity:paste",
+  ["cmd+v"]     = "antigravity:paste",
+  ["delete"]    = "antigravity:delete",
+  ["left"]      = "antigravity:cursor-left",
+  ["right"]     = "antigravity:cursor-right",
+  ["home"]      = "antigravity:cursor-home",
+  ["end"]       = "antigravity:cursor-end",
 }
 
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
