@@ -321,7 +321,8 @@ local preview_status = core.status_view:add_item({
       icon .. text
     }
   end,
-  on_click = function(button)
+  -- NOTE: Lite-XL reads the click handler from 'command' when it's a function
+  command = function(button, x, y)
     if button == "left" then
       if active_url then
         command.perform("web-preview:copy-url")
@@ -329,9 +330,7 @@ local preview_status = core.status_view:add_item({
         command.perform("web-preview:start")
       end
     elseif button == "right" then
-      if preview_proc then
-        command.perform("web-preview:stop")
-      end
+      command.perform("web-preview:stop")
     end
   end
 })
