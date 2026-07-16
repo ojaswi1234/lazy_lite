@@ -251,11 +251,26 @@ core.status_view:add_item({
     local text = active_url and (":" .. active_port) or "Idle"
     local color = active_url and style.good or style.dim
     
+    local tooltip = active_url and "Left-click: Copy URL | Right-click: Stop Server" or "Click to start Web Preview"
+    
     return {
       icon = icon,
       text = text,
       color = color,
-      on_click = function() command.perform("web-preview:copy-url") end
+      tooltip = tooltip,
+      on_click = function(button)
+        if button == "left" then
+          if active_url then
+            command.perform("web-preview:copy-url")
+          else
+            command.perform("web-preview:start")
+          end
+        elseif button == "right" then
+          if preview_proc then
+            command.perform("web-preview:stop")
+          end
+        end
+      end
     }
   end
 })
