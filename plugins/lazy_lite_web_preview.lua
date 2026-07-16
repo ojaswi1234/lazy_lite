@@ -70,6 +70,50 @@ local function file_exists(path)
   return system.get_file_info(path) ~= nil
 end
 
+-- Framework default ports
+local FRAMEWORK_PORTS = {
+  vite   = 5173,
+  next   = 3000,
+  react  = 3000,
+  django = 8000,
+  fastapi= 8000,
+  go     = 8080,
+  static = nil,
+}
+
+-- Probe if a TCP port is already bound (fast, non-blocking via a net command)
+local function port_in_use(port)
+  if PLATFORM == "Windows" then
+    local p = process.start({ "powershell.exe", "-NoProfile", "-Command",
+      string.format("(Get-NetTCPConnection -LocalPort %d -ErrorAction SilentlyContinue) -ne $null", port)
+    }, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+    if not p then return false end
+    local out = ""
+    local deadline = system.get_time() + 2
+    while p:running() and system.get_time() < deadline do end
+    local chunk = p:read_stdout(256)
+    if chunk then out = out .. chunk end
+    return out:match("True") ~= nil
+  else
+    local p = process.start({ "sh", "-c",
+      string.format("ss -tnlp 2>/dev/null | grep -q ':%d ' && echo yes", port)
+    }, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+    if not p then return false end
+    local deadline = system.get_time() + 2
+    while p:running() and system.get_time() < deadline do end
+    local chunk = p:read_stdout(64)
+    return chunk and chunk:match("yes") ~= nil
+  end
+end
+
+-- Strip ANSI escape codes from output before URL parsing
+local function strip_ansi(s)
+  if not s then return s end
+  s = s:gsub("\027%[[0-9;]*[A-Za-z]", "")
+  s = s:gsub("%[[0-9;]+[mKJHABCDEF]", "")
+  return s
+end
+
 local function read_file(path)
   local f = io.open(path, "rb")
   if not f then return nil end
@@ -128,57 +172,35 @@ command.add(nil, {
     local fw = detect_framework(root)
     local cfg = config.plugins.web_preview
 
-    if fw.type == "static" then
-      local bin = get_binary_path()
-      if not system.get_file_info(bin) then
-        core.error("Web Preview: Binary not found at %s. Please compile it.", bin)
-        return
-      end
-
-      if system.get_file_info(root .. PATHSEP .. "index.html") == nil then
-        core.log("Web Preview: No index.html found in project root, but starting anyway.")
-      end
-
-      local args = { bin, root, tostring(cfg.port) }
-      if cfg.spa_fallback then table.insert(args, "--spa") end
-      if not cfg.live_reload then table.insert(args, "--no-reload") end
-      if #cfg.ignore_dirs > 0 then
-        table.insert(args, "--ignore=" .. table.concat(cfg.ignore_dirs, ","))
-      end
-      if cfg.bind_host then table.insert(args, "--host=" .. cfg.bind_host) end
-
-      preview_proc = process.start(args, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
-    else
-      -- Framework start
-      core.log("Web Preview: Detected %s framework. Starting dev server...", fw.type)
-      preview_proc = process.start(fw.cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
-    end
-
-    if not preview_proc then
-      core.error("Web Preview: Failed to spawn preview server process.")
-      return
-    end
-
-    core.add_thread(function()
-      local start_time = system.get_time()
-      local out = ""
-      while preview_proc and preview_proc:running() do
-        local chunk = preview_proc:read_stdout(4096)
-        if chunk then
-          out = out .. chunk
-          if fw.type == "static" then
-            local p1, p2, p_str = out:find("PORT_BOUND:(%d+)")
-            if p1 then
-              active_port = tonumber(p_str)
-              active_url = "http://" .. (cfg.bind_host or "127.0.0.1") .. ":" .. active_port
-              core.log("Web Preview: Serving on %s", active_url)
-              open_browser(active_url)
-              break
-            end
-          else
-            -- Check for URL in framework output (allow http://127.0.0.1:port or http://localhost:port or alike)
-            local p1, p2, url = out:find("(http://[%w%.]+:%d+)")
-            if p1 then
+    -- ── Attach mode: if the server is already running on its default port, just open browser ──
+    local default_port = fw.type ~= "static" and FRAMEWORK_PORTS[fw.type] or nil
+    if default_port then
+      core.add_thread(function()
+        core.log("Web Preview: Checking if %s dev server is already running on port %d...", fw.type, default_port)
+        local already_up = port_in_use(default_port)
+        if already_up then
+          active_port = default_port
+          active_url = "http://localhost:" .. default_port
+          core.log("Web Preview: Attached to existing %s server on %s", fw.type, active_url)
+          open_browser(active_url)
+          return
+        end
+        -- Not already up — spawn it
+        core.log("Web Preview: Detected %s framework. Starting dev server...", fw.type)
+        preview_proc = process.start(fw.cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+        if not preview_proc then
+          core.error("Web Preview: Failed to spawn %s dev server.", fw.type)
+          return
+        end
+        -- Monitor output for URL
+        local start_time = system.get_time()
+        local out = ""
+        while preview_proc and preview_proc:running() do
+          local chunk = preview_proc:read_stdout(4096)
+          if chunk then
+            out = out .. strip_ansi(chunk)
+            local url = out:match("(https?://[%w%.]+:%d+)")
+            if url then
               active_url = url
               active_port = tonumber(url:match(":(%d+)/?$")) or 80
               core.log("Web Preview: Framework ready on %s", active_url)
@@ -186,22 +208,61 @@ command.add(nil, {
               break
             end
           end
-        end
-        if system.get_time() - start_time > 15 then
-          if fw.type ~= "static" and fw.default_url then
-            active_url = fw.default_url
-            active_port = tonumber(active_url:match(":(%d+)/?$")) or 80
-            core.log("Web Preview: Framework ready on %s (assumed)", active_url)
+          if system.get_time() - start_time > 20 then
+            -- Fallback to default port after timeout
+            active_port = default_port
+            active_url = "http://localhost:" .. default_port
+            core.log("Web Preview: Timeout — assuming %s is on %s", fw.type, active_url)
             open_browser(active_url)
             break
-          elseif fw.type ~= "static" then
-            core.log("Web Preview: Could not detect URL from %s output. Please open manually.", fw.type)
-            break
-          else
-            core.error("Web Preview: Timeout waiting for PORT_BOUND from server.")
-            command.perform("web-preview:stop")
+          end
+          coroutine.yield(0.2)
+        end
+      end)
+      return
+    end
+
+    -- ── Static server path ──
+    local bin = get_binary_path()
+    if not system.get_file_info(bin) then
+      core.error("Web Preview: Binary not found at %s. Please compile it.", bin)
+      return
+    end
+    if system.get_file_info(root .. PATHSEP .. "index.html") == nil then
+      core.log("Web Preview: No index.html found in project root, but starting anyway.")
+    end
+    local args = { bin, root, tostring(cfg.port) }
+    if cfg.spa_fallback then table.insert(args, "--spa") end
+    if not cfg.live_reload then table.insert(args, "--no-reload") end
+    if #cfg.ignore_dirs > 0 then
+      table.insert(args, "--ignore=" .. table.concat(cfg.ignore_dirs, ","))
+    end
+    if cfg.bind_host then table.insert(args, "--host=" .. cfg.bind_host) end
+    preview_proc = process.start(args, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+    if not preview_proc then
+      core.error("Web Preview: Failed to spawn preview server process.")
+      return
+    end
+    core.add_thread(function()
+      local start_time = system.get_time()
+      local out = ""
+      while preview_proc and preview_proc:running() do
+        local chunk = preview_proc:read_stdout(4096)
+        if chunk then
+          out = out .. chunk
+          local p_str = out:match("PORT_BOUND:(%d+)")
+          if p_str then
+            active_port = tonumber(p_str)
+            active_url = "http://" .. (cfg.bind_host or "127.0.0.1") .. ":" .. active_port
+            core.log("Web Preview: Serving on %s", active_url)
+            open_browser(active_url)
             break
           end
+        end
+        if system.get_time() - start_time > 15 then
+          core.error("Web Preview: Timeout waiting for PORT_BOUND from server.")
+          command.perform("web-preview:stop")
+          break
         end
         coroutine.yield(0.1)
       end

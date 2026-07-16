@@ -455,7 +455,14 @@ function TermView:update()
           -- Strip \r and ALL ANSI escape sequences (mid-line too)
           line = line:gsub("\r$", "")
           line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")
-          line = line:gsub("%[[0-9;]+[mK]", "")
+          line = line:gsub("\027[%[%]%(%)#%%][%d;]*[A-Za-z]", "")
+          line = line:gsub("%[[0-9;]+[mKJHABCDEFGfu]", "")
+          -- Replace common Unicode symbols that code fonts may not render
+          line = line:gsub("➜", "->")  -- ➜ arrow
+          line = line:gsub("→", "->")
+          line = line:gsub("▶", ">")
+          line = line:gsub("✔", "ok")
+          line = line:gsub("✖", "err")
           -- Filter READY init marker
           if line == "READY" then
             -- skip init marker
@@ -483,7 +490,13 @@ function TermView:update()
         for line in (buf .. "\n"):gmatch("([^\n]*)\n") do
           line = line:gsub("\r$", "")
           line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")  -- strip all ANSI escapes
-          line = line:gsub("%[[0-9;]+[mK]", "")
+          line = line:gsub("\027[%[%]%(%)#%%][%d;]*[A-Za-z]", "")
+          line = line:gsub("%[[0-9;]+[mKJHABCDEFGfu]", "")
+          line = line:gsub("➜", "->")
+          line = line:gsub("→", "->")
+          line = line:gsub("▶", ">")
+          line = line:gsub("✔", "ok")
+          line = line:gsub("✖", "err")
           if #line > 0 then
             table.insert(s.lines, { kind = "err", text = line })
             had_output = true
