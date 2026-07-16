@@ -486,8 +486,13 @@ command.add(nil, {
 local old_quit = core.quit
 function core.quit(force)
   pcall(function()
-    -- Asynchronously stop all containers instantly (timeout 0)
-    process.start({PODMAN_EXE, "stop", "-a", "-t", "0"})
+    if PLATFORM == "Windows" or PLATFORM == "Mac OS X" then
+      -- Completely shut down the Podman VM to free up all resources
+      process.start({PODMAN_EXE, "machine", "stop"})
+    else
+      -- On Linux podman is daemonless, so just stop all containers instantly
+      process.start({PODMAN_EXE, "stop", "-a", "-t", "0"})
+    end
   end)
   return old_quit(force)
 end
