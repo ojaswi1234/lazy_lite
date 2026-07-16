@@ -667,7 +667,7 @@ local function connect_codespace(cs)
       
       local vfs_ok, vfs_err = vfs.activate(cs.name, remote_dir, local_dir, set_progress)
       
-      if not vfs_ok and not dir_success then
+      if not vfs_ok and not probe_success then
         core.log_quiet("[Codespaces] Deadlock detected. Codespace is stuck in 'Starting'. Auto-rebuilding...")
         modal.loading_msg = "Deadlock detected! Auto-rebuilding Codespace..."
         if loader then loader.update_progress(modal.loading_msg, 0) end

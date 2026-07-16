@@ -209,14 +209,12 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
       local item = self.items[idx]
       local current_node = _G.get_sidebar_node and _G.get_sidebar_node(true)
       
-      if self.active_id == item.id and current_node and #current_node.views > 0 then
-        for i = #current_node.views, 1, -1 do
-          current_node:close_view(core.root_view.root_node, current_node.views[i])
-        end
+      if self.active_id == item.id then
+        self.active_id = nil
       else
         self.active_id = item.id
-        command.perform(item.command)
       end
+      command.perform(item.command)
       return true
     end
   end
@@ -355,3 +353,65 @@ core.add_thread(function()
 end)
 
 
+
+
+
+
+
+
+
+
+
+-- Monkey-patch Node to fix dragging dividers when a locked, non-resizable view (like ActivityBar) is next to a resizable view (like TreeView)
+local Node = require "core.node"
+if not Node._ab_is_resizable_patched then
+  local orig_is_resizable = Node.is_resizable
+  function Node:is_resizable(axis)
+    if self.type == 'leaf' then
+      return orig_is_resizable(self, axis)
+    else
+      local a_resizable = self.a:is_resizable(axis)
+      local b_resizable = self.b:is_resizable(axis)
+      return a_resizable or b_resizable
+    end
+  end
+  
+  local orig_is_locked_resizable = Node.is_locked_resizable
+  function Node:is_locked_resizable(axis)
+    if self.type == 'leaf' then
+      return orig_is_locked_resizable(self, axis)
+    else
+      local a_res = self.a:is_locked_resizable(axis)
+      local b_res = self.b:is_locked_resizable(axis)
+      return a_res or b_res
+    end
+  end
+  
+  local orig_resize = Node.resize
+  function Node:resize(axis, value)
+    value = math.floor(value)
+    if self.type == (axis == "x" and "hsplit" or "vsplit") then
+      local a_res = self.a:is_locked_resizable(axis)
+      local b_res = self.b:is_locked_resizable(axis)
+      if a_res or b_res then
+        if a_res and b_res then
+          return self.a:resize(axis, value) or self.b:resize(axis, self.size[axis] - value)
+        elseif a_res then
+          -- b is locked and not resizable, so subtract its size and pass to a
+          local sx, sy = self.b:get_locked_size()
+          local b_size = (axis == "x" and sx or sy) or self.b.size[axis]
+          local ds = style.divider_size
+          return self.a:resize(axis, value - (b_size or 0) - ds)
+        elseif b_res then
+          -- a is locked and not resizable, so subtract its size and pass to b
+          local sx, sy = self.a:get_locked_size()
+          local a_size = (axis == "x" and sx or sy) or self.a.size[axis]
+          local ds = style.divider_size
+          return self.b:resize(axis, value - (a_size or 0) - ds)
+        end
+      end
+    end
+    return orig_resize(self, axis, value)
+  end
+  Node._ab_is_resizable_patched = true
+end
