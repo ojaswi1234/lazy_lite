@@ -81,29 +81,33 @@ local FRAMEWORK_PORTS = {
   static = nil,
 }
 
--- Probe if a TCP port is already bound (fast, non-blocking via a net command)
+-- Probe if a TCP port is already bound using netstat (fast, no PowerShell startup cost)
+-- Must be called from inside a coroutine (core.add_thread)
 local function port_in_use(port)
+  local cmd, pattern
   if PLATFORM == "Windows" then
-    local p = process.start({ "powershell.exe", "-NoProfile", "-Command",
-      string.format("(Get-NetTCPConnection -LocalPort %d -ErrorAction SilentlyContinue) -ne $null", port)
-    }, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
-    if not p then return false end
-    local out = ""
-    local deadline = system.get_time() + 2
-    while p:running() and system.get_time() < deadline do end
-    local chunk = p:read_stdout(256)
-    if chunk then out = out .. chunk end
-    return out:match("True") ~= nil
+    cmd = { "netstat", "-ano" }
+    pattern = ":%d+%s+[%d%.]+:" .. port .. "%s"
   else
-    local p = process.start({ "sh", "-c",
-      string.format("ss -tnlp 2>/dev/null | grep -q ':%d ' && echo yes", port)
-    }, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
-    if not p then return false end
-    local deadline = system.get_time() + 2
-    while p:running() and system.get_time() < deadline do end
-    local chunk = p:read_stdout(64)
-    return chunk and chunk:match("yes") ~= nil
+    cmd = { "sh", "-c", string.format("ss -tnlp | grep ':%d '", port) }
+    pattern = ":" .. port
   end
+  local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+  if not p then return false end
+  local out = ""
+  local deadline = system.get_time() + 3
+  while p:running() and system.get_time() < deadline do
+    coroutine.yield(0.05)  -- yield to keep editor responsive
+  end
+  while true do
+    local chunk = p:read_stdout(4096)
+    if not chunk or #chunk == 0 then break end
+    out = out .. chunk
+  end
+  -- On Windows, netstat output: "  TCP    0.0.0.0:5173    ..." 
+  return out:find(":" .. tostring(port) .. " ") ~= nil
+    or out:find(":" .. tostring(port) .. "\r") ~= nil
+    or out:find(":" .. tostring(port) .. "\n") ~= nil
 end
 
 -- Strip ANSI escape codes from output before URL parsing

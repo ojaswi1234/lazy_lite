@@ -268,6 +268,18 @@ function TermView:_push_chunk(kind, chunk, no_redraw)
       if #line > 0 and line:byte(#line) == 13 then -- strip '\r'
         line = line:sub(1, -2)
       end
+      -- Strip ALL ANSI escape sequences (with or without ESC byte)
+      line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")       -- ESC [ ... letter
+      line = line:gsub("\027[%[%]%(%)#%%][%d;]*[A-Za-z]", "")  -- other ESC seqs
+      line = line:gsub("%[[0-9;]+[mKJHABCDEFGfu]", "")   -- orphaned (no ESC byte)
+      -- Replace common Unicode symbols that code fonts can't render
+      line = line:gsub("\xe2\x9e\x9c", "->")  -- ➜  (U+279C)
+      line = line:gsub("\xe2\x86\x92", "->")  -- →  (U+2192)
+      line = line:gsub("\xe2\x96\xb6", ">")   -- ▶  (U+25B6)
+      line = line:gsub("\xe2\x9c\x94", "ok")  -- ✔  (U+2714)
+      line = line:gsub("\xe2\x9c\x96", "err") -- ✖  (U+2716)
+      line = line:gsub("\xe2\x9c\x93", "ok")  -- ✓  (U+2713)
+      line = line:gsub("\xe2\x9c\x97", "err") -- ✗  (U+2717)
       if #line > 0 then
         table.insert(s.lines, { kind = kind, text = line })
       end
