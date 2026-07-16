@@ -49,7 +49,9 @@ local function get_prompt(s)
     local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
     return "\u{f09b} /workspaces/" .. repo_only .. "$ "
   end
-  return (s.shell.prompt_prefix or "") .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
+  local prefix = ""
+  if s.venv_name then prefix = "(" .. s.venv_name .. ") " end
+  return prefix .. (s.shell.prompt_prefix or "") .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
 end
 
 local shells = {}
@@ -392,9 +394,20 @@ function TermView:run(cmd_str)
 
   self:_push("cmd", get_prompt(s) .. cmd_str)
 
+  local final_cmd = cmd_str
+  if s.venv_path then
+    if s.shell.name == "PowerShell" then
+      final_cmd = s.venv_path .. " ; " .. cmd_str
+    elseif s.shell.name == "Command Prompt" then
+      final_cmd = s.venv_path .. " && " .. cmd_str
+    else
+      final_cmd = "source " .. s.venv_path .. " && " .. cmd_str
+    end
+  end
+
   local argv = {}
   for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
-  table.insert(argv, cmd_str)
+  table.insert(argv, final_cmd)
 
   local p, err, code = process.start(argv, {
     stdin  = process.REDIRECT_PIPE,
@@ -931,13 +944,35 @@ function TermView:on_key_pressed(key)
       self:state().history_idx = #self:state().history + 1
       
       local lower_cmd = cmd:lower()
-      local cd_dir
+      local cd_dir, venv_cmd
       if not self:state().proc then
         cd_dir = cmd:match("^%s*[cC][dD]%s+([^&;|]+)%s*$")
         if not cd_dir and cmd:match("^%s*[cC][dD]%s*$") then cd_dir = "" end
+        
+        if cmd:match("deactivate") then
+          venv_cmd = "deactivate"
+        else
+          local venv_path = cmd:match("([%w_%.%-/\\]+)[/\\][Ss]cripts[/\\][Aa]ctivate") or cmd:match("([%w_%.%-/\\]+)[/\\]bin[/\\]activate")
+          if venv_path then
+            local vname = venv_path:match("([^/\\]+)$") or venv_path
+            if vname == "." or vname == ".." then vname = "env" end
+            vname = vname:gsub("%.%a+$", "")
+            venv_cmd = { name = vname, path = cmd }
+          end
+        end
       end
       
-      if cd_dir then
+      if venv_cmd then
+          if venv_cmd == "deactivate" then
+            self:state().venv_name = nil
+            self:state().venv_path = nil
+          else
+            self:state().venv_name = venv_cmd.name
+            self:state().venv_path = venv_cmd.path
+          end
+          self:_push("cmd", get_prompt(self:state()) .. cmd)
+          self:_push("info", venv_cmd == "deactivate" and "Virtual environment deactivated." or ("Virtual environment '" .. venv_cmd.name .. "' activated."))
+      elseif cd_dir then
           cd_dir = cd_dir:gsub('^"([^"]*)"$', '%1'):gsub("^'([^']*)'$", "%1")
           if cd_dir == "" then
              if PLATFORM == "Windows" then
