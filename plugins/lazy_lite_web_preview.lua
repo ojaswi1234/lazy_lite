@@ -54,10 +54,11 @@ local function get_binary_path()
   return USERDIR .. PATHSEP .. "plugins" .. PATHSEP .. BIN_NAME
 end
 
--- Open Browser Cross-Platform
+-- Open Browser Cross-Platform (use rundll32 on Windows — more reliable than cmd start for URLs)
 local function open_browser(url)
   if PLATFORM == "Windows" then
-    process.start({ "cmd.exe", "/c", "start", "", url })
+    -- rundll32 is always available and handles URLs correctly including IPv6
+    process.start({ "rundll32", "url.dll,FileProtocolHandler", url })
   elseif PLATFORM == "Mac OS X" then
     process.start({ "open", url })
   else
@@ -65,38 +66,91 @@ local function open_browser(url)
   end
 end
 
-
 local function file_exists(path)
   return system.get_file_info(path) ~= nil
 end
 
--- Probe if a TCP port is already bound using netstat (coroutine-safe)
--- Returns the accessible URL if bound, or nil
-local function port_in_use(port)
-  local p = process.start({ "netstat", "-ano" }, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
-  if not p then return nil end
+-- Run netstat ONCE and return a table of { port → url } for all LISTENING TCP ports.
+-- Must be called from inside a coroutine (core.add_thread).
+local function get_all_listening_ports()
+  local cmd = PLATFORM == "Windows" and { "netstat", "-ano" } or { "ss", "-tnlp" }
+  local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+  if not p then return {} end
   local out = ""
-  local deadline = system.get_time() + 3
+  local deadline = system.get_time() + 4
   while p:running() and system.get_time() < deadline do
     coroutine.yield(0.05)
   end
+  -- drain all output
   while true do
     local chunk = p:read_stdout(65536)
     if not chunk or #chunk == 0 then break end
     out = out .. chunk
   end
-  local sport = tostring(port)
-  -- netstat lines on Windows: "  TCP  0.0.0.0:PORT  ..." or "  TCP  [::1]:PORT  ..."
-  local found = out:find(":" .. sport .. " ") or out:find(":" .. sport .. "\r") or out:find(":" .. sport .. "\n")
-  if not found then return nil end
-  -- Prefer 127.0.0.1 over ::1 since browsers may not resolve ::1 from localhost
-  if out:find("127%.0%.0%.1:" .. sport) then
-    return "http://127.0.0.1:" .. sport
-  elseif out:find("%[::1%]:" .. sport) or out:find("%[::%]:" .. sport) then
-    return "http://localhost:" .. sport  -- browser resolves localhost → ::1 on IPv6-first systems
-  else
-    return "http://localhost:" .. sport
+  local result = {}
+  -- Windows netstat line format examples:
+  --   TCP    127.0.0.1:5000     0.0.0.0:0     LISTENING  1234
+  --   TCP    [::1]:5173         [::]:0        LISTENING  5678
+  --   TCP    0.0.0.0:80         0.0.0.0:0     LISTENING  91
+  for line in (out .. "\n"):gmatch("[^\n]+") do
+    if line:find("LISTEN") then
+      local ipv4, port4 = line:match("(%d+%.%d+%.%d+%.%d+):(%d+)")
+      if ipv4 and port4 then
+        local portnum = tonumber(port4)
+        if portnum and not result[portnum] then
+          -- prefer 127.0.0.1 > 0.0.0.0 for the URL
+          if ipv4 == "127.0.0.1" or not result[portnum] then
+            result[portnum] = "http://127.0.0.1:" .. port4
+          end
+        end
+      end
+      -- IPv6: [::1]:5173 or [::]:5173
+      local port6 = line:match("%[.-%]:(%d+)")
+      if port6 then
+        local portnum = tonumber(port6)
+        if portnum then
+          -- only use localhost (IPv6) if no IPv4 entry found yet
+          if not result[portnum] then
+            result[portnum] = "http://localhost:" .. port6
+          end
+        end
+      end
+    end
   end
+  return result
+end
+
+-- Port ranges to scan per framework (in priority order)
+local FRAMEWORK_PORT_RANGES = {
+  vite    = { 5173, 5174, 5175, 5176, 5177, 4173, 4174 },
+  next    = { 3000, 3001, 3002, 3003 },
+  react   = { 3000, 3001, 3002, 8080 },
+  django  = { 8000, 8001, 8080 },
+  fastapi = { 8000, 8001, 8080 },
+  go      = { 8080, 8000, 3000 },
+}
+
+-- Find the first bound port for a framework type. Returns (url, port) or nil.
+-- Must be called from inside a coroutine.
+local function find_dev_server(fw_type, hint_port)
+  local listening = get_all_listening_ports()
+  -- try the hint port first (from detect_framework or config override)
+  local cfg_override = config.plugins.web_preview.dev_port
+  for _, port in ipairs({ cfg_override, hint_port }) do
+    if port and listening[port] then
+      return listening[port], port
+    end
+  end
+  -- scan the range for this framework type
+  local ranges = FRAMEWORK_PORT_RANGES[fw_type]
+  if ranges then
+    for _, port in ipairs(ranges) do
+      if listening[port] then
+        return listening[port], port
+      end
+    end
+  end
+  return nil, nil
 end
 
 -- Strip ANSI escape codes from output before URL parsing
@@ -206,16 +260,16 @@ command.add(nil, {
     local fw = detect_framework(root)
     local cfg = config.plugins.web_preview
 
-    -- ── Attach mode: if the server is already running on its default port, just open browser ──
+    -- ── Attach mode: scan port range for already-running dev server ──
     local default_port = fw.port  -- set by detect_framework (nil for static)
-    if default_port then
+    if default_port or config.plugins.web_preview.dev_port then
       core.add_thread(function()
-        core.log("Web Preview: Checking if %s dev server is already running on port %d...", fw.type, default_port)
-        local bound_url = port_in_use(default_port)
+        core.log("Web Preview: Scanning for %s dev server (ports %d--%d)...", fw.type, default_port or 0, (default_port or 0) + 4)
+        local bound_url, bound_port = find_dev_server(fw.type, default_port)
         if bound_url then
-          active_port = default_port
+          active_port = bound_port
           active_url = bound_url
-          core.log("Web Preview: Attached to existing %s server on %s", fw.type, active_url)
+          core.log("Web Preview: Found %s on port %d → opening %s", fw.type, bound_port, active_url)
           open_browser(active_url)
           return
         end
