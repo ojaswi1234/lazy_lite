@@ -10,15 +10,16 @@ local style = require "core.style"
 local system = require "system"
 
 -- Config Schema
-config.plugins.web_preview = config.plugins.web_preview or {
-  port = 8080,          -- requested port; actual may differ, see PORT_BOUND
-  spa_fallback = false,
-  live_reload = true,
-  ignore_dirs = { ".git", "node_modules" },
-  bind_host = "127.0.0.1",
-  keybind_start = "ctrl+alt+p",
-  keybind_stop = "ctrl+alt+shift+p",
-}
+config.plugins.web_preview = config.plugins.web_preview or {}
+local cfg = config.plugins.web_preview
+cfg.port = cfg.port or 8080
+if cfg.spa_fallback == nil then cfg.spa_fallback = false end
+if cfg.live_reload == nil then cfg.live_reload = true end
+cfg.ignore_dirs = cfg.ignore_dirs or { ".git", "node_modules" }
+cfg.bind_host = cfg.bind_host or "127.0.0.1"
+cfg.keybind_start = cfg.keybind_start or "ctrl+alt+p"
+cfg.keybind_stop = cfg.keybind_stop or "ctrl+alt+shift+p"
+
 
 -- State
 local preview_proc = nil
