@@ -954,10 +954,20 @@ function TermView:on_key_pressed(key)
         else
           local venv_path = cmd:match("([%w_%.%-/\\]+)[/\\][Ss]cripts[/\\][Aa]ctivate") or cmd:match("([%w_%.%-/\\]+)[/\\]bin[/\\]activate")
           if venv_path then
-            local vname = venv_path:match("([^/\\]+)$") or venv_path
-            if vname == "." or vname == ".." then vname = "env" end
-            vname = vname:gsub("%.%a+$", "")
-            venv_cmd = { name = vname, path = cmd }
+            local full_path = cmd:match("^%s*(%S+)") or venv_path
+            full_path = full_path:gsub("^%.[/\\]", "")
+            if not (full_path:match("^%a:") or full_path:match("^/") or full_path:match("^\\")) then
+              full_path = (self:state().cwd or core.project_dir) .. PATHSEP .. full_path
+            end
+            
+            local exists = system.get_file_info(full_path) or system.get_file_info(full_path .. ".bat") or system.get_file_info(full_path .. ".ps1")
+            
+            if exists then
+              local vname = venv_path:match("([^/\\]+)$") or venv_path
+              if vname == "." or vname == ".." then vname = "env" end
+              vname = vname:gsub("%.%a+$", "")
+              venv_cmd = { name = vname, path = cmd }
+            end
           end
         end
       end
