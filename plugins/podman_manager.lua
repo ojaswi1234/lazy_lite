@@ -465,7 +465,7 @@ command.add(nil, {
     local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
     if podman_view and core.root_view.root_node:get_node_for_view(podman_view) then
       local node = core.root_view.root_node:get_node_for_view(podman_view)
-      if sidebar and node == sidebar then
+      if sidebar and node == sidebar and node.active_view ~= podman_view then
         node:set_active_view(podman_view)
       else
         node:close_view(core.root_view.root_node, podman_view)
@@ -481,3 +481,13 @@ command.add(nil, {
   end
 })
 
+
+-- Hook into core.quit to stop all podman containers when lite-xl closes, as requested
+local old_quit = core.quit
+function core.quit(force)
+  pcall(function()
+    -- Asynchronously stop all containers instantly (timeout 0)
+    process.start({PODMAN_EXE, "stop", "-a", "-t", "0"})
+  end)
+  return old_quit(force)
+end
