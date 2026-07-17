@@ -224,11 +224,18 @@ function TermView:refresh_ports(s)
       local p1 = process.start({"powershell", "-NoProfile", "-Command", "Get-Process | Select-Object Id, ProcessName | ConvertTo-Csv -NoTypeInformation"}, { stdout = process.REDIRECT_PIPE })
       if p1 then
         local out = ""
-        while p1:running() do coroutine.yield(0.01) end
+        local deadline = system.get_time() + 4
         while true do
-          local chunk = p1:read_stdout(65536)
-          if not chunk or #chunk == 0 then break end
-          out = out .. chunk
+          local chunk = p1:read_stdout(4096)
+          if chunk and #chunk > 0 then
+            out = out .. chunk
+          elseif not p1:running() then
+            break
+          elseif system.get_time() > deadline then
+            break
+          else
+            coroutine.yield(0.01)
+          end
         end
         for line in (out .. "\n"):gmatch("[^\n]+") do
           local pid, name = line:match('^"([^"]+)","([^"]+)"')
@@ -242,11 +249,18 @@ function TermView:refresh_ports(s)
       local p2 = process.start({"cmd.exe", "/c", "netstat -ano | findstr LISTENING"}, { stdout = process.REDIRECT_PIPE })
       if p2 then
         local out = ""
-        while p2:running() do coroutine.yield(0.01) end
+        local deadline = system.get_time() + 4
         while true do
-          local chunk = p2:read_stdout(65536)
-          if not chunk or #chunk == 0 then break end
-          out = out .. chunk
+          local chunk = p2:read_stdout(4096)
+          if chunk and #chunk > 0 then
+            out = out .. chunk
+          elseif not p2:running() then
+            break
+          elseif system.get_time() > deadline then
+            break
+          else
+            coroutine.yield(0.01)
+          end
         end
         for line in (out .. "\n"):gmatch("[^\n]+") do
           local proto, local_addr, foreign_addr, state, pid = line:match("%s*(%w+)%s+([%w%.%:%[%]]+)%s+([%w%.%:%[%]]+)%s+(%w+)%s+(%d+)")

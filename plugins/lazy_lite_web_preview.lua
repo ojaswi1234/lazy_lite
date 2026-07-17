@@ -80,11 +80,18 @@ local function get_all_listening_ports()
     local p_task = process.start({"powershell", "-NoProfile", "-Command", "Get-Process | Select-Object Id, ProcessName | ConvertTo-Csv -NoTypeInformation"}, { stdout = process.REDIRECT_PIPE })
     if p_task then
       local out = ""
-      while p_task:running() do coroutine.yield(0.01) end
+      local deadline = system.get_time() + 4
       while true do
-        local chunk = p_task:read_stdout(65536)
-        if not chunk or #chunk == 0 then break end
-        out = out .. chunk
+        local chunk = p_task:read_stdout(4096)
+        if chunk and #chunk > 0 then
+          out = out .. chunk
+        elseif not p_task:running() then
+          break
+        elseif system.get_time() > deadline then
+          break
+        else
+          coroutine.yield(0.01)
+        end
       end
       for line in (out .. "\n"):gmatch("[^\n]+") do
         local pid, name = line:match('^"([^"]+)","([^"]+)"')
@@ -101,14 +108,17 @@ local function get_all_listening_ports()
   if not p then return {} end
   local out = ""
   local deadline = system.get_time() + 4
-  while p:running() and system.get_time() < deadline do
-    coroutine.yield(0.05)
-  end
-  -- drain all output
   while true do
-    local chunk = p:read_stdout(65536)
-    if not chunk or #chunk == 0 then break end
-    out = out .. chunk
+    local chunk = p:read_stdout(4096)
+    if chunk and #chunk > 0 then
+      out = out .. chunk
+    elseif not p:running() then
+      break
+    elseif system.get_time() > deadline then
+      break
+    else
+      coroutine.yield(0.01)
+    end
   end
 
   for line in (out .. "\n"):gmatch("[^\n]+") do
