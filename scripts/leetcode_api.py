@@ -29,11 +29,11 @@ _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 
-def http_request(url, data=None, method="POST"):
+def http_request(url, data=None, method="POST", referer="https://leetcode.com/"): 
     session, csrf, raw = load_session()
     headers = {
         "Content-Type":   "application/json",
-        "Referer":        "https://leetcode.com",
+        "Referer": referer,
         "User-Agent":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "x-csrftoken":    csrf,
         "Cookie":         raw if raw else f"LEETCODE_SESSION={session}; csrftoken={csrf}",
@@ -388,16 +388,12 @@ STATUS_MAP = {
 
 def cmd_run_code(params):
     slug        = params.get("slug")
-    question_id = params.get("question_id")
+    question_id = int(params.get("question_id")) if params.get("question_id") else None
     lang        = params.get("lang", "python3")
     code        = params.get("code", "")
     test_input  = params.get("test_input", "")
     try:
-        r = http_request(
-            f"https://leetcode.com/problems/{slug}/interpret_solution/",
-            {"lang": lang, "question_id": question_id,
-             "typed_code": code, "data_input": test_input}
-        )
+        r = http_request(f"https://leetcode.com/problems/{slug}/interpret_solution/", {"lang": lang, "question_id": question_id, "typed_code": code, "data_input": test_input}, referer=f"https://leetcode.com/problems/{slug}/")
         interpret_id = r.get("interpret_id")
         if not interpret_id:
             return {"ok": False, "error": "No interpret_id returned: " + str(r)}
@@ -427,14 +423,11 @@ def cmd_run_code(params):
 
 def cmd_submit(params):
     slug        = params.get("slug")
-    question_id = params.get("question_id")
+    question_id = int(params.get("question_id")) if params.get("question_id") else None
     lang        = params.get("lang", "python3")
     code        = params.get("code", "")
     try:
-        r = http_request(
-            f"https://leetcode.com/problems/{slug}/submit/",
-            {"lang": lang, "question_id": question_id, "typed_code": code}
-        )
+        r = http_request(f"https://leetcode.com/problems/{slug}/submit/", {"lang": lang, "question_id": question_id, "typed_code": code}, referer=f"https://leetcode.com/problems/{slug}/")
         sub_id = r.get("submission_id")
         if not sub_id:
             return {"ok": False, "error": "No submission_id returned: " + str(r)}
@@ -503,3 +496,5 @@ if __name__ == "__main__":
             print(to_lua(result), flush=True)
         except Exception as e:
             print(to_lua({"id": "", "ok": False, "error": str(e)}), flush=True)
+
+
