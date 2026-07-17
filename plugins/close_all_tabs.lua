@@ -15,7 +15,7 @@ end
 
 -- 1. Hook get_scroll_button_rect to naturally shift the scroll buttons leftwards
 local old_get_scroll_button_rect = Node.get_scroll_button_rect
-function Node:get_scroll_button_rect(self, index)
+function Node:get_scroll_button_rect(index)
   local old_size_x = self.size.x
   if #self.views > 0 then self.size.x = self.size.x - get_btn_info() end
   local x, y, w, h, pad = old_get_scroll_button_rect(self, index)
@@ -25,7 +25,7 @@ end
 
 -- 2. Hook get_tab_rect so tabs are naturally clamped to the reduced width
 local old_get_tab_rect = Node.get_tab_rect
-function Node:get_tab_rect(self, idx)
+function Node:get_tab_rect(idx)
   local old_size_x = self.size.x
   if #self.views > 0 then self.size.x = self.size.x - get_btn_info() end
   local x, y, w, h = old_get_tab_rect(self, idx)
@@ -35,7 +35,7 @@ end
 
 -- 3. Hook target_tab_width so tab logic allocates the correct space
 local old_target_tab_width = Node.target_tab_width
-function Node:target_tab_width(self)
+function Node:target_tab_width()
   local old_size_x = self.size.x
   if #self.views > 0 then self.size.x = self.size.x - get_btn_info() end
   local res = old_target_tab_width(self)
@@ -45,7 +45,7 @@ end
 
 -- 4. Hook draw_tabs to draw our beautiful close-all button at the end
 local old_draw_tabs = Node.draw_tabs
-function Node:draw_tabs(self)
+function Node:draw_tabs()
   old_draw_tabs(self)
   if #self.views == 0 then return end
   
@@ -68,7 +68,7 @@ end
 
 -- 5. Hook RootView for accurate hover states
 local old_on_mouse_moved = RootView.on_mouse_moved
-function RootView:on_mouse_moved(self, x, y, dx, dy)
+function RootView:on_mouse_moved(x, y, dx, dy)
   local node = self.root_node:get_child_overlapping_point(x, y)
   local hnode = nil
   if node and node.type == "leaf" and #node.views > 0 then
@@ -91,7 +91,7 @@ end
 
 -- 6. Hook RootView to intercept clicks and safely close all tabs
 local old_on_mouse_pressed = RootView.on_mouse_pressed
-function RootView:on_mouse_pressed(self, button, x, y, clicks)
+function RootView:on_mouse_pressed(button, x, y, clicks)
   local node = self.root_node:get_child_overlapping_point(x, y)
   if node and node.type == "leaf" and #node.views > 0 then
     local bw = get_btn_info()
