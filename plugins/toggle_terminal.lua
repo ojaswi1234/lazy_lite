@@ -1591,16 +1591,27 @@ command.add(
     ["terminal:cursor-home"] = function() instance:on_key_pressed("home") end,
     ["terminal:cursor-end"] = function() instance:on_key_pressed("end") end,
     ["terminal:delete"] = function() instance:on_key_pressed("delete") end,
+    ["terminal:paste"] = function()
+      if system.has_clipboard() then
+        local text = system.get_clipboard()
+        if text then
+          text = text:gsub("\r", "")
+          instance:on_text_input(text)
+        end
+      end
+    end,
   }
 )
 
 keymap.add {
-  ["return"]    = "terminal:return",
-  ["backspace"] = "terminal:backspace",
-  ["ctrl+c"]    = "terminal:interrupt",
-  ["ctrl+l"]    = "terminal:clear",
-  ["pageup"]    = "terminal:scroll-up",
-  ["pagedown"]  = "terminal:scroll-down",
+    ["return"]    = "terminal:return",
+    ["backspace"] = "terminal:backspace",
+    ["ctrl+c"]    = "terminal:interrupt",
+    ["ctrl+l"]    = "terminal:clear",
+    ["ctrl+v"]    = "terminal:paste",
+    ["shift+insert"] = "terminal:paste",
+    ["pageup"]    = "terminal:scroll-up",
+    ["pagedown"]  = "terminal:scroll-down",
   ["up"]        = "terminal:history-up",
   ["down"]      = "terminal:history-down",
   ["left"]      = "terminal:cursor-left",
