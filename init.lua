@@ -152,7 +152,7 @@ end
 local function safe_require(mod)
   local ok, err = pcall(require, mod)
   if not ok then
-    core.warn("Failed to load %s: %s", mod, tostring(err))
+    core.log("Failed to load %s: %s", mod, tostring(err))
     local f = io.open(USERDIR .. "/error_log.txt", "a")
     if f then
       f:write("Failed to load " .. mod .. ": " .. tostring(err) .. "\n")

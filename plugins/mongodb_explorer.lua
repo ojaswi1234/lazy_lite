@@ -79,10 +79,11 @@ end
 local function check_dependencies()
   core.log_quiet("Checking MongoDB dependencies...")
   local python_cmd = PLATFORM == "Windows" and "python" or "python3"
-  local p = process.start({python_cmd, "-c", "import pymongo"}, {
+  local ok, p = pcall(process.start, {python_cmd, "-c", "import pymongo"}, {
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE
   })
+  if not ok then p = nil end
   
   if not p then return false end
   
