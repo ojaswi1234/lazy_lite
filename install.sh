@@ -12,9 +12,28 @@ if ! command -v lite-xl &> /dev/null; then
     read -p "Lite-XL is not installed. Do you want to install it automatically? (y/n): " install_lite
     if [[ "$install_lite" =~ ^[Yy]$ ]]; then
         echo "Installing Lite-XL..."
-        curl -L -o LiteXL-setup.exe https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
-        chmod +x LiteXL-setup.exe
-        ./LiteXL-setup.exe
+        if command -v apk &> /dev/null; then
+            sudo apk add lite-xl
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y lite-xl
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm lite-xl
+        else
+            mkdir -p ~/.local/bin
+            curl -L -o ~/.local/bin/lite-xl https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64.AppImage
+            chmod +x ~/.local/bin/lite-xl
+            mkdir -p ~/.local/share/applications
+            cat <<EOF > ~/.local/share/applications/lite-xl.desktop
+[Desktop Entry]
+Name=Lite-XL
+Exec=$HOME/.local/bin/lite-xl %F
+Terminal=false
+Type=Application
+Categories=TextEditor;Development;
+EOF
+            echo "Lite-XL AppImage installed to ~/.local/bin/lite-xl"
+            echo "Please ensure ~/.local/bin is in your PATH."
+        fi
     else
         echo "Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting."
         exit 1
@@ -142,7 +161,7 @@ if [[ "$prompt_mongo" =~ ^[Yy]$ ]]; then
         fi
     fi
     if command -v python3 &> /dev/null; then
-        python3 -m pip install pymongo --quiet || true
+        python3 -m pip install pymongo --break-system-packages --quiet || true
     fi
 else
     INSTALL_MONGO=false
@@ -214,7 +233,7 @@ echo "Copied plugins, scripts, fonts, and color scheme."
 # Update init.lua safely (append LazyLite block if not already present)
 INIT_FILE="$CONFIG_DIR/init.lua"
 
-if [ ! -f "$INIT_FILE" ] || ! grep -qF "-- [[ LazyLite Configuration ]]" "$INIT_FILE"; then
+if [ ! -f "$INIT_FILE" ] || ! grep -qF -- "-- [[ LazyLite Configuration ]]" "$INIT_FILE"; then
     cat "$SRC_DIR/init_append.lua" >> "$INIT_FILE"
     echo "Appended LazyLite configuration to init.lua"
 else
