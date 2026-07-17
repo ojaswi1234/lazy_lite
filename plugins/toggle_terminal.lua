@@ -240,8 +240,11 @@ function TermView:refresh_ports(s)
         for line in (out .. "\n"):gmatch("[^\n]+") do
           local pid, name = line:match('^"([^"]+)","([^"]+)"')
           if pid and name then
-            if not name:lower():match("%.exe$") then name = name .. ".exe" end
-            p_names[pid] = name
+            local pid_num = tonumber(pid)
+            if pid_num then
+              if not name:lower():match("%.exe$") then name = name .. ".exe" end
+              p_names[tostring(pid_num)] = name
+            end
           end
         end
       end

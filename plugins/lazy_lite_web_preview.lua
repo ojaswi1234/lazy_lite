@@ -96,8 +96,11 @@ local function get_all_listening_ports()
       for line in (out .. "\n"):gmatch("[^\n]+") do
         local pid, name = line:match('^"([^"]+)","([^"]+)"')
         if pid and name then
-          if not name:lower():match("%.exe$") then name = name .. ".exe" end
-          process_map[tonumber(pid)] = name:lower()
+          local pid_num = tonumber(pid)
+          if pid_num then
+            if not name:lower():match("%.exe$") then name = name .. ".exe" end
+            process_map[pid_num] = name:lower()
+          end
         end
       end
     end
