@@ -22,11 +22,31 @@ Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed
 
 ---
 
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action | Context |
+| :--- | :--- | :--- |
+| <kbd>Ctrl</kbd> + <kbd>B</kbd> | Toggle File Explorer | Global |
+| <kbd>Ctrl</kbd> + <kbd>`</kbd> | Toggle Terminal | Global |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> | Toggle Antigravity AI | Global |
+| <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Clear Chat / New Session | While in AI Sidebar |
+| <kbd>Up</kbd> / <kbd>Down</kbd> | Terminal Command History | While in Terminal |
+| <kbd>Ctrl</kbd> + <kbd>C</kbd> | Kill Running Command | While in Terminal |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> | Copy Selected Text | While in Terminal |
+| <kbd>Ctrl</kbd> + <kbd>L</kbd> | Clear Output | While in Terminal |
+| <kbd>PageUp</kbd> / <kbd>PageDn</kbd> | Scroll Output | While in Terminal |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | Toggle LeetCode Browser | Global |
+| <kbd>Ctrl</kbd> + <kbd>R</kbd> | Run Test Cases | While in a LeetCode solution file |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Submit Solution | While in a LeetCode solution file |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | Start Web Preview | Global |
+
+---
+
 ## 🚀 Installation & Setup
 
 LazyLite automatically provisions your `init.lua`, detects your package managers natively (supporting `apt`, `apk`, `dnf`, `pacman`), and pulls all dependencies including Python 3, GitHub CLI, and MongoDB tools.
 
-Run the installer via terminal:
+### For Linux & macOS
 
 ```bash
 # Clone the repository
@@ -37,7 +57,16 @@ cd ~/.config/lite-xl
 ./install.sh
 ```
 
-*(Note: On Windows, use the equivalent `install.ps1` script)*
+### For Windows
+
+```powershell
+# Clone the repository
+git clone https://github.com/ojaswi1234/lazy_lite.git $env:USERPROFILE\.config\lite-xl
+
+# Run the automated setup script
+cd $env:USERPROFILE\.config\lite-xl
+.\install.ps1
+```
 
 ### Post-Installation
 1. Restart Lite-XL.
