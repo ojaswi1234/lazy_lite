@@ -77,7 +77,7 @@ local function get_all_listening_ports()
   local process_map = {}
   
   if PLATFORM == "Windows" then
-    local p_task = process.start({"tasklist", "/FO", "CSV"}, { stdout = process.REDIRECT_PIPE })
+    local p_task = process.start({"powershell", "-NoProfile", "-Command", "Get-Process | Select-Object Id, ProcessName | ConvertTo-Csv -NoTypeInformation"}, { stdout = process.REDIRECT_PIPE })
     if p_task then
       local out = ""
       while p_task:running() do coroutine.yield(0.01) end
@@ -87,9 +87,10 @@ local function get_all_listening_ports()
         out = out .. chunk
       end
       for line in (out .. "\n"):gmatch("[^\n]+") do
-        local exe, pid = line:match('^"([^"]+)","(%d+)"')
-        if exe and pid then
-          process_map[tonumber(pid)] = exe:lower()
+        local pid, name = line:match('^"([^"]+)","([^"]+)"')
+        if pid and name then
+          if not name:lower():match("%.exe$") then name = name .. ".exe" end
+          process_map[tonumber(pid)] = name:lower()
         end
       end
     end
