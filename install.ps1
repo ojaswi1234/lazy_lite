@@ -225,5 +225,7 @@ if (-not $initContent.Contains($marker)) {
 Write-Host ""
 Write-Host "Installation complete! Restart Lite-XL."
 Write-Host ""
+Write-Host "💡 Tip: LazyLite is fully yours to shape! Feel free to explore your new .config\lite-xl folder and tweak the configs, plugins, and colors to make it uniquely yours." -ForegroundColor Cyan
+Write-Host ""
 Write-Host "NEXT STEP: Run 'agy install' once in a terminal to configure the AI backend."
 Read-Host "Press Enter to exit"

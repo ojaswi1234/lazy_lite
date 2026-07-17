@@ -265,4 +265,6 @@ fi
 echo ""
 echo "Installation complete! Restart Lite-XL."
 echo ""
+echo -e "\033[1;36m💡 Tip: LazyLite is fully yours to shape! Feel free to explore your new ~/.config/lite-xl folder and tweak the configs, plugins, and colors to make it uniquely yours.\033[0m"
+echo ""
 echo "NEXT STEP: Run 'agy install' once in a terminal to configure the AI backend."
