@@ -1,5 +1,7 @@
 # 🍃 LazyLite
 
+![LazyLite Preview](images/preview.png)
+
 LazyLite is a highly customized, portable configuration for [Lite-XL](https://lite-xl.com/). It transforms the lightweight editor into a modern, beautifully themed, VS Code-like powerhouse with an integrated terminal, a custom Git status bar, an incredibly powerful built-in AI coding assistant (Antigravity), and comprehensive GitHub Codespaces integration for remote development.
 
 Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed to be elegant, extremely fast, and easy to deploy across any OS.
