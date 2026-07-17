@@ -2,9 +2,22 @@
 CONFIG_DIR="$HOME/.config/lite-xl"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Lite-XL Mossy Configuration Installer"
-echo "---------------------------------------"
-echo "DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required."
+echo -e "\033[38;2;167;192;128m"
+cat << 'EOF'
+    __                      __    _ __     
+   / /   ____ _____  __  __/ /   (_) /____ 
+  / /   / __ `/_  / / / / / /   / / __/ _ \
+ / /___/ /_/ / / /_/ /_/ / /___/ / /_/  __/
+/_____/\__,_/ /___/\__, /_____/_/\__/\___/ 
+                  /____/                   
+
+EOF
+echo -e "\033[0m"
+echo -e "🌿 \033[1;32mWelcome to the LazyLite Installer!\033[0m 🌿"
+echo -e "✨ \033[3;37mTransforming your Lite-XL into a modern powerhouse...\033[0m ✨"
+echo "------------------------------------------------------------------"
+echo -e "⚠️  \033[1;33mDISCLAIMER:\033[0m For the Auto-Healer setup to work, the \033[1mAntigravity CLI (agy)\033[0m is required."
+echo "------------------------------------------------------------------"
 echo ""
 
 # 1. Check Lite-XL

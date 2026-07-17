@@ -1,9 +1,21 @@
 $configDir = "$env:USERPROFILE\.config\lite-xl"
 $srcDir = $PSScriptRoot
 
-Write-Host "Lite-XL Mossy Configuration Installer"
-Write-Host "---------------------------------------"
-Write-Host "DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required."
+Write-Host @"
+    __                      __    _ __     
+   / /   ____ _____  __  __/ /   (_) /____ 
+  / /   / __ `/_  / / / / / /   / / __/ _ \
+ / /___/ /_/ / / /_/ /_/ / /___/ / /_/  __/
+/_____/\__,_/ /___/\__, /_____/_/\__/\___/ 
+                  /____/                   
+
+"@ -ForegroundColor Green
+
+Write-Host "🌿 Welcome to the LazyLite Installer! 🌿" -ForegroundColor DarkGreen
+Write-Host "✨ Transforming your Lite-XL into a modern powerhouse... ✨" -ForegroundColor Gray
+Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
+Write-Host "⚠️  DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required." -ForegroundColor Yellow
+Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
 
 # 1. Check Lite-XL
