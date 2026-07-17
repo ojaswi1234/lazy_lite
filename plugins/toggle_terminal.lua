@@ -221,18 +221,34 @@ function TermView:refresh_ports(s)
   core.add_thread(function()
     local p_names = {}
     if PLATFORM == "Windows" then
-      local p1 = io.popen("tasklist /FO CSV /NH")
+      local p1 = process.start({"powershell", "-NoProfile", "-Command", "Get-Process | Select-Object Id, ProcessName | ConvertTo-Csv -NoTypeInformation"}, { stdout = process.REDIRECT_PIPE })
       if p1 then
-        for line in p1:lines() do
-          local name, pid = line:match('^"([^"]+)","(%d+)"')
-          if name and pid then p_names[pid] = name end
+        local out = ""
+        while p1:running() do coroutine.yield(0.01) end
+        while true do
+          local chunk = p1:read_stdout(65536)
+          if not chunk or #chunk == 0 then break end
+          out = out .. chunk
         end
-        p1:close()
+        for line in (out .. "\n"):gmatch("[^\n]+") do
+          local pid, name = line:match('^"([^"]+)","([^"]+)"')
+          if pid and name then
+            if not name:lower():match("%.exe$") then name = name .. ".exe" end
+            p_names[pid] = name
+          end
+        end
       end
       
-      local p2 = io.popen("netstat -ano | findstr LISTENING")
+      local p2 = process.start({"cmd.exe", "/c", "netstat -ano | findstr LISTENING"}, { stdout = process.REDIRECT_PIPE })
       if p2 then
-        for line in p2:lines() do
+        local out = ""
+        while p2:running() do coroutine.yield(0.01) end
+        while true do
+          local chunk = p2:read_stdout(65536)
+          if not chunk or #chunk == 0 then break end
+          out = out .. chunk
+        end
+        for line in (out .. "\n"):gmatch("[^\n]+") do
           local proto, local_addr, foreign_addr, state, pid = line:match("%s*(%w+)%s+([%w%.%:%[%]]+)%s+([%w%.%:%[%]]+)%s+(%w+)%s+(%d+)")
           if proto and local_addr and pid and pid ~= "0" and pid ~= "4" then
             local ip, port = local_addr:match("^(.*):(%d+)$")
@@ -244,7 +260,6 @@ function TermView:refresh_ports(s)
             end
           end
         end
-        p2:close()
       end
     end
     
@@ -1174,6 +1189,7 @@ function TermView:on_key_pressed(key)
     if #self:state().history > 0 and self:state().history_idx > 1 then
       self:state().history_idx = self:state().history_idx - 1
       self:state().input = self:state().history[self:state().history_idx]
+      self:state().cursor = nil
       core.redraw = true
     end
     return true
@@ -1182,6 +1198,7 @@ function TermView:on_key_pressed(key)
     if #self:state().history > 0 and self:state().history_idx <= #self:state().history then
       self:state().history_idx = self:state().history_idx + 1
       self:state().input = self:state().history[self:state().history_idx] or ""
+      self:state().cursor = nil
       core.redraw = true
     end
     return true
@@ -1193,7 +1210,7 @@ function TermView:on_key_pressed(key)
     if #text > 0 and cursor > 1 then
       local i = cursor - 1
       -- Step back over UTF-8 continuation bytes (10xxxxxx)
-      while i > 0 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
+      while i > 0 and i <= #text and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
         i = i - 1
       end
       s.input = text:sub(1, i - 1) .. text:sub(cursor)
@@ -1296,7 +1313,7 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           for pid, sel in pairs(s.selected_ports or {}) do
             if sel then
               core.log("Killing process %s...", pid)
-              if PLATFORM == "Windows" then os.execute("taskkill /F /PID " .. pid) end
+              if PLATFORM == "Windows" then os.execute("taskkill /F /T /PID " .. pid) end
             end
           end
           self:refresh_ports(s)
@@ -1333,7 +1350,7 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
             core.log("Killing process %s on port %s...", btn.pid, btn.port)
             if PLATFORM == "Windows" then
-              os.execute("taskkill /F /PID " .. btn.pid)
+              os.execute("taskkill /F /T /PID " .. btn.pid)
             end
             self:refresh_ports(s)
             return true
