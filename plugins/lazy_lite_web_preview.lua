@@ -278,19 +278,19 @@ command.add(nil, {
     local cfg = config.plugins.web_preview
 
     -- ── Attach mode: aggressively scan ALL common dev ports 🚀 ──
-    core.add_thread(function()
-      local default_port = fw.port
-      local bound_url, bound_port = find_dev_server(fw.type, default_port)
-      if bound_url then
-        active_port = bound_port
-        active_url = bound_url
-        core.log("Web Preview: Attached to active server on port %d 🚀 opening %s", bound_port, active_url)
-        open_browser(active_url)
-        return
-      end
+    local default_port = fw.port
+    local bound_url, bound_port = find_dev_server(fw.type, default_port)
+    if bound_url then
+      active_port = bound_port
+      active_url = bound_url
+      core.log("Web Preview: Attached to active server on port %d 🚀 opening %s", bound_port, active_url)
+      open_browser(active_url)
+      return
+    end
 
-      -- If no active port found, but framework detected → spawn it!
-      if fw.type ~= "static" then
+    -- If no active port found, but framework detected → spawn it!
+    if fw.type ~= "static" then
+      core.add_thread(function()
         core.log("Web Preview: Detected %s framework. Starting dev server...", fw.type)
         preview_proc = process.start(fw.cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
         if not preview_proc then
