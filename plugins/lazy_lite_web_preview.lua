@@ -143,7 +143,7 @@ end
 
 local function is_container_proxy(exe)
   if not exe then return false end
-  return exe:find("wslhost") or exe:find("docker") or exe:find("podman") or exe:find("vpnkit") or exe:find("nginx")
+  return exe:find("wslhost") or exe:find("wslrelay") or exe:find("docker") or exe:find("podman") or exe:find("vpnkit") or exe:find("nginx")
 end
 
 -- Port ranges to scan per framework (in priority order)
