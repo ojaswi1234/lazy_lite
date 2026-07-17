@@ -127,6 +127,7 @@ local FRAMEWORK_PORT_RANGES = {
   react   = { 3000, 3001, 3002, 8080 },
   django  = { 8000, 8001, 8080 },
   fastapi = { 8000, 8001, 8080 },
+  flask   = { 5000, 5001, 8000, 8080 },
   go      = { 8080, 8000, 3000 },
 }
 
@@ -236,6 +237,15 @@ local function detect_framework(root)
     local c = read_file(main_py) or ""
     if c:find("FastAPI") then
       return { type = "fastapi", cmd = make_cmd({"uvicorn", "main:app", "--reload"}), port = 8000 }
+    elseif c:find("Flask") then
+      return { type = "flask", cmd = make_cmd({"python", "main.py"}), port = 5000 }
+    end
+  end
+  local app_py = root .. PATHSEP .. "app.py"
+  if file_exists(app_py) then
+    local c = read_file(app_py) or ""
+    if c:find("Flask") then
+      return { type = "flask", cmd = make_cmd({"python", "app.py"}), port = 5000 }
     end
   end
   
