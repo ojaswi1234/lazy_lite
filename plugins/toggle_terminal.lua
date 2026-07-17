@@ -170,6 +170,10 @@ local ignore_procs = {
   ["lsass.exe"] = true,
   ["wininit.exe"] = true,
   ["smss.exe"] = true,
+  ["vmms.exe"] = true,
+  ["vmms"] = true,
+  ["agy.exe"] = true,
+  ["agy"] = true,
   ["csrss.exe"] = true,
   ["services.exe"] = true,
   ["wlanext.exe"] = true,
@@ -1002,7 +1006,7 @@ function TermView:draw_port_manager(x, y, w, h)
       local btn_x = c_act
       local btn_y = item_y + math.floor((lh - btn_h)/2)
       
-      table.insert(s.port_buttons, { x = btn_x, y = btn_y, w = btn_w, h = btn_h, pid = p.pid, port = p.port })
+      table.insert(s.port_buttons, { x = btn_x, y = btn_y, w = btn_w, h = btn_h, pid = p.pid, pids = p.pids, port = p.port })
       
       renderer.draw_rect(btn_x, btn_y, btn_w, btn_h, {common.color "#FB4934"})
       renderer.draw_text(style.font, "KILL", btn_x + 8*SCALE, btn_y + math.floor((btn_h - style.font:get_height())/2), {255, 255, 255, 255})
