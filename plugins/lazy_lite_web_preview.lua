@@ -73,6 +73,28 @@ end
 -- Run netstat ONCE and return a table of { port → url } for all LISTENING TCP ports.
 -- Must be called from inside a coroutine (core.add_thread).
 local function get_all_listening_ports()
+  local result = {}
+  local process_map = {}
+  
+  if PLATFORM == "Windows" then
+    local p_task = process.start({"tasklist", "/FO", "CSV"}, { stdout = process.REDIRECT_PIPE })
+    if p_task then
+      local out = ""
+      while p_task:running() do coroutine.yield(0.01) end
+      while true do
+        local chunk = p_task:read_stdout(65536)
+        if not chunk or #chunk == 0 then break end
+        out = out .. chunk
+      end
+      for line in (out .. "\n"):gmatch("[^\n]+") do
+        local exe, pid = line:match('^"([^"]+)","(%d+)"')
+        if exe and pid then
+          process_map[tonumber(pid)] = exe:lower()
+        end
+      end
+    end
+  end
+
   local cmd = PLATFORM == "Windows" and { "netstat", "-ano" } or { "ss", "-tnlp" }
   local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
   if not p then return {} end
@@ -87,37 +109,41 @@ local function get_all_listening_ports()
     if not chunk or #chunk == 0 then break end
     out = out .. chunk
   end
-  local result = {}
-  -- Windows netstat line format examples:
-  --   TCP    127.0.0.1:5000     0.0.0.0:0     LISTENING  1234
-  --   TCP    [::1]:5173         [::]:0        LISTENING  5678
-  --   TCP    0.0.0.0:80         0.0.0.0:0     LISTENING  91
+
   for line in (out .. "\n"):gmatch("[^\n]+") do
-    if line:find("LISTEN") then
-      local ipv4, port4 = line:match("(%d+%.%d+%.%d+%.%d+):(%d+)")
-      if ipv4 and port4 then
-        local portnum = tonumber(port4)
-        if portnum and not result[portnum] then
-          -- prefer 127.0.0.1 > 0.0.0.0 for the URL
-          if ipv4 == "127.0.0.1" or not result[portnum] then
-            result[portnum] = "http://127.0.0.1:" .. port4
+    if PLATFORM == "Windows" then
+      if line:find("LISTEN") then
+        local ip, port_str, pid_str = line:match("([%d%.%:%[%]]+):(%d+)%s+[%d%.%:%[%]]+%s+LISTEN%w*%s+(%d+)")
+        if ip and port_str and pid_str then
+          local portnum = tonumber(port_str)
+          local exe = process_map[tonumber(pid_str)] or ""
+          if portnum and not result[portnum] then
+            -- Prefer 127.0.0.1 for IPv4
+            local url = ip:find(":") and ("http://localhost:" .. port_str) or ("http://127.0.0.1:" .. port_str)
+            result[portnum] = { url = url, exe = exe }
           end
         end
       end
-      -- IPv6: [::1]:5173 or [::]:5173
-      local port6 = line:match("%[.-%]:(%d+)")
-      if port6 then
-        local portnum = tonumber(port6)
-        if portnum then
-          -- only use localhost (IPv6) if no IPv4 entry found yet
-          if not result[portnum] then
-            result[portnum] = "http://localhost:" .. port6
+    else
+      -- Linux ss -tnlp
+      if line:find("LISTEN") then
+        local port = line:match(":(%d+)%s+")
+        local exe = line:match('users:%(%("([^"]+)"') or ""
+        if port then
+          local portnum = tonumber(port)
+          if portnum and not result[portnum] then
+            result[portnum] = { url = "http://localhost:" .. portnum, exe = exe:lower() }
           end
         end
       end
     end
   end
   return result
+end
+
+local function is_container_proxy(exe)
+  if not exe then return false end
+  return exe:find("wslhost") or exe:find("docker") or exe:find("podman") or exe:find("vpnkit") or exe:find("nginx")
 end
 
 -- Port ranges to scan per framework (in priority order)
@@ -135,27 +161,39 @@ local FRAMEWORK_PORT_RANGES = {
 -- Must be called from inside a coroutine.
 local function find_dev_server(fw_type, hint_port)
   local listening = get_all_listening_ports()
-  -- try the hint port first (from detect_framework or config override)
+  
+  -- 1. Try the hint port first (from detect_framework or config override)
   local cfg_override = config.plugins.web_preview.dev_port
   for _, port in ipairs({ cfg_override, hint_port }) do
     if port and listening[port] then
-      return listening[port], port
+      return listening[port].url, port
     end
   end
-  -- scan the range for this framework type
+  
+  local ALL_COMMON = { 80, 3000, 3001, 4000, 4200, 5000, 5001, 5173, 8000, 8001, 8080, 9000 }
+
+  -- 2. Prefer ANY container proxy running on a common web port
+  -- This differentiates manual docker/podman containers from local framework apps!
+  for _, port in ipairs(ALL_COMMON) do
+    if listening[port] and is_container_proxy(listening[port].exe) then
+      return listening[port].url, port
+    end
+  end
+
+  -- 3. Scan the range for this framework type
   local ranges = FRAMEWORK_PORT_RANGES[fw_type]
   if ranges then
     for _, port in ipairs(ranges) do
       if listening[port] then
-        return listening[port], port
+        return listening[port].url, port
       end
     end
   end
-  -- GLOBAL FALLBACK: scan ALL common dev ports
-  local ALL_COMMON = { 3000, 3001, 4000, 4200, 5000, 5001, 5173, 8000, 8001, 8080 }
+  
+  -- 4. GLOBAL FALLBACK: scan ALL common dev ports
   for _, port in ipairs(ALL_COMMON) do
     if listening[port] then
-      return listening[port], port
+      return listening[port].url, port
     end
   end
   return nil, nil
