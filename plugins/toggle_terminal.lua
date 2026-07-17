@@ -8,6 +8,17 @@ local config  = require "core.config"
 local style   = require "core.style"
 local command = require "core.command"
 local common  = require "core.common"
+
+local function append_wrapped(lines, kind, text, max_chars)
+  if #text <= max_chars then
+    table.insert(lines, { kind = kind, text = text })
+  else
+    for i = 1, #text, max_chars do
+      table.insert(lines, { kind = kind, text = text:sub(i, i + max_chars - 1) })
+    end
+  end
+end
+
 local View    = require "core.view"
 local process = require "process"
 local system  = require "system"
@@ -42,7 +53,8 @@ local function utf8_next_index(text, cursor)
 end
 
 local function get_prompt(s)
-  if s.shell.is_port_manager then return "" end
+  local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
+    if s.shell.is_port_manager then return "" end
   if s.proc then return "" end
   if core.active_codespace then
     if s.waiting_sentinel then return "" end  -- running, no input prompt
@@ -288,7 +300,7 @@ function TermView:_push_chunk(kind, chunk, no_redraw)
       line = line:gsub("\xe2\x9c\x93", "ok")  -- ✓  (U+2713)
       line = line:gsub("\xe2\x9c\x97", "err") -- ✗  (U+2717)
       if #line > 0 then
-        table.insert(s.lines, { kind = kind, text = line })
+        append_wrapped(s.lines, kind, line, max_chars)
       end
       last_nl = i
     end
@@ -328,7 +340,7 @@ function TermView:_flush_chunk_buffer(kind)
       rem = rem:sub(1, -2)
     end
     if #rem > 0 then
-      table.insert(self:state().lines, { kind = kind, text = rem })
+      append_wrapped(self:state().lines, kind, rem, max_chars)
     end
     self:state()[buf_key] = ""
   end
@@ -490,7 +502,7 @@ function TermView:update()
             s.waiting_sentinel = nil
             done = true
           elseif #line > 0 then
-            table.insert(s.lines, { kind = "out", text = line })
+            append_wrapped(s.lines, "out", line, max_chars)
             had_output = true
           end
         end
@@ -517,7 +529,7 @@ function TermView:update()
           line = line:gsub("✔", "ok")
           line = line:gsub("✖", "err")
           if #line > 0 then
-            table.insert(s.lines, { kind = "err", text = line })
+            append_wrapped(s.lines, "err", line, max_chars)
             had_output = true
           end
         end
@@ -1249,6 +1261,7 @@ end
 function TermView:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
     local s = self:state()
+    local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
     if s.shell.is_port_manager then
       if s.refresh_btn_rect then
         local r = s.refresh_btn_rect
@@ -1369,7 +1382,8 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
         local found = false
         for i, s in ipairs(self.sessions) do
-          if s.shell.is_port_manager then
+          local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
+    if s.shell.is_port_manager then
             self.active_idx = i
             found = true
             break
