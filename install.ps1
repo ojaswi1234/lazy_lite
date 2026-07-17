@@ -11,12 +11,23 @@ Write-Host @"
 
 "@ -ForegroundColor Green
 
-Write-Host "🌿 Welcome to the LazyLite Installer! 🌿" -ForegroundColor DarkGreen
-Write-Host "✨ Transforming your Lite-XL into a modern powerhouse... ✨" -ForegroundColor Gray
+Write-Host "[*] Welcome to the LazyLite Installer! [*]" -ForegroundColor DarkGreen
+Write-Host "[+] Transforming your Lite-XL into a modern powerhouse... [+]" -ForegroundColor Gray
 Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
-Write-Host "⚠️  DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required." -ForegroundColor Yellow
+Write-Host "[!] DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required." -ForegroundColor Yellow
 Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
+
+function Animate-Progress {
+    param([string]$Msg)
+    Write-Host "➤ $Msg" -ForegroundColor Cyan
+    Write-Host "  [" -NoNewline -ForegroundColor Green
+    for ($i=0; $i -lt 30; $i++) {
+        Write-Host "█" -NoNewline -ForegroundColor DarkGreen
+        Start-Sleep -Milliseconds 30
+    }
+    Write-Host "] ✔" -ForegroundColor Green
+}
 
 # 1. Check Lite-XL
 $liteXlInstalled = Get-Command "lite-xl" -ErrorAction SilentlyContinue
@@ -131,7 +142,7 @@ if ($setupMongo) {
     }
 }
 
-Write-Host "Installing Lite-XL Mossy Configuration..."
+Animate-Progress "Installing Lite-XL Mossy Configuration..."
 
 # Create dirs if they don't exist
 New-Item -ItemType Directory -Force -Path "$configDir\plugins" | Out-Null

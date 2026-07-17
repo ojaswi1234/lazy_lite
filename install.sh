@@ -20,6 +20,17 @@ echo -e "⚠️  \033[1;33mDISCLAIMER:\033[0m For the Auto-Healer setup to work,
 echo "------------------------------------------------------------------"
 echo ""
 
+animate_progress() {
+    local msg="$1"
+    echo -e "\033[1;36m➤ $msg\033[0m"
+    printf "  \033[1;32m["
+    for ((i=0; i<30; i++)); do
+        printf "\033[38;2;167;192;128m█"
+        sleep 0.03
+    done
+    printf "\033[1;32m]\033[0m \033[1;32m✔\033[0m\n"
+}
+
 # 1. Check Lite-XL
 if ! command -v lite-xl &> /dev/null; then
     read -p "Lite-XL is not installed. Do you want to install it automatically? (y/n): " install_lite
@@ -180,14 +191,12 @@ else
     INSTALL_MONGO=false
 fi
 
-echo "Installing Lite-XL Mossy Configuration..."
+animate_progress "Installing Lite-XL Mossy Configuration..."
 
-mkdir -p "$CONFIG_DIR/plugins"
-mkdir -p "$CONFIG_DIR/colors"
-mkdir -p "$CONFIG_DIR/fonts"
-mkdir -p "$CONFIG_DIR/scripts"
+# Create target directories
+mkdir -p "$CONFIG_DIR/plugins" "$CONFIG_DIR/colors" "$CONFIG_DIR/scripts" "$CONFIG_DIR/fonts"
 
-# Copy all .lua plugin files (skip AI sidebar if agy not installed)
+# Copy main plugins
 for plugin in "$SRC_DIR"/plugins/*.lua; do
     plugin_name=$(basename "$plugin")
     if [ "$plugin_name" = "antigravity_sidebar.lua" ] && [ "$INSTALL_AGY_SIDEBAR" = false ]; then
