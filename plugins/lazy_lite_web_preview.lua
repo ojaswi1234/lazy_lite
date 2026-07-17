@@ -151,6 +151,13 @@ local function find_dev_server(fw_type, hint_port)
       end
     end
   end
+  -- GLOBAL FALLBACK: scan ALL common dev ports
+  local ALL_COMMON = { 3000, 3001, 4000, 4200, 5000, 5001, 5173, 8000, 8001, 8080 }
+  for _, port in ipairs(ALL_COMMON) do
+    if listening[port] then
+      return listening[port], port
+    end
+  end
   return nil, nil
 end
 
@@ -270,20 +277,20 @@ command.add(nil, {
     local fw = detect_framework(root)
     local cfg = config.plugins.web_preview
 
-    -- ── Attach mode: scan port range for already-running dev server ──
-    local default_port = fw.port  -- set by detect_framework (nil for static)
-    if default_port or config.plugins.web_preview.dev_port then
-      core.add_thread(function()
-        core.log("Web Preview: Scanning for %s dev server (ports %d--%d)...", fw.type, default_port or 0, (default_port or 0) + 4)
-        local bound_url, bound_port = find_dev_server(fw.type, default_port)
-        if bound_url then
-          active_port = bound_port
-          active_url = bound_url
-          core.log("Web Preview: Found %s on port %d → opening %s", fw.type, bound_port, active_url)
-          open_browser(active_url)
-          return
-        end
-        -- Not already up — spawn it
+    -- ── Attach mode: aggressively scan ALL common dev ports 🚀 ──
+    core.add_thread(function()
+      local default_port = fw.port
+      local bound_url, bound_port = find_dev_server(fw.type, default_port)
+      if bound_url then
+        active_port = bound_port
+        active_url = bound_url
+        core.log("Web Preview: Attached to active server on port %d 🚀 opening %s", bound_port, active_url)
+        open_browser(active_url)
+        return
+      end
+
+      -- If no active port found, but framework detected → spawn it!
+      if fw.type ~= "static" then
         core.log("Web Preview: Detected %s framework. Starting dev server...", fw.type)
         preview_proc = process.start(fw.cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
         if not preview_proc then
@@ -310,7 +317,7 @@ command.add(nil, {
             -- Fallback to default port after timeout
             active_port = default_port
             active_url = "http://localhost:" .. default_port
-            core.log("Web Preview: Timeout — assuming %s is on %s", fw.type, active_url)
+            core.log("Web Preview: Timeout → assuming %s is on %s", fw.type, active_url)
             open_browser(active_url)
             break
           end
@@ -320,7 +327,7 @@ command.add(nil, {
       return
     end
 
-    -- ── Static server path ──
+    -- 🚀 Static server path 🚀
     local bin = get_binary_path()
     if not system.get_file_info(bin) then
       core.error("Web Preview: Binary not found at %s. Please compile it.", bin)
