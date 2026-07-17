@@ -4,6 +4,18 @@ local Node = require "core.node"
 local RootView = require "core.rootview"
 local style = require "core.style"
 local common = require "core.common"
+local DocView = require "core.docview"
+
+-- Only treat a node as a real editor node if it contains at least one DocView.
+-- This prevents the close-all button from appearing on TitleView / StatusView
+-- nodes that also span the full editor width and would intercept OS window clicks.
+local function is_editor_node(node)
+  if not node or node.type ~= "leaf" then return false end
+  for _, v in ipairs(node.views) do
+    if v:is(DocView) then return true end
+  end
+  return false
+end
 
 -- State
 local hovered_node = nil
@@ -17,7 +29,7 @@ end
 local old_get_scroll_button_rect = Node.get_scroll_button_rect
 function Node:get_scroll_button_rect(index)
   local old_size_x = self.size.x
-  if #self.views > 0 then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
   local x, y, w, h, pad = old_get_scroll_button_rect(self, index)
   self.size.x = old_size_x
   return x, y, w, h, pad
@@ -27,7 +39,7 @@ end
 local old_get_tab_rect = Node.get_tab_rect
 function Node:get_tab_rect(idx)
   local old_size_x = self.size.x
-  if #self.views > 0 then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
   local x, y, w, h = old_get_tab_rect(self, idx)
   self.size.x = old_size_x
   return x, y, w, h
@@ -37,7 +49,7 @@ end
 local old_target_tab_width = Node.target_tab_width
 function Node:target_tab_width()
   local old_size_x = self.size.x
-  if #self.views > 0 then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
   local res = old_target_tab_width(self)
   self.size.x = old_size_x
   return res
@@ -47,7 +59,7 @@ end
 local old_draw_tabs = Node.draw_tabs
 function Node:draw_tabs()
   old_draw_tabs(self)
-  if #self.views == 0 then return end
+  if not is_editor_node(self) then return end
   
   local bw = get_btn_info()
   local bx = self.position.x + self.size.x - bw
@@ -71,7 +83,7 @@ local old_on_mouse_moved = RootView.on_mouse_moved
 function RootView:on_mouse_moved(x, y, dx, dy)
   local node = self.root_node:get_child_overlapping_point(x, y)
   local hnode = nil
-  if node and node.type == "leaf" and #node.views > 0 then
+  if is_editor_node(node) then
     local bw = get_btn_info()
     local bx = node.position.x + node.size.x - bw
     local by = node.position.y
@@ -93,7 +105,11 @@ end
 local old_on_mouse_pressed = RootView.on_mouse_pressed
 function RootView:on_mouse_pressed(button, x, y, clicks)
   local node = self.root_node:get_child_overlapping_point(x, y)
-  if node and node.type == "leaf" and #node.views > 0 then
+  -- CRITICAL: only intercept clicks on real editor nodes (containing DocViews).
+  -- TitleView and StatusView nodes also span the full width, so without this guard
+  -- the close-all button rect at x+size.x-bw overlaps exactly with the OS window
+  -- control buttons (_ W X), swallowing those clicks silently.
+  if is_editor_node(node) then
     local bw = get_btn_info()
     local bx = node.position.x + node.size.x - bw
     local by = node.position.y
