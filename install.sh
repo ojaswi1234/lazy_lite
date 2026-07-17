@@ -42,10 +42,17 @@ fi
 
 # 1.6. Check Python (required for the AI sidebar PTY bridge on Linux/macOS via the pty module)
 if command -v python3 &> /dev/null; then
-    echo "Python3 found — AI PTY bridge ready (uses built-in pty module on Linux/macOS)."
+    echo "Python3 found - AI PTY bridge ready (uses built-in pty module on Linux/macOS)."
 else
-    echo "WARNING: python3 not found. The AI sidebar PTY bridge (agy_pty_bridge.py) requires Python 3."
-    echo "         Install via your package manager, e.g.: sudo apt install python3"
+    echo "python3 not found. Installing Python 3 (required for AI sidebar PTY bridge and MongoDB)..."
+    if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv
+    elif command -v apk &> /dev/null; then sudo apk add python3 py3-pip
+    elif command -v dnf &> /dev/null; then sudo dnf install -y python3 python3-pip
+    elif command -v pacman &> /dev/null; then sudo pacman -Sy --noconfirm python python-pip
+    else 
+        echo "ERROR: Could not automatically install Python 3. Please install it manually, as it is required."
+        exit 1
+    fi
 fi
 
 # 1.7. Download Nerd Font for icons
