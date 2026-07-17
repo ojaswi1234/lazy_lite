@@ -49,19 +49,24 @@ local function async_exec(cmd_args, on_result)
       else
         cmd_str = cmd_args
       end
-      -- io.popen goes through cmd.exe which handles quoted paths and PATH lookup
-      local h = io.popen(cmd_str .. " 2>nul", "r")
-      local out = h and h:read("*a") or ""
-      if h then h:close() end
-      out = out:gsub("%z", "")
-      -- Debug: write cmd and output to file
-      local dbg = io.open("C:/Users/ojasw/popen_debug.log", "a")
-      if dbg then
-        dbg:write("CMD: " .. tostring(cmd_str) .. "\n")
-        dbg:write("OUT: " .. tostring(out) .. "\n---\n")
-        dbg:close()
+      local p = process.start({"cmd.exe", "/c", cmd_str}, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if p then
+        local out = ""
+        while true do
+          local chunk = p:read_stdout(4096)
+          if chunk and #chunk > 0 then
+            out = out .. chunk
+          elseif not p:running() then
+            break
+          else
+            coroutine.yield(0.01)
+          end
+        end
+        out = out:gsub("%z", "")
+        if on_result then on_result(out, "", 0) end
+      else
+        if on_result then on_result(nil, "Failed to start process") end
       end
-      if on_result then on_result(out, "", 0) end
     else
       local args = type(cmd_args) == "table" and cmd_args or {"bash", "-c", cmd_args}
       local p = process.start(args)

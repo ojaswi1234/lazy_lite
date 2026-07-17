@@ -316,6 +316,7 @@ local function run_cmd_blocking(args, timeout)
       return false, "Timeout"
     end
     out = out .. (p:read_stdout(16384) or "") .. (p:read_stderr(16384) or "")
+    if system.sleep then system.sleep(0.01) end
   end
   out = out .. (p:read_stdout(65536) or "") .. (p:read_stderr(65536) or "")
   return p:returncode() == 0, out
