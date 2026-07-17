@@ -270,6 +270,7 @@ function TermView:get_name() return "Terminal" end
 -- Highly optimized chunk parser that prevents string allocation spam on massive I/O
 function TermView:_push_chunk(kind, chunk, no_redraw)
   local s = self:state()
+  local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
   local lh = style.code_font:get_height() + 2 * SCALE
   local old_total = (#s.lines + 1) * lh
   local inner = math.max(0, self.size.y - 31 * SCALE)
@@ -333,6 +334,7 @@ function TermView:_push(kind, text)
 end
 
 function TermView:_flush_chunk_buffer(kind)
+  local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
   local buf_key = kind .. "_buf"
   local rem = self:state()[buf_key]
   if rem and #rem > 0 then
