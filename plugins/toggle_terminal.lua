@@ -598,7 +598,11 @@ function TermView:update()
   local s = self:state()
   if not s.shell.is_port_manager then
     local lh = style.code_font:get_height() + 2 * SCALE
-    local total = (#s.lines + 1) * lh
+    local prompt = get_prompt(s)
+      local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
+      local full_txt = prompt .. s.input
+      local input_lines_count = math.ceil(math.max(1, #full_txt) / max_chars)
+      local total = (#s.lines + input_lines_count) * lh
     local inner = math.max(0, self.size.y - 31 * SCALE)
     local max_scroll = math.max(0, total - inner)
     if s.scroll_to_bottom and total > 0 then
@@ -856,34 +860,49 @@ function TermView:draw()
   if text_y <= out_bot then
     local s = self:state()
     local prompt = get_prompt(s)
+    local max_chars = math.max(60, math.floor((w - 20 * SCALE) / style.code_font:get_width("A")))
+    local full_txt = prompt .. s.input
     
-    local prompt_w = style.code_font:get_width(prompt)
+    local chunks = {}
+    if #full_txt == 0 then
+      chunks = {""}
+    else
+      for i = 1, #full_txt, max_chars do
+        table.insert(chunks, full_txt:sub(i, i + max_chars - 1))
+      end
+    end
     
-    if prompt ~= "" then
-      renderer.draw_text(style.code_font, prompt, text_x, text_y, col_cmd)
+    for i, chunk in ipairs(chunks) do
+      local chunk_y = text_y + (i - 1) * lh
+      if chunk_y <= out_bot then
+        if i * max_chars <= #prompt then
+          renderer.draw_text(style.code_font, chunk, text_x, chunk_y, col_cmd)
+        elseif (i - 1) * max_chars >= #prompt then
+          renderer.draw_text(style.code_font, chunk, text_x, chunk_y, fg)
+        else
+          local p_len_in_chunk = #prompt - (i - 1) * max_chars
+          local p_part = chunk:sub(1, p_len_in_chunk)
+          local i_part = chunk:sub(p_len_in_chunk + 1)
+          renderer.draw_text(style.code_font, p_part, text_x, chunk_y, col_cmd)
+          renderer.draw_text(style.code_font, i_part, text_x + style.code_font:get_width(p_part), chunk_y, fg)
+        end
+      end
     end
-
-    local display_input = self:state().input
-    local line_idx = #self:state().lines + 1
-    if sel and line_idx >= sel_l1 and line_idx <= sel_l2 then
-       local full_txt = prompt .. display_input
-       local col1 = (line_idx == sel_l1) and sel_c1 or 1
-       local col2 = (line_idx == sel_l2) and sel_c2 or (#full_txt + 1)
-       local x1 = text_x + style.code_font:get_width(full_txt:sub(1, col1 - 1))
-       local sw = style.code_font:get_width(full_txt:sub(col1, col2 - 1))
-       renderer.draw_rect(x1, text_y, sw, lh, style.selection or {255, 255, 255, 60})
-    end
-
-    renderer.draw_text(style.code_font, display_input, text_x + prompt_w, text_y, fg)
-
+    
     -- Cursor
     if core.active_view == self then
-      local s = self:state()
       s.cursor = s.cursor or (#s.input + 1)
-      local left_txt = display_input:sub(1, s.cursor - 1)
-      local cx = text_x + prompt_w + style.code_font:get_width(left_txt)
-      if system.get_time() % 1 < 0.5 then
-        renderer.draw_rect(cx, text_y, 2 * SCALE, style.code_font:get_height(), { common.color("#A9DC76") })
+      local abs_cursor = #prompt + s.cursor
+      local chunk_idx = math.floor((abs_cursor - 1) / max_chars) + 1
+      local cursor_col = abs_cursor - (chunk_idx - 1) * max_chars
+      
+      local chunk_str = chunks[chunk_idx] or ""
+      local left_txt = chunk_str:sub(1, cursor_col - 1)
+      local cx = text_x + style.code_font:get_width(left_txt)
+      local cy = text_y + (chunk_idx - 1) * lh
+      
+      if system.get_time() % 1 < 0.5 and cy <= out_bot then
+        renderer.draw_rect(cx, cy, 2 * SCALE, style.code_font:get_height(), { common.color("#A9DC76") })
       end
     end
   end
