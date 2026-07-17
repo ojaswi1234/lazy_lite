@@ -53,8 +53,7 @@ local function utf8_next_index(text, cursor)
 end
 
 local function get_prompt(s)
-  local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
-    if s.shell.is_port_manager then return "" end
+  if s.shell.is_port_manager then return "" end
   if s.proc then return "" end
   if core.active_codespace then
     if s.waiting_sentinel then return "" end  -- running, no input prompt
