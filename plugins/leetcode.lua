@@ -1310,6 +1310,10 @@ function LeetCodeView:draw()
     if self.search_focus then
       local p_topic = self.search_input:match("#([^%s]*)$")
       local p_comp = self.search_input:match("@([^%s]*)$")
+      
+      if not p_topic and self.search_input:match("#$") then p_topic = "" end
+      if not p_comp and self.search_input:match("@$") then p_comp = "" end
+
       local partial = p_topic or p_comp
       
       if partial then
@@ -1318,7 +1322,7 @@ function LeetCodeView:draw()
         local prefix = p_topic and "#" or "@"
         
         for _, t in ipairs(src_list) do
-          if t:find(partial, 1, true) then table.insert(filtered, t) end
+          if partial == "" or t:find(partial, 1, true) then table.insert(filtered, t) end
         end
         if #filtered > 0 then
           local drop_x, drop_y = search_x, search_y + search_h
@@ -1571,3 +1575,5 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
   end
   return old_docview_on_mouse_pressed(self, button, x, y, clicks)
 end
+
+
