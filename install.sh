@@ -24,12 +24,20 @@ fi
 # 1.5. Check GitHub CLI (gh)
 if ! command -v gh &> /dev/null; then
     echo "Installing GitHub CLI..."
-    type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && sudo apt update \
-    && sudo apt install gh -y
+    if command -v apt-get &> /dev/null; then
+        type -p curl >/dev/null || (sudo apt-get update && sudo apt-get install curl -y)
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+        && sudo apt-get update \
+        && sudo apt-get install gh -y
+    elif command -v apk &> /dev/null; then
+        sudo apk add github-cli
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y gh
+    else
+        echo "WARNING: Please install GitHub CLI (gh) manually."
+    fi
 fi
 
 # 1.6. Check Python (required for the AI sidebar PTY bridge on Linux/macOS via the pty module)
@@ -96,7 +104,10 @@ read -p "Do you want to setup Podman support in the editor? (y/n): " prompt_podm
 if [[ "$prompt_podman" =~ ^[Yy]$ ]]; then
     if ! command -v podman &> /dev/null; then
         echo "Installing Podman..."
-        sudo apt-get update && sudo apt-get -y install podman
+        if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get -y install podman
+        elif command -v apk &> /dev/null; then sudo apk add podman
+        elif command -v dnf &> /dev/null; then sudo dnf install -y podman
+        else echo "WARNING: Please install podman manually."; fi
     fi
 else
     INSTALL_PODMAN=false
@@ -113,9 +124,15 @@ read -p "Do you want to setup MongoDB Explorer? (y/n): " prompt_mongo
 if [[ "$prompt_mongo" =~ ^[Yy]$ ]]; then
     if ! command -v mongosh &> /dev/null; then
         echo "Installing MongoDB Shell (mongosh)..."
-        wget -qO- https://www.mongodb.org/static/pgp/server-7.0.asc | sudo tee /etc/apt/trusted.gpg.d/server-7.0.asc >/dev/null
-        echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list >/dev/null
-        sudo apt-get update && sudo apt-get install -y mongodb-mongosh
+        if command -v apt-get &> /dev/null; then
+            wget -qO- https://www.mongodb.org/static/pgp/server-7.0.asc | sudo tee /etc/apt/trusted.gpg.d/server-7.0.asc >/dev/null
+            echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list >/dev/null
+            sudo apt-get update && sudo apt-get install -y mongodb-mongosh
+        elif command -v apk &> /dev/null; then
+            sudo apk add mongodb-tools
+        else
+            echo "WARNING: Could not automatically install mongosh. Please install manually."
+        fi
     fi
     if command -v python3 &> /dev/null; then
         python3 -m pip install pymongo --quiet || true
