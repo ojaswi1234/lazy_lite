@@ -226,7 +226,10 @@ function core.error(fmt, ...)
   end
   _healer_in_error = true
 
-  local ret = old_error(fmt, ...)
+  local ok, ret = pcall(old_error, fmt, ...)
+  if not ok then
+    core.log_quiet("Suppressed old_error crash (likely missing statusview): %s", tostring(ret))
+  end
   
   -- Handle clock skew (Group E.4)
   if type(fmt) == "string" and (fmt:find("token expired") or fmt:find("gh auth status")) then
