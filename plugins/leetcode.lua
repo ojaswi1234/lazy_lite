@@ -132,7 +132,14 @@ local function api_call(params, callback)
   pending[id] = callback
   if ensure_api() then
     local line = json_encode(params) .. "\n"
-    api_proc:write(line)
+    local success = pcall(function() api_proc:write(line) end)
+    if not success then
+      pending[id] = nil
+      if callback then callback(nil, "Failed to write to API") end
+    end
+  else
+    pending[id] = nil
+    if callback then callback(nil, "API not running") end
   end
 end
 

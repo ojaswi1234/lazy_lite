@@ -13,7 +13,7 @@ local function graceful_kill(p)
   pcall(function() p:write("KILL\n") end)
   core.add_thread(function()
     coroutine.yield(0.1)
-    pcall(function() p:kill() end)
+    pcall(function() p:terminate() end)
   end)
 end
 
