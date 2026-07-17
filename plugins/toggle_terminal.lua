@@ -1592,12 +1592,10 @@ command.add(
     ["terminal:cursor-end"] = function() instance:on_key_pressed("end") end,
     ["terminal:delete"] = function() instance:on_key_pressed("delete") end,
     ["terminal:paste"] = function()
-      if system.has_clipboard() then
-        local text = system.get_clipboard()
-        if text then
-          text = text:gsub("\r", "")
-          instance:on_text_input(text)
-        end
+      local text = system.get_clipboard()
+      if text then
+        text = text:gsub("\r", "")
+        instance:on_text_input(text)
       end
     end,
   }
