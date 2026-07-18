@@ -486,7 +486,7 @@ function TermView:run(cmd_str)
 
   local argv = {}
   for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
-  table.insert(argv, final_cmd)
+  if final_cmd and final_cmd ~= "" then table.insert(argv, final_cmd) end
 
   local p, err, code = process.start(argv, {
     stdin  = process.REDIRECT_PIPE,
