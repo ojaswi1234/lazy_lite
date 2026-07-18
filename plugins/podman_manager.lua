@@ -229,6 +229,12 @@ function PodmanView:update()
   self:move_towards(self.size, "x", dest, nil, "podman_view")
 end
 
+function PodmanView:set_target_size(axis, value)
+  if axis == "x" then
+    self.target_size = math.max(300 * SCALE, value)
+  end
+end
+
 local function draw_icon_btn(self, icon, bx, by, color, action_fn, tooltip)
   local bw = style.icon_font:get_width(icon) + 10 * SCALE
   local bh = style.icon_font:get_height()
