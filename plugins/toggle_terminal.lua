@@ -129,6 +129,7 @@ end
 -- ── View ──────────────────────────────────────────────────────────────────────
 local TermView = View:extend()
 local instance   = nil   -- single instance kept alive across toggles
+TermView.instances = TermView.instances or {}
 local node_built = false -- have we added to node tree yet?
 
 -- Sentinel used to detect end-of-command in persistent shell sessions.
@@ -141,10 +142,15 @@ function TermView:new()
   self.visible      = true   -- controls size animation (treeview pattern)
   self.target_size  = config.terminal.target_height * SCALE
   self.size.y       = 0      -- start collapsed; animate on first show
+  self.scrollable = true
   self.sessions = {}
-  self.active_idx = 0
-  self:add_session(shells[1])
+  self.active_idx = 1
+  self.hovering_url = false
   self.is_fullscreen = false
+  self.dragging_selection = false
+  self.hovered_btn_name = nil
+  self:add_session(shells[1])
+  table.insert(TermView.instances, self)
 end
 
 function TermView:state()
@@ -774,31 +780,32 @@ function TermView:draw()
   local right_x = x + w - 4 * SCALE
   self.right_btns = {}
 
-  local function draw_btn(text, name)
-    local iw = style.font:get_width(text) + 16 * SCALE
+  local function draw_btn(text, name, is_icon)
+    local font = is_icon and style.icon_font or style.font
+    local iw = font:get_width(text) + 16 * SCALE
     right_x = right_x - iw
     local hovered = self.hovered_btn_name == name
     local btn_bg = hovered and get_contrast_bg(hdr_bg) or hdr_bg
     local btn_fg = hovered and fg or col_inf
     if hovered and (name == "trash" or name == "hide") then btn_fg = col_err end
     renderer.draw_rect(right_x, y, iw, hdr_h, btn_bg)
-    renderer.draw_text(style.font, text, right_x + math.floor((iw - style.font:get_width(text))/2), y + math.floor((hdr_h - style.font:get_height())/2), btn_fg)
+    renderer.draw_text(font, text, right_x + math.floor((iw - font:get_width(text))/2), y + math.floor((hdr_h - font:get_height())/2), btn_fg)
     table.insert(self.right_btns, { x = right_x, y = y, w = iw, h = hdr_h, name = name })
   end
 
-  draw_btn("\u{2715}", "hide") -- ✕
-  draw_btn(self.is_fullscreen and "\u{25BC}" or "\u{25B2}", "maximize") -- ▼ / ▲
+  draw_btn("\u{f00d}", "hide", true) -- ✕
+  draw_btn(self.is_fullscreen and "\u{f066}" or "\u{f065}", "maximize", true) -- ▼ / ▲
   if not is_pm_active and #self.sessions > 1 then
-    draw_btn("\u{1F5D1}", "trash") -- 🗑
+    draw_btn("\u{f1f8}", "trash", true) -- 🗑
   end
-  draw_btn("\u{25EB}", "split") -- ◫ (Split Terminal)
-  draw_btn("+", "add")
+  draw_btn("\u{f0db}", "split", true) -- ◫
+  draw_btn("\u{f067}", "add", true) -- +
 
   if not is_pm_active then
     local session_name = self:state().shell.name
     if session_name:len() > 10 then session_name = session_name:sub(1, 10) .. ".." end
-    local dd_text = tostring(self.active_idx) .. ": " .. session_name .. " \u{25BE}" -- ▾
-    draw_btn(dd_text, "dropdown")
+    local dd_text = tostring(self.active_idx) .. ": " .. session_name .. " v"
+    draw_btn(dd_text, "dropdown", false)
   end
 
   -- Divider
@@ -1660,9 +1667,13 @@ keymap.add {
 -- Hook into core.quit to kill any zombie background processes when Lite-XL exits
 local old_quit = core.quit
 function core.quit(force)
-  if instance then
-    for _, s in ipairs(instance.sessions) do
-      if s.proc then pcall(function() s.proc:kill() end) end
+  if TermView.instances then
+    for _, tv in ipairs(TermView.instances) do
+      if tv.sessions then
+        for _, s in ipairs(tv.sessions) do
+          if s.proc then pcall(function() s.proc:kill() end) end
+        end
+      end
     end
   end
   return old_quit(force)
