@@ -549,17 +549,4 @@ command.add(nil, {
 })
 
 
--- Hook into core.quit to stop all podman containers when lite-xl closes, as requested
-local old_quit = core.quit
-function core.quit(force)
-  pcall(function()
-    if PLATFORM == "Windows" or PLATFORM == "Mac OS X" then
-      -- Completely shut down the Podman VM gracefully (fully detached to prevent ghost process)
-      os.execute('start /b "" "' .. PODMAN_EXE .. '" machine stop')
-    else
-      -- On Linux podman is daemonless, so stop all containers gracefully
-      os.execute('"' .. PODMAN_EXE .. '" stop -a &')
-    end
-  end)
-  return old_quit(force)
-end
+
