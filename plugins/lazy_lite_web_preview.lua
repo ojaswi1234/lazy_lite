@@ -500,7 +500,7 @@ end
 local old_quit = core.quit
 function core.quit(force)
   if preview_proc then
-    pcall(function() preview_proc:terminate() end)
+    pcall(function() preview_proc:kill() end)
   end
   return old_quit(force)
 end

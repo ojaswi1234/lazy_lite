@@ -1409,12 +1409,12 @@ local old_quit = core.quit
 function core.quit(force)
   if instance then
     for _, c in ipairs(instance.chats) do
-      if c.process then pcall(function() graceful_kill(c.process) end) end
+      if c.process then pcall(function() c.process:kill() end) end
     end
-    if instance.model_proc then pcall(function() graceful_kill(instance.model_proc) end) end
+    if instance.model_proc then pcall(function() instance.model_proc:kill() end) end
     if instance.temp_files then
       for _, fpath in ipairs(instance.temp_files) do
-        os.remove(fpath)
+        pcall(os.remove, fpath)
       end
     end
   end

@@ -554,11 +554,11 @@ local old_quit = core.quit
 function core.quit(force)
   pcall(function()
     if PLATFORM == "Windows" or PLATFORM == "Mac OS X" then
-      -- Completely shut down the Podman VM gracefully
-      process.start({PODMAN_EXE, "machine", "stop"})
+      -- Completely shut down the Podman VM gracefully (fully detached to prevent ghost process)
+      os.execute('start /b "" "' .. PODMAN_EXE .. '" machine stop')
     else
       -- On Linux podman is daemonless, so stop all containers gracefully
-      process.start({PODMAN_EXE, "stop", "-a"})
+      os.execute('"' .. PODMAN_EXE .. '" stop -a &')
     end
   end)
   return old_quit(force)
