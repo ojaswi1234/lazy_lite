@@ -67,8 +67,8 @@ end
 
 local shells = {}
 if PLATFORM == "Windows" then
-  table.insert(shells, { name = "Command Prompt", cmd = {"cmd.exe", "/c"}, prompt_prefix = "" })
   table.insert(shells, { name = "PowerShell", cmd = {"powershell.exe", "-NoProfile", "-Command"}, prompt_prefix = "PS " })
+  table.insert(shells, { name = "Command Prompt", cmd = {"cmd.exe", "/c"}, prompt_prefix = "" })
 else
   local function has_cmd(c) return os.execute("command -v " .. c .. " >/dev/null 2>&1") == 0 end
   if has_cmd("bash") then table.insert(shells, { name = "bash", cmd = {"bash", "-c"}, prompt_prefix = "" }) end
