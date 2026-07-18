@@ -112,8 +112,7 @@ function PodmanView:new()
     { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
     { id = "images", name = "Images", expanded = false, data = {}, loading = false },
     { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
-    { id = "k3s", name = "K3s Pods", expanded = false, data = {}, loading = false },
-  }
+      }
   
   self.hovered_item = nil
   self.hovered_btn = nil
@@ -129,7 +128,6 @@ function PodmanView:refresh_all()
   self:refresh_containers()
   self:refresh_images()
   self:refresh_k8s()
-  self:refresh_k3s()
 end
 
 function PodmanView:refresh_compose()
@@ -225,27 +223,6 @@ function PodmanView:refresh_k8s()
   end)
 end
 
-function PodmanView:refresh_k3s()
-  local sec = nil
-  for _, s in ipairs(self.sections) do if s.id == "k3s" then sec = s; break end end
-  if not sec then return end
-  sec.loading = true
-  core.redraw = true
-  async_exec({K3S_EXE, "kubectl", "get", "pods", "-A", "--no-headers"}, function(out, err, rc)
-    sec.data = {}
-    if out and rc == 0 and not out:match("not found") and not out:match("error") then
-      for line in out:gmatch("[^\r\n]+") do
-        local ns, name, ready, status, restarts, age = line:match("(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
-        if name then
-          table.insert(sec.data, { ns = ns, name = name, status = status })
-        end
-      end
-    end
-    sec.loading = false
-    core.redraw = true
-  end)
-end
-
 function PodmanView:update()
   PodmanView.super.update(self)
   local dest = self.visible and self.target_size or 0
@@ -307,7 +284,7 @@ function PodmanView:draw()
     if sec.expanded then
       if #sec.data == 0 and not sec.loading then
         renderer.draw_text(style.font, "No items found", x + 30 * SCALE, y + 5 * SCALE, style.dim)
-        if sec.id == "k8s" or sec.id == "k3s" then
+        if sec.id == "k8s" then
           local btn_txt = "Setup Cluster"
           local tw = style.font:get_width(btn_txt)
           local bx = x + w - tw - 30 * SCALE
@@ -317,8 +294,6 @@ function PodmanView:draw()
           table.insert(self.buttons, { x = bx, y = by, w = tw, h = 20 * SCALE, action = function()
             if sec.id == "k8s" then
               async_exec({ "powershell", "-Command", "$env:KIND_EXPERIMENTAL_PROVIDER='podman'; kind create cluster" }, function() self:refresh_k8s() end)
-            else
-              async_exec({ PODMAN_EXE, "run", "-d", "--name", "k3s-server", "--privileged", "-p", "6443:6443", "-e", "K3S_KUBECONFIG_OUTPUT=/output/config", "-v", os.getenv("USERPROFILE") .. "\\.kube:/output", "docker.io/rancher/k3s:latest", "server" }, function() self:refresh_k3s() end)
             end
           end })
         end
@@ -396,14 +371,14 @@ function PodmanView:draw()
             draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rmi", "-f", item.id}, function() self:refresh_images() end) end)
           end
           
-        elseif sec.id == "k8s" or sec.id == "k3s" then
+        elseif sec.id == "k8s" then
           local is_running = item.status == "Running"
           renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and PODMAN_COLORS.up or PODMAN_COLORS.exited)
           renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
           
           if item_hovered then
             local bx = x + w - 110 * SCALE
-            local cmd_prefix = sec.id == "k3s" and "k3s kubectl" or "kubectl"
+            local cmd_prefix = "kubectl"
             -- Exec
             bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
               command.perform("terminal:toggle")
@@ -433,9 +408,9 @@ function PodmanView:draw()
             end)
             -- Trash
             draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() 
-              local del_cmd = sec.id == "k3s" and {K3S_EXE, "kubectl", "delete", "pod", item.name, "-n", item.ns} or {KUBECTL_EXE, "delete", "pod", item.name, "-n", item.ns}
+              local del_cmd = {KUBECTL_EXE, "delete", "pod", item.name, "-n", item.ns}
               async_exec(del_cmd, function()
-                if sec.id == "k3s" then self:refresh_k3s() else self:refresh_k8s() end
+                self:refresh_k8s()
               end) 
             end)
           end

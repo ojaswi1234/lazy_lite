@@ -1,0 +1,1 @@
+return { path = "C:\\Users\\ojasw\\Desktop\\frontend_backend\\iim_project\\investment-research-agent", documents = {["views"]={[1]={["scroll"]={["y"]=0,["x"]=0,["to"]={["x"]=0,["y"]=0}},["active"]=false,["type"]="view",["module"]="core.emptyview"}},["type"]="leaf",["active_view"]=1}, directories = {} }

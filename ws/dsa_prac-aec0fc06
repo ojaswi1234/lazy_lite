@@ -1,0 +1,1 @@
+return { path = "C:\\Users\\ojasw\\Desktop\\frontend_backend\\dsa_prac", documents = {["active_view"]=1,["type"]="leaf",["views"]={[1]={["scroll"]={["y"]=0,["to"]={["y"]=0,["x"]=0},["x"]=0},["active"]=true,["type"]="view",["module"]="core.emptyview"}}}, directories = {} }

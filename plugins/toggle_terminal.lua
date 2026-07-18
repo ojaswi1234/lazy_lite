@@ -629,7 +629,9 @@ function TermView:update()
         self.active_idx = i
         self:_flush_chunk_buffer("out")
         self:_flush_chunk_buffer("err")
-        self:_push_chunk("info", string.format("[exited: %d]\n", rc), true)
+          if rc ~= 0 then
+            self:_push_chunk("err", string.format("[exited with code: %d]\n", rc), true)
+          end
         self.active_idx = old_idx
         s.proc = nil
         had_output = true
