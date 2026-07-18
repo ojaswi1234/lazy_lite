@@ -465,6 +465,68 @@ end
 
 local podman_view = nil
 
+if PLATFORM == "Windows" then
+  core.add_thread(function()
+    while true do
+      coroutine.yield(30) -- Check every 30 seconds
+      local p = process.start({"wsl", "-d", "podman-machine-default", "--exec", "free", "-m"}, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if p then
+        local out = ""
+        while true do
+          local chunk = p:read_stdout(4096)
+          if chunk and #chunk > 0 then
+            out = out .. chunk
+          elseif not p:running() then
+            break
+          else
+            coroutine.yield(0.1)
+          end
+        end
+        out = out .. (p:read_stdout() or "")
+        
+        local mem_total, mem_used, mem_free, mem_shared, mem_buff, mem_avail = out:match("Mem:%s+(%d+)%s+(%d+)%s+(%d+)%s+(%d+)%s+(%d+)%s+(%d+)")
+        if mem_avail and mem_total then
+          local avail = tonumber(mem_avail)
+          local total = tonumber(mem_total)
+          if avail and total and (avail / total) < 0.10 then
+            if not _G.podman_resource_warned then
+              _G.podman_resource_warned = true
+              
+              local function update_wsl_mem(new_mem)
+                local f = io.open("C:\\Users\\ojasw\\.wslconfig", "r")
+                local content = f and f:read("*a") or ""
+                if f then f:close() end
+                content = content:gsub("memory=%d+GB", "memory=" .. new_mem)
+                local fw = io.open("C:\\Users\\ojasw\\.wslconfig", "w")
+                if fw then 
+                  fw:write(content)
+                  fw:close() 
+                end
+                core.log("Applying " .. new_mem .. " limit and restarting WSL...")
+                process.start({"wsl", "--shutdown"})
+                _G.podman_resource_warned = false
+              end
+
+              core.command_view:enter("Podman memory critically low! (" .. avail .. "MB left) Increase limit?", {
+                submit = function(text, item)
+                  if item.action then item.action() end
+                end,
+                suggest = function(text)
+                  return {
+                    { text = "Increase to 4GB and Restart", action = function() update_wsl_mem("4GB") end },
+                    { text = "Increase to 5GB and Restart", action = function() update_wsl_mem("5GB") end },
+                    { text = "Ignore for now", action = function() _G.podman_resource_warned = false end }
+                  }
+                end
+              })
+            end
+          end
+        end
+      end
+    end
+  end)
+end
+
 command.add(nil, {
   ["podman:toggle"] = function()
     local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
