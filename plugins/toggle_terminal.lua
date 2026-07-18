@@ -742,96 +742,54 @@ function TermView:draw()
   renderer.draw_rect(x, y, w, 2 * SCALE, border)
 
   -- ── Header ─────────────────────────────────────────────────────────────────
-  local hdr_h = 26 * SCALE
-  renderer.draw_rect(x, y + 2 * SCALE, w, hdr_h, hdr_bg)
+  local hdr_h = 30 * SCALE
+  renderer.draw_rect(x, y, w, hdr_h, hdr_bg)
 
-  -- Running indicator
-  local status_dot = self:state().proc and "\xe2\x97\x8f " or "\xe2\x97\x8b "
-  local status_col = self:state().proc and { common.color "#B8BB26" } or col_inf
-  renderer.draw_text(style.font, status_dot,
-    x + 8 * SCALE,
-    y + 2 * SCALE + math.floor((hdr_h - style.font:get_height()) / 2),
-    status_col)
+  local cur_x = x + 16 * SCALE
+  local is_pm_active = self:state().shell.is_port_manager
 
-  local title_font = style.big_font or style.font
-  renderer.draw_text(title_font, "TERMINAL",
-    x + 24 * SCALE,
-    y + 2 * SCALE + math.floor((hdr_h - title_font:get_height()) / 2),
-    style.accent or { common.color "#E67E80" })
-
-  local cur_x = x + 160 * SCALE
-  self.tab_rects = {}
-  for i, s in ipairs(self.sessions) do
-    local label = core.active_codespace and "Cl" or (s.shell and s.shell.name:sub(1, 2) or tostring(i))
-    local tw = style.font:get_width(label) + 16 * SCALE
-    local tab_bg = (i == self.active_idx) and get_contrast_bg(hdr_bg) or hdr_bg
-    local tab_fg = (i == self.active_idx) and fg or col_inf
-    
-    renderer.draw_rect(cur_x, y + 2 * SCALE, tw, hdr_h, tab_bg)
-    renderer.draw_text(style.font, label, cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), tab_fg)
-    
-    table.insert(self.tab_rects, { x = cur_x, y = y + 2 * SCALE, w = tw, h = hdr_h, idx = i })
-    cur_x = cur_x + tw + 2 * SCALE
-  end
-  
-  -- "+" button
-  local pw = style.font:get_width("+") + 16 * SCALE
-  renderer.draw_rect(cur_x, y + 2 * SCALE, pw, hdr_h, hdr_bg)
-  renderer.draw_text(style.font, "+", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), col_inf)
-  self.add_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = pw, h = hdr_h }
-    cur_x = cur_x + pw + 2 * SCALE
-    
-    -- "v" dropdown button
-    if not core.active_codespace then
-      local vw = style.font:get_width("v") + 16 * SCALE
-      renderer.draw_rect(cur_x, y + 2 * SCALE, vw, hdr_h, hdr_bg)
-      renderer.draw_text(style.font, "v", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), col_inf)
-      self.dropdown_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = vw, h = hdr_h }
-      cur_x = cur_x + vw + 2 * SCALE
-    else
-      self.dropdown_btn_rect = nil
+  local function draw_tab(label, is_active)
+    local tw = style.font:get_width(label) + 20 * SCALE
+    local t_fg = is_active and fg or col_inf
+    renderer.draw_text(style.font, label, cur_x + 10 * SCALE, y + math.floor((hdr_h - style.font:get_height()) / 2), t_fg)
+    if is_active then
+      renderer.draw_rect(cur_x + 10 * SCALE, y + hdr_h - 2 * SCALE, tw - 20 * SCALE, 2 * SCALE, style.accent or { common.color "#E67E80" })
     end
-  
-  -- "x" button (close active)
-  if #self.sessions > 1 then
-    local xw = style.font:get_width("x") + 16 * SCALE
-    renderer.draw_rect(cur_x, y + 2 * SCALE, xw, hdr_h, hdr_bg)
-    renderer.draw_text(style.font, "x", cur_x + 8 * SCALE, y + 2 * SCALE + math.floor((hdr_h - style.font:get_height())/2), col_err)
-    self.close_btn_rect = { x = cur_x, y = y + 2 * SCALE, w = xw, h = hdr_h }
-  else
-    self.close_btn_rect = nil
+    local rect = { x = cur_x, y = y, w = tw, h = hdr_h }
+    cur_x = cur_x + tw
+    return rect
   end
 
-  -- Button rendering
-  local btn_text = self.is_fullscreen and "RESTORE" or "MAXIMIZE"
-  local btn_w = style.font:get_width(btn_text) + 20 * SCALE
-  local btn_x = x + w - btn_w
-  local btn_y = y + 2 * SCALE
+  self.terminal_tab_rect = draw_tab("TERMINAL", not is_pm_active)
+  self.ports_tab_rect = draw_tab("PORTS", is_pm_active)
 
-  self.btn_rect = { x = btn_x, y = btn_y, w = btn_w, h = hdr_h }
-  local btn_bg = self.hovered_btn and get_contrast_bg(hdr_bg) or hdr_bg
-  local btn_fg = self.hovered_btn and fg or col_inf
+  local right_x = x + w - 4 * SCALE
+  self.right_btns = {}
 
-  renderer.draw_rect(btn_x, btn_y, btn_w, hdr_h, btn_bg)
-  renderer.draw_text(style.font, btn_text,
-    btn_x + 10 * SCALE,
-    btn_y + math.floor((hdr_h - style.font:get_height()) / 2),
-    btn_fg)
+  local function draw_btn(text, name)
+    local iw = style.font:get_width(text) + 16 * SCALE
+    right_x = right_x - iw
+    local hovered = self.hovered_btn_name == name
+    local btn_bg = hovered and get_contrast_bg(hdr_bg) or hdr_bg
+    local btn_fg = hovered and fg or col_inf
+    if hovered and (name == "trash" or name == "hide") then btn_fg = col_err end
+    renderer.draw_rect(right_x, y, iw, hdr_h, btn_bg)
+    renderer.draw_text(style.font, text, right_x + math.floor((iw - style.font:get_width(text))/2), y + math.floor((hdr_h - style.font:get_height())/2), btn_fg)
+    table.insert(self.right_btns, { x = right_x, y = y, w = iw, h = hdr_h, name = name })
+  end
 
-  -- Port Manager button (Icon)
-  if PLATFORM == "Windows" then
-    local pm_icon = "\u{f1e6}" -- fa-plug
-    local pm_font = style.icon_font or style.font
-    local pm_w = pm_font:get_width(pm_icon) + 20 * SCALE
-    local pm_x = btn_x - pm_w
-    renderer.draw_rect(pm_x, btn_y, pm_w, hdr_h, hdr_bg)
-    renderer.draw_text(pm_font, pm_icon,
-      pm_x + 10 * SCALE,
-      btn_y + math.floor((hdr_h - pm_font:get_height()) / 2),
-      style.accent or { common.color("#E67E80") })
-    self.portmgr_btn_rect = { x = pm_x, y = btn_y, w = pm_w, h = hdr_h }
-  else
-    self.portmgr_btn_rect = nil
+  draw_btn("X", "hide")
+  draw_btn(self.is_fullscreen and "v" or "^", "maximize")
+  if not is_pm_active and #self.sessions > 1 then
+    draw_btn("x", "trash")
+  end
+  draw_btn("+", "add")
+
+  if not is_pm_active then
+    local session_name = self:state().shell.name
+    if session_name:len() > 10 then session_name = session_name:sub(1, 10) .. ".." end
+    local dd_text = tostring(self.active_idx) .. ": " .. session_name .. " v"
+    draw_btn(dd_text, "dropdown")
   end
 
   -- Divider
@@ -1399,72 +1357,64 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
       return true
     end
 
-    if self.btn_rect then
-      local bx, by, bw, bh = self.btn_rect.x, self.btn_rect.y, self.btn_rect.w, self.btn_rect.h
-      if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
-        command.perform("terminal:fullscreen")
-        return true
-      end
-    end
-    if self.add_btn_rect then
-      local r = self.add_btn_rect
+    if self.terminal_tab_rect then
+      local r = self.terminal_tab_rect
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
-        self:add_session(self:state().shell)
+        if self:state().shell.is_port_manager then
+          local found = false
+          for i, sess in ipairs(self.sessions) do
+            if not sess.shell.is_port_manager then self.active_idx = i; found = true; break end
+          end
+          if not found then self:add_session(shells[1]) end
+        end
         core.redraw = true
         return true
       end
     end
-    if self.dropdown_btn_rect then
-      local r = self.dropdown_btn_rect
-      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
-        core.command_view:enter("Select Shell", {
-          submit = function(text, item)
-            self:add_session(item.shell)
-            core.redraw = true
-          end,
-          suggest = function(text)
-            local res = {}
-            for _, sh in ipairs(shells) do table.insert(res, { text = sh.name, shell = sh }) end
-            return res
-          end
-        })
-        return true
-      end
-    end
-    if self.portmgr_btn_rect then
-      local r = self.portmgr_btn_rect
+    if self.ports_tab_rect then
+      local r = self.ports_tab_rect
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
         local found = false
-        for i, s in ipairs(self.sessions) do
-          local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
-    if s.shell.is_port_manager then
-            self.active_idx = i
-            found = true
-            break
+        for i, sess in ipairs(self.sessions) do
+          if sess.shell.is_port_manager then self.active_idx = i; found = true; break end
+        end
+        if not found then self:add_session({ name = "Port Manager", is_port_manager = true }) end
+        core.redraw = true
+        return true
+      end
+    end
+
+    if self.right_btns then
+      for _, b in ipairs(self.right_btns) do
+        if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
+          if b.name == "hide" then
+            command.perform("terminal:toggle")
+          elseif b.name == "maximize" then
+            command.perform("terminal:fullscreen")
+          elseif b.name == "trash" then
+            if self:state().proc then pcall(function() self:state().proc:kill() end) end
+            table.remove(self.sessions, self.active_idx)
+            if self.active_idx > #self.sessions then self.active_idx = #self.sessions end
+          elseif b.name == "add" then
+            self:add_session(shells[1] or self:state().shell)
+          elseif b.name == "dropdown" then
+            core.command_view:enter("Select Shell", {
+              submit = function(text, item)
+                self:add_session(item.shell)
+                core.redraw = true
+              end,
+              suggest = function(text)
+                local res = {}
+                for _, sh in ipairs(shells) do
+                  if not sh.is_port_manager then table.insert(res, { text = sh.name, shell = sh }) end
+                end
+                return res
+              end
+            })
           end
+          core.redraw = true
+          return true
         end
-        if not found then
-          self:add_session({ name = "Port Manager", is_port_manager = true })
-        end
-        core.redraw = true
-        return true
-      end
-    end
-    if self.close_btn_rect then
-      local r = self.close_btn_rect
-      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
-        if self:state().proc then pcall(function() self:state().proc:kill() end) end
-        table.remove(self.sessions, self.active_idx)
-        if self.active_idx > #self.sessions then self.active_idx = #self.sessions end
-        core.redraw = true
-        return true
-      end
-    end
-    for _, r in ipairs(self.tab_rects or {}) do
-      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
-        self.active_idx = r.idx
-        core.redraw = true
-        return true
       end
     end
   end
@@ -1497,22 +1447,24 @@ function TermView:on_mouse_moved(x, y, dx, dy)
     self.hovering_url = false
   end
 
-  local hover = false
-  if self.btn_rect then
-    local bx, by, bw, bh = self.btn_rect.x, self.btn_rect.y, self.btn_rect.w, self.btn_rect.h
-    if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
-      hover = true
+  local hovered_name = nil
+  if self.right_btns then
+    for _, b in ipairs(self.right_btns) do
+      if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
+        hovered_name = b.name
+        break
+      end
     end
   end
-  if self.hovered_btn ~= hover then
-    self.hovered_btn = hover
+  if self.hovered_btn_name ~= hovered_name then
+    self.hovered_btn_name = hovered_name
     core.redraw = true
   end
 end
 
 function TermView:on_mouse_left()
-  if self.hovered_btn then
-    self.hovered_btn = false
+  if self.hovered_btn_name then
+    self.hovered_btn_name = nil
     core.redraw = true
   end
 end
