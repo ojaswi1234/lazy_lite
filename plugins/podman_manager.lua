@@ -111,7 +111,6 @@ function PodmanView:new()
     { id = "compose", name = "Podman Compose", expanded = true, data = {}, loading = false },
     { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
     { id = "images", name = "Images", expanded = false, data = {}, loading = false },
-    { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
     { id = "k3s", name = "K3s Pods", expanded = false, data = {}, loading = false },
   }
   
@@ -128,7 +127,6 @@ function PodmanView:refresh_all()
   self:refresh_compose()
   self:refresh_containers()
   self:refresh_images()
-  self:refresh_k8s()
   self:refresh_k3s()
 end
 
