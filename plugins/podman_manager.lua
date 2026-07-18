@@ -331,7 +331,7 @@ function PodmanView:draw()
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
                   core.set_active_view(term)
-                term:add_session({ name = "Compose Logs", cmd = {"podman-compose", "logs", "-f"}, prompt_prefix = "" })
+                term:add_session({ name = "Compose Logs", cmd = PLATFORM == "Windows" and {"cmd.exe", "/c", build_win_cmd({"podman-compose", "logs", "-f"})} or {"podman-compose", "logs", "-f"}, prompt_prefix = "" })
                 term:run("")
                 end
 
@@ -366,7 +366,7 @@ function PodmanView:draw()
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
                   core.set_active_view(term)
-                term:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "logs", "-f", item.id}, prompt_prefix = "" })
+                term:add_session({ name = (item.name or "Unknown"), cmd = PLATFORM == "Windows" and {"cmd.exe", "/c", build_win_cmd({PODMAN_EXE, "logs", "-f", item.id})} or {PODMAN_EXE, "logs", "-f", item.id}, prompt_prefix = "" })
                 term:run("")
                 end
 
@@ -383,7 +383,7 @@ function PodmanView:draw()
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
                   core.set_active_view(term)
-                term:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
+                term:add_session({ name = (item.name or "Unknown"), cmd = PLATFORM == "Windows" and {"cmd.exe", "/c", build_win_cmd({PODMAN_EXE, "exec", "-it", item.id, "sh"})} or {PODMAN_EXE, "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
                 term:run("")
                 end
 
@@ -435,7 +435,7 @@ function PodmanView:draw()
                 for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
                 table.insert(cmd_parts, "exec"); table.insert(cmd_parts, "-it"); table.insert(cmd_parts, item.name)
                 table.insert(cmd_parts, "-n"); table.insert(cmd_parts, item.ns); table.insert(cmd_parts, "--"); table.insert(cmd_parts, "sh")
-                term:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
+                term:add_session({ name = (item.name or "Unknown"), cmd = PLATFORM == "Windows" and {"cmd.exe", "/c", build_win_cmd(cmd_parts)} or cmd_parts, prompt_prefix = "" })
                 term:run("")
                 end
 
@@ -459,7 +459,7 @@ function PodmanView:draw()
                 table.insert(cmd_parts, item.name)
                 table.insert(cmd_parts, "-n")
                 table.insert(cmd_parts, item.ns)
-                term:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
+                term:add_session({ name = (item.name or "Unknown"), cmd = PLATFORM == "Windows" and {"cmd.exe", "/c", build_win_cmd(cmd_parts)} or cmd_parts, prompt_prefix = "" })
                 term:run("")
                 end
 
