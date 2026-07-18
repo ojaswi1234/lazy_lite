@@ -3,7 +3,8 @@
 -- Enforces proper tab space sizes for specific languages and provides smart auto-indentation when pressing Enter.
 
 local core = require "core"
-local DocView = require "core.docview"
+local Doc = require "core.doc"
+local command = require "core.command"
 
 -- Set specific language indent rules
 local lang_indents = {
@@ -16,54 +17,49 @@ local lang_indents = {
   lua = { type = "soft", size = 2 },
 }
 
--- Hook into DocView on_text_input to intercept Enter key
-local old_on_text_input = DocView.on_text_input
-function DocView:on_text_input(text)
-  if text == "\n" or text == "\r\n" then
-    local line, col = self.doc:get_selection()
-    local current_line_text = self.doc.lines[line]
+-- Hook into Doc set_syntax to enforce tab spacing on file open
+local old_set_syntax = Doc.set_syntax
+function Doc:set_syntax(syntax)
+  old_set_syntax(self, syntax)
+  local syntax_name = syntax and syntax.name:lower() or ""
+  if lang_indents[syntax_name] then
+    self.indent_info = { type = lang_indents[syntax_name].type, size = lang_indents[syntax_name].size, confirmed = true }
+  end
+end
+
+-- Hook into the doc:newline command to provide smart auto-indentation on Enter
+local old_newline = command.map["doc:newline"].perform
+command.map["doc:newline"].perform = function(dv)
+  for idx, line, col in dv.doc:get_selections(false, true) do
+    local current_line_text = dv.doc.lines[line]
+    local indent = current_line_text:match("^[\t ]*")
     local prev_text = current_line_text:sub(1, col - 1)
     
-    -- Extract current indentation
-    local indent = prev_text:match("^[\t ]*") or ""
-    
-    -- Enforce language specific tab spaces
-    local syntax = self.doc.syntax and self.doc.syntax.name:lower() or ""
-    if lang_indents[syntax] then
-      self.doc.indent_info = { type = lang_indents[syntax].type, size = lang_indents[syntax].size, confirmed = true }
+    if col <= #indent then
+      indent = indent:sub(#indent + 2 - col)
     end
     
-    local indent_str = self.doc:get_indent_string()
+    local syntax_name = dv.doc.syntax and dv.doc.syntax.name:lower() or ""
+    local indent_str = dv.doc:get_indent_string()
     
     -- Smart increase indentation based on syntax and line ending characters
-    if syntax == "python" and prev_text:match(":[%s]*$") then
+    if syntax_name == "python" and prev_text:match(":[%s]*$") then
       indent = indent .. indent_str
-    elseif syntax == "yaml" and prev_text:match(":[%s]*$") then
+    elseif syntax_name == "yaml" and prev_text:match(":[%s]*$") then
       indent = indent .. indent_str
-    elseif syntax == "lua" and (prev_text:match("then[%s]*$") or prev_text:match("do[%s]*$") or prev_text:match("function.*%)[%s]*$") or prev_text:match("repeat[%s]*$")) then
+    elseif syntax_name == "lua" and (prev_text:match("then[%s]*$") or prev_text:match("do[%s]*$") or prev_text:match("function.*%)[%s]*$") or prev_text:match("repeat[%s]*$")) then
       indent = indent .. indent_str
     elseif prev_text:match("{[%s]*$") or prev_text:match("%[[%s]*$") or prev_text:match("%([%s]*$") then
       indent = indent .. indent_str
     end
     
-    self.doc:text_input("\n" .. indent)
-    self:scroll_to_make_visible(line + 1, #indent + 1)
-    return
-  end
-  
-  -- Handle auto-unindenting for closing brackets
-  if text == "}" or text == "]" or text == ")" then
-    local line, col = self.doc:get_selection()
-    local current_line_text = self.doc.lines[line]
-    if current_line_text:match("^[\t ]*$") then
-      local indent_str = self.doc:get_indent_string()
-      if current_line_text:len() >= indent_str:len() then
-        self.doc:remove(line, 1, line, indent_str:len() + 1)
-      end
+    -- Remove current line if it contains only whitespace
+    if current_line_text:match("^%s+$") then
+      dv.doc:remove(line, 1, line, math.huge)
     end
+    
+    dv.doc:text_input("\n" .. indent, idx)
   end
-
-  old_on_text_input(self, text)
 end
 
 core.log("Smart Indent loaded: Enforcing Python/YAML/Docker indentations.")
