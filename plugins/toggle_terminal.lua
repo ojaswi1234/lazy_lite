@@ -69,6 +69,14 @@ local shells = {}
 if PLATFORM == "Windows" then
   table.insert(shells, { name = "PowerShell", cmd = {"powershell.exe", "-NoProfile", "-Command"}, prompt_prefix = "PS " })
   table.insert(shells, { name = "Command Prompt", cmd = {"cmd.exe", "/c"}, prompt_prefix = "" })
+
+  local sys = require "system"
+  if sys.get_file_info("C:\\Program Files\\Git\\bin\\bash.exe") then
+    table.insert(shells, { name = "Git Bash", cmd = {"C:\\Program Files\\Git\\bin\\bash.exe", "-c"}, prompt_prefix = "" })
+  end
+  if sys.get_file_info("C:\\Windows\\System32\\wsl.exe") then
+    table.insert(shells, { name = "WSL", cmd = {"C:\\Windows\\System32\\wsl.exe", "-e", "bash", "-c"}, prompt_prefix = "" })
+  end
 else
   local function has_cmd(c) return os.execute("command -v " .. c .. " >/dev/null 2>&1") == 0 end
   if has_cmd("bash") then table.insert(shells, { name = "bash", cmd = {"bash", "-c"}, prompt_prefix = "" }) end
