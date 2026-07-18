@@ -306,17 +306,27 @@ function PodmanView:draw()
         
         if sec.id == "compose" then
           renderer.draw_text(style.icon_font, "\u{f490}", x + 20 * SCALE, y + 5 * SCALE, style.accent)
-          renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
+          core.push_clip_rect(x, y, w - 170 * SCALE, 30 * SCALE)
+            renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
+            core.pop_clip_rect()
           
           if item_hovered then
             local bx = x + w - 110 * SCALE
             -- Logs
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
-              command.perform("terminal:toggle")
-              core.add_thread(function()
-                while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = "Compose Logs", cmd = {"podman-compose", "logs", "-f"}, prompt_prefix = "" })
-              end)
+              
+                local toggle_term = require("plugins.toggle_terminal")
+                local term = toggle_term.instance
+                if not term then 
+                  command.perform("terminal:toggle")
+                  term = toggle_term.instance
+                end
+                if term and not term.visible then command.perform("terminal:toggle") end
+                if term then
+                  core.set_active_view(term)
+                term:add_session({ name = "Compose Logs", cmd = {"podman-compose", "logs", "-f"}, prompt_prefix = "" })
+                end
+
             end)
             -- Down
             bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec("podman-compose down", function() self:refresh_all() end) end)
@@ -327,7 +337,9 @@ function PodmanView:draw()
         elseif sec.id == "containers" then
           local c_col = (item.status or ""):match("Up") and PODMAN_COLORS.up or PODMAN_COLORS.exited
           renderer.draw_text(style.icon_font, "\u{f1b2}", x + 20 * SCALE, y + 5 * SCALE, c_col)
-          local nx = renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
+          core.push_clip_rect(x, y, w - 170 * SCALE, 30 * SCALE)
+            local nx = renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
+            core.pop_clip_rect()
           if item.ports and item.ports ~= "" then
             renderer.draw_text(style.font, "  [" .. item.ports .. "]", nx, y + 5 * SCALE, style.dim)
           end
@@ -336,19 +348,35 @@ function PodmanView:draw()
             local bx = x + w - 160 * SCALE
             -- Logs
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
-              command.perform("terminal:toggle")
-              core.add_thread(function()
-                while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "logs", "-f", item.id}, prompt_prefix = "" })
-              end)
+              
+                local toggle_term = require("plugins.toggle_terminal")
+                local term = toggle_term.instance
+                if not term then 
+                  command.perform("terminal:toggle")
+                  term = toggle_term.instance
+                end
+                if term and not term.visible then command.perform("terminal:toggle") end
+                if term then
+                  core.set_active_view(term)
+                term:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "logs", "-f", item.id}, prompt_prefix = "" })
+                end
+
             end)
             -- Exec terminal
             bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
-              command.perform("terminal:toggle")
-              core.add_thread(function()
-                while not core.active_view.add_session do coroutine.yield(0.1) end
-                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
-              end)
+              
+                local toggle_term = require("plugins.toggle_terminal")
+                local term = toggle_term.instance
+                if not term then 
+                  command.perform("terminal:toggle")
+                  term = toggle_term.instance
+                end
+                if term and not term.visible then command.perform("terminal:toggle") end
+                if term then
+                  core.set_active_view(term)
+                term:add_session({ name = (item.name or "Unknown"), cmd = {PODMAN_EXE, "exec", "-it", item.id, "sh"}, prompt_prefix = "" })
+                end
+
             end)
             -- Restart
             bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "restart", item.id}, function() self:refresh_containers() end) end)
@@ -374,28 +402,45 @@ function PodmanView:draw()
         elseif sec.id == "k8s" then
           local is_running = item.status == "Running"
           renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and PODMAN_COLORS.up or PODMAN_COLORS.exited)
-          renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
+          core.push_clip_rect(x, y, w - 170 * SCALE, 30 * SCALE)
+            renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
+            core.pop_clip_rect()
           
           if item_hovered then
             local bx = x + w - 110 * SCALE
             local cmd_prefix = "kubectl"
             -- Exec
             bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
-              command.perform("terminal:toggle")
-              core.add_thread(function()
-                while not core.active_view.add_session do coroutine.yield(0.1) end
+              
+                local toggle_term = require("plugins.toggle_terminal")
+                local term = toggle_term.instance
+                if not term then 
+                  command.perform("terminal:toggle")
+                  term = toggle_term.instance
+                end
+                if term and not term.visible then command.perform("terminal:toggle") end
+                if term then
+                  core.set_active_view(term)
                 local cmd_parts = {}
                 for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
                 table.insert(cmd_parts, "exec"); table.insert(cmd_parts, "-it"); table.insert(cmd_parts, item.name)
                 table.insert(cmd_parts, "-n"); table.insert(cmd_parts, item.ns); table.insert(cmd_parts, "--"); table.insert(cmd_parts, "sh")
-                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
-              end)
+                term:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
+                end
+
             end)
             -- Logs
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
-              command.perform("terminal:toggle")
-              core.add_thread(function()
-                while not core.active_view.add_session do coroutine.yield(0.1) end
+              
+                local toggle_term = require("plugins.toggle_terminal")
+                local term = toggle_term.instance
+                if not term then 
+                  command.perform("terminal:toggle")
+                  term = toggle_term.instance
+                end
+                if term and not term.visible then command.perform("terminal:toggle") end
+                if term then
+                  core.set_active_view(term)
                 local cmd_parts = {}
                 for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
                 table.insert(cmd_parts, "logs")
@@ -403,8 +448,9 @@ function PodmanView:draw()
                 table.insert(cmd_parts, item.name)
                 table.insert(cmd_parts, "-n")
                 table.insert(cmd_parts, item.ns)
-                core.active_view:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
-              end)
+                term:add_session({ name = (item.name or "Unknown"), cmd = cmd_parts, prompt_prefix = "" })
+                end
+
             end)
             -- Trash
             draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() 
