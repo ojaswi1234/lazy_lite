@@ -460,6 +460,25 @@ function RootView:on_mouse_released(button, x, y, clicks)
   if button == "left" then
     for _, view in ipairs(core.root_view.root_node:get_children()) do
       if view:is(TreeView) then
+        if view.is_dragging and view.dnd_item and view.dnd_item.type == "file" then
+          local node = core.root_view.root_node:get_child_overlapping_point(x, y)
+          if node then
+            local target_view = node.active_view
+            local DocView = require "core.docview"
+            local EmptyView = require "core.emptyview"
+            if target_view:is(DocView) or target_view:is(EmptyView) then
+              local split_type = node:get_split_type(x, y)
+              if split_type ~= "middle" and split_type ~= "tab" then
+                local new_node = node:split(split_type)
+                core.root_view:set_active_node(new_node)
+              else
+                core.root_view:set_active_node(node)
+              end
+              core.root_view:open_doc(core.open_doc(view.dnd_item.abs_filename))
+              core.redraw = true
+            end
+          end
+        end
         view.dnd_item = nil
         view.is_dragging = false
       end

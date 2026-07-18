@@ -786,17 +786,17 @@ function TermView:draw()
     table.insert(self.right_btns, { x = right_x, y = y, w = iw, h = hdr_h, name = name })
   end
 
-  draw_btn("X", "hide")
-  draw_btn(self.is_fullscreen and "v" or "^", "maximize")
+  draw_btn("\u{2715}", "hide") -- ✕
+  draw_btn(self.is_fullscreen and "\u{25BC}" or "\u{25B2}", "maximize") -- ▼ / ▲
   if not is_pm_active and #self.sessions > 1 then
-    draw_btn("x", "trash")
+    draw_btn("\u{1F5D1}", "trash") -- 🗑
   end
   draw_btn("+", "add")
 
   if not is_pm_active then
     local session_name = self:state().shell.name
     if session_name:len() > 10 then session_name = session_name:sub(1, 10) .. ".." end
-    local dd_text = tostring(self.active_idx) .. ": " .. session_name .. " v"
+    local dd_text = tostring(self.active_idx) .. ": " .. session_name .. " \u{25BE}" -- ▾
     draw_btn(dd_text, "dropdown")
   end
 
