@@ -791,6 +791,7 @@ function TermView:draw()
   if not is_pm_active and #self.sessions > 1 then
     draw_btn("\u{1F5D1}", "trash") -- 🗑
   end
+  draw_btn("\u{25EB}", "split") -- ◫ (Split Terminal)
   draw_btn("+", "add")
 
   if not is_pm_active then
@@ -1405,6 +1406,13 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
             if self.active_idx > #self.sessions then self.active_idx = #self.sessions end
           elseif b.name == "add" then
             self:add_session(shells[1] or self:state().shell)
+          elseif b.name == "split" then
+            local node = core.root_view.root_node:get_node_for_view(self)
+            if node then
+              local new_term = TermView()
+              local new_node = node:split("right", new_term)
+              core.set_active_view(new_term)
+            end
           elseif b.name == "dropdown" then
             core.command_view:enter("Switch Terminal", {
               submit = function(text, item)
