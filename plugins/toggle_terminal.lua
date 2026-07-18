@@ -1406,15 +1406,17 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           elseif b.name == "add" then
             self:add_session(shells[1] or self:state().shell)
           elseif b.name == "dropdown" then
-            core.command_view:enter("Select Shell", {
+            core.command_view:enter("Switch Terminal", {
               submit = function(text, item)
-                self:add_session(item.shell)
+                self.active_idx = item.idx
                 core.redraw = true
               end,
               suggest = function(text)
                 local res = {}
-                for _, sh in ipairs(shells) do
-                  if not sh.is_port_manager then table.insert(res, { text = sh.name, shell = sh }) end
+                for i, sess in ipairs(self.sessions) do
+                  if not sess.shell.is_port_manager then 
+                    table.insert(res, { text = tostring(i) .. ": " .. sess.shell.name, idx = i }) 
+                  end
                 end
                 return res
               end
