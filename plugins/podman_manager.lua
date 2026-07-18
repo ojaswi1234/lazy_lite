@@ -108,9 +108,10 @@ function PodmanView:new()
   self.visible = false
   
   self.sections = {
-    { id = "compose", name = "Podman Compose", expanded = true, data = {}, loading = false },
+    { id = "compose", name = "Docker Compose", expanded = true, data = {}, loading = false },
     { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
     { id = "images", name = "Images", expanded = false, data = {}, loading = false },
+    { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
     { id = "k3s", name = "K3s Pods", expanded = false, data = {}, loading = false },
   }
   
@@ -127,6 +128,7 @@ function PodmanView:refresh_all()
   self:refresh_compose()
   self:refresh_containers()
   self:refresh_images()
+  self:refresh_k8s()
   self:refresh_k3s()
 end
 
@@ -305,6 +307,21 @@ function PodmanView:draw()
     if sec.expanded then
       if #sec.data == 0 and not sec.loading then
         renderer.draw_text(style.font, "No items found", x + 30 * SCALE, y + 5 * SCALE, style.dim)
+        if sec.id == "k8s" or sec.id == "k3s" then
+          local btn_txt = "Setup Cluster"
+          local tw = style.font:get_width(btn_txt)
+          local bx = x + w - tw - 30 * SCALE
+          local by = y + 5 * SCALE
+          local hovered = (self.mouse_x and self.mouse_x >= bx and self.mouse_x <= bx + tw and self.mouse_y >= by and self.mouse_y <= by + 20 * SCALE)
+          renderer.draw_text(style.font, btn_txt, bx, by, hovered and style.accent or style.text)
+          table.insert(self.buttons, { x = bx, y = by, w = tw, h = 20 * SCALE, action = function()
+            if sec.id == "k8s" then
+              async_exec({ "powershell", "-Command", "$env:KIND_EXPERIMENTAL_PROVIDER='podman'; kind create cluster" }, function() self:refresh_k8s() end)
+            else
+              async_exec({ PODMAN_EXE, "run", "-d", "--name", "k3s-server", "--privileged", "-p", "6443:6443", "-e", "K3S_KUBECONFIG_OUTPUT=/output/config", "-v", os.getenv("USERPROFILE") .. "\\.kube:/output", "docker.io/rancher/k3s:latest", "server" }, function() self:refresh_k3s() end)
+            end
+          end })
+        end
         y = y + 25 * SCALE
       end
       
