@@ -236,13 +236,14 @@ function PodmanView:set_target_size(axis, value)
 end
 
 local function draw_icon_btn(self, icon, bx, by, color, action_fn, tooltip)
-  local bw = style.icon_font:get_width(icon) + 10 * SCALE
-  local bh = style.icon_font:get_height()
-  table.insert(self.buttons, { x = bx, y = by, w = bw, h = bh, action = action_fn })
+  local bw = style.icon_font:get_width(icon) + 16 * SCALE
+  local btn_y = by - 5 * SCALE
+  local btn_h = 30 * SCALE
+  table.insert(self.buttons, { x = bx, y = btn_y, w = bw, h = btn_h, action = action_fn })
   
   local hovered = false
   if self.mouse_x and self.mouse_y then
-    if self.mouse_x >= bx and self.mouse_x <= bx + bw and self.mouse_y >= by and self.mouse_y <= by + bh then
+    if self.mouse_x >= bx and self.mouse_x <= bx + bw and self.mouse_y >= btn_y and self.mouse_y <= btn_y + btn_h then
       hovered = true
       self.hovered_btn = true
     end
