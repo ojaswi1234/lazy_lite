@@ -1772,3 +1772,6 @@ function DocView:draw_line_gutter(line, x, y, width)
   end
   return res
 end
+
+return { TermView = TermView, get_instance = function() return instance end }
+

@@ -322,10 +322,10 @@ function PodmanView:draw()
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
               
                 local toggle_term = require("plugins.toggle_terminal")
-                local term = toggle_term.instance
+                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 if not term then 
                   command.perform("terminal:toggle")
-                  term = toggle_term.instance
+                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 end
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
@@ -356,10 +356,10 @@ function PodmanView:draw()
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
               
                 local toggle_term = require("plugins.toggle_terminal")
-                local term = toggle_term.instance
+                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 if not term then 
                   command.perform("terminal:toggle")
-                  term = toggle_term.instance
+                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 end
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
@@ -372,10 +372,10 @@ function PodmanView:draw()
             bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
               
                 local toggle_term = require("plugins.toggle_terminal")
-                local term = toggle_term.instance
+                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 if not term then 
                   command.perform("terminal:toggle")
-                  term = toggle_term.instance
+                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 end
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
@@ -419,10 +419,10 @@ function PodmanView:draw()
             bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
               
                 local toggle_term = require("plugins.toggle_terminal")
-                local term = toggle_term.instance
+                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 if not term then 
                   command.perform("terminal:toggle")
-                  term = toggle_term.instance
+                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 end
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
@@ -439,10 +439,10 @@ function PodmanView:draw()
             bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
               
                 local toggle_term = require("plugins.toggle_terminal")
-                local term = toggle_term.instance
+                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 if not term then 
                   command.perform("terminal:toggle")
-                  term = toggle_term.instance
+                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
                 end
                 if term and not term.visible then command.perform("terminal:toggle") end
                 if term then
