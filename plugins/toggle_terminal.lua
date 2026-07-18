@@ -1075,6 +1075,15 @@ function TermView:on_key_pressed(key)
     local cmd = self:state().input:match("^%s*(.-)%s*$")
     self:state().input = ""
     self:state().cursor = 1
+    if not cmd or #cmd == 0 then
+      local s = self:state()
+      local prefix = ""
+      if s.venv_name then prefix = "(" .. s.venv_name .. ") " end
+      local prompt = prefix .. (s.shell.prompt_prefix or "") .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
+      if s.shell.is_port_manager or s.proc or core.active_codespace then prompt = "" end
+      if prompt ~= "" then self:_push("cmd", prompt) end
+      return true
+    end
     if cmd and #cmd > 0 then
       if self:state().history[#self:state().history] ~= cmd then
         table.insert(self:state().history, cmd)
