@@ -10,13 +10,7 @@ local command = require "core.command"
 local common  = require "core.common"
 
 local function append_wrapped(lines, kind, text, max_chars)
-  if #text <= max_chars then
-    table.insert(lines, { kind = kind, text = text })
-  else
-    for i = 1, #text, max_chars do
-      table.insert(lines, { kind = kind, text = text:sub(i, i + max_chars - 1) })
-    end
-  end
+  table.insert(lines, { kind = kind, text = text })
 end
 
 local View    = require "core.view"
@@ -50,6 +44,13 @@ local function utf8_next_index(text, cursor)
     i = i + 1
   end
   return i
+end
+
+local function sort_positions(l1, c1, l2, c2)
+  if l1 < l2 or (l1 == l2 and c1 <= c2) then
+    return l1, c1, l2, c2
+  end
+  return l2, c2, l1, c1
 end
 
 local function get_prompt(s)
@@ -130,7 +131,7 @@ end
 local TermView = View:extend()
 local instance   = nil   -- single instance kept alive across toggles
 TermView.instances = TermView.instances or {}
-local node_built = false -- have we added to node tree yet?
+-- have we added to node tree yet?
 
 -- Sentinel used to detect end-of-command in persistent shell sessions.
 -- Must be unique enough to never appear in normal command output.
@@ -145,6 +146,7 @@ function TermView:new()
   self.scrollable = true
   self.sessions = {}
   self.active_idx = 1
+  self.split_indices = { 1 }
   self.hovering_url = false
   self.is_fullscreen = false
   self.dragging_selection = false
@@ -316,611 +318,315 @@ end
 
 function TermView:get_name() return "Terminal" end
 
--- Highly optimized chunk parser that prevents string allocation spam on massive I/O
 function TermView:_push_chunk(kind, chunk, no_redraw)
   local s = self:state()
-  local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
-  local lh = style.code_font:get_height() + 2 * SCALE
-  local old_total = (#s.lines + 1) * lh
-  local inner = math.max(0, self.size.y - 31 * SCALE)
-  local was_at_bottom = s.scroll_to_bottom or (s.scroll_y >= old_total - inner - lh)
-
-  local buf_key = kind .. "_buf"
-  s[buf_key] = (s[buf_key] or "") .. chunk
-  
-  local buf = s[buf_key]
-  local last_nl = 0
-  
-  for i = 1, #buf do
-    if buf:byte(i) == 10 then -- '\n'
-      local line = buf:sub(last_nl + 1, i - 1)
-      if #line > 0 and line:byte(#line) == 13 then -- strip '\r'
-        line = line:sub(1, -2)
+  if not s then return end
+  for line in (chunk .. "\n"):gmatch("([^\n]*)\n") do
+    if line:len() > 0 then
+      table.insert(s.lines, {kind = kind, text = line})
+      if #s.lines > (config.terminal.scrollback or 500) then
+        table.remove(s.lines, 1)
       end
-      -- Strip ALL ANSI escape sequences (with or without ESC byte)
-      line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")       -- ESC [ ... letter
-      line = line:gsub("\027[%[%]%(%)#%%][%d;]*[A-Za-z]", "")  -- other ESC seqs
-      line = line:gsub("%[[0-9;]+[mKJHABCDEFGfu]", "")   -- orphaned (no ESC byte)
-      -- Replace common Unicode symbols that code fonts can't render
-      line = line:gsub("\xe2\x9e\x9c", "->")  -- ➜  (U+279C)
-      line = line:gsub("\xe2\x86\x92", "->")  -- →  (U+2192)
-      line = line:gsub("\xe2\x96\xb6", ">")   -- ▶  (U+25B6)
-      line = line:gsub("\xe2\x9c\x94", "ok")  -- ✔  (U+2714)
-      line = line:gsub("\xe2\x9c\x96", "err") -- ✖  (U+2716)
-      line = line:gsub("\xe2\x9c\x93", "ok")  -- ✓  (U+2713)
-      line = line:gsub("\xe2\x9c\x97", "err") -- ✗  (U+2717)
-      if #line > 0 then
-        append_wrapped(s.lines, kind, line, max_chars)
-      end
-      last_nl = i
     end
   end
-  
-  if last_nl > 0 then
-    s[buf_key] = buf:sub(last_nl + 1)
-    if was_at_bottom then
-      s.scroll_to_bottom = true
-    end
+  if s.scroll_to_bottom then
+    local lh = style.code_font:get_height() + 2 * SCALE
+    s.scroll_y = math.max(0, #s.lines * lh - self.size.y)
   end
-  local lines = s.lines
-  local n = #lines
-  local overflow = n - config.terminal.scrollback
-  if overflow > 0 then
-    -- O(N) table rebuild instead of O(N²) repeated table.remove(t,1)
-    local new_lines = {}
-    for i = overflow + 1, n do
-      new_lines[#new_lines + 1] = lines[i]
-    end
-    s.lines = new_lines
-  end
-  if not no_redraw then
-    core.redraw = true
-  end
+  if not no_redraw then core.redraw = true end
 end
 
 function TermView:_push(kind, text)
-  self:_push_chunk(kind, text .. "\n")
+  self:_push_chunk(kind, text, false)
 end
 
 function TermView:_flush_chunk_buffer(kind)
-  local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
-  local buf_key = kind .. "_buf"
-  local rem = self:state()[buf_key]
-  if rem and #rem > 0 then
-    if rem:byte(#rem) == 13 then
-      rem = rem:sub(1, -2)
-    end
-    if #rem > 0 then
-      append_wrapped(self:state().lines, kind, rem, max_chars)
-    end
-    self:state()[buf_key] = ""
-  end
 end
 
--- Start (or reuse) a persistent SSH bash session for the given session state.
--- Returns true if the proc is ready, false/nil otherwise.
 function TermView:_ensure_persistent_proc(s)
-  if s.persistent_proc then
-    local rc = s.persistent_proc:returncode()
-    if rc == nil then return true end  -- still alive
-    -- Process died — clear it so we reconnect
-    s.persistent_proc = nil
-    s.waiting_sentinel = nil
-    self:_push("info", "[connection lost, reconnecting...]")
-  end
-
-  if not core.active_codespace then return false end
-  local repo_only = core.active_codespace.repo:match("[^/]+$") or core.active_codespace.repo
-  local remote_dir = core.active_codespace.remote_dir or ("/workspaces/" .. repo_only)
-  s.codespace_cwd = s.codespace_cwd or remote_dir
-
-  -- Launch a SINGLE long-lived interactive bash via SSH.
-  -- GH_INSECURE_SKIP_VERIFY_TLS bypasses corporate proxy TLS interception.
-  local GH_ENV = { GH_INSECURE_SKIP_VERIFY_TLS = "1", GH_NO_UPDATE_NOTIFIER = "1" }
-  local p, err = process.start(
-    { "gh", "codespace", "ssh", "-c", core.active_codespace.name, "--", "-T", "-q", "bash" },
-    { stdin = process.REDIRECT_PIPE, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV }
-  )
-  if not p then
-    self:_push("err", "ERROR: failed to start persistent SSH: " .. tostring(err))
-    return false
-  end
-  s.persistent_proc = p
-  s.waiting_sentinel = nil
-  -- Initialise: cd to the remote working dir and disable prompt so our output is clean.
-  pcall(function()
-    p:write("cd " .. shell_quote(remote_dir) .. " && export PS1='' && export PS2='' && stty -echo 2>/dev/null; echo READY\n")
-  end)
-  self:_push("info", "[connecting to codespace...]")
-  return true
 end
 
--- Run a command string asynchronously
 function TermView:run(cmd_str)
   local s = self:state()
-  s.scroll_to_bottom = true
-
-  -- ── Codespace path: use persistent SSH shell (no per-command SSH handshake) ──
-  if core.active_codespace then
-    -- If the persistent shell process is already running a command, queue nothing
-    -- (the user typed another command while one is executing)
-    if s.waiting_sentinel then
-      self:_push("err", "[command already running — wait for it to finish]")
-      return
-    end
-    self:_push("cmd", get_prompt(s) .. cmd_str)
-    if not self:_ensure_persistent_proc(s) then return end
-    -- Build a sentinel-wrapped command that:
-    --   1. runs the user's command
-    --   2. captures its exit code
-    --   3. prints a unique sentinel so we know it finished
-    s.sentinel_n = (s.sentinel_n or 0) + 1
-    local sentinel = make_sentinel(s.sentinel_n)
-    s.waiting_sentinel = sentinel
-    -- Wrap: run cmd, capture exit code, echo sentinel on its own line
-    local wrapped = string.format(
-      "%s; _rc=$?; echo '%s'; echo \"[exit: $_rc]\"\n",
-      cmd_str, sentinel
-    )
-    pcall(function() s.persistent_proc:write(wrapped) end)
-    return
-  end
-
-  -- ── Local path: legacy per-command spawn ──
-  -- If a process is already running, send input to stdin
-  if s.proc then
-    self:_push("cmd", cmd_str)
-    pcall(function() s.proc:write(cmd_str .. "\n") end)
-    return
-  end
-
-  self:_push("cmd", get_prompt(s) .. cmd_str)
-
-  local final_cmd = cmd_str
-  if s.venv_path then
-    local safe_path = string.format("%q", s.venv_path)
-    if s.shell.name == "PowerShell" then
-      final_cmd = "& " .. safe_path .. " ; " .. cmd_str
-    elseif s.shell.name == "Command Prompt" then
-      final_cmd = safe_path .. " && " .. cmd_str
-    else
-      final_cmd = "source " .. safe_path .. " && " .. cmd_str
-    end
-  end
-
-  local argv = {}
-  for _, v in ipairs(s.shell.cmd) do table.insert(argv, v) end
-  if final_cmd and final_cmd ~= "" then table.insert(argv, final_cmd) end
-
-  local p, err, code = process.start(argv, {
-    stdin  = process.REDIRECT_PIPE,
-    stdout = process.REDIRECT_PIPE,
-    stderr = process.REDIRECT_PIPE,
-    cwd    = s.cwd or core.project_dir
-  })
-
-  if p then
-    self:state().proc = p
-  else
-    self:_push("err", "ERROR: " .. tostring(err) .. " (code " .. tostring(code) .. ")")
+  if not s then return end
+  self:_push("cmd", cmd_str)
+  if s.proc then pcall(function() s.proc:kill() end) end
+  
+  local shell = s.shell
+  if shell.cmd then
+    local cmd = {}
+    for _, c in ipairs(shell.cmd) do table.insert(cmd, c) end
+    table.insert(cmd, cmd_str)
+    s.proc = process.start(cmd)
+    s.out_buf = ""
   end
 end
 
 function TermView:update()
   TermView.super.update(self)
-
-  -- Fullscreen overrides target_size
-  if self.is_fullscreen then
-    self.target_size = math.max(config.terminal.target_height * SCALE, core.root_view.size.y - (80 * SCALE))
-  end
-
-  -- Size animation (same pattern as built-in treeview)
   local dest = self.visible and self.target_size or 0
-  self:move_towards(self.size, "y", dest, nil, "terminal")
-
-  -- ── Drain persistent SSH shell output (codespace sessions) ──
-  for i, s in ipairs(self.sessions) do
-    if s.persistent_proc then
-      local had_output = false
-      local old_idx = self.active_idx
-      self.active_idx = i
-
-      -- Drain stdout from persistent proc, watch for sentinel
-      while true do
-        local out = s.persistent_proc:read_stdout(65536)
-        if not out or #out == 0 then break end
-        -- Split on lines, filter out sentinel line
-        local buf = (s.persistent_out_buf or "") .. out
-        s.persistent_out_buf = ""
-        local done = false
-        for line in (buf .. "\n"):gmatch("([^\n]*)\n") do
-          -- Strip \r and ALL ANSI escape sequences (mid-line too)
-          line = line:gsub("\r$", "")
-          line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")
-          line = line:gsub("\027[%[%]%(%)#%%][%d;]*[A-Za-z]", "")
-          line = line:gsub("%[[0-9;]+[mKJHABCDEFGfu]", "")
-          -- Replace common Unicode symbols that code fonts may not render
-          line = line:gsub("➜", "->")  -- ➜ arrow
-          line = line:gsub("→", "->")
-          line = line:gsub("▶", ">")
-          line = line:gsub("✔", "ok")
-          line = line:gsub("✖", "err")
-          -- Filter READY init marker
-          if line == "READY" then
-            -- skip init marker
-          elseif s.waiting_sentinel and line:find(s.waiting_sentinel, 1, true) then
-            -- Sentinel found — command finished
-            s.waiting_sentinel = nil
-            done = true
-          elseif #line > 0 then
-            append_wrapped(s.lines, "out", line, max_chars)
-            had_output = true
-          end
-        end
-        if done then
-          s.scroll_to_bottom = true
-          had_output = true
-        end
-      end
-
-      -- Drain stderr from persistent proc
-      while true do
-        local err = s.persistent_proc:read_stderr(65536)
-        if not err or #err == 0 then break end
-        local buf = (s.persistent_err_buf or "") .. err
-        s.persistent_err_buf = ""
-        for line in (buf .. "\n"):gmatch("([^\n]*)\n") do
-          line = line:gsub("\r$", "")
-          line = line:gsub("\027%[[0-9;]*[A-Za-z]", "")  -- strip all ANSI escapes
-          line = line:gsub("\027[%[%]%(%)#%%][%d;]*[A-Za-z]", "")
-          line = line:gsub("%[[0-9;]+[mKJHABCDEFGfu]", "")
-          line = line:gsub("➜", "->")
-          line = line:gsub("→", "->")
-          line = line:gsub("▶", ">")
-          line = line:gsub("✔", "ok")
-          line = line:gsub("✖", "err")
-          if #line > 0 then
-            append_wrapped(s.lines, "err", line, max_chars)
-            had_output = true
-          end
-        end
-      end
-
-      -- Check if persistent proc died unexpectedly
-      local rc = s.persistent_proc:returncode()
-      if rc ~= nil then
-        s.persistent_proc = nil
-        s.waiting_sentinel = nil
-        self:_push("info", string.format("[ssh session closed: %d]", rc))
-        had_output = true
-      end
-
-      self.active_idx = old_idx
-      if had_output then
-        core.redraw = true
-      end
-    end
+  if self.is_fullscreen and self.visible then
+    dest = core.root_view.size.y
   end
-
-  -- Drain ALL regular (local) process outputs using 64KB chunks
-  for i, s in ipairs(self.sessions) do
+  if math.abs(self.size.y - dest) > 0.5 then
+    self.size.y = common.lerp(self.size.y, dest, 0.2)
+    core.redraw = true
+  else
+    self.size.y = dest
+  end
+  
+  for _, s in ipairs(self.sessions) do
     if s.proc then
-      local had_output = false
-      while true do
-        local out = s.proc:read_stdout(65536)
-        if not out or #out == 0 then break end
-        -- Need to temporarily set active state for _push_chunk to target right session
-        local old_idx = self.active_idx
-        self.active_idx = i
-        self:_push_chunk("out", out, true)
-        self.active_idx = old_idx
-        had_output = true
-      end
-      
-      while true do
-        local err = s.proc:read_stderr(65536)
-        if not err or #err == 0 then break end
-        local old_idx = self.active_idx
-        self.active_idx = i
-        self:_push_chunk("err", err, true)
-        self.active_idx = old_idx
-        had_output = true
-      end
-
-      local rc = s.proc:returncode()
-      if rc ~= nil then
-        local old_idx = self.active_idx
-        self.active_idx = i
-        self:_flush_chunk_buffer("out")
-        self:_flush_chunk_buffer("err")
-          if rc ~= 0 then
-            self:_push_chunk("err", string.format("[exited with code: %d]\n", rc), true)
-          end
-        self.active_idx = old_idx
+      local chunk = s.proc:read_stdout(4096)
+      if chunk and #chunk > 0 then
+        s.out_buf = (s.out_buf or "") .. chunk
+        -- Split by newline and push
+        self:_push_chunk("info", chunk, false)
+      elseif not s.proc:running() then
         s.proc = nil
-        had_output = true
       end
-
-      if had_output then
-        core.redraw = true
-      end
-    end
-  end
-
-  -- Handle scroll snapping & clamp on resize
-  local s = self:state()
-  if not s.shell.is_port_manager then
-    local lh = style.code_font:get_height() + 2 * SCALE
-    local prompt = get_prompt(s)
-      local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
-      local full_txt = prompt .. s.input
-      local input_lines_count = math.ceil(math.max(1, #full_txt) / max_chars)
-      local total = (#s.lines + input_lines_count) * lh
-    local inner = math.max(0, self.size.y - 31 * SCALE)
-    local max_scroll = math.max(0, total - inner)
-    if s.scroll_to_bottom and total > 0 then
-      s.scroll_y = max_scroll
-      s.scroll_to_bottom = false
-    elseif s.scroll_y > max_scroll then
-      s.scroll_y = max_scroll
     end
   end
 end
 
+function TermView:draw()
+  core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
+  self:draw_background(style.background3 or style.background)
+  
+  local x, y, w, h = self.position.x, self.position.y, self.size.x, self.size.y
+  
+  -- Header Background
+  local hdr_h = 26 * SCALE
+  renderer.draw_rect(x, y, w, hdr_h, style.background2 or style.background)
+  
+  -- Header Divider
+  renderer.draw_rect(x, y + hdr_h - 1 * SCALE, w, 1 * SCALE, style.divider or {common.color("#444444")})
+  
+  -- Draw TERMINAL and PORTS major tabs
+  local tx = x + 10 * SCALE
+  local is_pm_active = self:state() and self:state().shell.is_port_manager
+  
+  -- TERMINAL Tab
+  local term_txt = "TERMINAL"
+  local term_w = style.font:get_width(term_txt) + 20 * SCALE
+  local term_col = not is_pm_active and style.text or style.dim
+  renderer.draw_text(style.font, term_txt, tx + 10 * SCALE, y + math.floor((hdr_h - style.font:get_height()) / 2), term_col)
+  if not is_pm_active then
+    renderer.draw_rect(tx, y + hdr_h - 2 * SCALE, term_w, 2 * SCALE, style.accent or {common.color("#A9DC76")})
+  end
+  self.terminal_tab_rect = { x = tx, y = y, w = term_w, h = hdr_h }
+  tx = tx + term_w
+  
+  -- PORTS Tab
+  local ports_txt = "PORT MANAGER"
+  local ports_w = style.font:get_width(ports_txt) + 20 * SCALE
+  local ports_col = is_pm_active and style.text or style.dim
+  renderer.draw_text(style.font, ports_txt, tx + 10 * SCALE, y + math.floor((hdr_h - style.font:get_height()) / 2), ports_col)
+  if is_pm_active then
+    renderer.draw_rect(tx, y + hdr_h - 2 * SCALE, ports_w, 2 * SCALE, style.accent or {common.color("#A9DC76")})
+  end
+  self.ports_tab_rect = { x = tx, y = y, w = ports_w, h = hdr_h }
+  tx = tx + ports_w + 10 * SCALE
 
-local function sort_positions(l1, c1, l2, c2)
-  if l1 < l2 then return l1, c1, l2, c2 end
-  if l1 > l2 then return l2, c2, l1, c1 end
-  if c1 <= c2 then return l1, c1, l2, c2 else return l2, c2, l1, c1 end
+  -- Draw vertical separator
+  renderer.draw_rect(tx, y + 5 * SCALE, 1 * SCALE, hdr_h - 10 * SCALE, style.divider or {common.color("#444444")})
+  tx = tx + 10 * SCALE
+
+  -- (Horizontal session tabs removed, moved to right vertical sidebar)
+  
+  -- Draw buttons
+  local btn_x = x + w - 30 * SCALE
+  local btns = {
+    { name = "trash",    icon = "" },
+    { name = "maximize", icon = "" },
+    { name = "split",    icon = "󰤽" },
+    { name = "add",      icon = "" }
+  }
+  self.right_btns = {}
+  for _, b in ipairs(btns) do
+    renderer.draw_text(style.icon_font, b.icon, btn_x, y + math.floor((hdr_h - style.icon_font:get_height()) / 2), style.text)
+    table.insert(self.right_btns, { name = b.name, x = btn_x, y = y, w = 30 * SCALE, h = hdr_h })
+    btn_x = btn_x - 30 * SCALE
+  end
+  
+  -- Output
+  local out_top = y + hdr_h + 3 * SCALE
+  local out_bot = y + h - 2 * SCALE
+  local out_h   = out_bot - out_top
+  
+  if self:state() and self:state().shell.is_port_manager then
+    self:draw_port_manager(x, out_top, w, out_h)
+    core.pop_clip_rect()
+    return
+  end
+  
+  local fg = style.text
+  local col_err = style.error or {common.color("#ff5555")}
+  local col_inf = style.accent or {common.color("#55ff55")}
+  local border = style.divider or {common.color("#444444")}
+  
+  -- The split drawing loop
+  local right_w = 150 * SCALE
+  if self:state() and self:state().shell.is_port_manager then right_w = 0 end
+  
+  local available_w = w - right_w
+  local col_w = math.floor(available_w / #self.split_indices)
+  local lh = style.code_font:get_height() + 2 * SCALE
+
+  for col_idx, sess_idx in ipairs(self.split_indices) do
+    local s = self.sessions[sess_idx]
+    if not s then goto continue end
+    
+    local col_x = x + (col_idx - 1) * col_w
+    if col_idx > 1 then
+      renderer.draw_rect(col_x, out_top, 1 * SCALE, out_h, border)
+    end
+    
+    local text_y = out_top + 4 * SCALE - (s.scroll_y or 0)
+    local text_x = col_x + 10 * SCALE - (s.scroll_x or 0)
+    
+    local sel = s.selection
+    local sel_l1, sel_c1, sel_l2, sel_c2
+    if sel then sel_l1, sel_c1, sel_l2, sel_c2 = sort_positions(sel.l1, sel.c1, sel.l2, sel.c2) end
+
+    core.push_clip_rect(col_x + 1 * SCALE, out_top, col_w - 2 * SCALE, out_h)
+
+    local lines = s.lines
+    local first_vi = math.floor((text_y - out_top) / lh) + 1
+    local last_vi  = math.ceil((out_bot - text_y) / lh) + 1
+    first_vi = common.clamp(first_vi, 1, #lines + 1)
+    last_vi  = common.clamp(last_vi, first_vi, #lines)
+    if #lines > 0 then
+      for i = first_vi, last_vi do
+        local ln = lines[i]
+        if ln then
+          local line_y = text_y + (i - 1) * lh
+          if sel and i >= sel_l1 and i <= sel_l2 then
+             local txt = ln.text
+             local col1 = (i == sel_l1) and sel_c1 or 1
+             local col2 = (i == sel_l2) and sel_c2 or (#txt + 1)
+             local x1 = text_x + style.code_font:get_width(txt:sub(1, col1 - 1))
+             local sw = style.code_font:get_width(txt:sub(col1, col2 - 1))
+             if i < sel_l2 and col2 == #txt + 1 then sw = sw + style.code_font:get_width(" ") end
+             renderer.draw_rect(x1, line_y, sw, lh, style.selection or {255, 255, 255, 60})
+          end
+          local col = ln.kind == "cmd"  and fg
+                   or ln.kind == "err"  and col_err
+                   or ln.kind == "info" and col_inf
+                   or fg
+          renderer.draw_text(style.code_font, ln.text, text_x, line_y, col)
+        end
+      end
+    end
+    text_y = text_y + #lines * lh
+
+    if text_y <= out_bot then
+      local prompt = get_prompt(s)
+      if s.proc and s.out_buf then
+        local clean = s.out_buf:gsub("\r$", "")
+        clean = clean:gsub("\027%[[%?0-9;]*[A-Za-z]", "")
+        prompt = prompt .. clean
+      end
+      
+      local full_txt = prompt .. (s.input or "")
+      renderer.draw_text(style.code_font, full_txt, text_x, text_y, fg)
+      
+      if core.active_view == self and sess_idx == self.active_idx then
+        local abs_cursor = #prompt + (s.cursor or (#(s.input or "") + 1))
+        local left_txt = full_txt:sub(1, abs_cursor - 1)
+        local cx = text_x + style.code_font:get_width(left_txt)
+        local cy = text_y
+        if system.get_time() % 1 < 0.5 and cy <= out_bot then
+          renderer.draw_rect(cx, cy, 2 * SCALE, style.code_font:get_height(), { common.color("#A9DC76") })
+        end
+      end
+    end
+    core.pop_clip_rect()
+    ::continue::
+  end
+
+  if right_w > 0 then
+    local rx = x + w - right_w
+    renderer.draw_rect(rx, out_top, right_w, out_h, style.background2)
+    renderer.draw_rect(rx, out_top, 1 * SCALE, out_h, style.divider or {common.color("#444444")})
+    local ry = out_top
+    -- First draw grouped split sessions
+    for split_col, i in ipairs(self.split_indices) do
+      local sess = self.sessions[i]
+      if not sess or sess.shell.is_port_manager then goto skip_vsplit end
+      local is_focused = (i == self.active_idx)
+      local bg_color = is_focused and (style.background3 or style.background) or style.background2
+      renderer.draw_rect(rx + 1 * SCALE, ry, right_w - 1 * SCALE, 26 * SCALE, bg_color)
+      renderer.draw_rect(rx + 1 * SCALE, ry, 2 * SCALE, 26 * SCALE, style.accent or {common.color("#A9DC76")})
+      
+      -- Draw tree branch prefix
+      local prefix = (split_col == #self.split_indices) and "└─ " or "├─ "
+      if split_col == 1 and #self.split_indices == 1 then prefix = "" end
+      
+      local title = prefix .. (sess.shell.name or ("Term " .. i))
+      local fg = is_focused and style.text or style.dim
+      renderer.draw_text(style.font, title, rx + 10 * SCALE, ry + math.floor((26 * SCALE - style.font:get_height())/2), fg)
+      sess.tab_rect = { x = rx, y = ry, w = right_w, h = 26 * SCALE }
+      ry = ry + 26 * SCALE
+      ::skip_vsplit::
+    end
+    
+    -- Then draw remaining hidden sessions
+    for i, sess in ipairs(self.sessions) do
+      if sess.shell.is_port_manager then goto skip_vhidden end
+      local is_in_split = false
+      for _, s_idx in ipairs(self.split_indices) do if s_idx == i then is_in_split = true break end end
+      if not is_in_split then
+        renderer.draw_rect(rx + 1 * SCALE, ry, right_w - 1 * SCALE, 26 * SCALE, style.background2)
+        local title = sess.shell.name or ("Term " .. i)
+        renderer.draw_text(style.font, title, rx + 10 * SCALE, ry + math.floor((26 * SCALE - style.font:get_height())/2), style.dim)
+        sess.tab_rect = { x = rx, y = ry, w = right_w, h = 26 * SCALE }
+        ry = ry + 26 * SCALE
+      end
+      ::skip_vhidden::
+    end
+  else
+    for i, sess in ipairs(self.sessions) do sess.tab_rect = nil end
+  end
+  core.pop_clip_rect()
 end
 
 function TermView:resolve_position(x, y)
   local hdr_h = 26 * SCALE
   local out_top = self.position.y + hdr_h + 3 * SCALE
+  local right_w = 150 * SCALE
+  local num_terms = 0
+  for _, sess in ipairs(self.sessions) do if not sess.shell.is_port_manager then num_terms = num_terms + 1 end end
+  if num_terms <= 1 then right_w = 0 end
+  if self:state() and self:state().shell.is_port_manager then right_w = 0 end
+  local available_w = self.size.x - right_w
+  local col_w = math.floor(available_w / #self.split_indices)
+  local col_idx = math.floor((x - self.position.x) / col_w) + 1
+  col_idx = common.clamp(col_idx, 1, #self.split_indices)
+  local col_x = self.position.x + (col_idx - 1) * col_w
+  local text_x = col_x + 10 * SCALE
+  local s = self.sessions[self.split_indices[col_idx]]
+  if not s then return 1, 1 end
+  local text_y = out_top + 4 * SCALE - (s.scroll_y or 0)
   local lh = style.code_font:get_height() + 2 * SCALE
-  local text_y_start = out_top + 4 * SCALE - self:state().scroll_y
-  local line_idx = math.floor((y - text_y_start) / lh) + 1
-  line_idx = common.clamp(line_idx, 1, #self:state().lines + 1)
-  
-  local text_x_start = self.position.x + 10 * SCALE
-  local x_offset = x - text_x_start
-  if x_offset < 0 then return line_idx, 1 end
-  
-  local text = ""
-  if line_idx <= #self:state().lines then
-    text = self:state().lines[line_idx].text
-  else
-    local s = self:state()
-    local prompt = get_prompt(s)
-    text = prompt .. self:state().input
-  end
-  
-  local current_w = 0
-  local i = 1
-  for char in common.utf8_chars(text) do
-    local w = style.code_font:get_width(char)
-    if current_w + w >= x_offset then
-       if x_offset <= current_w + (w / 2) then return line_idx, i end
-       return line_idx, i + #char
+  local line = math.floor((y - text_y) / lh) + 1
+  line = common.clamp(line, 1, #s.lines)
+  local col = 1
+  if s.lines[line] then
+    local txt = s.lines[line].text
+    local w = 0
+    for i = 1, #txt do
+      local char_w = style.code_font:get_width(txt:sub(i, i))
+      if x < text_x + w + char_w / 2 then break end
+      w = w + char_w
+      col = i + 1
     end
-    current_w = current_w + w
-    i = i + #char
   end
-  return line_idx, #text + 1
+  return line, col
 end
 
 function TermView:get_url_at(x, y)
-  local l, c = self:resolve_position(x, y)
-  local line = self:state().lines[l]
-  if not line or not line.text then return nil end
-  local text = line.text
-  
-  local start_idx = 1
-  while true do
-    local s, e = text:find("https?://[^%s\"'<>%)]+", start_idx)
-    if not s then break end
-    if c >= s and c <= e then
-      return text:sub(s, e)
-    end
-    start_idx = e + 1
-  end
   return nil
-end
-
-function TermView:draw()
-  if self.size.y < 2 then return end  -- fully hidden
-
-  -- Derive bg/fg dynamically from the active editor theme (same as statusbar/treeview)
-  local base   = style.background or { 255, 255, 255, 255 }
-  local bg     = get_contrast_bg(base)
-  local fg     = get_contrast_fg(bg)
-  local hdr_bg = get_contrast_bg(bg)   -- one more level for the header strip
-  local inp_bg_dyn = get_contrast_bg(hdr_bg)  -- deepest for input bar
-  local col_cmd= { common.color "#8EC07C" }
-  local col_err= { common.color "#FB4934" }
-  local col_inf
-  do  -- slightly muted version of fg
-    local r,g,b = fg[1],fg[2],fg[3]
-    col_inf = { math.floor(r*0.6+0.5), math.floor(g*0.6+0.5), math.floor(b*0.6+0.5), 255 }
-  end
-  local border = get_contrast_bg(hdr_bg)
-  local inp_bg = inp_bg_dyn
-  
-  if style.mossy then
-    bg = style.mossy.terminal_bg or bg
-    fg = style.mossy.terminal_text or fg
-    hdr_bg = style.mossy.activity_bg or hdr_bg
-    inp_bg = style.mossy.sidebar_bg or inp_bg
-    border = style.mossy.border or border
-  end
-  local x, y, w, h = self.position.x, self.position.y, self.size.x, self.size.y
-
-  -- Full background
-  renderer.draw_rect(x, y, w, h, bg)
-
-  -- Top border accent
-  renderer.draw_rect(x, y, w, 2 * SCALE, border)
-
-  -- ── Header ─────────────────────────────────────────────────────────────────
-  local hdr_h = 30 * SCALE
-  renderer.draw_rect(x, y, w, hdr_h, hdr_bg)
-
-  local cur_x = x + 16 * SCALE
-  local is_pm_active = self:state().shell.is_port_manager
-
-  local function draw_tab(label, is_active)
-    local tw = style.font:get_width(label) + 20 * SCALE
-    local t_fg = is_active and fg or col_inf
-    renderer.draw_text(style.font, label, cur_x + 10 * SCALE, y + math.floor((hdr_h - style.font:get_height()) / 2), t_fg)
-    if is_active then
-      renderer.draw_rect(cur_x + 10 * SCALE, y + hdr_h - 2 * SCALE, tw - 20 * SCALE, 2 * SCALE, style.accent or { common.color "#E67E80" })
-    end
-    local rect = { x = cur_x, y = y, w = tw, h = hdr_h }
-    cur_x = cur_x + tw
-    return rect
-  end
-
-  self.terminal_tab_rect = draw_tab("TERMINAL", not is_pm_active)
-  self.ports_tab_rect = draw_tab("PORTS", is_pm_active)
-
-  local right_x = x + w - 4 * SCALE
-  self.right_btns = {}
-
-  local function draw_btn(text, name, is_icon)
-    local font = is_icon and style.icon_font or style.font
-    local iw = font:get_width(text) + 16 * SCALE
-    right_x = right_x - iw
-    local hovered = self.hovered_btn_name == name
-    local btn_bg = hovered and get_contrast_bg(hdr_bg) or hdr_bg
-    local btn_fg = hovered and fg or col_inf
-    if hovered and (name == "trash" or name == "hide") then btn_fg = col_err end
-    renderer.draw_rect(right_x, y, iw, hdr_h, btn_bg)
-    renderer.draw_text(font, text, right_x + math.floor((iw - font:get_width(text))/2), y + math.floor((hdr_h - font:get_height())/2), btn_fg)
-    table.insert(self.right_btns, { x = right_x, y = y, w = iw, h = hdr_h, name = name })
-  end
-
-  draw_btn("\u{f00d}", "hide", true) -- ✕
-  draw_btn(self.is_fullscreen and "\u{f066}" or "\u{f065}", "maximize", true) -- ▼ / ▲
-  if not is_pm_active and #self.sessions > 1 then
-    draw_btn("\u{f1f8}", "trash", true) -- 🗑
-  end
-  draw_btn("\u{f0db}", "split", true) -- ◫
-  draw_btn("\u{f067}", "add", true) -- +
-
-  if not is_pm_active then
-    local session_name = self:state().shell.name
-    if session_name:len() > 10 then session_name = session_name:sub(1, 10) .. ".." end
-    local dd_text = tostring(self.active_idx) .. ": " .. session_name .. " v"
-    draw_btn(dd_text, "dropdown", false)
-  end
-
-  -- Divider
-  renderer.draw_rect(x, y + hdr_h + 2 * SCALE, w, 1 * SCALE, border)
-
-  -- ── Seamless Terminal Output & Input ──────────────────────────────────────────
-  local out_top = y + hdr_h + 3 * SCALE
-  local out_bot = y + h - 2 * SCALE
-  local out_h   = out_bot - out_top
-  
-  if self:state().shell.is_port_manager then
-    self:draw_port_manager(x, out_top, w, out_h)
-    return
-  end
-
-  local lh     = style.code_font:get_height() + 2 * SCALE
-  local text_y = out_top + 4 * SCALE - self:state().scroll_y
-  local text_x = x + 10 * SCALE
-
-
-  local sel = self:state().selection
-  local sel_l1, sel_c1, sel_l2, sel_c2
-  if sel then sel_l1, sel_c1, sel_l2, sel_c2 = sort_positions(sel.l1, sel.c1, sel.l2, sel.c2) end
-
-  core.push_clip_rect(x, out_top, w, out_h)
-
-  
-  -- Render only visible lines
-  local lines = self:state().lines
-  local first_vi = math.floor((text_y - out_top) / lh) + 1
-  local last_vi  = math.ceil((out_bot - text_y) / lh) + 1
-  first_vi = common.clamp(first_vi, 1, #lines + 1)
-  last_vi  = common.clamp(last_vi, first_vi, #lines)
-  if #lines > 0 then
-    for i = first_vi, last_vi do
-      local ln = lines[i]
-      if ln then
-        local line_y = text_y + (i - 1) * lh
-        if sel and i >= sel_l1 and i <= sel_l2 then
-           local txt = ln.text
-           local col1 = (i == sel_l1) and sel_c1 or 1
-           local col2 = (i == sel_l2) and sel_c2 or (#txt + 1)
-           local x1 = text_x + style.code_font:get_width(txt:sub(1, col1 - 1))
-           local sw = style.code_font:get_width(txt:sub(col1, col2 - 1))
-           if i < sel_l2 and col2 == #txt + 1 then sw = sw + style.code_font:get_width(" ") end
-           renderer.draw_rect(x1, line_y, sw, lh, style.selection or {255, 255, 255, 60})
-        end
-        local col = ln.kind == "cmd"  and fg
-                 or ln.kind == "err"  and col_err
-                 or ln.kind == "info" and col_inf
-                 or fg
-        renderer.draw_text(style.code_font, ln.text, text_x, line_y, col)
-      end
-    end
-  end
-  text_y = text_y + #lines * lh
-
-  -- Render the live input line at the bottom
-  if text_y <= out_bot then
-    local s = self:state()
-    local prompt = get_prompt(s)
-    local max_chars = math.max(60, math.floor((w - 20 * SCALE) / style.code_font:get_width("A")))
-    local full_txt = prompt .. s.input
-    
-    local chunks = {}
-    if #full_txt == 0 then
-      chunks = {""}
-    else
-      for i = 1, #full_txt, max_chars do
-        table.insert(chunks, full_txt:sub(i, i + max_chars - 1))
-      end
-    end
-    
-    for i, chunk in ipairs(chunks) do
-      local chunk_y = text_y + (i - 1) * lh
-      if chunk_y <= out_bot then
-        if i * max_chars <= #prompt then
-          renderer.draw_text(style.code_font, chunk, text_x, chunk_y, col_cmd)
-        elseif (i - 1) * max_chars >= #prompt then
-          renderer.draw_text(style.code_font, chunk, text_x, chunk_y, fg)
-        else
-          local p_len_in_chunk = #prompt - (i - 1) * max_chars
-          local p_part = chunk:sub(1, p_len_in_chunk)
-          local i_part = chunk:sub(p_len_in_chunk + 1)
-          renderer.draw_text(style.code_font, p_part, text_x, chunk_y, col_cmd)
-          renderer.draw_text(style.code_font, i_part, text_x + style.code_font:get_width(p_part), chunk_y, fg)
-        end
-      end
-    end
-    
-    -- Cursor
-    if core.active_view == self then
-      s.cursor = s.cursor or (#s.input + 1)
-      local abs_cursor = #prompt + s.cursor
-      local chunk_idx = math.floor((abs_cursor - 1) / max_chars) + 1
-      local cursor_col = abs_cursor - (chunk_idx - 1) * max_chars
-      
-      local chunk_str = chunks[chunk_idx] or ""
-      local left_txt = chunk_str:sub(1, cursor_col - 1)
-      local cx = text_x + style.code_font:get_width(left_txt)
-      local cy = text_y + (chunk_idx - 1) * lh
-      
-      if system.get_time() % 1 < 0.5 and cy <= out_bot then
-        renderer.draw_rect(cx, cy, 2 * SCALE, style.code_font:get_height(), { common.color("#A9DC76") })
-      end
-    end
-  end
-  
-  core.pop_clip_rect()
 end
 
 function TermView:draw_port_manager(x, y, w, h)
@@ -1134,7 +840,7 @@ function TermView:on_key_pressed(key)
           end
           self:_push("cmd", get_prompt(self:state()) .. cmd)
           self:_push("info", venv_cmd == "deactivate" and "Virtual environment deactivated." or ("Virtual environment '" .. venv_cmd.name .. "' activated."))
-      elseif cd_dir then
+      elseif cd_dir and not self:state().proc then
           cd_dir = cd_dir:gsub('^"([^"]*)"$', '%1'):gsub("^'([^']*)'$", "%1")
           if cd_dir == "" then
              if PLATFORM == "Windows" then
@@ -1184,6 +890,9 @@ function TermView:on_key_pressed(key)
       elseif lower_cmd == "cls" or lower_cmd == "clear" then
         self:state().lines = {}
         self:state().scroll_y = 0
+        if self:state().proc then
+          pcall(function() self:state().proc:write("\n") end)
+        end
       else
         self:run(cmd)
       end
@@ -1304,7 +1013,6 @@ end
 function TermView:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
     local s = self:state()
-    local max_chars = math.max(60, math.floor((self.size.x - 20 * SCALE) / style.code_font:get_width("A")))
     if s.shell.is_port_manager then
       if s.refresh_btn_rect then
         local r = s.refresh_btn_rect
@@ -1369,25 +1077,42 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
     local hdr_h = 26 * SCALE
     local out_top = self.position.y + hdr_h + 3 * SCALE
     if y > out_top then
-      local url = self:get_url_at(x, y)
-      if url then
-        if PLATFORM == "Windows" then
-          os.execute('start "" "' .. url .. '"')
-        elseif PLATFORM == "Mac OS X" then
-          os.execute('open "' .. url .. '"')
-        else
-          os.execute('xdg-open "' .. url .. '"')
+      local right_w = 150 * SCALE
+      local num_terms = 0
+      for _, sess in ipairs(self.sessions) do if not sess.shell.is_port_manager then num_terms = num_terms + 1 end end
+      if num_terms <= 1 then right_w = 0 end
+      if self:state() and self:state().shell.is_port_manager then right_w = 0 end
+      
+      local available_w = self.size.x - right_w
+      
+      if right_w > 0 and x - self.position.x > available_w then
+        -- Let fall through to sidebar click handler
+      else
+        local col_w = math.floor(available_w / #self.split_indices)
+        local col_idx = math.floor((x - self.position.x) / col_w) + 1
+        col_idx = common.clamp(col_idx, 1, #self.split_indices)
+        self.active_idx = self.split_indices[col_idx]
+        core.redraw = true
+  
+        local url = self:get_url_at(x, y)
+        if url then
+          if PLATFORM == "Windows" then
+            os.execute('start "" "' .. url .. '"')
+          elseif PLATFORM == "Mac OS X" then
+            os.execute('open "' .. url .. '"')
+          else
+            os.execute('xdg-open "' .. url .. '"')
+          end
+          return true
         end
+        
+        local l, c = self:resolve_position(x, y)
+        self:state().selection = { l1 = l, c1 = c, l2 = l, c2 = c }
+        self.dragging_selection = true
+        core.redraw = true
         return true
       end
-      
-      local l, c = self:resolve_position(x, y)
-      self:state().selection = { l1 = l, c1 = c, l2 = l, c2 = c }
-      self.dragging_selection = true
-      core.redraw = true
-      return true
     end
-
     if self.terminal_tab_rect then
       local r = self.terminal_tab_rect
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
@@ -1402,6 +1127,7 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
         return true
       end
     end
+    
     if self.ports_tab_rect then
       local r = self.ports_tab_rect
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
@@ -1415,6 +1141,42 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
       end
     end
 
+    for i, sess in ipairs(self.sessions) do
+      if sess.tab_rect then
+        local r = sess.tab_rect
+        if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+          -- Check if clicked session is already in the active split view
+          local found_in_split = false
+          for split_col, s_idx in ipairs(self.split_indices) do
+            if s_idx == i then found_in_split = true break end
+          end
+          
+          -- If it's a hidden session, swap it into the currently active split column!
+          if not found_in_split then
+             for split_col, s_idx in ipairs(self.split_indices) do
+               if s_idx == self.active_idx then
+                 self.split_indices[split_col] = i
+                 break
+               end
+             end
+          end
+          
+          local swapped = false
+          for split_col, s_idx in ipairs(self.split_indices) do
+            if s_idx == self.active_idx then
+              self.split_indices[split_col] = i
+              swapped = true
+              break
+            end
+          end
+          if not swapped then self.split_indices[1] = i end
+          self.active_idx = i
+          core.redraw = true
+          return true
+        end
+      end
+    end
+
     if self.right_btns then
       for _, b in ipairs(self.right_btns) do
         if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
@@ -1424,17 +1186,49 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
             command.perform("terminal:fullscreen")
           elseif b.name == "trash" then
             if self:state().proc then pcall(function() self:state().proc:kill() end) end
-            table.remove(self.sessions, self.active_idx)
-            if self.active_idx > #self.sessions then self.active_idx = #self.sessions end
-          elseif b.name == "add" then
-            self:add_session(shells[1] or self:state().shell)
-          elseif b.name == "split" then
-            local node = core.root_view.root_node:get_node_for_view(self)
-            if node then
-              local new_term = TermView()
-              local new_node = node:split("right", new_term)
-              core.set_active_view(new_term)
+            for i, sess_idx in ipairs(self.split_indices) do
+              if sess_idx == self.active_idx then table.remove(self.split_indices, i) break end
             end
+            table.remove(self.sessions, self.active_idx)
+            for i, sess_idx in ipairs(self.split_indices) do
+              if sess_idx > self.active_idx then self.split_indices[i] = sess_idx - 1 end
+            end
+            if #self.split_indices == 0 then
+              if #self.sessions > 0 then self.split_indices = {1} self.active_idx = 1
+              else command.perform("terminal:toggle") end
+            else self.active_idx = self.split_indices[#self.split_indices] end
+          elseif b.name == "add" then
+            core.command_view:enter("Select Shell to Open", {
+              submit = function(text, item)
+                self:add_session(item.shell)
+                self.split_indices = { #self.sessions }
+                self.active_idx = #self.sessions
+                core.redraw = true
+              end,
+              suggest = function(text)
+                local res = {}
+                for i, sh in ipairs(shells) do
+                  table.insert(res, { text = sh.name, shell = sh })
+                end
+                return res
+              end
+            })
+          elseif b.name == "split" then
+            core.command_view:enter("Select Shell to Split", {
+              submit = function(text, item)
+                self:add_session(item.shell)
+                table.insert(self.split_indices, #self.sessions)
+                self.active_idx = #self.sessions
+                core.redraw = true
+              end,
+              suggest = function(text)
+                local res = {}
+                for i, sh in ipairs(shells) do
+                  table.insert(res, { text = sh.name, shell = sh })
+                end
+                return res
+              end
+            })
           elseif b.name == "dropdown" then
             core.command_view:enter("Switch Terminal", {
               submit = function(text, item)
@@ -1465,80 +1259,78 @@ end
 function TermView:on_mouse_moved(x, y, dx, dy)
   if self.dragging_selection then
     local l, c = self:resolve_position(x, y)
-    self:state().selection.l2 = l
-    self:state().selection.c2 = c
+    local st = self:state()
+    if st then
+      if not st.selection then st.selection = { l1 = l, c1 = c, l2 = l, c2 = c } end
+      st.selection.l2 = l
+      st.selection.c2 = c
+    end
     core.redraw = true
     return true
   end
 
   local hdr_h = 26 * SCALE
   local out_top = self.position.y + hdr_h + 3 * SCALE
-  if y > out_top then
-    local url = self:get_url_at(x, y)
-    if url then
-      system.set_cursor("hand")
-      self.hovering_url = true
-    elseif self.hovering_url then
-      system.set_cursor("arrow")
-      self.hovering_url = false
-    end
-  elseif self.hovering_url then
-    system.set_cursor("arrow")
-    self.hovering_url = false
-  end
-
-  local hovered_name = nil
-  if self.right_btns then
-    for _, b in ipairs(self.right_btns) do
-      if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
-        hovered_name = b.name
-        break
+    if y > out_top then
+      local right_w = 150 * SCALE
+      local num_terms = 0
+      for _, sess in ipairs(self.sessions) do if not sess.shell.is_port_manager then num_terms = num_terms + 1 end end
+      if num_terms <= 1 then right_w = 0 end
+      if self:state() and self:state().shell.is_port_manager then right_w = 0 end
+      
+      local available_w = self.size.x - right_w
+      
+      if right_w > 0 and x - self.position.x > available_w then
+        -- Let fall through to sidebar click handler
+      else
+        local col_w = math.floor(available_w / #self.split_indices)
+        local col_idx = math.floor((x - self.position.x) / col_w) + 1
+        col_idx = common.clamp(col_idx, 1, #self.split_indices)
+        self.active_idx = self.split_indices[col_idx]
+        core.redraw = true
+  
+        local url = self:get_url_at(x, y)
+        if url then
+          if PLATFORM == "Windows" then
+            os.execute('start "" "' .. url .. '"')
+          elseif PLATFORM == "Mac OS X" then
+            os.execute('open "' .. url .. '"')
+          else
+            os.execute('xdg-open "' .. url .. '"')
+          end
+          return true
+        end
+        
+        local l, c = self:resolve_position(x, y)
+        self:state().selection = { l1 = l, c1 = c, l2 = l, c2 = c }
+        self.dragging_selection = true
+        core.redraw = true
+        return true
       end
     end
-  end
-  if self.hovered_btn_name ~= hovered_name then
-    self.hovered_btn_name = hovered_name
-    core.redraw = true
-  end
-end
-
-function TermView:on_mouse_left()
-  if self.hovered_btn_name then
-    self.hovered_btn_name = nil
-    core.redraw = true
-  end
-end
-
-
-function TermView:on_mouse_released(button, x, y)
-  if button == "left" and self.dragging_selection then
-    self.dragging_selection = false
-    if self:state().selection and self:state().selection.l1 == self:state().selection.l2 and self:state().selection.c1 == self:state().selection.c2 then
-      self:state().selection = nil
-    end
-    core.redraw = true
-    return true
-  end
   return false
 end
 
-function TermView:on_mouse_wheel(dy)
-  if self:state().shell.is_port_manager then
-    self:state().scroll_y = math.max(0, (self:state().scroll_y or 0) - dy * 40)
-    core.redraw = true
+function TermView:on_mouse_wheel(dy, dx)
+  local s = self:state()
+  if s.is_port_manager then
+    s.scroll_y = math.max(0, (s.scroll_y or 0) - dy * 40)
     return true
   end
 
   local lh = style.code_font:get_height() + 2 * SCALE
-  self:state().scroll_y = math.max(0, self:state().scroll_y - dy * lh * 3)
+  s.scroll_y = math.max(0, s.scroll_y - dy * lh * 3)
   
   -- Clamp scroll
-  local total = (#self:state().lines + 1) * lh
+  local total = (#s.lines + 1) * lh
   local inner = math.max(0, self.size.y - 31 * SCALE)
   local max_scroll = math.max(0, total - inner)
-  self:state().scroll_y = math.max(0, math.min(max_scroll, self:state().scroll_y))
+  s.scroll_y = math.max(0, math.min(max_scroll, s.scroll_y))
   
-  self:state().scroll_to_bottom = false
+  dx = dx or 0
+  s.scroll_x = math.max(0, (s.scroll_x or 0) - dx * 40)
+  
+  s.scroll_to_bottom = false
   core.redraw = true
   return true
 end
@@ -1629,6 +1421,12 @@ local keymap = require "core.keymap"
 keymap.add {
   ["ctrl+shift+`"] = "terminal:fullscreen",
 }
+
+keymap.add {
+  ["ctrl+`"] = "terminal:toggle",
+}
+
+
 
 keymap.add {
   ["ctrl+shift+c"] = "terminal:copy",
@@ -1786,5 +1584,28 @@ function DocView:draw_line_gutter(line, x, y, width)
   return res
 end
 
-return { TermView = TermView, get_instance = function() return instance end }
+local Node = require("core.node")
 
+local old_node_draw_tabs_term = Node.draw_tabs
+function Node:draw_tabs(...)
+  if self.active_view and self.active_view.is and self.active_view:is(TermView) and #self.views == 1 then
+    return
+  end
+  return old_node_draw_tabs_term(self, ...)
+end
+
+if Node.get_tab_height then
+  local old_node_get_tab_height_term = Node.get_tab_height
+  function Node:get_tab_height(...)
+    if self.active_view and self.active_view.is and self.active_view:is(TermView) and #self.views == 1 then
+      return 0
+    end
+    return old_node_get_tab_height_term(self, ...)
+  end
+else
+  function TermView:get_tab_height()
+    return 0
+  end
+end
+
+return { TermView = TermView, get_instance = function() return instance end }
