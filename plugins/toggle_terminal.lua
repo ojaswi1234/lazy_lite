@@ -161,7 +161,11 @@ function TermView:add_session(shell_opts)
   if core.active_codespace then
     shell_opts = { name = "Cloud Shell", cmd = {} }
   else
-    shell_opts = shell_opts or shells[1]
+    if shell_opts then
+      setmetatable(shell_opts, { __index = shells[1] })
+    else
+      shell_opts = shells[1]
+    end
   end
   local s = {
     lines = {},
