@@ -132,7 +132,7 @@ local TermView = View:extend()
 local instance   = nil   -- single instance kept alive across toggles
 TermView.instances = TermView.instances or {}
 -- have we added to node tree yet?
-
+local node_built = false
 -- Sentinel used to detect end-of-command in persistent shell sessions.
 -- Must be unique enough to never appear in normal command output.
 local SENTINEL_BASE = "__LITEXL_DONE_"
