@@ -2,6 +2,7 @@
 local core = require "core"
 local style = require "core.style"
 local Node = require "core.node"
+local RootView = require "core.rootview"
 
 local old_draw_tabs = Node.draw_tabs
 function Node:draw_tabs()
@@ -55,15 +56,16 @@ function Node:on_mouse_moved(x, y, ...)
   return res
 end
 
-local old_on_mouse_pressed = Node.on_mouse_pressed
-function Node:on_mouse_pressed(button, x, y, clicks)
-  if button == "left" and self.hovered_split then
-    if self.hovered_split == "down" then
-      self:split("down")
-    elseif self.hovered_split == "right" then
-      self:split("right")
+local old_on_mouse_pressed = RootView.on_mouse_pressed
+function RootView:on_mouse_pressed(button, x, y, clicks)
+  local node = self.root_node:get_child_overlapping_point(x, y)
+  if button == "left" and node and node.hovered_split then
+    if node.hovered_split == "down" then
+      node:split("down")
+    elseif node.hovered_split == "right" then
+      node:split("right")
     end
-    self.hovered_split = nil
+    node.hovered_split = nil
     return true
   end
   return old_on_mouse_pressed(self, button, x, y, clicks)
