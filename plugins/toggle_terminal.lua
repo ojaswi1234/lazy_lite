@@ -554,16 +554,19 @@ end
 
 function TermView:draw()
   core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
-  self:draw_background(style.background2 or style.background)
+  local bg = (style.mossy and style.mossy.terminal_bg) or style.background2 or style.background
+  self:draw_background(bg)
   
   local x, y, w, h = self.position.x, self.position.y, self.size.x, self.size.y
   
   -- Header Background
   local hdr_h = 26 * SCALE
-  renderer.draw_rect(x, y, w, hdr_h, style.background or style.background3)
+  local hdr_bg = (style.mossy and style.mossy.sidebar_bg) or style.background or style.background3
+  renderer.draw_rect(x, y, w, hdr_h, hdr_bg)
   
   -- Header Divider
-  renderer.draw_rect(x, y + hdr_h - 1 * SCALE, w, 1 * SCALE, style.divider or {common.color("#444444")})
+  local div_color = (style.mossy and style.mossy.border) or style.divider or {common.color("#444444")}
+  renderer.draw_rect(x, y + hdr_h - 1 * SCALE, w, 1 * SCALE, div_color)
   
   -- Draw TERMINAL and PORTS major tabs
   local tx = x + 10 * SCALE
@@ -572,7 +575,8 @@ function TermView:draw()
   -- TERMINAL Tab
   local term_txt = "TERMINAL"
   local term_w = style.font:get_width(term_txt) + 20 * SCALE
-  local term_col = not is_pm_active and style.text or style.dim
+  local fg_text = (style.mossy and style.mossy.terminal_text) or style.text
+  local term_col = not is_pm_active and fg_text or style.dim
   renderer.draw_text(style.font, term_txt, tx + 10 * SCALE, y + math.floor((hdr_h - style.font:get_height()) / 2), term_col)
   if not is_pm_active then
     renderer.draw_rect(tx, y + hdr_h - 2 * SCALE, term_w, 2 * SCALE, style.accent or {common.color("#A9DC76")})
@@ -624,10 +628,10 @@ function TermView:draw()
     return
   end
   
-  local fg = style.text
+  local fg = (style.mossy and style.mossy.terminal_text) or style.text
   local col_err = style.error or {common.color("#ff5555")}
   local col_inf = style.accent or {common.color("#55ff55")}
-  local border = style.divider or {common.color("#444444")}
+  local border = (style.mossy and style.mossy.border) or style.divider or {common.color("#444444")}
   
   -- The split drawing loop
   local right_w = (self.show_sidebar ~= false) and (150 * SCALE) or 0
@@ -710,15 +714,17 @@ function TermView:draw()
 
   if right_w > 0 then
     local rx = x + w - right_w
-    renderer.draw_rect(rx, out_top, right_w, out_h, style.background2)
-    renderer.draw_rect(rx, out_top, 1 * SCALE, out_h, style.divider or {common.color("#444444")})
+    local right_bg = (style.mossy and style.mossy.sidebar_bg) or style.background2
+    renderer.draw_rect(rx, out_top, right_w, out_h, right_bg)
+    local div_color = (style.mossy and style.mossy.border) or style.divider or {common.color("#444444")}
+    renderer.draw_rect(rx, out_top, 1 * SCALE, out_h, div_color)
     local ry = out_top
     -- First draw grouped split sessions
     for split_col, i in ipairs(self.split_indices) do
       local sess = self.sessions[i]
       if not sess or sess.shell.is_port_manager then goto skip_vsplit end
       local is_focused = (i == self.active_idx)
-      local bg_color = is_focused and (style.background3 or style.background) or style.background2
+      local bg_color = is_focused and ((style.mossy and style.mossy.active_row) or style.background3 or style.background) or right_bg
       renderer.draw_rect(rx + 1 * SCALE, ry, right_w - 1 * SCALE, 26 * SCALE, bg_color)
       renderer.draw_rect(rx + 1 * SCALE, ry, 2 * SCALE, 26 * SCALE, style.accent or {common.color("#A9DC76")})
       
@@ -727,8 +733,10 @@ function TermView:draw()
       if split_col == 1 and #self.split_indices == 1 then prefix = "" end
       
       local title = prefix .. (sess.shell.name or ("Term " .. i))
-      local fg = is_focused and style.text or style.dim
-      renderer.draw_text(style.font, title, rx + 10 * SCALE, ry + math.floor((26 * SCALE - style.font:get_height())/2), fg)
+      local fg_text = (style.mossy and style.mossy.active_row_text) or style.text
+      local fg_dim = (style.mossy and style.mossy.sidebar_text) or style.dim
+      local title_fg = is_focused and fg_text or fg_dim
+      renderer.draw_text(style.font, title, rx + 10 * SCALE, ry + math.floor((26 * SCALE - style.font:get_height())/2), title_fg)
       sess.tab_rect = { x = rx, y = ry, w = right_w, h = 26 * SCALE }
       ry = ry + 26 * SCALE
       ::skip_vsplit::
