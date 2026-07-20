@@ -775,8 +775,9 @@ function TermView:resolve_position(x, y)
   local col_idx = math.floor((x - self.position.x) / col_w) + 1
   col_idx = common.clamp(col_idx, 1, #self.split_indices)
   local col_x = self.position.x + (col_idx - 1) * col_w
-  local text_x = col_x + 10 * SCALE
   local s = self.sessions[self.split_indices[col_idx]]
+  if not s then return 1, 1 end
+  local text_x = col_x + 10 * SCALE - (s.scroll_x or 0)
   if not s then return 1, 1 end
   local text_y = out_top + 4 * SCALE - (s.scroll_y or 0)
   local lh = style.code_font:get_height() + 2 * SCALE
@@ -797,6 +798,20 @@ function TermView:resolve_position(x, y)
 end
 
 function TermView:get_url_at(x, y)
+  local line, col = self:resolve_position(x, y)
+  local s = self:state()
+  if not s or not s.lines or not s.lines[line] then return nil end
+  local txt = strip_ansi(s.lines[line].text)
+  
+  local i = 1
+  while true do
+    local s_idx, e_idx, url = txt:find("(https?://[%w-_%.%?%.:/%+=&]+)", i)
+    if not s_idx then break end
+    if col >= s_idx and col <= e_idx then
+      return url
+    end
+    i = e_idx + 1
+  end
   return nil
 end
 
