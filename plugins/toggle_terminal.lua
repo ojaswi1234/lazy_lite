@@ -53,6 +53,64 @@ local function sort_positions(l1, c1, l2, c2)
   return l2, c2, l1, c1
 end
 
+local function strip_ansi(text)
+  return text:gsub("\027%[[%?0-9;]*[A-Za-z]", "")
+end
+
+local function draw_ansi_text(font, text, x, y, default_color)
+  if not text:find("\027%[") then
+    return renderer.draw_text(font, text, x, y, default_color)
+  end
+  
+  local cx = x
+  local current_color = default_color
+  local last_pos = 1
+  for start_pos, codes, end_pos in text:gmatch("()\027%[([0-9;]*)m()") do
+    if start_pos > last_pos then
+      local sub = text:sub(last_pos, start_pos - 1)
+      renderer.draw_text(font, sub, cx, y, current_color)
+      cx = cx + font:get_width(sub)
+    end
+    
+    if codes == "0" or codes == "" then current_color = default_color end
+    for code in codes:gmatch("%d+") do
+      local n = tonumber(code)
+      if n == 0 then current_color = default_color
+      elseif n >= 30 and n <= 37 then
+        local cols = {
+          [30] = {common.color("#282828")},
+          [31] = {common.color("#CC241D")},
+          [32] = {common.color("#98971A")},
+          [33] = {common.color("#D79921")},
+          [34] = {common.color("#458588")},
+          [35] = {common.color("#B16286")},
+          [36] = {common.color("#689D6A")},
+          [37] = {common.color("#A89984")}
+        }
+        current_color = cols[n] or default_color
+      elseif n >= 90 and n <= 97 then
+        local cols = {
+          [90] = {common.color("#928374")},
+          [91] = {common.color("#FB4934")},
+          [92] = {common.color("#B8BB26")},
+          [93] = {common.color("#FABD2F")},
+          [94] = {common.color("#83A598")},
+          [95] = {common.color("#D3869B")},
+          [96] = {common.color("#8EC07C")},
+          [97] = {common.color("#EBDBB2")}
+        }
+        current_color = cols[n] or default_color
+      end
+    end
+    last_pos = end_pos
+  end
+  if last_pos <= #text then
+    renderer.draw_text(font, text:sub(last_pos), cx, y, current_color)
+    cx = cx + font:get_width(text:sub(last_pos))
+  end
+  return cx
+end
+
 local function get_prompt(s)
   if s.shell.is_port_manager then return "" end
   if s.proc then return "" end
@@ -398,19 +456,33 @@ function TermView:update()
   
   for _, s in ipairs(self.sessions) do
     if s.proc then
-      local chunk = s.proc:read_stdout(4096)
-      if chunk and #chunk > 0 then
-        s.out_buf = (s.out_buf or "") .. chunk
-        -- Split by newline and push
-        self:_push_chunk("info", chunk, false)
+      local has_chunk = false
+      local loops = 0
+      while loops < 64 do
+        local chunk = s.proc:read_stdout(4096)
+        if chunk and #chunk > 0 then
+          has_chunk = true
+          s.out_buf = (s.out_buf or "") .. chunk
+          self:_push_chunk("info", chunk, false)
+        else
+          break
+        end
+        loops = loops + 1
       end
       
-      local err_chunk = s.proc.read_stderr and s.proc:read_stderr(4096) or nil
-      if err_chunk and #err_chunk > 0 then
-        self:_push_chunk("err", err_chunk, false)
+      loops = 0
+      while loops < 64 do
+        local err_chunk = s.proc.read_stderr and s.proc:read_stderr(4096) or nil
+        if err_chunk and #err_chunk > 0 then
+          has_chunk = true
+          self:_push_chunk("err", err_chunk, false)
+        else
+          break
+        end
+        loops = loops + 1
       end
       
-      if (not chunk or #chunk == 0) and (not err_chunk or #err_chunk == 0) and not s.proc:running() then
+      if not has_chunk and not s.proc:running() then
         s.proc = nil
       end
     end
@@ -542,7 +614,7 @@ function TermView:draw()
                    or ln.kind == "err"  and col_err
                    or ln.kind == "info" and col_inf
                    or fg
-          renderer.draw_text(style.code_font, ln.text, text_x, line_y, col)
+          draw_ansi_text(style.code_font, ln.text, text_x, line_y, col)
         end
       end
     end
@@ -552,20 +624,19 @@ function TermView:draw()
       local prompt = get_prompt(s)
       if s.proc and s.out_buf then
         local clean = s.out_buf:gsub("\r$", "")
-        clean = clean:gsub("\027%[[%?0-9;]*[A-Za-z]", "")
         prompt = prompt .. clean
       end
       
       local full_txt = prompt .. (s.input or "")
-      renderer.draw_text(style.code_font, full_txt, text_x, text_y, fg)
+      draw_ansi_text(style.code_font, full_txt, text_x, text_y, fg)
       
       if core.active_view == self and sess_idx == self.active_idx then
-        local abs_cursor = #prompt + (s.cursor or (#(s.input or "") + 1))
-        local left_txt = full_txt:sub(1, abs_cursor - 1)
+        local abs_cursor = #strip_ansi(prompt) + (s.cursor or (#(s.input or "") + 1))
+        local left_txt = strip_ansi(full_txt):sub(1, abs_cursor - 1)
         local cx = text_x + style.code_font:get_width(left_txt)
         local cy = text_y
         if system.get_time() % 1 < 0.5 and cy <= out_bot then
-          renderer.draw_rect(cx, cy, 2 * SCALE, style.code_font:get_height(), { common.color("#A9DC76") })
+          renderer.draw_rect(cx, cy, style.code_font:get_width("M"), style.code_font:get_height(), { common.color("#A9DC76", 180) })
         end
       end
     end
@@ -641,7 +712,7 @@ function TermView:resolve_position(x, y)
   line = common.clamp(line, 1, #s.lines)
   local col = 1
   if s.lines[line] then
-    local txt = s.lines[line].text
+    local txt = strip_ansi(s.lines[line].text)
     local w = 0
     for i = 1, #txt do
       local char_w = style.code_font:get_width(txt:sub(i, i))
