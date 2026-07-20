@@ -1026,7 +1026,7 @@ end
 function TermView:on_mouse_pressed(button, x, y, clicks)
   if button == "left" then
     local s = self:state()
-    if s.shell.is_port_manager then
+    if s and s.shell.is_port_manager then
       if s.refresh_btn_rect then
         local r = s.refresh_btn_rect
         if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
@@ -1120,8 +1120,10 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
         end
         
         local l, c = self:resolve_position(x, y)
-        self:state().selection = { l1 = l, c1 = c, l2 = l, c2 = c }
-        self.dragging_selection = true
+        if s then
+          s.selection = { l1 = l, c1 = c, l2 = l, c2 = c }
+          self.dragging_selection = true
+        end
         core.redraw = true
         return true
       end
@@ -1129,7 +1131,7 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
     if self.terminal_tab_rect then
       local r = self.terminal_tab_rect
       if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
-        if self:state().shell.is_port_manager then
+        if s and s.shell.is_port_manager then
           local found = false
           for i, sess in ipairs(self.sessions) do
             if not sess.shell.is_port_manager then self.active_idx = i; found = true; break end
