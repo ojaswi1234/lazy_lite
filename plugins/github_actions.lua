@@ -548,8 +548,8 @@ core.add_thread(function()
       self._gh_extra_tab_rects = {}
 
       local extra_tabs = {
-        {id=PANEL_INSIGHTS, label="  Insights  "},
-        {id=PANEL_ACTIONS,  label="  Actions  "},
+        {id=PANEL_INSIGHTS, label="Insights", icon=""},
+        {id=PANEL_ACTIONS,  label="Actions",  icon=""},
       }
       
       -- Anchor from the rightmost buttons
@@ -563,7 +563,8 @@ core.add_thread(function()
 
       for _, tab in ipairs(extra_tabs) do
         local is_active = (gh_state.active_panel == tab.id)
-        local lbl_w = sf:get_width(tab.label) + 14*SCALE
+        local icon_w = style.icon_font:get_width(tab.icon)
+        local lbl_w = icon_w + sf:get_width(tab.label) + 20*SCALE
         
         cur_x = cur_x - lbl_w - 2*SCALE
         
@@ -574,10 +575,19 @@ core.add_thread(function()
           local ac = style.accent or {100,180,255,255}
           renderer.draw_rect(math.floor(cur_x), y + hdr_h - 2*SCALE, math.ceil(lbl_w), math.ceil(2*SCALE), ac)
         end
+        
+        -- Draw icon
+        renderer.draw_text(style.icon_font, tab.icon,
+          math.floor(cur_x + 8*SCALE),
+          y + math.floor((hdr_h - style.icon_font:get_height())*0.5),
+          tab_fg)
+          
+        -- Draw label
         renderer.draw_text(sf, tab.label,
-          math.floor(cur_x + 7*SCALE),
+          math.floor(cur_x + 8*SCALE + icon_w + 4*SCALE),
           y + math.floor((hdr_h - sf:get_height())*0.5),
           tab_fg)
+          
         table.insert(self._gh_extra_tab_rects, {
           x=cur_x, y=y, w=lbl_w, h=hdr_h, id=tab.id
         })
