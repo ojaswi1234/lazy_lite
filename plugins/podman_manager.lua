@@ -389,7 +389,13 @@ function PodmanView:draw()
           renderer.draw_text(style.font, btn_txt, bx, by, hovered and style.accent or style.text)
           table.insert(self.buttons, { x = bx, y = by, w = tw, h = 20 * SCALE, action = function()
             if sec.id == "k8s" then
-              async_exec({ "powershell", "-Command", "$env:KIND_EXPERIMENTAL_PROVIDER='podman'; kind create cluster" }, function() self:refresh_k8s() end)
+              local cmd
+              if PLATFORM == "Windows" then
+                cmd = { "powershell", "-NoProfile", "-Command", "$env:KIND_EXPERIMENTAL_PROVIDER='podman'; kind create cluster" }
+              else
+                cmd = { "sh", "-c", "KIND_EXPERIMENTAL_PROVIDER=podman kind create cluster" }
+              end
+              async_exec(cmd, function() self:refresh_k8s() end)
             end
           end })
         end

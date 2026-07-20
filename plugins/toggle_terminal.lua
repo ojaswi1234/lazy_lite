@@ -359,6 +359,52 @@ function TermView:refresh_ports(s)
           end
         end
       end
+    else
+      -- Linux / macOS implementation using ps and ss
+      local p1 = process.start({"sh", "-c", "ps -e -o pid=,comm="}, { stdout = process.REDIRECT_PIPE })
+      if p1 then
+        local out = ""
+        local deadline = system.get_time() + 4
+        while true do
+          local chunk = p1:read_stdout(4096)
+          if chunk and #chunk > 0 then out = out .. chunk
+          elseif not p1:running() then break
+          elseif system.get_time() > deadline then break
+          else coroutine.yield(0.01) end
+        end
+        for line in (out .. "\n"):gmatch("[^\n]+") do
+          local pid, name = line:match("^%s*(%d+)%s+(.+)$")
+          if pid and name then p_names[pid] = name end
+        end
+      end
+      
+      local p2 = process.start({"sh", "-c", "ss -lntp"}, { stdout = process.REDIRECT_PIPE })
+      if p2 then
+        local out = ""
+        local deadline = system.get_time() + 4
+        while true do
+          local chunk = p2:read_stdout(4096)
+          if chunk and #chunk > 0 then out = out .. chunk
+          elseif not p2:running() then break
+          elseif system.get_time() > deadline then break
+          else coroutine.yield(0.01) end
+        end
+        for line in (out .. "\n"):gmatch("[^\n]+") do
+          local state, recv, send, local_addr, peer_addr, users = line:match("^LISTEN%s+%S+%s+%S+%s+(%S+)%s+%S+%s+(.+)$")
+          if local_addr then
+            local ip, port = local_addr:match("^(.*):(%d+)$")
+            if port and (ip == "0.0.0.0" or ip == "127.0.0.1" or ip == "[::]" or ip == "[::1]" or ip == "*") then
+              local pid = users:match('pid=(%d+)')
+              if pid then
+                local pname = p_names[pid] or users:match('^users:%(%(%"([^%"]+)%"') or "Unknown"
+                if not ignore_procs[pname:lower()] then
+                  table.insert(s.ports, { proto = "TCP", port = port, pid = pid, name = pname })
+                end
+              end
+            end
+          end
+        end
+      end
     end
     
     table.sort(s.ports, function(a, b) return tonumber(a.port) < tonumber(b.port) end)
