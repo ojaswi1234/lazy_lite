@@ -9,6 +9,15 @@ local keymap  = require "core.keymap"
 local command = require "core.command"
 local common  = require "core.common"
 
+-- Global Process Spawn Protection
+-- Wraps process.start to prevent fatal Lua crashes when executables (like bash, gh, powershell) are missing.
+local process = require "process"
+local orig_process_start = process.start
+function process.start(...)
+  local ok, a, b, c = pcall(orig_process_start, ...)
+  if ok then return a, b, c else return nil, a end
+end
+
 -- ── 1. Color scheme (must load before any rendering) ──────────────────────────
 -- NOTE: Lua module names cannot contain hyphens. File is everforest_lite_xl.lua
 require "colors.everforest_lite_xl"
@@ -152,7 +161,7 @@ end
 local function safe_require(mod)
   local ok, err = pcall(require, mod)
   if not ok then
-    core.log("Failed to load %s: %s", mod, tostring(err))
+    core.warn("Failed to load %s: %s", mod, tostring(err))
     local f = io.open(USERDIR .. "/error_log.txt", "a")
     if f then
       f:write("Failed to load " .. mod .. ": " .. tostring(err) .. "\n")
@@ -268,3 +277,67 @@ function core.reload_module(name)
   end
   return old_reload(name)
 end
+
+-- ── 14. Hide Tab Overflow Arrows Visually ────────────────────────────────────
+local Node = require "core.node"
+local old_draw = Node.draw_tabs
+local renderer = require "renderer"
+
+function Node:draw_tabs(...)
+  local old_draw_text = renderer.draw_text
+  -- Intercept text rendering just for the tab bar
+  renderer.draw_text = function(font, text, x, y, color)
+    -- If it tries to draw the specific scroll/dropdown icons, skip them!
+    if text == "\u{f104}" or text == "\u{f105}" or text == "\u{f107}" then
+      return x
+    end
+    return old_draw_text(font, text, x, y, color)
+  end
+  
+  local res = old_draw(self, ...)
+  
+  -- Restore the normal text renderer immediately after
+  renderer.draw_text = old_draw_text
+  return res
+end
+-- ── Auto-Close Editor Splits on Startup ───────────────────────────────────────
+core.add_thread(function()
+  coroutine.yield() -- Wait one frame for workspace to load
+
+  local views_to_move = {}
+  local primary_node = nil
+
+  -- 1. Find all unlocked (editor) nodes and collect views from all but the first
+  for _, node in ipairs(core.root_view.root_node:get_children()) do
+    if not node.locked then
+      if not primary_node then
+        primary_node = node
+      else
+        for _, view in ipairs(node.views) do
+          table.insert(views_to_move, { node = node, view = view })
+        end
+      end
+    end
+  end
+
+  -- 2. Remove those views (this collapses the split nodes)
+  for _, item in ipairs(views_to_move) do
+    item.node:remove_view(core.root_view.root_node, item.view)
+  end
+
+  -- 3. Find the single remaining editor node
+  local new_primary = nil
+  for _, node in ipairs(core.root_view.root_node:get_children()) do
+    if not node.locked then
+      new_primary = node
+      break
+    end
+  end
+
+  -- 4. Move all the collected tabs into the remaining editor node
+  if new_primary then
+    for _, item in ipairs(views_to_move) do
+      new_primary:add_view(item.view)
+    end
+  end
+end)
