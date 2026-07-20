@@ -568,9 +568,9 @@ core.add_thread(function()
         
         cur_x = cur_x - lbl_w - 2*SCALE
         
-        local tab_bg = is_active and contrast_bg(hdr_bg) or hdr_bg
         local tab_fg = is_active and (style.mossy and style.mossy.terminal_text or style.text) or style.dim
-        renderer.draw_rect(math.floor(cur_x), y, math.ceil(lbl_w), hdr_h, tab_bg)
+        
+        -- Draw active underline (no background box!)
         if is_active then
           local ac = style.accent or {100,180,255,255}
           renderer.draw_rect(math.floor(cur_x), y + hdr_h - 2*SCALE, math.ceil(lbl_w), math.ceil(2*SCALE), ac)
