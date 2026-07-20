@@ -9,7 +9,10 @@ local function contains_editor(node)
     local has_doc = false
     for _, view in ipairs(node.views) do
       if view:is(DocView) then has_doc = true end
-      if view.get_name and view:get_name() == "Terminal" then return false end
+      if view.get_name then
+        local name = view:get_name()
+        if name == "Terminal" or name == "Antigravity" then return false end
+      end
     end
     return has_doc
   else
