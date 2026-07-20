@@ -30,12 +30,12 @@ function Node:draw_tabs(...)
   -- Split Down Button
   local hovered_down = (self.hovered_split == "down")
   core.push_clip_rect(self.position.x, y, self.size.x, th)
-  renderer.draw_text(style.icon_font, "\u{f103}", x, y + (th - style.icon_font:get_height())/2, hovered_down and style.accent or style.dim)
+  renderer.draw_text(style.icon_font, "\u{f078}", x, y + (th - style.icon_font:get_height())/2, hovered_down and style.accent or style.dim)
   
   -- Split Right Button
   x = x - (25 * SCALE)
   local hovered_right = (self.hovered_split == "right")
-  renderer.draw_text(style.icon_font, "\u{f101}", x, y + (th - style.icon_font:get_height())/2, hovered_right and style.accent or style.dim)
+  renderer.draw_text(style.icon_font, "\u{f054}", x, y + (th - style.icon_font:get_height())/2, hovered_right and style.accent or style.dim)
   core.pop_clip_rect()
 end
 
