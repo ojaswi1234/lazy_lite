@@ -559,7 +559,7 @@ core.add_thread(function()
       elseif self.btn_rect then
         right_edge = self.btn_rect.x
       end
-      local cur_x = right_edge
+      local cur_x = right_edge - 12 * SCALE
 
       for _, tab in ipairs(extra_tabs) do
         local is_active = (gh_state.active_panel == tab.id)
