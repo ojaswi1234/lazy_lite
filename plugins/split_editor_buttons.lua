@@ -4,11 +4,21 @@ local style = require "core.style"
 local Node = require "core.node"
 local RootView = require "core.rootview"
 
+local DocView = require "core.docview"
+
+local function is_editor_node(node)
+  if not node or node.type ~= "leaf" or not node.views then return false end
+  for _, v in ipairs(node.views) do
+    if v:is(DocView) then return true end
+  end
+  return false
+end
+
 local old_draw_tabs = Node.draw_tabs
-function Node:draw_tabs()
-  old_draw_tabs(self)
+function Node:draw_tabs(...)
+  old_draw_tabs(self, ...)
   
-  if not self.views or #self.views == 0 then return end
+  if not is_editor_node(self) then return end
   
   -- Draw split buttons on the right side of the tab bar
   local th = style.font:get_height() + (style.padding.y * 2)
@@ -32,7 +42,7 @@ end
 local old_on_mouse_moved = Node.on_mouse_moved
 function Node:on_mouse_moved(x, y, ...)
   local res = old_on_mouse_moved(self, x, y, ...)
-  if not self.views or #self.views == 0 then return res end
+  if not is_editor_node(self) then return res end
   
   local th = style.font:get_height() + (style.padding.y * 2)
   if self.tab_height then th = self.tab_height end
