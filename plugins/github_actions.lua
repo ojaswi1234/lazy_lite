@@ -244,7 +244,7 @@ end
 
 local function draw_actions_panel(x, y, w, h)
   local sf   = get_sf()
-  local fh   = math.floor(sf:get_height() * SCALE)
+  local fh   = math.floor(sf:get_height())
   local row_h= math.floor(fh * 1.8 + 4*SCALE)
   local pad  = 10*SCALE
   local base = style.background or {30,30,30,255}
@@ -369,7 +369,7 @@ end
 
 local function draw_insights_panel(x, y, w, h)
   local sf  = get_sf()
-  local fh  = math.floor(sf:get_height() * SCALE)
+  local fh  = math.floor(sf:get_height())
   local pad = 10*SCALE
   local base= style.background or {30,30,30,255}
   local bg  = contrast_bg(base)
@@ -568,18 +568,18 @@ core.add_thread(function()
         cur_x = cur_x - lbl_w - 2*SCALE
         
         local tab_bg = is_active and contrast_bg(hdr_bg) or hdr_bg
-        local tab_fg = is_active and (style.text or {255,255,255,255}) or style.dim
-        renderer.draw_rect(math.floor(cur_x), y+2*SCALE, math.ceil(lbl_w), hdr_h, tab_bg)
+        local tab_fg = is_active and (style.mossy and style.mossy.terminal_text or style.text) or style.dim
+        renderer.draw_rect(math.floor(cur_x), y, math.ceil(lbl_w), hdr_h, tab_bg)
         if is_active then
           local ac = style.accent or {100,180,255,255}
-          renderer.draw_rect(math.floor(cur_x), y+2*SCALE, math.ceil(lbl_w), math.ceil(2*SCALE), ac)
+          renderer.draw_rect(math.floor(cur_x), y + hdr_h - 2*SCALE, math.ceil(lbl_w), math.ceil(2*SCALE), ac)
         end
         renderer.draw_text(sf, tab.label,
           math.floor(cur_x + 7*SCALE),
-          y + 2*SCALE + math.floor((hdr_h - sf:get_height()*SCALE)*0.5),
+          y + math.floor((hdr_h - sf:get_height())*0.5),
           tab_fg)
         table.insert(self._gh_extra_tab_rects, {
-          x=cur_x, y=y+2*SCALE, w=lbl_w, h=hdr_h, id=tab.id
+          x=cur_x, y=y, w=lbl_w, h=hdr_h, id=tab.id
         })
       end
 
@@ -649,7 +649,7 @@ core.add_thread(function()
         
         if button == "left" and gh_state.active_panel == PANEL_ACTIONS and my >= out_top then
           local sf = get_sf()
-          local fh = math.floor(sf:get_height()*SCALE)
+          local fh = math.floor(sf:get_height())
           local row_h = math.floor(fh * 2.4 + 6*SCALE)
           local run_idx = math.floor((my + gh_state.actions_scroll - out_top) / row_h) + 1
           if run_idx >= 1 and run_idx <= #gh_state.actions_items then
