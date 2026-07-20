@@ -398,7 +398,8 @@ function TermView:_push_chunk(kind, chunk, no_redraw)
   end
   if s.scroll_to_bottom then
     local lh = style.code_font:get_height() + 2 * SCALE
-    s.scroll_y = math.max(0, #s.lines * lh - self.size.y)
+    local out_h = self.size.y - 31 * SCALE
+    s.scroll_y = math.max(0, (#s.lines + 1) * lh - out_h + 10 * SCALE)
   end
   if not no_redraw then core.redraw = true end
 end
@@ -872,7 +873,8 @@ function TermView:scroll_to_end()
   if not s then return end
   s.scroll_to_bottom = true
   local lh = style.code_font:get_height() + 2 * SCALE
-  s.scroll_y = math.max(0, #s.lines * lh - self.size.y + 40 * SCALE)
+  local out_h = self.size.y - 31 * SCALE
+  s.scroll_y = math.max(0, (#s.lines + 1) * lh - out_h + 10 * SCALE)
   core.redraw = true
 end
 
