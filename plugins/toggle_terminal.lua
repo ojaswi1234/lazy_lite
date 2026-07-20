@@ -867,12 +867,21 @@ function TermView:draw_port_manager(x, y, w, h)
 end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
+function TermView:scroll_to_end()
+  local s = self:state()
+  if not s then return end
+  s.scroll_to_bottom = true
+  local lh = style.code_font:get_height() + 2 * SCALE
+  s.scroll_y = math.max(0, #s.lines * lh - self.size.y + 40 * SCALE)
+  core.redraw = true
+end
+
 function TermView:on_text_input(text)
   local s = self:state()
   s.cursor = s.cursor or (#s.input + 1)
   s.input = s.input:sub(1, s.cursor - 1) .. text .. s.input:sub(s.cursor)
   s.cursor = s.cursor + #text
-  core.redraw = true
+  self:scroll_to_end()
 end
 
 function TermView:on_key_pressed(key)
@@ -1032,7 +1041,7 @@ function TermView:on_key_pressed(key)
       end
       s.input = text:sub(1, i - 1) .. text:sub(cursor)
       s.cursor = i
-      core.redraw = true
+      self:scroll_to_end()
     end
     return true
   end
@@ -1046,7 +1055,7 @@ function TermView:on_key_pressed(key)
         i = i + 1
       end
       s.input = text:sub(1, cursor - 1) .. text:sub(i)
-      core.redraw = true
+      self:scroll_to_end()
     end
     return true
   end
