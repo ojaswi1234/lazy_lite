@@ -311,7 +311,9 @@ end
 function TermView:set_target_size(axis, value)
   if axis == "y" then
     if self.is_fullscreen then self.is_fullscreen = false end
-    self.target_size = math.max(config.terminal.min_height * SCALE, value)
+    if not self.visible and value > 10 * SCALE then self.visible = true end
+    local max_h = core.root_view.root_node.size.y
+    self.target_size = math.min(max_h, math.max(config.terminal.min_height * SCALE, value))
     return true
   end
 end
@@ -366,7 +368,7 @@ function TermView:update()
   TermView.super.update(self)
   local dest = self.visible and self.target_size or 0
   if self.is_fullscreen and self.visible then
-    dest = core.root_view.size.y
+    dest = core.root_view.root_node.size.y
   end
   if math.abs(self.size.y - dest) > 0.5 then
     self.size.y = common.lerp(self.size.y, dest, 0.2)
