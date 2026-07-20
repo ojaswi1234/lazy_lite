@@ -300,19 +300,45 @@ function Node:draw_tabs(...)
   renderer.draw_text = old_draw_text
   return res
 end
+
 -- ── Auto-Close Editor Splits on Startup ───────────────────────────────────────
 core.add_thread(function()
   coroutine.yield() -- Wait one frame for workspace to load
 
-  local all_views = core.root_view.root_node:get_children()
-  local active_node = core.root_view:get_active_node_default()
-  
-  if active_node then
-    for _, view in ipairs(all_views) do
-      local parent_node = core.root_view.root_node:get_node_for_view(view)
-      if parent_node and not parent_node.locked and parent_node ~= active_node then
-        parent_node:remove_view(core.root_view.root_node, view)
-        active_node:add_view(view)
+  while true do
+    local editor_nodes = {}
+    local function collect(node)
+      if node.type == "leaf" then
+        if not node.locked then table.insert(editor_nodes, node) end
+      elseif node.type ~= "leaf" then
+        collect(node.a)
+        collect(node.b)
+      end
+    end
+    collect(core.root_view.root_node)
+    
+    if #editor_nodes <= 1 then break end
+    
+    local source = editor_nodes[2]
+    local view = source.views[1]
+    
+    if view then
+      source:remove_view(core.root_view.root_node, view)
+      
+      -- Re-collect to find the surviving editor node, safely avoiding detached tables
+      local surviving_nodes = {}
+      local function collect_survivors(node)
+        if node.type == "leaf" then
+          if not node.locked then table.insert(surviving_nodes, node) end
+        elseif node.type ~= "leaf" then
+          collect_survivors(node.a)
+          collect_survivors(node.b)
+        end
+      end
+      collect_survivors(core.root_view.root_node)
+      
+      if #surviving_nodes > 0 then
+        surviving_nodes[1]:add_view(view)
       end
     end
   end
