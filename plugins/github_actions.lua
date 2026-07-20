@@ -564,7 +564,7 @@ core.add_thread(function()
       for _, tab in ipairs(extra_tabs) do
         local is_active = (gh_state.active_panel == tab.id)
         local icon_w = style.icon_font:get_width(tab.icon)
-        local lbl_w = icon_w + sf:get_width(tab.label) + 20*SCALE
+        local lbl_w = icon_w + sf:get_width(tab.label) + 14*SCALE
         
         cur_x = cur_x - lbl_w - 2*SCALE
         
@@ -578,13 +578,13 @@ core.add_thread(function()
         
         -- Draw icon
         renderer.draw_text(style.icon_font, tab.icon,
-          math.floor(cur_x + 8*SCALE),
+          math.floor(cur_x + 5*SCALE),
           y + math.floor((hdr_h - style.icon_font:get_height())*0.5),
           tab_fg)
           
         -- Draw label
         renderer.draw_text(sf, tab.label,
-          math.floor(cur_x + 8*SCALE + icon_w + 4*SCALE),
+          math.floor(cur_x + 5*SCALE + icon_w + 4*SCALE),
           y + math.floor((hdr_h - sf:get_height())*0.5),
           tab_fg)
           
