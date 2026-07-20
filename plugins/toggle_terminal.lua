@@ -207,6 +207,7 @@ function TermView:new()
   self.sessions = {}
   self.active_idx = 1
   self.split_indices = { 1 }
+  self.show_sidebar = true
   self.hovering_url = false
   self.is_fullscreen = false
   self.dragging_selection = false
@@ -539,6 +540,7 @@ function TermView:draw()
   local btn_x = x + w - 30 * SCALE
   local btns = {
     { name = "trash",    icon = "" },
+    { name = "sidebar",  icon = "󰍜" },
     { name = "maximize", icon = "" },
     { name = "split",    icon = "󰤽" },
     { name = "add",      icon = "" }
@@ -567,7 +569,7 @@ function TermView:draw()
   local border = style.divider or {common.color("#444444")}
   
   -- The split drawing loop
-  local right_w = 150 * SCALE
+  local right_w = (self.show_sidebar ~= false) and (150 * SCALE) or 0
   if self:state() and self:state().shell.is_port_manager then right_w = 0 end
   
   local available_w = w - right_w
@@ -694,7 +696,7 @@ end
 function TermView:resolve_position(x, y)
   local hdr_h = 26 * SCALE
   local out_top = self.position.y + hdr_h + 3 * SCALE
-  local right_w = 150 * SCALE
+  local right_w = (self.show_sidebar ~= false) and (150 * SCALE) or 0
   local num_terms = 0
   for _, sess in ipairs(self.sessions) do if not sess.shell.is_port_manager then num_terms = num_terms + 1 end end
   if num_terms <= 1 then right_w = 0 end
@@ -1190,7 +1192,7 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
     local hdr_h = 26 * SCALE
     local out_top = self.position.y + hdr_h + 3 * SCALE
     if y > out_top then
-      local right_w = 150 * SCALE
+      local right_w = (self.show_sidebar ~= false) and (150 * SCALE) or 0
       local num_terms = 0
       for _, sess in ipairs(self.sessions) do if not sess.shell.is_port_manager then num_terms = num_terms + 1 end end
       if num_terms <= 1 then right_w = 0 end
@@ -1297,6 +1299,9 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
         if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
           if b.name == "hide" then
             command.perform("terminal:toggle")
+          elseif b.name == "sidebar" then
+            self.show_sidebar = not (self.show_sidebar ~= false)
+            core.redraw = true
           elseif b.name == "maximize" then
             command.perform("terminal:fullscreen")
           elseif b.name == "trash" then
@@ -1387,7 +1392,7 @@ function TermView:on_mouse_moved(x, y, dx, dy)
   local hdr_h = 26 * SCALE
   local out_top = self.position.y + hdr_h + 3 * SCALE
     if y > out_top then
-      local right_w = 150 * SCALE
+      local right_w = (self.show_sidebar ~= false) and (150 * SCALE) or 0
       local num_terms = 0
       for _, sess in ipairs(self.sessions) do if not sess.shell.is_port_manager then num_terms = num_terms + 1 end end
       if num_terms <= 1 then right_w = 0 end
