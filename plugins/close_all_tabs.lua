@@ -21,8 +21,16 @@ end
 local hovered_node = nil
 
 -- Calculate button dimensions
-local function get_btn_info()
+local function get_x_btn_width()
   return style.icon_font:get_width("X") + 16 * SCALE
+end
+
+local function get_tab_spacing()
+  local w = get_x_btn_width()
+  if package.loaded["plugins.split_editor_buttons"] then
+    w = w + 50 * SCALE
+  end
+  return w
 end
 
 -- 1. Hook get_scroll_button_rect to prevent arrows from taking space
@@ -36,7 +44,7 @@ end
 local old_get_tab_rect = Node.get_tab_rect
 function Node:get_tab_rect(idx)
   local old_size_x = self.size.x
-  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_tab_spacing() end
   local x, y, w, h = old_get_tab_rect(self, idx)
   self.size.x = old_size_x
   return x, y, w, h
@@ -46,7 +54,7 @@ end
 local old_target_tab_width = Node.target_tab_width
 function Node:target_tab_width()
   local old_size_x = self.size.x
-  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_tab_spacing() end
   local res = old_target_tab_width(self)
   self.size.x = old_size_x
   return res
@@ -56,7 +64,7 @@ end
 local old_get_max_tab_shift = Node.get_max_tab_shift
 function Node:get_max_tab_shift()
   local old_size_x = self.size.x
-  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_tab_spacing() end
   local res = old_get_max_tab_shift(self)
   self.size.x = old_size_x
   return res
@@ -67,11 +75,11 @@ local old_draw_tabs = Node.draw_tabs
 function Node:draw_tabs(...)
   local is_editor = is_editor_node(self)
   local old_size_x = self.size.x
-  local bw = is_editor and get_btn_info() or 0
+  local total_bw = is_editor and get_tab_spacing() or 0
   
-  -- Push clip rect to prevent tabs from bleeding past the X button
+  -- Push clip rect to prevent tabs from bleeding past the buttons
   local th = (self.get_tab_height and self:get_tab_height()) or (style and style.tab_height) or 24
-  core.push_clip_rect(self.position.x, self.position.y, self.size.x - bw, th)
+  core.push_clip_rect(self.position.x, self.position.y, self.size.x - total_bw, th)
   
   -- Trick the engine into infinite width so it NEVER draws the scroll arrows or dropdown
   self.size.x = 999999 
@@ -82,20 +90,21 @@ function Node:draw_tabs(...)
   
   if not is_editor then return end
   
-  local bx = self.position.x + self.size.x - bw
+  local xw = get_x_btn_width()
+  local bx = self.position.x + self.size.x - total_bw
   local by = self.position.y
   local bh = style.font:get_height() + style.padding.y * 2
   
   local is_hover = (hovered_node == self)
   
   -- Draw hover state
-  renderer.draw_rect(bx, by, bw, bh, is_hover and style.background3 or style.background2)
+  renderer.draw_rect(bx, by, xw, bh, is_hover and style.background3 or style.background2)
   local ds = style.divider_size
-  renderer.draw_rect(bx, by + bh - ds, bw, ds, style.divider)
+  renderer.draw_rect(bx, by + bh - ds, xw, ds, style.divider)
   
   -- Draw 'X' icon
   local text_color = is_hover and style.accent or style.text
-  common.draw_text(style.icon_font, text_color, "X", "center", bx, by, bw, bh)
+  common.draw_text(style.icon_font, text_color, "X", "center", bx, by, xw, bh)
 end
 
 -- Prevent invisible arrows from triggering clicks, but do NOT spoof size.x
@@ -103,7 +112,7 @@ end
 local old_node_on_mouse_pressed = Node.on_mouse_pressed
 function Node:on_mouse_pressed(button, x, y, clicks)
   local old_size_x = self.size.x
-  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_tab_spacing() end
   local res = old_node_on_mouse_pressed(self, button, x, y, clicks)
   self.size.x = old_size_x
   return res
@@ -112,7 +121,7 @@ end
 local old_node_on_mouse_moved = Node.on_mouse_moved
 function Node:on_mouse_moved(x, y, dx, dy)
   local old_size_x = self.size.x
-  if is_editor_node(self) then self.size.x = self.size.x - get_btn_info() end
+  if is_editor_node(self) then self.size.x = self.size.x - get_tab_spacing() end
   local res = old_node_on_mouse_moved(self, x, y, dx, dy)
   self.size.x = old_size_x
   return res
@@ -124,11 +133,12 @@ function RootView:on_mouse_moved(x, y, dx, dy)
   local node = self.root_node:get_child_overlapping_point(x, y)
   local hnode = nil
   if is_editor_node(node) then
-    local bw = get_btn_info()
-    local bx = node.position.x + node.size.x - bw
+    local total_bw = get_tab_spacing()
+    local xw = get_x_btn_width()
+    local bx = node.position.x + node.size.x - total_bw
     local by = node.position.y
     local bh = style.font:get_height() + style.padding.y * 2
-    if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
+    if x >= bx and x <= bx + xw and y >= by and y <= by + bh then
       hnode = node
     end
   end
@@ -146,11 +156,12 @@ local old_on_mouse_pressed_root = RootView.on_mouse_pressed
 function RootView:on_mouse_pressed(button, x, y, clicks)
   local node = self.root_node:get_child_overlapping_point(x, y)
   if is_editor_node(node) then
-    local bw = get_btn_info()
-    local bx = node.position.x + node.size.x - bw
+    local total_bw = get_tab_spacing()
+    local xw = get_x_btn_width()
+    local bx = node.position.x + node.size.x - total_bw
     local by = node.position.y
     local bh = style.font:get_height() + style.padding.y * 2
-    if x >= bx and x <= bx + bw and y >= by and y <= by + bh then
+    if x >= bx and x <= bx + xw and y >= by and y <= by + bh then
       if button == "left" then
         local views_to_close = {}
         for _, view in ipairs(node.views) do
