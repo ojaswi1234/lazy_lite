@@ -523,8 +523,8 @@ core.add_thread(function()
 
       -- Inject extra tabs into the header strip
       local base   = style.background or {255,255,255,255}
+      local hdr_bg = base -- Match the newly updated terminal header!
       local bg     = contrast_bg(base)
-      local hdr_bg = contrast_bg(bg)
       local hdr_h  = 26 * SCALE
       local x, y   = self.position.x, self.position.y
       local w, h   = self.size.x, self.size.y

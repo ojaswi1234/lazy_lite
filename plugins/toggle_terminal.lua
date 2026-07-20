@@ -554,13 +554,13 @@ end
 
 function TermView:draw()
   core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
-  self:draw_background(style.background3 or style.background)
+  self:draw_background(style.background2 or style.background)
   
   local x, y, w, h = self.position.x, self.position.y, self.size.x, self.size.y
   
   -- Header Background
   local hdr_h = 26 * SCALE
-  renderer.draw_rect(x, y, w, hdr_h, style.background2 or style.background)
+  renderer.draw_rect(x, y, w, hdr_h, style.background or style.background3)
   
   -- Header Divider
   renderer.draw_rect(x, y + hdr_h - 1 * SCALE, w, 1 * SCALE, style.divider or {common.color("#444444")})
