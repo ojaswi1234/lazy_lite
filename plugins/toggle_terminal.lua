@@ -389,14 +389,75 @@ function TermView:get_name() return "Terminal" end
 function TermView:_push_chunk(kind, chunk, no_redraw)
   local s = self:state()
   if not s then return end
-  for line in (chunk .. "\n"):gmatch("([^\n]*)\n") do
-    if line:len() > 0 then
-      table.insert(s.lines, {kind = kind, text = line})
+
+  local right_w = (self.show_sidebar ~= false) and (150 * SCALE) or 0
+  if s.shell.is_port_manager then right_w = 0 end
+  local num_terms = 0
+  for _, sess in ipairs(self.sessions) do if not sess.shell.is_port_manager then num_terms = num_terms + 1 end end
+  if num_terms <= 1 then right_w = 0 end
+  
+  local available_w = self.size.x - right_w
+  local col_w = math.floor(available_w / math.max(1, #self.split_indices))
+  local char_w = style.code_font:get_width("W")
+  local max_cols = math.floor((col_w - 20 * SCALE) / char_w)
+  max_cols = math.max(20, max_cols)
+
+  if not s.lines then s.lines = {} end
+  if #s.lines == 0 then
+    table.insert(s.lines, {kind = kind, text = ""})
+    s.vis_len = 0
+  end
+
+  local i = 1
+  local len = #chunk
+  local last_line = s.lines[#s.lines]
+  
+  while i <= len do
+    local b = chunk:byte(i)
+    if b == 27 then
+      local j = i + 1
+      if chunk:byte(j) == 91 then
+        while j <= len do
+          local cb = chunk:byte(j)
+          if (cb >= 64 and cb <= 126) then break end
+          j = j + 1
+        end
+      end
+      last_line.text = last_line.text .. chunk:sub(i, j)
+      i = j + 1
+    elseif b == 10 then -- \n
+      table.insert(s.lines, {kind = kind, text = ""})
+      last_line = s.lines[#s.lines]
+      s.vis_len = 0
+      i = i + 1
       if #s.lines > (config.terminal.scrollback or 500) then
         table.remove(s.lines, 1)
       end
+    elseif b == 13 then -- \r
+      last_line.text = ""
+      s.vis_len = 0
+      i = i + 1
+    else
+      local char_len = 1
+      if b >= 0xC0 then
+        if b >= 0xF0 then char_len = 4
+        elseif b >= 0xE0 then char_len = 3
+        else char_len = 2 end
+      end
+      last_line.text = last_line.text .. chunk:sub(i, math.min(len, i + char_len - 1))
+      s.vis_len = (s.vis_len or 0) + 1
+      i = i + char_len
+      if s.vis_len >= max_cols then
+        table.insert(s.lines, {kind = kind, text = ""})
+        last_line = s.lines[#s.lines]
+        s.vis_len = 0
+        if #s.lines > (config.terminal.scrollback or 500) then
+          table.remove(s.lines, 1)
+        end
+      end
     end
   end
+
   if s.scroll_to_bottom then
     local lh = style.code_font:get_height() + 2 * SCALE
     local out_h = self.size.y - 31 * SCALE
