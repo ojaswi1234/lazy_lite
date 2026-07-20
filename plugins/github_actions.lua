@@ -517,10 +517,6 @@ core.add_thread(function()
 
       if self.size.y < 2 then return end
 
-      -- DEBUG: Draw a big red rectangle to prove this function is executing!
-      renderer.draw_rect(self.position.x + 10, self.position.y + 10, 100, 100, {255, 0, 0, 255})
-      renderer.draw_text(get_sf(), "GH INJECTED!", self.position.x + 15, self.position.y + 15, {255, 255, 255, 255})
-
       -- Inject extra tabs into the header strip
       local base   = style.background or {255,255,255,255}
       local hdr_bg = base -- Match the newly updated terminal header!
