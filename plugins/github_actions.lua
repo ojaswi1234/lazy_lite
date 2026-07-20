@@ -558,8 +558,13 @@ core.add_thread(function()
         {id=PANEL_ACTIONS,  label="  Actions  "},
       }
       
-      -- Anchor from the maximize button
-      local right_edge = self.btn_rect and self.btn_rect.x or (x + w - 80*SCALE)
+      -- Anchor from the rightmost buttons
+      local right_edge = x + w - 80 * SCALE
+      if self.right_btns and #self.right_btns > 0 then
+        right_edge = self.right_btns[#self.right_btns].x
+      elseif self.btn_rect then
+        right_edge = self.btn_rect.x
+      end
       local cur_x = right_edge
 
       for _, tab in ipairs(extra_tabs) do
@@ -626,12 +631,23 @@ core.add_thread(function()
         end
         -- If a session tab is clicked while extra panel is active, close panel
         if gh_state.active_panel then
-          for _, tr in ipairs(self.tab_rects or {}) do
-            if mx>=tr.x and mx<tr.x+tr.w and my>=tr.y and my<tr.y+tr.h then
-              gh_state.active_panel = nil
-              core.redraw = true
+          local clicked_tab = false
+          if self.terminal_tab_rect and mx >= self.terminal_tab_rect.x and mx < self.terminal_tab_rect.x + self.terminal_tab_rect.w and my >= self.terminal_tab_rect.y and my < self.terminal_tab_rect.y + self.terminal_tab_rect.h then
+            clicked_tab = true
+          end
+          if self.ports_tab_rect and mx >= self.ports_tab_rect.x and mx < self.ports_tab_rect.x + self.ports_tab_rect.w and my >= self.ports_tab_rect.y and my < self.ports_tab_rect.y + self.ports_tab_rect.h then
+            clicked_tab = true
+          end
+          for _, sess in ipairs(self.sessions or {}) do
+            if sess.tab_rect and mx >= sess.tab_rect.x and mx < sess.tab_rect.x + sess.tab_rect.w and my >= sess.tab_rect.y and my < sess.tab_rect.y + sess.tab_rect.h then
+              clicked_tab = true
               break
             end
+          end
+          if clicked_tab then
+            gh_state.active_panel = nil
+            core.redraw = true
+            -- intentionally do not return true so that the terminal's native handler can process the tab switch!
           end
         end
       end
