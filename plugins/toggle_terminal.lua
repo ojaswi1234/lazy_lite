@@ -405,7 +405,7 @@ function TermView:update()
         self:_push_chunk("info", chunk, false)
       end
       
-      local err_chunk = s.proc:read_stderr and s.proc:read_stderr(4096) or nil
+      local err_chunk = s.proc.read_stderr and s.proc:read_stderr(4096) or nil
       if err_chunk and #err_chunk > 0 then
         self:_push_chunk("err", err_chunk, false)
       end
