@@ -63,7 +63,9 @@ local function get_prompt(s)
   end
   local prefix = ""
   if s.venv_name then prefix = "(" .. s.venv_name .. ") " end
-  return prefix .. (s.shell.prompt_prefix or "") .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
+  local suffix = (PLATFORM == "Windows" and "> " or "$ ")
+  if s.shell.name and s.shell.name:match("Bash") then suffix = "$ " end
+  return prefix .. (s.shell.prompt_prefix or "") .. (s.cwd or core.project_dir) .. suffix
 end
 
 local shells = {}
@@ -357,6 +359,10 @@ function TermView:run(cmd_str)
   local s = self:state()
   if not s then return end
   self:_push("cmd", cmd_str)
+  if s.proc and s.proc:running() then
+    pcall(function() s.proc:write(cmd_str .. "\n") end)
+    return
+  end
   if s.proc then pcall(function() s.proc:kill() end) end
   
   local shell = s.shell
@@ -397,7 +403,14 @@ function TermView:update()
         s.out_buf = (s.out_buf or "") .. chunk
         -- Split by newline and push
         self:_push_chunk("info", chunk, false)
-      elseif not s.proc:running() then
+      end
+      
+      local err_chunk = s.proc:read_stderr and s.proc:read_stderr(4096) or nil
+      if err_chunk and #err_chunk > 0 then
+        self:_push_chunk("err", err_chunk, false)
+      end
+      
+      if (not chunk or #chunk == 0) and (not err_chunk or #err_chunk == 0) and not s.proc:running() then
         s.proc = nil
       end
     end
@@ -807,6 +820,9 @@ function TermView:on_key_pressed(key)
       local prompt = prefix .. (s.shell.prompt_prefix or "") .. (s.cwd or core.project_dir) .. (PLATFORM == "Windows" and "> " or "$ ")
       if s.shell.is_port_manager or s.proc or core.active_codespace then prompt = "" end
       if prompt ~= "" then self:_push("cmd", prompt) end
+      if s.proc and s.proc:running() then
+        pcall(function() s.proc:write("\n") end)
+      end
       return true
     end
     if cmd and #cmd > 0 then
@@ -905,7 +921,7 @@ function TermView:on_key_pressed(key)
       elseif lower_cmd == "cls" or lower_cmd == "clear" then
         self:state().lines = {}
         self:state().scroll_y = 0
-        if self:state().proc then
+        if self:state().proc and self:state().proc:running() then
           pcall(function() self:state().proc:write("\n") end)
         end
       else
