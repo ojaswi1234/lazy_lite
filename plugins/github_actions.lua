@@ -730,12 +730,12 @@ core.add_thread(function()
         if v.get_name and v:get_name() == "Terminal" then return v end
       end
     end
-    if node.child1 then
-      local v = find_term(node.child1)
+    if node.a then
+      local v = find_term(node.a)
       if v then return v end
     end
-    if node.child2 then
-      local v = find_term(node.child2)
+    if node.b then
+      local v = find_term(node.b)
       if v then return v end
     end
     return nil
