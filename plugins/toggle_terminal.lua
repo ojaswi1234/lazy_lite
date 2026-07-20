@@ -1477,6 +1477,11 @@ command.add(nil, {
     -- Toggle visibility (size animates to 0 or target_height)
     instance.visible = not instance.visible
     if instance.visible then
+      if #instance.sessions == 0 then
+        instance:add_session(shells[1])
+        instance.split_indices = { 1 }
+        instance.active_idx = 1
+      end
       core.set_active_view(instance)
     else
       -- Return focus to editor
@@ -1525,6 +1530,11 @@ command.add(nil, {
     
     if not instance.visible then
       instance.visible = true
+      if #instance.sessions == 0 then
+        instance:add_session(shells[1])
+        instance.split_indices = { 1 }
+        instance.active_idx = 1
+      end
       core.set_active_view(instance)
     end
 
