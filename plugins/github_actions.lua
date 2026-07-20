@@ -517,6 +517,10 @@ core.add_thread(function()
 
       if self.size.y < 2 then return end
 
+      -- DEBUG: Draw a big red rectangle to prove this function is executing!
+      renderer.draw_rect(self.position.x + 10, self.position.y + 10, 100, 100, {255, 0, 0, 255})
+      renderer.draw_text(get_sf(), "GH INJECTED!", self.position.x + 15, self.position.y + 15, {255, 255, 255, 255})
+
       -- Inject extra tabs into the header strip
       local base   = style.background or {255,255,255,255}
       local bg     = contrast_bg(base)
@@ -526,22 +530,16 @@ core.add_thread(function()
       local w, h   = self.size.x, self.size.y
       local sf     = get_sf()
 
-      -- Find where session tabs end (stored in self.tab_rects)
-      local tabs_end_x = x + 160 * SCALE  -- TERMINAL label width
+      -- Find where session tabs end
+      local tabs_end_x = x + 160 * SCALE
+      if self.ports_tab_rect then
+        tabs_end_x = math.max(tabs_end_x, self.ports_tab_rect.x + self.ports_tab_rect.w + 10 * SCALE)
+      elseif self.terminal_tab_rect then
+        tabs_end_x = math.max(tabs_end_x, self.terminal_tab_rect.x + self.terminal_tab_rect.w + 10 * SCALE)
+      end
       if self.tab_rects and #self.tab_rects > 0 then
         local last = self.tab_rects[#self.tab_rects]
-        tabs_end_x = last.x + last.w + 2*SCALE
-      end
-      -- Also skip +/v/x buttons — they're all drawn after tab_rects
-      -- The add_btn_rect and dropdown_btn_rect tell us the real end
-      if self.add_btn_rect then
-        tabs_end_x = math.max(tabs_end_x, self.add_btn_rect.x + self.add_btn_rect.w + 2*SCALE)
-      end
-      if self.dropdown_btn_rect then
-        tabs_end_x = math.max(tabs_end_x, self.dropdown_btn_rect.x + self.dropdown_btn_rect.w + 2*SCALE)
-      end
-      if self.close_btn_rect then
-        tabs_end_x = math.max(tabs_end_x, self.close_btn_rect.x + self.close_btn_rect.w + 2*SCALE)
+        tabs_end_x = math.max(tabs_end_x, last.x + last.w + 2*SCALE)
       end
 
       -- Draw separator before extra tabs
@@ -573,9 +571,6 @@ core.add_thread(function()
         
         cur_x = cur_x - lbl_w - 2*SCALE
         
-        -- Break only if we violently collide with the left side session tabs
-        if cur_x < tabs_end_x + 8*SCALE then break end
-
         local tab_bg = is_active and contrast_bg(hdr_bg) or hdr_bg
         local tab_fg = is_active and (style.text or {255,255,255,255}) or style.dim
         renderer.draw_rect(math.floor(cur_x), y+2*SCALE, math.ceil(lbl_w), hdr_h, tab_bg)
