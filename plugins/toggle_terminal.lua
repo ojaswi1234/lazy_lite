@@ -364,7 +364,7 @@ function TermView:run(cmd_str)
     local cmd = {}
     for _, c in ipairs(shell.cmd) do table.insert(cmd, c) end
     table.insert(cmd, cmd_str)
-    local opts = { env = system.get_env() }
+    local opts = {}
     if s.cwd then opts.cwd = s.cwd end
     s.proc = process.start(cmd, opts)
     s.out_buf = ""
