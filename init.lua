@@ -304,40 +304,16 @@ end
 core.add_thread(function()
   coroutine.yield() -- Wait one frame for workspace to load
 
-  local views_to_move = {}
-  local primary_node = nil
-
-  -- 1. Find all unlocked (editor) nodes and collect views from all but the first
-  for _, node in ipairs(core.root_view.root_node:get_children()) do
-    if not node.locked then
-      if not primary_node then
-        primary_node = node
-      else
-        for _, view in ipairs(node.views) do
-          table.insert(views_to_move, { node = node, view = view })
-        end
+  local all_views = core.root_view.root_node:get_children()
+  local active_node = core.root_view:get_active_node_default()
+  
+  if active_node then
+    for _, view in ipairs(all_views) do
+      local parent_node = core.root_view.root_node:get_node_for_view(view)
+      if parent_node and not parent_node.locked and parent_node ~= active_node then
+        parent_node:remove_view(core.root_view.root_node, view)
+        active_node:add_view(view)
       end
-    end
-  end
-
-  -- 2. Remove those views (this collapses the split nodes)
-  for _, item in ipairs(views_to_move) do
-    item.node:remove_view(core.root_view.root_node, item.view)
-  end
-
-  -- 3. Find the single remaining editor node
-  local new_primary = nil
-  for _, node in ipairs(core.root_view.root_node:get_children()) do
-    if not node.locked then
-      new_primary = node
-      break
-    end
-  end
-
-  -- 4. Move all the collected tabs into the remaining editor node
-  if new_primary then
-    for _, item in ipairs(views_to_move) do
-      new_primary:add_view(item.view)
     end
   end
 end)

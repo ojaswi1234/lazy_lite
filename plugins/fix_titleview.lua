@@ -9,7 +9,7 @@ function TitleView:on_mouse_moved(px, py, ...)
   TitleView.super.on_mouse_moved(self, px, py, ...)
   self.hovered_item = nil
   for item, x, y, w, h in self:each_control_item() do
-    if px >= x and py >= 0 and px < x + w * 2 and py <= self.size.y then
+    if px >= x and py >= 0 and px <= x + w * 2 and py <= self.size.y then
       self.hovered_item = item
       return
     end
