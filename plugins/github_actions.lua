@@ -102,6 +102,37 @@ end
 
 -- ─── Data fetching ────────────────────────────────────────────────────────────
 
+local gh_is_installing = false
+
+local function auto_install_gh()
+  if gh_is_installing then return end
+  gh_is_installing = true
+  core.log("GitHub CLI not found. Auto-installing in terminal...")
+  local install_cmd
+  if PLATFORM == "Windows" then
+    install_cmd = 'winget install --id GitHub.cli -e --source winget'
+  elseif PLATFORM == "Mac OS X" then
+    install_cmd = 'brew install gh'
+  else
+    install_cmd = 'curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && sudo apt update && sudo apt install gh -y'
+  end
+  
+  command.perform("terminal:toggle")
+  core.add_thread(function()
+    coroutine.yield(0.2)
+    local term = nil
+    for _, v in ipairs(core.root_view.root_node:get_children()) do
+      if v.get_name and v:get_name() == "Terminal" then term = v break end
+    end
+    if term and term.run then
+      term:run(install_cmd)
+      core.add_thread(function() coroutine.yield(60) gh_is_installing = false end)
+    else
+      gh_is_installing = false
+    end
+  end)
+end
+
 local function run_gh(args, callback)
   local p_dir = core.project_dir or ""
   core.add_thread(function()
@@ -110,7 +141,11 @@ local function run_gh(args, callback)
       stderr = process.REDIRECT_PIPE,
       cwd    = p_dir ~= "" and p_dir or nil,
     })
-    if not p then callback(nil, "Failed to start gh") return end
+    if not p then 
+      auto_install_gh()
+      callback(nil, "Failed to start gh") 
+      return 
+    end
 
     local out, err = "", ""
     while p:returncode() == nil do
