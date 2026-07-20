@@ -79,12 +79,11 @@ local function start_monitor()
       }
     ]], config.resource_monitor.poll_rate)
 
-    local ok, p = pcall(process.start, { "powershell", "-NoProfile", "-Command", script }, {
+    monitor_proc = process.start({ "powershell", "-NoProfile", "-Command", script }, {
       stdout = process.REDIRECT_PIPE,
       stderr = process.REDIRECT_DISCARD,
       stdin  = process.REDIRECT_DISCARD,
     })
-    if ok then monitor_proc = p else monitor_proc = nil end
   end
 
   if not monitor_proc then

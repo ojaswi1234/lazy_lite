@@ -49,23 +49,43 @@ local function async_exec(cmd_args, on_result)
       else
         cmd_str = cmd_args
       end
-      local p = process.start({"cmd.exe", "/c", cmd_str}, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      local function file_log(msg)
+        local f = io.open("C:\\Users\\ojasw\\Desktop\\podman_debug.txt", "a")
+        if f then f:write(tostring(msg) .. "\n"); f:close() end
+      end
+      
+      file_log("Podman executing: " .. tostring(cmd_str))
+      local p, err = process.start({"cmd.exe", "/c", cmd_str}, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
       if p then
         local out = ""
+        local err_str = ""
         while true do
           local chunk = p:read_stdout(4096)
+          local err_chunk = p.read_stderr and p:read_stderr(4096) or ""
+          local has_data = false
           if chunk and #chunk > 0 then
             out = out .. chunk
-          elseif not p:running() then
-            break
-          else
-            coroutine.yield(0.01)
+            has_data = true
+          end
+          if err_chunk and #err_chunk > 0 then
+            err_str = err_str .. err_chunk
+            has_data = true
+          end
+          if not has_data then
+            if not p:running() then
+              break
+            else
+              coroutine.yield(0.01)
+            end
           end
         end
-        out = out:gsub("%z", "")
-        if on_result then on_result(out, "", 0) end
+        file_log("Podman success. Out len: " .. tostring(#out) .. " Err len: " .. tostring(#err_str))
+        if #out < 200 then file_log("Output snippet: " .. out) end
+        if #err_str > 0 then file_log("Err snippet: " .. err_str) end
+        if on_result then on_result(out, err_str, 0) end
       else
-        if on_result then on_result(nil, "Failed to start process") end
+        file_log("Podman failed to start: " .. tostring(err))
+        if on_result then on_result(nil, "Failed to start process: " .. tostring(err)) end
       end
     else
       local args = type(cmd_args) == "table" and cmd_args or {"bash", "-c", cmd_args}
@@ -108,11 +128,13 @@ function PodmanView:new()
   self.visible = false
   
   self.sections = {
-    { id = "compose", name = "Docker Compose", expanded = true, data = {}, loading = false },
+    { id = "compose", name = "Podman Compose", expanded = true, data = {}, loading = false },
     { id = "containers", name = "Containers", expanded = true, data = {}, loading = false },
     { id = "images", name = "Images", expanded = false, data = {}, loading = false },
     { id = "k8s", name = "Kubernetes Pods", expanded = false, data = {}, loading = false },
-      }
+    { id = "local_pods", name = "Local Pods (YAML)", expanded = false, data = {}, loading = false },
+    { id = "local_deployments", name = "Local Deployments (YAML)", expanded = false, data = {}, loading = false },
+  }
   
   self.hovered_item = nil
   self.hovered_btn = nil
@@ -123,11 +145,69 @@ end
 
 function PodmanView:get_name() return self.name end
 
+local function scan_k8s_files(dir, pods, deployments, is_root)
+  local files = system.list_dir(dir)
+  if not files then return end
+  for _, f in ipairs(files) do
+    if f:sub(1,1) == "." then goto continue end
+    local path = dir .. PATHSEP .. f
+    local info = system.get_file_info(path)
+    if info and info.type == "dir" then
+      if is_root and (f == "pods" or f == "deployments" or f == "k8s" or f == "kubernetes" or f == "manifests") then
+        scan_k8s_files(path, pods, deployments, false)
+      elseif not is_root then
+        scan_k8s_files(path, pods, deployments, false)
+      end
+    elseif info and info.type == "file" and f:match("%.ya?ml$") then
+      local file = io.open(path, "r")
+      if file then
+        local content = file:read(4096)
+        file:close()
+        if content then
+          if content:match("kind:%s*Pod") then
+            local name = content:match("name:%s*([^\r\n]+)") or f
+            table.insert(pods, { file = path, name = name, short = f })
+          elseif content:match("kind:%s*Deployment") then
+            local name = content:match("name:%s*([^\r\n]+)") or f
+            table.insert(deployments, { file = path, name = name, short = f })
+          end
+        end
+      end
+    end
+    ::continue::
+  end
+end
+
+function PodmanView:refresh_local_k8s()
+  local pods_sec, deps_sec = nil, nil
+  for _, s in ipairs(self.sections) do
+    if s.id == "local_pods" then pods_sec = s end
+    if s.id == "local_deployments" then deps_sec = s end
+  end
+  if not pods_sec or not deps_sec then return end
+  
+  pods_sec.loading = true
+  deps_sec.loading = true
+  core.redraw = true
+  
+  local proj_dir = core.project_dir or (core.project_directories and core.project_directories[1] and core.project_directories[1].name) or system.absolute_path(".") or ""
+  local pods, deployments = {}, {}
+  scan_k8s_files(proj_dir, pods, deployments, true)
+  
+  pods_sec.data = pods
+  deps_sec.data = deployments
+  
+  pods_sec.loading = false
+  deps_sec.loading = false
+  core.redraw = true
+end
+
 function PodmanView:refresh_all()
-  self:refresh_compose()
   self:refresh_containers()
   self:refresh_images()
   self:refresh_k8s()
+  self:refresh_local_k8s()
+  self:refresh_compose()
 end
 
 function PodmanView:refresh_compose()
@@ -168,6 +248,7 @@ function PodmanView:refresh_containers()
   async_exec({PODMAN_EXE, "ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"}, function(out, err)
     sec.data = {}
     if out then
+      out = out:gsub('"', '')
       for line in out:gmatch("[^\r\n]+") do
         local parts = split(line, "|")
         if #parts >= 4 then
@@ -190,6 +271,7 @@ function PodmanView:refresh_images()
   async_exec({PODMAN_EXE, "images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}"}, function(out, err)
     sec.data = {}
     if out then
+      out = out:gsub('"', '')
       for line in out:gmatch("[^\r\n]+") do
         local parts = split(line, "|")
         if #parts >= 4 then
@@ -235,22 +317,25 @@ function PodmanView:set_target_size(axis, value)
   end
 end
 
-local function draw_icon_btn(self, icon, bx, by, color, action_fn, tooltip)
+local function draw_icon_btn(self, icon, bx, by, color, action_fn, tooltip, visible)
   local bw = style.icon_font:get_width(icon) + 16 * SCALE
   local btn_y = by - 5 * SCALE
   local btn_h = 30 * SCALE
   table.insert(self.buttons, { x = bx, y = btn_y, w = bw, h = btn_h, action = action_fn })
   
-  local hovered = false
-  if self.mouse_x and self.mouse_y then
-    if self.mouse_x >= bx and self.mouse_x <= bx + bw and self.mouse_y >= btn_y and self.mouse_y <= btn_y + btn_h then
-      hovered = true
-      self.hovered_btn = true
+  if visible ~= false then
+    local hovered = false
+    if self.mouse_x and self.mouse_y then
+      local in_bounds = self.mouse_x >= self.position.x and self.mouse_x <= self.position.x + self.size.x and
+                        self.mouse_y >= self.position.y and self.mouse_y <= self.position.y + self.size.y
+      if in_bounds and self.mouse_x >= bx and self.mouse_x <= bx + bw and self.mouse_y >= btn_y and self.mouse_y <= btn_y + btn_h then
+        hovered = true
+        self.hovered_btn = true
+      end
     end
+
+    renderer.draw_text(style.icon_font, icon, bx + 8 * SCALE, btn_y + 5 * SCALE, hovered and style.text or color)
   end
-  
-  local c = hovered and style.text or color
-  renderer.draw_text(style.icon_font, icon, bx + 5 * SCALE, by, c)
   return bx + bw
 end
 
@@ -259,20 +344,24 @@ function PodmanView:draw()
   local x, y = self.position.x, self.position.y - self.scroll.y
   local w, h = self.size.x, self.size.y
   
+  local in_bounds = self.mouse_x and self.mouse_y and 
+                    self.mouse_x >= self.position.x and self.mouse_x <= self.position.x + self.size.x and
+                    self.mouse_y >= self.position.y and self.mouse_y <= self.position.y + self.size.y
+
   self.buttons = {}
   self.hovered_btn = false
   
   -- Header
   renderer.draw_text(style.font, "Podman Manager", x + 10 * SCALE, y + 10 * SCALE, style.accent)
   local h_refresh = y + 10 * SCALE
-  draw_icon_btn(self, "\u{f021}", x + w - 30 * SCALE, h_refresh, style.text, function() self:refresh_all() end, "Refresh All")
+  draw_icon_btn(self, "\u{f021}", x + w - 50 * SCALE, h_refresh, style.text, function() self:refresh_all() end, "Refresh All")
   
   y = y + 40 * SCALE
   
   for _, sec in ipairs(self.sections) do
     -- Section Header
     local chevron = sec.expanded and "\u{f078}" or "\u{f054}"
-    local sec_hovered = (self.mouse_y and self.mouse_y >= y and self.mouse_y < y + 25 * SCALE)
+    local sec_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 25 * SCALE)
     if sec_hovered then renderer.draw_rect(x, y, w, 25 * SCALE, style.line_highlight) end
     
     renderer.draw_text(style.icon_font, chevron, x + 10 * SCALE, y + 5 * SCALE, style.text)
@@ -308,7 +397,7 @@ function PodmanView:draw()
       end
       
       for _, item in ipairs(sec.data) do
-        local item_hovered = (self.mouse_y and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
+        local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
         if item_hovered then renderer.draw_rect(x, y, w, 30 * SCALE, style.line_highlight) end
         
         if sec.id == "compose" then
@@ -351,127 +440,139 @@ function PodmanView:draw()
           if item.ports and item.ports ~= "" then
             renderer.draw_text(style.font, "  [" .. item.ports .. "]", nx, y + 5 * SCALE, style.dim)
           end
+          local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
+          local bx = x + w - 160 * SCALE
           
-          if item_hovered then
-            local bx = x + w - 160 * SCALE
-            -- Logs
-            bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
-              
-                local toggle_term = require("plugins.toggle_terminal")
-                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                if not term then 
-                  command.perform("terminal:toggle")
-                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                end
-                if term and not term.visible then command.perform("terminal:toggle") end
-                if term then
-                  core.set_active_view(term)
-                term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "" })
-                term:run(PODMAN_EXE .. " logs -f " .. item.id)
-                end
-
-            end)
-            -- Exec terminal
-            bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
-              
-                local toggle_term = require("plugins.toggle_terminal")
-                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                if not term then 
-                  command.perform("terminal:toggle")
-                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                end
-                if term and not term.visible then command.perform("terminal:toggle") end
-                if term then
-                  core.set_active_view(term)
-                term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "" })
-                term:run(PODMAN_EXE .. " exec -i " .. item.id .. " sh")
-                end
-
-            end)
-            -- Restart
-            bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "restart", item.id}, function() self:refresh_containers() end) end)
-            -- Stop/Start
-            if (item.status or ""):match("Up") then
-              bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "stop", item.id}, function() self:refresh_containers() end) end)
-            else
-              bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "start", item.id}, function() self:refresh_containers() end) end)
+          -- Logs
+          bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
+            local toggle_term = require("plugins.toggle_terminal")
+            local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            if not term then 
+              command.perform("terminal:toggle")
+              term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
             end
-            -- Trash
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rm", "-f", item.id}, function() self:refresh_containers() end) end)
+            if term and not term.visible then command.perform("terminal:toggle") end
+            if term then
+              core.set_active_view(term)
+              term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "", is_remote_tty = true })
+              term:run(PODMAN_EXE .. " logs -f " .. item.id)
+            end
+          end, "Logs", item_hovered)
+
+          -- Exec terminal
+          bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
+            local toggle_term = require("plugins.toggle_terminal")
+            local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            if not term then 
+              command.perform("terminal:toggle")
+              term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            end
+            if term and not term.visible then command.perform("terminal:toggle") end
+            if term then
+              core.set_active_view(term)
+              term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "", is_remote_tty = true })
+              term:run(PODMAN_EXE .. " exec -it " .. item.id .. " /bin/bash")
+            end
+          end, "Exec", item_hovered)
+
+          -- Restart
+          bx = draw_icon_btn(self, "\u{f01e}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "restart", item.id}, function() self:refresh_containers() end) end, "Restart", item_hovered)
+
+          -- Stop/Start
+          if (item.status or ""):match("Up") then
+            bx = draw_icon_btn(self, "\u{f04d}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "stop", item.id}, function() self:refresh_containers() end) end, "Stop", item_hovered)
+          else
+            bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "start", item.id}, function() self:refresh_containers() end) end, "Start", item_hovered)
           end
+
+          -- Trash
+          draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rm", "-f", item.id}, function() self:refresh_containers() end) end, "Delete", item_hovered)
           
         elseif sec.id == "images" then
           renderer.draw_text(style.icon_font, "\u{f490}", x + 20 * SCALE, y + 5 * SCALE, style.dim)
-          renderer.draw_text(style.font, item.repo .. ":" .. item.tag, x + 40 * SCALE, y + 5 * SCALE, style.text)
-          
-          if item_hovered then
-            local bx = x + w - 30 * SCALE
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rmi", "-f", item.id}, function() self:refresh_images() end) end)
-          end
+          core.push_clip_rect(x, y, w - 100 * SCALE, 30 * SCALE)
+            local nx = renderer.draw_text(style.font, (item.repo or "Unknown") .. ":" .. (item.tag or "latest"), x + 40 * SCALE, y + 5 * SCALE, style.text)
+            renderer.draw_text(style.font, item.size or "", nx + 10 * SCALE, y + 5 * SCALE, style.dim)
+          core.pop_clip_rect()
+
+          local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
+          local bx = x + w - 30 * SCALE
+          draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rmi", "-f", item.id}, function() self:refresh_images() end) end, "Delete", item_hovered)
           
         elseif sec.id == "k8s" then
-          local is_running = item.status == "Running"
-          renderer.draw_text(style.icon_font, "\u{fd31}", x + 20 * SCALE, y + 5 * SCALE, is_running and PODMAN_COLORS.up or PODMAN_COLORS.exited)
-          core.push_clip_rect(x, y, w - 170 * SCALE, 30 * SCALE)
+          local c_col = (item.status or ""):match("Running") and PODMAN_COLORS.up or PODMAN_COLORS.exited
+          renderer.draw_text(style.icon_font, "\u{f1b3}", x + 20 * SCALE, y + 5 * SCALE, c_col)
+          core.push_clip_rect(x, y, w - 150 * SCALE, 30 * SCALE)
             renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
-            core.pop_clip_rect()
+          core.pop_clip_rect()
           
-          if item_hovered then
-            local bx = x + w - 110 * SCALE
-            local cmd_prefix = "kubectl"
-            -- Exec
-            bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
-              
-                local toggle_term = require("plugins.toggle_terminal")
-                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                if not term then 
-                  command.perform("terminal:toggle")
-                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                end
-                if term and not term.visible then command.perform("terminal:toggle") end
-                if term then
-                  core.set_active_view(term)
-                local cmd_parts = {}
-                for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
-                table.insert(cmd_parts, "exec"); table.insert(cmd_parts, "-i"); table.insert(cmd_parts, item.name)
-                table.insert(cmd_parts, "-n"); table.insert(cmd_parts, item.ns); table.insert(cmd_parts, "--"); table.insert(cmd_parts, "sh")
-                term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "" })
-                term:run(table.concat(cmd_parts, " "))
-                end
+          local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
+          local bx = x + w - 90 * SCALE
+          
+          -- Exec
+          bx = draw_icon_btn(self, "\u{f120}", bx, y + 5 * SCALE, style.dim, function()
+            local toggle_term = require("plugins.toggle_terminal")
+            local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            if not term then command.perform("terminal:toggle"); term = type(toggle_term) == "table" and toggle_term.get_instance() or nil end
+            if term and not term.visible then command.perform("terminal:toggle") end
+            if term then
+              core.set_active_view(term)
+              local cmd_prefix = PLATFORM == "Windows" and "kubectl" or KUBECTL_EXE
+              local cmd_parts = {}
+              for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
+              table.insert(cmd_parts, "exec"); table.insert(cmd_parts, "-it"); table.insert(cmd_parts, item.name)
+              table.insert(cmd_parts, "-n"); table.insert(cmd_parts, item.ns); table.insert(cmd_parts, "--"); table.insert(cmd_parts, "/bin/bash")
+              term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "", is_remote_tty = true })
+              term:run(table.concat(cmd_parts, " "))
+            end
+          end, "Exec", item_hovered)
 
-            end)
-            -- Logs
-            bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
-              
-                local toggle_term = require("plugins.toggle_terminal")
-                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                if not term then 
-                  command.perform("terminal:toggle")
-                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-                end
-                if term and not term.visible then command.perform("terminal:toggle") end
-                if term then
-                  core.set_active_view(term)
-                local cmd_parts = {}
-                for w in cmd_prefix:gmatch("%S+") do table.insert(cmd_parts, w) end
-                table.insert(cmd_parts, "logs")
-                table.insert(cmd_parts, "-f")
-                table.insert(cmd_parts, item.name)
-                table.insert(cmd_parts, "-n")
-                table.insert(cmd_parts, item.ns)
-                term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "" })
-                term:run(table.concat(cmd_parts, " "))
-                end
+          -- Logs
+          bx = draw_icon_btn(self, "\u{f15c}", bx, y + 5 * SCALE, style.dim, function()
+            local toggle_term = require("plugins.toggle_terminal")
+            local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            if not term then 
+              command.perform("terminal:toggle")
+              term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            end
+            if term and not term.visible then command.perform("terminal:toggle") end
+            if term then
+              core.set_active_view(term)
+              local cmd_prefix = PLATFORM == "Windows" and "kubectl" or KUBECTL_EXE
+              term:add_session({ name = (item.name or "Unknown"), prompt_prefix = "", is_remote_tty = true })
+              term:run(cmd_prefix .. " logs -f " .. item.name .. " -n " .. item.ns)
+            end
+          end, "Logs", item_hovered)
 
+          -- Delete
+          draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() 
+            local del_cmd = {KUBECTL_EXE, "delete", "pod", item.name, "-n", item.ns}
+            async_exec(del_cmd, function()
+              self:refresh_k8s()
+            end) 
+          end, "Delete", item_hovered)
+        elseif sec.id == "local_pods" or sec.id == "local_deployments" then
+          renderer.draw_text(style.icon_font, "\u{f15b}", x + 20 * SCALE, y + 5 * SCALE, style.dim)
+          core.push_clip_rect(x, y, w - 110 * SCALE, 30 * SCALE)
+            renderer.draw_text(style.font, item.short or "Unknown", x + 40 * SCALE, y + 5 * SCALE, style.text)
+          core.pop_clip_rect()
+          
+          local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
+          local bx = x + w - 70 * SCALE
+          
+          -- Apply
+          bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function()
+            async_exec({KUBECTL_EXE, "apply", "-f", item.file}, function()
+              self:refresh_k8s()
             end)
-            -- Trash
-            draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() 
-              local del_cmd = {KUBECTL_EXE, "delete", "pod", item.name, "-n", item.ns}
-              async_exec(del_cmd, function()
-                self:refresh_k8s()
-              end) 
-            end)
-          end
+          end, "Apply (kubectl apply -f)", item_hovered)
+          
+          -- Delete
+          draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() 
+            async_exec({KUBECTL_EXE, "delete", "-f", item.file}, function()
+              self:refresh_k8s()
+            end) 
+          end, "Delete (kubectl delete -f)", item_hovered)
         end
         
         y = y + 30 * SCALE

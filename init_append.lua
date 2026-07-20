@@ -5,15 +5,6 @@ local config  = require "core.config"
 local style   = require "core.style"
 local keymap  = require "core.keymap"
 
--- Global Process Spawn Protection
--- Wraps process.start to prevent fatal Lua crashes when executables are missing.
-local process = require "process"
-local orig_process_start = process.start
-function process.start(...)
-  local ok, a, b, c = pcall(orig_process_start, ...)
-  if ok then return a, b, c else return nil, a end
-end
-
 -- ── 1. Color scheme ───────────────────────────────────────────────────────────
 core.reload_module("colors.everforest_lite_xl")
 
