@@ -284,8 +284,8 @@ end
 local function sp(n) return math.floor(n * SCALE) end
 
 local function section_header(text, x, y, col)
-  renderer.draw_text(style.font, text, x, y, col or style.dim)
-  return y + style.font:get_height() + sp(4)
+  draw_icon_text(style.font, text, x, y, col or style.dim)
+  return y + style.font:get_height() + sp(8)
 end
 
 local function complexity_bar(x, y, w, val)
@@ -422,11 +422,11 @@ function AIPluginGen:draw_loading(mode)
   local inner_w = panel_w - sp(36)
 
   -- Spinner + title
-  local spinners = {"⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"}
+  local spinners = {"/", "-", "\\", "|"}
   local spin = spinners[(math.floor(t*10) % #spinners) + 1]
-  local title = mode=="planning" and "⚡  AGY THINKING..." or "⚡  AGY BUILDING..."
+  local title = mode=="planning" and "\u{f0e7}  AGY THINKING..." or "\u{f0e7}  AGY BUILDING..."
   renderer.draw_text(style.font, spin, cx, cy+(bfh-fh)/2, pc)
-  renderer.draw_text(style.big_font or style.font, title, cx+sp(24), cy, style.accent)
+  draw_icon_text(style.big_font or style.font, title, cx+sp(24), cy, style.accent)
   cy = cy + bfh + sp(18)
 
   -- Progress bar
@@ -445,10 +445,10 @@ function AIPluginGen:draw_loading(mode)
     local step_elapsed = elapsed - (i-1) * (mode=="planning" and 2.0 or 5.0)
     local done   = step_elapsed > 1.5
     local active = (not done) and step_elapsed > 0
-    local icon   = done and "✓" or (active and spinners[(math.floor(t*8) % #spinners)+1] or " ")
+    local icon   = done and "\u{f00c}" or (active and spinners[(math.floor(t*8) % #spinners)+1] or "\u{f111}")
     local col    = done and c(80,200,80) or (active and pc or style.dim)
-    renderer.draw_text(style.font, "["..icon.."] "..step, cx+sp(4), cy, col)
-    cy = cy + fh + sp(6)
+    draw_icon_text(style.font, icon.."  "..step, cx+sp(4), cy, col)
+    cy = cy + fh + sp(8)
   end
 
   -- Flavor text
@@ -460,8 +460,8 @@ function AIPluginGen:draw_loading(mode)
     "analyzing complexity and risks...",
   }
   local fl = flavors[(math.floor(t*0.4) % #flavors) + 1]
-  cy = cy + sp(10)
-  renderer.draw_text(style.font, "◈ agy is "..fl, cx, cy, style.dim)
+  cy = cy + sp(16)
+  draw_icon_text(style.font, "\u{f05a}  agy is "..fl, cx, cy, style.dim)
 
   core.redraw = true
 end
@@ -522,49 +522,53 @@ function AIPluginGen:draw_plan()
 
   -- Complexity / Time / Worth
   section(function(sx, sy)
-    renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy = sy+pad
-    sy = section_header("📊 Complexity  ·  Time  ·  Worth", sx+pad, sy)
+    renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy = sy+pad+sp(4)
+    sy = section_header("\u{f080}  Complexity  ·  Time  ·  Worth", sx+pad, sy)
     local ny = complexity_bar(sx+pad, sy, cw*0.5, plan.complexity)
-    renderer.draw_text(font, "⏱  "..plan.time_est, sx+pad+cw*0.55, sy, style.text)
-    sy = ny
+    draw_icon_text(font, "\u{f017}  "..plan.time_est, sx+pad+cw*0.55, sy, style.text)
+    sy = ny + sp(8)
     local wcol = plan.worth=="Recommended" and c(80,200,80) or
                  plan.worth=="Overkill"     and c(200,80,80) or c(220,180,50)
-    renderer.draw_text(font, "💡 Worth making?  " .. plan.worth, sx+pad, sy, wcol)
-    sy = sy + fh+sp(4)
-    renderer.draw_text(font, "📦 Dependencies: " .. plan.deps, sx+pad, sy, style.text)
-  end, pad + fh + fh + fh + fh + sp(16))
+    draw_icon_text(font, "\u{f0eb}  Worth making?  " .. plan.worth, sx+pad, sy, wcol)
+    sy = sy + fh+sp(8)
+    draw_icon_text(font, "\u{f187}  Dependencies: " .. plan.deps, sx+pad, sy, style.text)
+  end, pad + fh + fh + fh + fh + sp(24))
 
   -- Research
   if #plan.research > 0 then
     section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad
-      sy = section_header("🌐 Research Findings", sx+pad, sy, style.dim)
+      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
+      sy = section_header("\u{f0ac}  Research Findings", sx+pad, sy, style.dim)
       for _, r in ipairs(plan.research) do
-        for _, ln in ipairs(wrap_text(font,"  • "..r, cw-sp(10))) do
-          renderer.draw_text(font, ln, sx+pad, sy, style.text); sy=sy+fh+sp(2)
+        draw_icon_text(font, "\u{f111}", sx+pad+sp(4), sy, style.dim)
+        for _, ln in ipairs(wrap_text(font, r, cw-sp(24))) do
+          renderer.draw_text(font, ln, sx+pad+sp(24), sy, style.text); sy=sy+fh+sp(4)
         end
+        sy=sy+sp(4)
       end
-    end, pad + fh + #plan.research*(fh+sp(2)) + pad)
+    end, pad + fh + #plan.research*(fh+sp(6)) + pad)
   end
 
   -- Challenges
   for _, cs in ipairs({
-    {key="fatal",   label="🔴 Fatal Challenges",    col=c(220,80,80)},
-    {key="conquer", label="🟡 Conquerable Challenges", col=c(220,160,50)},
-    {key="easy",    label="🟢 Easy Wins",            col=c(80,200,80)},
+    {key="fatal",   label="\u{f057}  Fatal Challenges",    col=c(220,80,80)},
+    {key="conquer", label="\u{f071}  Conquerable Challenges", col=c(220,160,50)},
+    {key="easy",    label="\u{f058}  Easy Wins",            col=c(80,200,80)},
   }) do
     local items = plan[cs.key]
     if items and #items > 0 then
       local _cs = cs; local _items = items
       section(function(sx, sy)
-        renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad
+        renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
         sy = section_header(_cs.label, sx+pad, sy, _cs.col)
         for _, it in ipairs(_items) do
-          for _, ln in ipairs(wrap_text(font,"  ▷ "..it, cw-sp(10))) do
-            renderer.draw_text(font, ln, sx+pad, sy, style.text); sy=sy+fh+sp(2)
+          draw_icon_text(font, "\u{f0da}", sx+pad+sp(4), sy, style.dim)
+          for _, ln in ipairs(wrap_text(font, it, cw-sp(24))) do
+            renderer.draw_text(font, ln, sx+pad+sp(24), sy, style.text); sy=sy+fh+sp(4)
           end
+          sy=sy+sp(4)
         end
-      end, pad + fh + #_items*(fh+sp(2)) + pad)
+      end, pad + fh + #_items*(fh+sp(6)) + pad)
     end
   end
 
@@ -574,9 +578,9 @@ function AIPluginGen:draw_plan()
     for ln in (plan.design.."\n"):gmatch("([^\n]*)") do table.insert(design_lines, ln) end
     local design_box_h = #design_lines*(cfh+sp(2)) + sp(20)
     section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad
+      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
       -- Header + redesign button
-      sy = section_header("🎨 Sample Design Preview", sx+pad, sy, style.dim)
+      sy = section_header("\u{f1fb}  Sample Design Preview", sx+pad, sy, style.dim)
       local rdw, rdh = sp(100), fh+sp(6)
       local rdx = sx+w-pad-rdw
       local hov_rd = self.hovered == "redesign"
@@ -599,8 +603,8 @@ function AIPluginGen:draw_plan()
       for _, k in ipairs(blist) do used[k:lower()]=true end
     end
     section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad
-      sy = section_header("⌨  Suggested Shortcuts  (green = free, red = clash)", sx+pad, sy, style.dim)
+      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
+      sy = section_header("\u{f11c}  Suggested Shortcuts  (green = free, red = clash)", sx+pad, sy, style.dim)
       for _, sc in ipairs(plan.shortcuts) do
         local clash = used[sc.key:lower()]
         local scol  = clash and c(220,80,80) or c(80,200,80)
@@ -616,8 +620,8 @@ function AIPluginGen:draw_plan()
   -- API hooks used
   if #plan.hooks > 0 then
     section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad
-      sy = section_header("🔌 Lite XL API Hooks Required", sx+pad, sy, style.dim)
+      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
+      sy = section_header("\u{f1e6}  Lite XL API Hooks Required", sx+pad, sy, style.dim)
       local hx = sx+pad
       for _, hook in ipairs(plan.hooks) do
         local hw = cf:get_width(hook)+sp(12)
@@ -633,23 +637,23 @@ function AIPluginGen:draw_plan()
   -- Testing strategy
   if #plan.testing > 0 then
     section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad
-      sy = section_header("🧪 Testing Strategy", sx+pad, sy, style.dim)
+      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
+      sy = section_header("\u{f0c3}  Testing Strategy", sx+pad, sy, style.dim)
       for _, t2 in ipairs(plan.testing) do
-        renderer.draw_text(font, "  ✓  "..t2, sx+pad, sy, style.text); sy=sy+fh+sp(2)
+        draw_icon_text(font, "\u{f00c}  "..t2, sx+pad+sp(12), sy, style.text); sy=sy+fh+sp(6)
       end
-    end, pad + fh + #plan.testing*(fh+sp(2)) + pad)
+    end, pad + fh + #plan.testing*(fh+sp(6)) + pad)
   end
 
   -- Output files
   if #plan.files > 0 then
     section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad
-      sy = section_header("📁 Files That Will Be Created", sx+pad, sy, style.dim)
+      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
+      sy = section_header("\u{f07b}  Files That Will Be Created", sx+pad, sy, style.dim)
       for _, f in ipairs(plan.files) do
-        renderer.draw_text(cf, "  "..f, sx+pad, sy, style.accent); sy=sy+cfh+sp(2)
+        draw_icon_text(cf, "\u{f15b}  "..f, sx+pad+sp(12), sy, style.accent); sy=sy+cfh+sp(6)
       end
-    end, pad + fh + #plan.files*(cfh+sp(2)) + pad)
+    end, pad + fh + #plan.files*(cfh+sp(6)) + pad)
   end
 
   self.plan_total_h = total + pad
