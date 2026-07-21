@@ -354,8 +354,12 @@ command.add(nil, {
           local out = ""
           while preview_proc and preview_proc:running() do
             local chunk = preview_proc:read_stdout(4096)
-            if chunk then
-              out = out .. strip_ansi(chunk)
+            local err_chunk = preview_proc:read_stderr(4096)
+            
+            if chunk or err_chunk then
+              if chunk then out = out .. strip_ansi(chunk) end
+              if err_chunk then out = out .. strip_ansi(err_chunk) end
+              
               local url = out:match("(https?://[%w%.]+:%d+)")
               if url then
                 active_url = url
@@ -373,7 +377,7 @@ command.add(nil, {
               open_browser(active_url)
               break
             end
-            coroutine.yield(0.2)
+            coroutine.yield(0.1)
           end
           return
         end
@@ -404,8 +408,12 @@ command.add(nil, {
         local out = ""
         while preview_proc and preview_proc:running() do
           local chunk = preview_proc:read_stdout(4096)
-          if chunk then
-            out = out .. chunk
+          local err_chunk = preview_proc:read_stderr(4096)
+          
+          if chunk or err_chunk then
+            if chunk then out = out .. chunk end
+            if err_chunk then out = out .. err_chunk end
+            
             local p_str = out:match("PORT_BOUND:(%d+)")
             if p_str then
               active_port = tonumber(p_str)
@@ -415,6 +423,7 @@ command.add(nil, {
               break
             end
           end
+          
           if system.get_time() - start_time > 15 then
             core.error("Web Preview: Timeout waiting for PORT_BOUND from server.")
             command.perform("web-preview:stop")
