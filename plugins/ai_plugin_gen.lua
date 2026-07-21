@@ -11,6 +11,8 @@ local keymap  = require "core.keymap"
 local system  = require "system"
 local process = require "process"
 local View    = require "core.view"
+local Doc     = require "core.doc"
+local DocView = require "core.docview"
 
 -- ── Constants ─────────────────────────────────────────────────────────────────
 local PLUGIN_DIR = USERDIR .. "/plugins"
@@ -258,7 +260,12 @@ function AIPluginGen:new()
   self.name = "AI Plugins"
 
   self.state          = STATE.DESCRIBE
-  self.input          = ""        -- plugin description text
+  self.doc            = Doc()
+  self.doc_view       = DocView(self.doc)
+  self.doc_view.gutter_width = 0
+  self.doc_view.margin1 = 0
+  self.doc_view.margin2 = 0
+  self.doc_view.scrollable = true
   self.plan           = nil       -- parsed plan table
   self.result         = nil       -- {name, file} on success
   self.error_msg      = nil
@@ -322,34 +329,28 @@ function AIPluginGen:draw_describe()
   renderer.draw_rect(cx,       cy,       sp(2), inp_h, bc)
   renderer.draw_rect(cx+inp_w-sp(2), cy, sp(2), inp_h, bc)
 
-  if self.input == "" then
-    renderer.draw_text(font,
-      "Click [Set Description] to describe your plugin idea...",
-      cx + sp(10), cy + sp(12), style.dim)
-  else
-    core.push_clip_rect(cx+sp(3), cy+sp(3), inp_w-sp(6), inp_h-sp(6))
-    local lines = wrap_text(font, self.input, inp_w - sp(24))
-    local ty = cy + sp(10)
-    for _, ln in ipairs(lines) do
-      if ty + fh > cy + inp_h - sp(4) then break end
-      renderer.draw_text(font, ln, cx + sp(10), ty, style.text)
-      ty = ty + fh + sp(2)
-    end
-    core.pop_clip_rect()
+  self.doc_view.position.x = cx + sp(4)
+  self.doc_view.position.y = cy + sp(4)
+  self.doc_view.size.x = inp_w - sp(8)
+  self.doc_view.size.y = inp_h - sp(8)
+  
+  core.push_clip_rect(cx, cy, inp_w, inp_h)
+  self.doc_view:draw()
+  local txt = self.doc:get_text(1, 1, math.huge, math.huge)
+  if txt == "\n" or txt == "" then
+    draw_icon_text(font, "\u{f040}  Describe your plugin here...", cx + sp(12), cy + sp(10), style.dim)
   end
+  core.pop_clip_rect()
+
   self.input_rect = {x=cx, y=cy, w=inp_w, h=inp_h}
   cy = cy + inp_h + sp(12)
 
   -- Buttons row
   local bh = sp(32)
-  local bw_set = sp(160)
-  local bw_gen = sp(175)
-  local hov_set = self.hovered == "set_desc"
+  local bw_gen = w - pad*2
   local hov_gen = self.hovered == "generate"
-  draw_btn(cx,            cy, bw_set, bh, "\u{f040}  Set Description", hov_set)
-  draw_btn(cx+bw_set+sp(8), cy, bw_gen, bh, "\u{f135}  Generate Plan", hov_gen, c(60,160,100))
-  table.insert(self.buttons, {x=cx,            y=cy, w=bw_set, h=bh, id="set_desc"})
-  table.insert(self.buttons, {x=cx+bw_set+sp(8), y=cy, w=bw_gen, h=bh, id="generate"})
+  draw_btn(cx, cy, bw_gen, bh, "\u{f135}  Generate Plan", hov_gen, c(60,160,100))
+  table.insert(self.buttons, {x=cx, y=cy, w=bw_gen, h=bh, id="generate"})
   cy = cy + bh + sp(20)
 
   -- Divider
@@ -751,6 +752,9 @@ function AIPluginGen:update()
   AIPluginGen.super.update(self)
   self.target_size = self.target_size or (400 * SCALE)
   self:move_towards(self.size, "x", self.target_size)
+  if self.state == STATE.DESCRIBE then
+    self.doc_view:update()
+  end
 end
 
 function AIPluginGen:set_target_size(axis, value)
@@ -777,7 +781,16 @@ function AIPluginGen:draw()
 end
 
 -- ── Input handling ────────────────────────────────────────────────────────────
+function AIPluginGen:on_text_input(text)
+  if self.state == STATE.DESCRIBE then self.doc_view:on_text_input(text); return true end
+end
+
+function AIPluginGen:on_key_pressed(k, ...)
+  if self.state == STATE.DESCRIBE then return self.doc_view:on_key_pressed(k, ...) end
+end
+
 function AIPluginGen:on_mouse_moved(mx, my, dx, dy)
+  if self.state == STATE.DESCRIBE then self.doc_view:on_mouse_moved(mx, my, dx, dy) end
   local prev = self.hovered; self.hovered = nil
   for _, btn in ipairs(self.buttons) do
     if mx>=btn.x and mx<=btn.x+btn.w and my>=btn.y and my<=btn.y+btn.h then
@@ -790,6 +803,17 @@ end
 
 function AIPluginGen:on_mouse_pressed(button, mx, my, clicks)
   if button ~= "left" then return false end
+  
+  -- Route to doc_view if clicked inside input box
+  if self.state == STATE.DESCRIBE and self.input_rect then
+    local r = self.input_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      self.doc_view:on_mouse_pressed(button, mx, my, clicks)
+      core.set_active_view(self) -- ensure we receive keyboard
+      return true
+    end
+  end
+
   for _, btn in ipairs(self.buttons) do
     if mx>=btn.x and mx<=btn.x+btn.w and my>=btn.y and my<=btn.y+btn.h then
       self:handle_click(btn.id); return true
@@ -798,7 +822,16 @@ function AIPluginGen:on_mouse_pressed(button, mx, my, clicks)
   return false
 end
 
+function AIPluginGen:on_mouse_released(button, mx, my)
+  if self.state == STATE.DESCRIBE then self.doc_view:on_mouse_released(button, mx, my) end
+end
+
+function AIPluginGen:on_mouse_left()
+  if self.state == STATE.DESCRIBE then self.doc_view:on_mouse_left() end
+end
+
 function AIPluginGen:on_mouse_wheel(dy, dx)
+  if self.state == STATE.DESCRIBE then self.doc_view:on_mouse_wheel(dy, dx) end
   if self.state == STATE.PLAN then
     local ch = self.size.y - sp(50)
     self.plan_scroll = math.max(0, math.min(
@@ -812,16 +845,9 @@ end
 
 -- ── Button actions ────────────────────────────────────────────────────────────
 function AIPluginGen:handle_click(id)
-  if id == "set_desc" then
-    core.command_view:enter("Plugin description:", {
-      submit = function(txt)
-        self.input = txt:match("^%s*(.-)%s*$")
-        core.redraw = true
-      end
-    })
-
-  elseif id == "generate" then
-    if #(self.input:match("^%s*(.-)%s*$")) < 8 then
+  if id == "generate" then
+    local text = self.doc:get_text(1, 1, math.huge, math.huge)
+    if #(text:match("^%s*(.-)%s*$")) < 8 then
       core.log("[AI Plugin Gen] Please describe your plugin idea first.")
       return
     end
@@ -839,7 +865,7 @@ function AIPluginGen:handle_click(id)
     self:do_generate_plan()
 
   elseif id == "trash" then
-    self.plan = nil; self.input = ""
+    self.plan = nil; self.doc:remove(1, 1, math.huge, math.huge)
     self.state = STATE.DESCRIBE; core.redraw = true
 
   elseif id == "redesign" then
@@ -856,7 +882,7 @@ function AIPluginGen:handle_click(id)
     end
 
   elseif id == "done_success" then
-    self.state = STATE.DESCRIBE; self.input = ""; core.redraw = true
+    self.state = STATE.DESCRIBE; self.doc:remove(1, 1, math.huge, math.huge); core.redraw = true
 
   elseif id == "back_error" then
     self.state = self.plan and STATE.PLAN or STATE.DESCRIBE; core.redraw = true
@@ -885,10 +911,13 @@ function AIPluginGen:handle_click(id)
 end
 
 -- ── AI actions ────────────────────────────────────────────────────────────────
+
 function AIPluginGen:do_generate_plan()
   self.state = STATE.LOADING
   self.loading_start = system.get_time()
+  self.error_msg = nil
   core.redraw = true
+  local user_input = self.doc:get_text(1, 1, math.huge, math.huge)
 
   local rejected_note = ""
   local rkeys = {}
@@ -946,7 +975,7 @@ core.DocView, core.command, style, core.keymap
 [OUTPUT_FILES]
 plugins/plugin_name.lua
 [/OUTPUT_FILES]
-]]):format(self.input:match("^%s*(.-)%s*$"), rejected_note)
+]]):format(user_input, rejected_note)
 
   run_agy(prompt, function(out, err)
     if err or not out or #out < 30 then
@@ -965,10 +994,11 @@ end
 
 function AIPluginGen:do_redesign()
   if not self.plan then return end
-  local prompt = ('For a Lite XL plugin "%s" (%s), generate ONLY a new sample ASCII art UI preview.\n'
+  local user_input = self.doc:get_text(1, 1, math.huge, math.huge)
+  local prompt = ('Create a complete, feature-rich Lite XL plugin based on this user description:\n"%s"\n'
+    .. 'You MUST output exactly a new sample ASCII art UI preview.\n'
     .. 'Use varied box-drawing chars: ╔╗╚╝║═╠╣╦╩╬┌┐└┘│─█▓▒░▀▄▌▐◈●○▶▷◀★✓✗①②③④⑤\n'
-    .. 'Output ONLY [DESIGN]...[/DESIGN]. No other text.'):format(
-    self.plan.name, self.plan.overview)
+    .. 'Output ONLY [DESIGN]...\nProvide a highly creative ASCII mockup here...\n[/DESIGN]. No other text.'):format(user_input)
   run_agy(prompt, function(out, err)
     if err or not out then return end
     local d = etag(out, "DESIGN")
