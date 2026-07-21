@@ -266,6 +266,8 @@ function AIPluginGen:new()
   self.doc_view.margin1 = 0
   self.doc_view.margin2 = 0
   self.doc_view.scrollable = true
+  self.doc_view.get_gutter_width = function() return 0 end
+  self.doc_view.draw_line_gutter = function() end
   self.plan           = nil       -- parsed plan table
   self.result         = nil       -- {name, file} on success
   self.error_msg      = nil
@@ -754,6 +756,10 @@ function AIPluginGen:update()
   self:move_towards(self.size, "x", self.target_size)
   if self.state == STATE.DESCRIBE then
     self.doc_view:update()
+    -- Automatically hand off global keyboard focus to our inline editor
+    if core.active_view == self then
+      core.set_active_view(self.doc_view)
+    end
   end
 end
 
@@ -781,14 +787,6 @@ function AIPluginGen:draw()
 end
 
 -- ── Input handling ────────────────────────────────────────────────────────────
-function AIPluginGen:on_text_input(text)
-  if self.state == STATE.DESCRIBE then self.doc_view:on_text_input(text); return true end
-end
-
-function AIPluginGen:on_key_pressed(k, ...)
-  if self.state == STATE.DESCRIBE then return self.doc_view:on_key_pressed(k, ...) end
-end
-
 function AIPluginGen:on_mouse_moved(mx, my, dx, dy)
   if self.state == STATE.DESCRIBE then self.doc_view:on_mouse_moved(mx, my, dx, dy) end
   local prev = self.hovered; self.hovered = nil
@@ -809,7 +807,7 @@ function AIPluginGen:on_mouse_pressed(button, mx, my, clicks)
     local r = self.input_rect
     if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
       self.doc_view:on_mouse_pressed(button, mx, my, clicks)
-      core.set_active_view(self) -- ensure we receive keyboard
+      core.set_active_view(self.doc_view) -- ensure we receive keyboard
       return true
     end
   end
