@@ -131,6 +131,14 @@ local function wrap_text(font, text, max_w)
   return lines
 end
 
+local function generate_uuid()
+  local template ='xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+  return string.gsub(template, '[xy]', function (c)
+    local v = (c == 'x') and math.random(0, 0xf) or math.random(8, 0xb)
+    return string.format('%x', v)
+  end)
+end
+
 local function sp(n) return math.floor(n * SCALE) end
 
 local function get_icon_text_width(font, text)
@@ -219,7 +227,7 @@ local function parse_plan(text)
 end
 
 -- ── AGY runner ────────────────────────────────────────────────────────────────
-local function run_agy(prompt, on_done)
+local function run_agy(prompt, conv_id, on_done)
   ensure_tempdir()
   -- Write prompt to temp file to avoid shell argument length limits
   local tmp = TEMP_DIR .. "/ai_plugin_gen_prompt.txt"
@@ -227,8 +235,13 @@ local function run_agy(prompt, on_done)
   if fp then fp:write(prompt); fp:close() end
 
   -- Read and inline the prompt (agy uses -p flag)
+  local args = { agy_path(), "-p", prompt, "--dangerously-skip-permissions" }
+  if conv_id then
+    table.insert(args, "--conversation")
+    table.insert(args, conv_id)
+  end
   local p, err = process.start(
-    { agy_path(), "-p", prompt, "--dangerously-skip-permissions" },
+    args,
     { stdin=process.REDIRECT_DISCARD, stdout=process.REDIRECT_PIPE, stderr=process.REDIRECT_PIPE }
   )
   if not p then on_done(nil, "Failed to start agy: " .. tostring(err)); return end
@@ -928,6 +941,15 @@ function AIPluginGen:handle_click(id)
     self:do_generate_plan()
 
   elseif id == "trash" then
+    if self.agy_conv_id then
+      local brain_dir = (os.getenv("HOME") or os.getenv("USERPROFILE")) .. "/.gemini/antigravity-cli/brain/" .. self.agy_conv_id
+      if PLATFORM == "Windows" then
+        os.execute('rmdir /s /q "' .. brain_dir:gsub("/", "\\") .. '"')
+      else
+        os.execute('rm -rf "' .. brain_dir .. '"')
+      end
+      self.agy_conv_id = nil
+    end
     self.plan = nil; self.doc:remove(1, 1, math.huge, math.huge)
     self.state = STATE.DESCRIBE; core.redraw = true
 
@@ -979,6 +1001,7 @@ function AIPluginGen:do_generate_plan()
   self.state = STATE.LOADING
   self.loading_start = system.get_time()
   self.error_msg = nil
+  self.agy_conv_id = self.agy_conv_id or generate_uuid()
   core.redraw = true
   local user_input = self.doc:get_text(1, 1, math.huge, math.huge)
 
@@ -1044,7 +1067,7 @@ plugins/plugin_name.lua
 [/OUTPUT_FILES]
 ]]):format(user_input, rejected_note, key_note)
 
-  run_agy(prompt, function(out, err)
+  run_agy(prompt, self.agy_conv_id, function(out, err)
     if err or not out or #out < 30 then
       self.state = STATE.ERROR
       self.error_msg = err or "AGY returned no output"
@@ -1066,7 +1089,7 @@ function AIPluginGen:do_redesign()
     .. 'You MUST output exactly a new sample ASCII art UI preview.\n'
     .. 'Use varied box-drawing chars: ╔╗╚╝║═╠╣╦╩╬┌┐└┘│─█▓▒░▀▄▌▐◈●○▶▷◀★✓✗①②③④⑤\n'
     .. 'Output ONLY [DESIGN]...\nProvide a highly creative ASCII mockup here...\n[/DESIGN]. No other text.'):format(user_input)
-  run_agy(prompt, function(out, err)
+  run_agy(prompt, self.agy_conv_id, function(out, err)
     if err or not out then return end
     local d = etag(out, "DESIGN")
     if d and #d > 5 then self.plan.design = d; core.redraw = true end
@@ -1117,7 +1140,7 @@ Output the COMPLETE Lua source between [PLUGIN_CODE] and [/PLUGIN_CODE] tags ONL
 
   self.build_step = 1
 
-  run_agy(prompt, function(out, err)
+  run_agy(prompt, self.agy_conv_id, function(out, err)
     if err or not out then
       self.state = STATE.ERROR
       self.error_msg = err or "AGY returned no output"
