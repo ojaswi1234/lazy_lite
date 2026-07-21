@@ -969,10 +969,14 @@ function AIPluginGen:do_generate_plan()
     rejected_note = "Do NOT regenerate plans similar to these rejected approach hashes: " .. table.concat(rkeys, ", ") .. "\n"
   end
 
+  local used_keys = {}
+  for stroke, _ in pairs(keymap.map) do table.insert(used_keys, stroke) end
+  local key_note = "CRITICAL: Do NOT suggest any of these already-used shortcuts: " .. table.concat(used_keys, ", ") .. "\n"
+
   local prompt = ([[
 You are creating a plugin development plan for the Lite XL text editor.
 User request: "%s"
-%s
+%s%s
 Respond with ONLY the exact structured format. No preamble, no extra text.
 
 [NAME] snake_case_name_here
@@ -1018,7 +1022,7 @@ core.DocView, core.command, style, core.keymap
 [OUTPUT_FILES]
 plugins/plugin_name.lua
 [/OUTPUT_FILES]
-]]):format(user_input, rejected_note)
+]]):format(user_input, rejected_note, key_note)
 
   run_agy(prompt, function(out, err)
     if err or not out or #out < 30 then
