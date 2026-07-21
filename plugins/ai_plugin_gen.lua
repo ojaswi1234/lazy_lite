@@ -268,6 +268,7 @@ function AIPluginGen:new()
   self.doc_view.scrollable = true
   self.doc_view.get_gutter_width = function() return 0 end
   self.doc_view.draw_line_gutter = function() end
+  self.doc_view.draw_background = function() end
   self.plan           = nil       -- parsed plan table
   self.result         = nil       -- {name, file} on success
   self.error_msg      = nil
@@ -324,23 +325,17 @@ function AIPluginGen:draw_describe()
   local inp_w = w - pad*2
   local inp_h = sp(120)
   renderer.draw_rect(cx, cy, inp_w, inp_h, style.background2 or c(50,50,50))
-  -- accent border
-  local bc = style.accent or c(100,200,100)
-  renderer.draw_rect(cx,       cy,       inp_w, sp(2), bc)
-  renderer.draw_rect(cx,       cy+inp_h-sp(2), inp_w, sp(2), bc)
-  renderer.draw_rect(cx,       cy,       sp(2), inp_h, bc)
-  renderer.draw_rect(cx+inp_w-sp(2), cy, sp(2), inp_h, bc)
 
-  self.doc_view.position.x = cx + sp(4)
-  self.doc_view.position.y = cy + sp(4)
-  self.doc_view.size.x = inp_w - sp(8)
-  self.doc_view.size.y = inp_h - sp(8)
+  self.doc_view.position.x = cx + sp(12)
+  self.doc_view.position.y = cy + sp(12)
+  self.doc_view.size.x = inp_w - sp(24)
+  self.doc_view.size.y = inp_h - sp(24)
   
   core.push_clip_rect(cx, cy, inp_w, inp_h)
   self.doc_view:draw()
   local txt = self.doc:get_text(1, 1, math.huge, math.huge)
   if txt == "\n" or txt == "" then
-    draw_icon_text(font, "\u{f040}  Describe your plugin here...", cx + sp(12), cy + sp(10), style.dim)
+    draw_icon_text(font, "\u{f040}  Describe your plugin here...", cx + sp(12), cy + sp(12), style.dim)
   end
   core.pop_clip_rect()
 
