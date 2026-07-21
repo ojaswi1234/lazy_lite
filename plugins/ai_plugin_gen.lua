@@ -725,7 +725,7 @@ end
 
 -- ── Main draw ─────────────────────────────────────────────────────────────────
 function AIPluginGen:draw()
-  if not self:is_visible() then return false end
+  self:draw_background(style.background or c(38,38,38))
   local x,y,w,h = self.position.x,self.position.y,self.size.x,self.size.y
   if w<=0 or h<=0 then return false end
   renderer.draw_rect(x,y,w,h, style.background or c(38,38,38))
