@@ -505,10 +505,9 @@ function AIPluginGen:draw_plan()
 
   local cw   = w - pad*2
   local ry   = y - self.plan_scroll + pad
-  local total = 0
-  local function section(draw_fn, est_h)
-    if ry+est_h > y and ry < y+content_h then draw_fn(x, ry, w, cw) end
-    ry = ry + est_h; total = total + est_h
+  local start_y = ry
+  local function section(draw_fn)
+    ry = draw_fn(x, ry, w, cw)
   end
 
   -- Name + overview
@@ -518,7 +517,8 @@ function AIPluginGen:draw_plan()
     for _, ln in ipairs(wrap_text(font, plan.overview, cw)) do
       renderer.draw_text(font, ln, sx+pad, sy, style.text); sy = sy + fh+sp(2)
     end
-  end, bfh + math.max(1,#wrap_text(font,plan.overview,cw))*(fh+sp(2)) + pad)
+    return sy + pad
+  end)
 
   -- Complexity / Time / Worth
   section(function(sx, sy)
@@ -532,7 +532,8 @@ function AIPluginGen:draw_plan()
     draw_icon_text(font, "\u{f0eb}  Worth making?  " .. plan.worth, sx+pad, sy, wcol)
     sy = sy + fh+sp(8)
     draw_icon_text(font, "\u{f187}  Dependencies: " .. plan.deps, sx+pad, sy, style.text)
-  end, pad + fh + fh + fh + fh + sp(24))
+    return sy + pad
+  end)
 
   -- Research
   if #plan.research > 0 then
@@ -546,7 +547,8 @@ function AIPluginGen:draw_plan()
         end
         sy=sy+sp(4)
       end
-    end, pad + fh + #plan.research*(fh+sp(6)) + pad)
+      return sy + pad
+    end)
   end
 
   -- Challenges
@@ -568,7 +570,8 @@ function AIPluginGen:draw_plan()
           end
           sy=sy+sp(4)
         end
-      end, pad + fh + #_items*(fh+sp(6)) + pad)
+        return sy + pad
+      end)
     end
   end
 
@@ -592,7 +595,8 @@ function AIPluginGen:draw_plan()
       for _, ln in ipairs(design_lines) do
         renderer.draw_text(cf, ln, sx+pad+sp(10), dy, style.accent); dy=dy+cfh+sp(2)
       end
-    end, pad + fh + sp(8) + design_box_h + pad)
+      return sy + design_box_h + pad
+    end)
   end
 
   -- Keyboard shortcuts with conflict checker
@@ -614,7 +618,8 @@ function AIPluginGen:draw_plan()
         draw_icon_text(font, status, sx+pad+cw-sp(80), sy, scol)
         sy=sy+fh+sp(4)
       end
-    end, pad + fh + #plan.shortcuts*(fh+sp(4)) + pad)
+      return sy + pad
+    end)
   end
 
   -- API hooks used
@@ -631,7 +636,8 @@ function AIPluginGen:draw_plan()
         if hx + sp(100) > sx+w-pad then hx=sx+pad; sy=sy+cfh+sp(10) end
       end
       sy = sy + cfh + sp(10)
-    end, pad + fh + sp(8) + math.ceil(#plan.hooks/4)*(cfh+sp(10)) + pad)
+      return sy + pad
+    end)
   end
 
   -- Testing strategy
@@ -642,7 +648,8 @@ function AIPluginGen:draw_plan()
       for _, t2 in ipairs(plan.testing) do
         draw_icon_text(font, "\u{f00c}  "..t2, sx+pad+sp(12), sy, style.text); sy=sy+fh+sp(6)
       end
-    end, pad + fh + #plan.testing*(fh+sp(6)) + pad)
+      return sy + pad
+    end)
   end
 
   -- Output files
@@ -653,10 +660,11 @@ function AIPluginGen:draw_plan()
       for _, f in ipairs(plan.files) do
         draw_icon_text(cf, "\u{f15b}  "..f, sx+pad+sp(12), sy, style.accent); sy=sy+cfh+sp(6)
       end
-    end, pad + fh + #plan.files*(cfh+sp(6)) + pad)
+      return sy + pad
+    end)
   end
 
-  self.plan_total_h = total + pad
+  self.plan_total_h = (ry - start_y) + pad
   core.pop_clip_rect()
 
   -- Scrollbar
