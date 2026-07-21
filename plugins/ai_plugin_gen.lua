@@ -602,15 +602,31 @@ function AIPluginGen:draw_plan()
   -- Keyboard shortcuts with conflict checker
   if #plan.shortcuts > 0 then
     local used = {}
-    for _, bindings in pairs(keymap.map) do
-      local blist = type(bindings)=="table" and bindings or {bindings}
-      for _, k in ipairs(blist) do used[k:lower()]=true end
+    for stroke, _ in pairs(keymap.map) do
+      used[stroke] = true
     end
+
+    local modkeys = { "ctrl", "alt", "shift", "cmd" }
+    local function normalize_stroke(stroke)
+      local stroke_table = {}
+      for key in stroke:lower():gsub("%s+", ""):gmatch("[^+]+") do
+        table.insert(stroke_table, key)
+      end
+      table.sort(stroke_table, function(a, b)
+        if a == b then return false end
+        for _, mod in ipairs(modkeys) do
+          if a == mod or b == mod then return a == mod end
+        end
+        return a < b
+      end)
+      return table.concat(stroke_table, "+")
+    end
+
     section(function(sx, sy)
       renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
       sy = section_header("\u{f11c}  Suggested Shortcuts  (green = free, red = clash)", sx+pad, sy, style.dim)
       for _, sc in ipairs(plan.shortcuts) do
-        local clash = used[sc.key:lower()]
+        local clash = used[normalize_stroke(sc.key)]
         local scol  = clash and c(220,80,80) or c(80,200,80)
         local status = clash and "\u{f057} Clash" or "\u{f058} Free"
         renderer.draw_text(cf, sc.key, sx+pad, sy, style.accent)
