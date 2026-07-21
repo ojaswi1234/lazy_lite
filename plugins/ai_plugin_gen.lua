@@ -504,183 +504,200 @@ function AIPluginGen:draw_plan()
   core.push_clip_rect(x, y, w, content_h)
 
   local cw   = w - pad*2
-  local ry   = y - self.plan_scroll + pad
-  local start_y = ry
-  local function section(draw_fn)
-    ry = draw_fn(x, ry, w, cw)
+  local gap  = sp(16)
+  local left_w  = math.floor((cw - gap) * 0.55)
+  local right_w = cw - left_w - gap
+  local left_x  = x + pad
+  local right_x = left_x + left_w + gap
+
+  local left_y  = y - self.plan_scroll + pad
+  local right_y = left_y
+  local start_y = left_y
+
+  local function bento(cx, cy, w_card, accent_col, render_func)
+    local cpad = sp(16)
+    local bottom = render_func(cx + cpad, cy + cpad, w_card - cpad*2, true)
+    local card_h = bottom - cy + cpad
+    if cy + card_h > y and cy < y + content_h then
+      renderer.draw_rect(cx, cy, w_card, card_h, style.background2 or c(40,40,40))
+      renderer.draw_rect(cx, cy, w_card, sp(2), accent_col or style.accent)
+      render_func(cx + cpad, cy + cpad, w_card - cpad*2, false)
+    end
+    return cy + card_h + gap
   end
 
-  -- Name + overview
-  section(function(sx, sy)
-    draw_icon_text(bfont, "\u{f0e7} "..plan.name, sx+pad, sy, style.accent)
-    sy = sy + bfh + sp(4)
-    for _, ln in ipairs(wrap_text(font, plan.overview, cw)) do
-      renderer.draw_text(font, ln, sx+pad, sy, style.text); sy = sy + fh+sp(2)
+  local function d_text(m, ...) if not m then renderer.draw_text(...) end end
+  local function d_icon(m, ...) if not m then draw_icon_text(...) end end
+  local function d_rect(m, ...) if not m then renderer.draw_rect(...) end end
+  local function d_header(m, text, sx, sy, col)
+    d_icon(m, bfont, text, sx, sy, col or style.text)
+    return sy + bfh + sp(8)
+  end
+
+  -- === LEFT COLUMN ===
+  left_y = bento(left_x, left_y, left_w, style.accent, function(sx, sy, cw_c, m)
+    sy = d_header(m, "\u{f0e7}  "..plan.name, sx, sy, style.accent)
+    for _, ln in ipairs(wrap_text(font, plan.overview, cw_c)) do
+      d_text(m, font, ln, sx, sy, style.text); sy = sy + fh + sp(4)
     end
-    return sy + pad
+    return sy
   end)
 
-  -- Complexity / Time / Worth
-  section(function(sx, sy)
-    renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy = sy+pad+sp(4)
-    sy = section_header("\u{f080}  Complexity  ·  Time  ·  Worth", sx+pad, sy)
-    local ny = complexity_bar(sx+pad, sy, cw*0.5, plan.complexity)
-    draw_icon_text(font, "\u{f017}  "..plan.time_est, sx+pad+cw*0.55, sy, style.text)
-    sy = ny + sp(8)
-    local wcol = plan.worth=="Recommended" and c(80,200,80) or
-                 plan.worth=="Overkill"     and c(200,80,80) or c(220,180,50)
-    draw_icon_text(font, "\u{f0eb}  Worth making?  " .. plan.worth, sx+pad, sy, wcol)
-    sy = sy + fh+sp(8)
-    draw_icon_text(font, "\u{f187}  Dependencies: " .. plan.deps, sx+pad, sy, style.text)
-    return sy + pad
-  end)
-
-  -- Research
   if #plan.research > 0 then
-    section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
-      sy = section_header("\u{f0ac}  Research Findings", sx+pad, sy, style.dim)
+    left_y = bento(left_x, left_y, left_w, c(100,160,200), function(sx, sy, cw_c, m)
+      sy = d_header(m, "\u{f0ac}  Research Findings", sx, sy, c(100,160,200))
       for _, r in ipairs(plan.research) do
-        draw_icon_text(font, "\u{f111}", sx+pad+sp(4), sy, style.dim)
-        for _, ln in ipairs(wrap_text(font, r, cw-sp(24))) do
-          renderer.draw_text(font, ln, sx+pad+sp(24), sy, style.text); sy=sy+fh+sp(4)
+        d_icon(m, font, "\u{f111}", sx, sy, style.dim)
+        for _, ln in ipairs(wrap_text(font, r, cw_c - sp(20))) do
+          d_text(m, font, ln, sx + sp(20), sy, style.text); sy = sy + fh + sp(4)
         end
-        sy=sy+sp(4)
+        sy = sy + sp(4)
       end
-      return sy + pad
+      return sy
     end)
   end
 
-  -- Challenges
-  for _, cs in ipairs({
-    {key="fatal",   label="\u{f057}  Fatal Challenges",    col=c(220,80,80)},
-    {key="conquer", label="\u{f071}  Conquerable Challenges", col=c(220,160,50)},
-    {key="easy",    label="\u{f058}  Easy Wins",            col=c(80,200,80)},
-  }) do
-    local items = plan[cs.key]
-    if items and #items > 0 then
-      local _cs = cs; local _items = items
-      section(function(sx, sy)
-        renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
-        sy = section_header(_cs.label, sx+pad, sy, _cs.col)
-        for _, it in ipairs(_items) do
-          draw_icon_text(font, "\u{f0da}", sx+pad+sp(4), sy, style.dim)
-          for _, ln in ipairs(wrap_text(font, it, cw-sp(24))) do
-            renderer.draw_text(font, ln, sx+pad+sp(24), sy, style.text); sy=sy+fh+sp(4)
+  local has_chal = (#(plan.fatal or {}) > 0) or (#(plan.conquer or {}) > 0) or (#(plan.easy or {}) > 0)
+  if has_chal then
+    left_y = bento(left_x, left_y, left_w, c(220,160,50), function(sx, sy, cw_c, m)
+      sy = d_header(m, "\u{f071}  Challenges & Wins", sx, sy, c(220,160,50))
+      for _, cs in ipairs({
+        {key="fatal",   label="\u{f057} Fatal",    col=c(220,80,80)},
+        {key="conquer", label="\u{f071} Conquerable", col=c(220,160,50)},
+        {key="easy",    label="\u{f058} Easy Wins", col=c(80,200,80)},
+      }) do
+        local items = plan[cs.key]
+        if items and #items > 0 then
+          d_icon(m, font, cs.label, sx, sy, cs.col); sy = sy + fh + sp(6)
+          for _, it in ipairs(items) do
+            d_icon(m, font, "\u{f0da}", sx + sp(8), sy, style.dim)
+            for _, ln in ipairs(wrap_text(font, it, cw_c - sp(28))) do
+              d_text(m, font, ln, sx + sp(28), sy, style.text); sy = sy + fh + sp(4)
+            end
+            sy = sy + sp(2)
           end
-          sy=sy+sp(4)
+          sy = sy + sp(6)
         end
-        return sy + pad
-      end)
-    end
-  end
-
-  -- Sample Design (ASCII art)
-  if plan.design ~= "" then
-    local design_lines = {}
-    for ln in (plan.design.."\n"):gmatch("([^\n]*)") do table.insert(design_lines, ln) end
-    local design_box_h = #design_lines*(cfh+sp(2)) + sp(20)
-    section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
-      -- Header + redesign button
-      sy = section_header("\u{f1fb}  Sample Design Preview", sx+pad, sy, style.dim)
-      local rdw, rdh = sp(100), fh+sp(6)
-      local rdx = sx+w-pad-rdw
-      local hov_rd = self.hovered == "redesign"
-      draw_btn(rdx, sy-sp(2)-fh, rdw, rdh, "\u{f021} Redesign", hov_rd)
-      table.insert(self.buttons, {x=rdx, y=sy-sp(2)-fh, w=rdw, h=rdh, id="redesign"})
-      -- Design box
-      renderer.draw_rect(sx+pad, sy, cw, design_box_h, style.background2 or c(40,40,40))
-      local dy = sy + sp(10)
-      for _, ln in ipairs(design_lines) do
-        renderer.draw_text(cf, ln, sx+pad+sp(10), dy, style.accent); dy=dy+cfh+sp(2)
       end
-      return sy + design_box_h + pad
+      return sy
     end)
   end
 
-  -- Keyboard shortcuts with conflict checker
+  if plan.design ~= "" then
+    left_y = bento(left_x, left_y, left_w, c(180,100,200), function(sx, sy, cw_c, m)
+      sy = d_header(m, "\u{f1fb}  Sample Design", sx, sy, c(180,100,200))
+      local rdw, rdh = sp(100), fh+sp(6)
+      local rdx = sx + cw_c - rdw
+      if not m then
+        draw_btn(rdx, sy - rdh - sp(10), rdw, rdh, "\u{f021} Redesign", self.hovered == "redesign")
+        table.insert(self.buttons, {x=rdx, y=sy - rdh - sp(10), w=rdw, h=rdh, id="redesign"})
+      end
+      
+      local design_lines = {}
+      for ln in (plan.design.."\n"):gmatch("([^\n]*)") do table.insert(design_lines, ln) end
+      local design_h = #design_lines * (cfh+sp(2)) + sp(16)
+      
+      d_rect(m, sx, sy, cw_c, design_h, style.background3 or c(30,30,30))
+      local dy = sy + sp(8)
+      for _, ln in ipairs(design_lines) do
+        d_text(m, cf, ln, sx + sp(10), dy, style.accent); dy = dy + cfh + sp(2)
+      end
+      return sy + design_h
+    end)
+  end
+
+  -- === RIGHT COLUMN ===
+  right_y = bento(right_x, right_y, right_w, c(100,200,100), function(sx, sy, cw_c, m)
+    sy = d_header(m, "\u{f080}  At a Glance", sx, sy, c(100,200,100))
+    d_icon(m, font, "Complexity", sx, sy, style.dim); sy = sy + fh + sp(4)
+    if not m then complexity_bar(sx, sy, cw_c, plan.complexity) end
+    sy = sy + fh + sp(12)
+    
+    d_icon(m, font, "\u{f017}  Est. Time:", sx, sy, style.dim)
+    d_text(m, font, plan.time_est, sx + sp(90), sy, style.text); sy = sy + fh + sp(8)
+    
+    local wcol = plan.worth=="Recommended" and c(80,200,80) or plan.worth=="Overkill" and c(200,80,80) or c(220,180,50)
+    d_icon(m, font, "\u{f0eb}  Worth It:", sx, sy, style.dim)
+    d_text(m, font, plan.worth, sx + sp(90), sy, wcol); sy = sy + fh + sp(8)
+    
+    return sy
+  end)
+
+  right_y = bento(right_x, right_y, right_w, c(180,180,180), function(sx, sy, cw_c, m)
+    sy = d_header(m, "\u{f187}  Architecture", sx, sy, c(180,180,180))
+    d_icon(m, font, "Dependencies:", sx, sy, style.dim); sy = sy + fh + sp(4)
+    for _, ln in ipairs(wrap_text(font, plan.deps, cw_c)) do
+      d_text(m, font, ln, sx, sy, style.text); sy = sy + fh + sp(4)
+    end
+    sy = sy + sp(8)
+    
+    if #plan.hooks > 0 then
+      d_icon(m, font, "\u{f1e6} Hooks Required:", sx, sy, style.dim); sy = sy + fh + sp(8)
+      local hx, hy = sx, sy
+      for _, hook in ipairs(plan.hooks) do
+        local hw = cf:get_width(hook) + sp(12)
+        if hx + hw > sx + cw_c then hx = sx; hy = hy + cfh + sp(8) end
+        d_rect(m, hx, hy, hw, cfh + sp(4), style.background3 or c(50,50,50))
+        d_text(m, cf, hook, hx + sp(6), hy + sp(2), style.accent)
+        hx = hx + hw + sp(6)
+      end
+      sy = hy + cfh + sp(12)
+    end
+    
+    if #plan.files > 0 then
+      d_icon(m, font, "\u{f07b} Files Created:", sx, sy, style.dim); sy = sy + fh + sp(4)
+      for _, f in ipairs(plan.files) do
+        d_icon(m, cf, "\u{f15b}  "..f, sx, sy, c(150,200,250)); sy = sy + cfh + sp(4)
+      end
+    end
+    return sy
+  end)
+
   if #plan.shortcuts > 0 then
     local used = {}
-    for stroke, _ in pairs(keymap.map) do
-      used[stroke] = true
-    end
-
+    for stroke, _ in pairs(keymap.map) do used[stroke] = true end
     local modkeys = { "ctrl", "alt", "shift", "cmd" }
     local function normalize_stroke(stroke)
-      local stroke_table = {}
-      for key in stroke:lower():gsub("%s+", ""):gmatch("[^+]+") do
-        table.insert(stroke_table, key)
-      end
-      table.sort(stroke_table, function(a, b)
+      local st = {}
+      for key in stroke:lower():gsub("%s+", ""):gmatch("[^+]+") do table.insert(st, key) end
+      table.sort(st, function(a, b)
         if a == b then return false end
-        for _, mod in ipairs(modkeys) do
-          if a == mod or b == mod then return a == mod end
-        end
+        for _, mod in ipairs(modkeys) do if a == mod or b == mod then return a == mod end end
         return a < b
       end)
-      return table.concat(stroke_table, "+")
+      return table.concat(st, "+")
     end
 
-    section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
-      sy = section_header("\u{f11c}  Suggested Shortcuts  (green = free, red = clash)", sx+pad, sy, style.dim)
+    right_y = bento(right_x, right_y, right_w, c(200,100,100), function(sx, sy, cw_c, m)
+      sy = d_header(m, "\u{f11c}  Shortcuts", sx, sy, c(200,100,100))
       for _, sc in ipairs(plan.shortcuts) do
         local clash = used[normalize_stroke(sc.key)]
-        local scol  = clash and c(220,80,80) or c(80,200,80)
+        local scol = clash and c(220,80,80) or c(80,200,80)
+        d_text(m, cf, sc.key, sx, sy, style.accent); sy = sy + cfh + sp(2)
+        d_text(m, font, sc.desc, sx, sy, style.dim)
         local status = clash and "\u{f057} Clash" or "\u{f058} Free"
-        renderer.draw_text(cf, sc.key, sx+pad, sy, style.accent)
-        renderer.draw_text(font, sc.desc, sx+pad+sp(200), sy, style.text)
-        draw_icon_text(font, status, sx+pad+cw-sp(80), sy, scol)
-        sy=sy+fh+sp(4)
+        d_icon(m, font, status, sx + cw_c - font:get_width(status) - sp(4), sy, scol)
+        sy = sy + fh + sp(8)
       end
-      return sy + pad
+      return sy
     end)
   end
 
-  -- API hooks used
-  if #plan.hooks > 0 then
-    section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
-      sy = section_header("\u{f1e6}  Lite XL API Hooks Required", sx+pad, sy, style.dim)
-      local hx = sx+pad
-      for _, hook in ipairs(plan.hooks) do
-        local hw = cf:get_width(hook)+sp(12)
-        renderer.draw_rect(hx, sy, hw, cfh+sp(6), style.background3 or c(50,50,50))
-        renderer.draw_text(cf, hook, hx+sp(6), sy+sp(3), style.accent)
-        hx = hx + hw + sp(6)
-        if hx + sp(100) > sx+w-pad then hx=sx+pad; sy=sy+cfh+sp(10) end
-      end
-      sy = sy + cfh + sp(10)
-      return sy + pad
-    end)
-  end
-
-  -- Testing strategy
   if #plan.testing > 0 then
-    section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
-      sy = section_header("\u{f0c3}  Testing Strategy", sx+pad, sy, style.dim)
+    right_y = bento(right_x, right_y, right_w, c(100,180,220), function(sx, sy, cw_c, m)
+      sy = d_header(m, "\u{f0c3}  Testing", sx, sy, c(100,180,220))
       for _, t2 in ipairs(plan.testing) do
-        draw_icon_text(font, "\u{f00c}  "..t2, sx+pad+sp(12), sy, style.text); sy=sy+fh+sp(6)
+        d_icon(m, font, "\u{f00c}", sx, sy, c(80,200,80))
+        for _, ln in ipairs(wrap_text(font, t2, cw_c - sp(20))) do
+          d_text(m, font, ln, sx + sp(20), sy, style.text); sy = sy + fh + sp(4)
+        end
+        sy = sy + sp(4)
       end
-      return sy + pad
+      return sy
     end)
   end
 
-  -- Output files
-  if #plan.files > 0 then
-    section(function(sx, sy)
-      renderer.draw_rect(sx+pad, sy, cw, sp(1), style.divider or c(70,70,70)); sy=sy+pad+sp(4)
-      sy = section_header("\u{f07b}  Files That Will Be Created", sx+pad, sy, style.dim)
-      for _, f in ipairs(plan.files) do
-        draw_icon_text(cf, "\u{f15b}  "..f, sx+pad+sp(12), sy, style.accent); sy=sy+cfh+sp(6)
-      end
-      return sy + pad
-    end)
-  end
-
-  self.plan_total_h = (ry - start_y) + pad
+  self.plan_total_h = (math.max(left_y, right_y) - start_y) + pad
   core.pop_clip_rect()
 
   -- Scrollbar
