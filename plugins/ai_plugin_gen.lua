@@ -722,8 +722,20 @@ function AIPluginGen:draw_error()
   table.insert(self.buttons, {x=bx, y=cy, w=bw, h=bh, id="back_error"})
   core.redraw = true
 end
+-- ── Main draw & update ────────────────────────────────────────────────────────
+function AIPluginGen:update()
+  AIPluginGen.super.update(self)
+  self.target_size = self.target_size or (400 * SCALE)
+  self:move_towards(self.size, "x", self.target_size)
+end
 
--- ── Main draw ─────────────────────────────────────────────────────────────────
+function AIPluginGen:set_target_size(axis, value)
+  if axis == "x" then
+    self.target_size = value
+    return true
+  end
+end
+
 function AIPluginGen:draw()
   self:draw_background(style.background or c(38,38,38))
   local x,y,w,h = self.position.x,self.position.y,self.size.x,self.size.y
@@ -1068,10 +1080,20 @@ command.add(nil, {
         plugin_view = nil
       end
     else
-      plugin_view = AIPluginGen()
-      local node = sidebar or core.root_view:get_active_node_default()
-      node:add_view(plugin_view)
-      if sidebar then node:set_active_view(plugin_view) end
+      if not plugin_view then plugin_view = AIPluginGen() end
+      if sidebar then
+        sidebar:add_view(plugin_view)
+        sidebar:set_active_view(plugin_view)
+      else
+        local root = core.root_view.root_node
+        local child = root
+        while child.a do child = child.a end
+        sidebar = child:split("right", child, { y = true }, true)
+        sidebar:add_view(plugin_view)
+        core.set_active_view(plugin_view)
+        -- Register the sidebar so activity_bar can find it
+        rawset(_G, "_ag_sidebar_node", sidebar)
+      end
     end
   end
 })
