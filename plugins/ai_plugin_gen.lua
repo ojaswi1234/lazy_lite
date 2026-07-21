@@ -521,7 +521,9 @@ function AIPluginGen:draw_plan()
     if cy + card_h > y and cy < y + content_h then
       renderer.draw_rect(cx, cy, w_card, card_h, style.background2 or c(40,40,40))
       renderer.draw_rect(cx, cy, w_card, sp(2), accent_col or style.accent)
+      core.push_clip_rect(cx, cy, w_card, card_h)
       render_func(cx + cpad, cy + cpad, w_card - cpad*2, false)
+      core.pop_clip_rect()
     end
     return cy + card_h + gap
   end
@@ -613,12 +615,22 @@ function AIPluginGen:draw_plan()
     if not m then complexity_bar(sx, sy, cw_c, plan.complexity) end
     sy = sy + fh + sp(12)
     
-    d_icon(m, font, "\u{f017}  Est. Time:", sx, sy, style.dim)
-    d_text(m, font, plan.time_est, sx + sp(110), sy, style.text); sy = sy + fh + sp(8)
+    local lbl1 = "\u{f017}  Est. Time:"
+    d_icon(m, font, lbl1, sx, sy, style.dim)
+    local lw1 = get_icon_text_width(font, lbl1) + sp(12)
+    for _, ln in ipairs(wrap_text(font, plan.time_est, cw_c - lw1)) do
+      d_text(m, font, ln, sx + lw1, sy, style.text); sy = sy + fh + sp(2)
+    end
+    sy = sy + sp(6)
     
     local wcol = plan.worth=="Recommended" and c(80,200,80) or plan.worth=="Overkill" and c(200,80,80) or c(220,180,50)
-    d_icon(m, font, "\u{f0eb}  Worth It:", sx, sy, style.dim)
-    d_text(m, font, plan.worth, sx + sp(110), sy, wcol); sy = sy + fh + sp(8)
+    local lbl2 = "\u{f0eb}  Worth It:"
+    d_icon(m, font, lbl2, sx, sy, style.dim)
+    local lw2 = get_icon_text_width(font, lbl2) + sp(12)
+    for _, ln in ipairs(wrap_text(font, plan.worth, cw_c - lw2)) do
+      d_text(m, font, ln, sx + lw2, sy, wcol); sy = sy + fh + sp(2)
+    end
+    sy = sy + sp(6)
     
     return sy
   end)
@@ -636,10 +648,11 @@ function AIPluginGen:draw_plan()
       local hx, hy = sx, sy
       for _, hook in ipairs(plan.hooks) do
         local hw = cf:get_width(hook) + sp(12)
-        if hx + hw > sx + cw_c then hx = sx; hy = hy + cfh + sp(8) end
-        d_rect(m, hx, hy, hw, cfh + sp(4), style.background3 or c(50,50,50))
+        local hw_capped = math.min(hw, cw_c)
+        if hx + hw_capped > sx + cw_c then hx = sx; hy = hy + cfh + sp(8) end
+        d_rect(m, hx, hy, hw_capped, cfh + sp(4), style.background3 or c(50,50,50))
         d_text(m, cf, hook, hx + sp(6), hy + sp(2), style.accent)
-        hx = hx + hw + sp(6)
+        hx = hx + hw_capped + sp(6)
       end
       sy = hy + cfh + sp(12)
     end
@@ -647,7 +660,13 @@ function AIPluginGen:draw_plan()
     if #plan.files > 0 then
       d_icon(m, font, "\u{f07b} Files Created:", sx, sy, style.dim); sy = sy + fh + sp(4)
       for _, f in ipairs(plan.files) do
-        d_icon(m, cf, "\u{f15b}  "..f, sx, sy, c(150,200,250)); sy = sy + cfh + sp(4)
+        local lblf = "\u{f15b}  "
+        d_icon(m, cf, lblf, sx, sy, c(150,200,250))
+        local fw = get_icon_text_width(cf, lblf)
+        for _, ln in ipairs(wrap_text(cf, f, cw_c - fw)) do
+          d_text(m, cf, ln, sx + fw, sy, c(150,200,250)); sy = sy + cfh + sp(2)
+        end
+        sy = sy + sp(4)
       end
     end
     return sy
@@ -675,8 +694,9 @@ function AIPluginGen:draw_plan()
         local scol = clash and c(220,80,80) or c(80,200,80)
         local status = clash and "\u{f057} Clash" or "\u{f058} Free"
         
+        local status_w = get_icon_text_width(font, status)
         d_text(m, cf, sc.key, sx, sy, style.accent)
-        d_icon(m, font, status, sx + cw_c - sp(80), sy, scol)
+        d_icon(m, font, status, sx + cw_c - status_w, sy, scol)
         sy = sy + cfh + sp(4)
         
         for _, ln in ipairs(wrap_text(font, sc.desc, cw_c)) do
