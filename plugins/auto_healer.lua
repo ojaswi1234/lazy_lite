@@ -1,6 +1,7 @@
 -- mod-version:3
 -- Auto-Healer plugin: Intercepts editor errors and delegates them to the Antigravity AI sidebar.
 -- Also detects specific known failure patterns (e.g. agy CLI not set up) and auto-heals them.
+-- Extended: Aware of AI Plugin Gen pipeline — calls _G.ai_plugin_gen_resume_fn after fixing plugin errors.
 
 local core    = require "core"
 local config = require "core.config"
@@ -135,6 +136,16 @@ command.add(nil, {
       command.perform("toggle-terminal:run", "agy install")
     end)
   end,
+
+  ["auto-healer:resume-plugin-gen"] = function()
+    if type(_G.ai_plugin_gen_resume_fn) == "function" then
+      core.log("[Auto-Healer] Resuming AI Plugin Generator pipeline...")
+      _G.ai_plugin_gen_resume_fn()
+      _G.ai_plugin_gen_resume_fn = nil
+    else
+      core.log("[Auto-Healer] No plugin generation pipeline to resume.")
+    end
+  end,
 })
 
 -- ── Known pattern detector ────────────────────────────────────────────────────
@@ -193,6 +204,23 @@ local KNOWN_PATTERNS = {
            .. "Reconnect the codespace to force a full re-sync.",
     command = nil,
     cmd_label = nil,
+  },
+  {
+    match   = "%[AI Plugin Gen%]",
+    title   = "AI Plugin Generator Error",
+    message = "The AI Plugin Generator encountered an error during plugin creation.\n"
+           .. "The auto-healer will attempt to diagnose and fix the issue.\n"
+           .. "Once fixed, generation will resume automatically via _G.ai_plugin_gen_resume_fn().",
+    command = "auto-healer:resume-plugin-gen",
+    cmd_label = "Resume plugin generation",
+    on_healed = function()
+      -- After healer fixes the issue, resume the plugin gen pipeline
+      if type(_G.ai_plugin_gen_resume_fn) == "function" then
+        core.log("[Auto-Healer] Resuming AI Plugin Gen pipeline...")
+        _G.ai_plugin_gen_resume_fn()
+        _G.ai_plugin_gen_resume_fn = nil
+      end
+    end,
   },
 }
 
