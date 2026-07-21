@@ -129,9 +129,33 @@ local function wrap_text(font, text, max_w)
   return lines
 end
 
-local function btn_color(hov, accent_col)
-  if hov then return accent_col or style.accent end
-  return style.background2 or c(60,60,60)
+local function sp(n) return math.floor(n * SCALE) end
+
+local function get_icon_text_width(font, text)
+  local first = text:match("^([%z\1-\127\194-\244][\128-\191]*)")
+  if first and #first > 1 then
+    local rest = text:sub(#first + 1):match("^%s*(.-)$")
+    local iw = style.icon_font:get_width(first)
+    if rest ~= "" then
+      return iw + (8 * SCALE) + font:get_width(rest)
+    end
+    return iw
+  end
+  return font:get_width(text)
+end
+
+local function draw_icon_text(font, text, x, y, color)
+  local first = text:match("^([%z\1-\127\194-\244][\128-\191]*)")
+  if first and #first > 1 then
+    local iw = style.icon_font:get_width(first)
+    renderer.draw_text(style.icon_font, first, x, y, color)
+    local rest = text:sub(#first + 1):match("^%s*(.-)$")
+    if rest ~= "" then
+      renderer.draw_text(font, rest, x + iw + (8 * SCALE), y, color)
+    end
+  else
+    renderer.draw_text(font, text, x, y, color)
+  end
 end
 
 local function draw_btn(x, y, w, h, label, hov, col)
@@ -141,9 +165,9 @@ local function draw_btn(x, y, w, h, label, hov, col)
   -- subtle border
   renderer.draw_rect(x, y, w, 1, style.divider or c(90,90,90))
   renderer.draw_rect(x, y+h-1, w, 1, style.divider or c(90,90,90))
-  local tw = style.font:get_width(label)
+  local tw = get_icon_text_width(style.font, label)
   local fh = style.font:get_height()
-  renderer.draw_text(style.font, label, x+(w-tw)/2, y+(h-fh)/2, fg)
+  draw_icon_text(style.font, label, x+(w-tw)/2, y+(h-fh)/2, fg)
 end
 
 -- ── AI output parser ──────────────────────────────────────────────────────────
@@ -282,7 +306,7 @@ function AIPluginGen:draw_describe()
   local cx, cy = x + pad, y + pad - self.scroll.y
 
   -- Title
-  renderer.draw_text(bfont, "\u{f0e7}  AI Plugin Generator", cx, cy, style.accent)
+  draw_icon_text(bfont, "\u{f0e7}  AI Plugin Generator", cx, cy, style.accent)
   cy = cy + bfh + sp(4)
   renderer.draw_text(font, "Describe a plugin idea and AGY will think, research and plan it for you.", cx, cy, style.dim)
   cy = cy + fh + sp(16)
@@ -334,7 +358,7 @@ function AIPluginGen:draw_describe()
 
   -- Installed list
   local list_label = ("\u{f0c0}  My Generated Plugins (%d)"):format(#store.installed)
-  renderer.draw_text(font, list_label, cx, cy, style.dim)
+  draw_icon_text(font, list_label, cx, cy, style.dim)
   cy = cy + fh + sp(8)
 
   if #store.installed == 0 then
@@ -491,7 +515,7 @@ function AIPluginGen:draw_plan()
 
   -- Name + overview
   section(function(sx, sy)
-    renderer.draw_text(bfont, "\u{f0e7} "..plan.name, sx+pad, sy, style.accent)
+    draw_icon_text(bfont, "\u{f0e7} "..plan.name, sx+pad, sy, style.accent)
     sy = sy + bfh + sp(4)
     for _, ln in ipairs(wrap_text(font, plan.overview, cw)) do
       renderer.draw_text(font, ln, sx+pad, sy, style.text); sy = sy + fh+sp(2)
@@ -585,7 +609,7 @@ function AIPluginGen:draw_plan()
         local status = clash and "\u{f057} Clash" or "\u{f058} Free"
         renderer.draw_text(cf, sc.key, sx+pad, sy, style.accent)
         renderer.draw_text(font, sc.desc, sx+pad+sp(200), sy, style.text)
-        renderer.draw_text(font, status, sx+pad+cw-sp(80), sy, scol)
+        draw_icon_text(font, status, sx+pad+cw-sp(80), sy, scol)
         sy=sy+fh+sp(4)
       end
     end, pad + fh + #plan.shortcuts*(fh+sp(4)) + pad)
