@@ -548,8 +548,8 @@ function AIPluginGen:draw_plan()
       sy = d_header(m, "\u{f0ac}  Research Findings", sx, sy, c(100,160,200))
       for _, r in ipairs(plan.research) do
         d_icon(m, font, "\u{f111}", sx, sy, style.dim)
-        for _, ln in ipairs(wrap_text(font, r, cw_c - sp(20))) do
-          d_text(m, font, ln, sx + sp(20), sy, style.text); sy = sy + fh + sp(4)
+        for _, ln in ipairs(wrap_text(font, r, cw_c - sp(24))) do
+          d_text(m, font, ln, sx + sp(24), sy, style.text); sy = sy + fh + sp(4)
         end
         sy = sy + sp(4)
       end
@@ -614,11 +614,11 @@ function AIPluginGen:draw_plan()
     sy = sy + fh + sp(12)
     
     d_icon(m, font, "\u{f017}  Est. Time:", sx, sy, style.dim)
-    d_text(m, font, plan.time_est, sx + sp(90), sy, style.text); sy = sy + fh + sp(8)
+    d_text(m, font, plan.time_est, sx + sp(110), sy, style.text); sy = sy + fh + sp(8)
     
     local wcol = plan.worth=="Recommended" and c(80,200,80) or plan.worth=="Overkill" and c(200,80,80) or c(220,180,50)
     d_icon(m, font, "\u{f0eb}  Worth It:", sx, sy, style.dim)
-    d_text(m, font, plan.worth, sx + sp(90), sy, wcol); sy = sy + fh + sp(8)
+    d_text(m, font, plan.worth, sx + sp(110), sy, wcol); sy = sy + fh + sp(8)
     
     return sy
   end)
@@ -673,11 +673,16 @@ function AIPluginGen:draw_plan()
       for _, sc in ipairs(plan.shortcuts) do
         local clash = used[normalize_stroke(sc.key)]
         local scol = clash and c(220,80,80) or c(80,200,80)
-        d_text(m, cf, sc.key, sx, sy, style.accent); sy = sy + cfh + sp(2)
-        d_text(m, font, sc.desc, sx, sy, style.dim)
         local status = clash and "\u{f057} Clash" or "\u{f058} Free"
-        d_icon(m, font, status, sx + cw_c - font:get_width(status) - sp(4), sy, scol)
-        sy = sy + fh + sp(8)
+        
+        d_text(m, cf, sc.key, sx, sy, style.accent)
+        d_icon(m, font, status, sx + cw_c - sp(80), sy, scol)
+        sy = sy + cfh + sp(4)
+        
+        for _, ln in ipairs(wrap_text(font, sc.desc, cw_c)) do
+          d_text(m, font, ln, sx, sy, style.dim); sy = sy + fh + sp(2)
+        end
+        sy = sy + sp(8)
       end
       return sy
     end)
@@ -688,8 +693,8 @@ function AIPluginGen:draw_plan()
       sy = d_header(m, "\u{f0c3}  Testing", sx, sy, c(100,180,220))
       for _, t2 in ipairs(plan.testing) do
         d_icon(m, font, "\u{f00c}", sx, sy, c(80,200,80))
-        for _, ln in ipairs(wrap_text(font, t2, cw_c - sp(20))) do
-          d_text(m, font, ln, sx + sp(20), sy, style.text); sy = sy + fh + sp(4)
+        for _, ln in ipairs(wrap_text(font, t2, cw_c - sp(24))) do
+          d_text(m, font, ln, sx + sp(24), sy, style.text); sy = sy + fh + sp(4)
         end
         sy = sy + sp(4)
       end
