@@ -47,7 +47,7 @@ local BUILD_STEPS = {
 
 -- Global signals for auto-healer integration
 rawset(_G, "ai_plugin_gen_resume_fn", nil)
-rawset(_G, "auto_healer_new_plugins", _G.auto_healer_new_plugins or {})
+rawset(_G, "auto_healer_new_plugins", rawget(_G, "auto_healer_new_plugins") or {})
 
 -- ── Persistent store ──────────────────────────────────────────────────────────
 local store = { installed = {}, rejected_hashes = {} }
