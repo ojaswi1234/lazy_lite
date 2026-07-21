@@ -1054,38 +1054,91 @@ Output the COMPLETE Lua source between [PLUGIN_CODE] and [/PLUGIN_CODE] tags ONL
 end
 
 -- ── Settings injection ────────────────────────────────────────────────────────
-core.add_thread(function()
-  coroutine.yield(1.5)  -- Let settings module fully initialize
-  local ok, Settings = pcall(require, "plugins.settings")
-  if not ok or not Settings then
-    core.log("[AI Plugin Gen] Could not hook into Settings (plugin not loaded yet).")
-    return
+-- Strategy: wrap the "ui:settings" command so we inject our tab every time
+-- the Settings window is opened, not just on future instantiations.
+local function inject_into_settings(settings_view)
+  if not settings_view or not settings_view.notebook then return end
+  -- Check if already injected (avoid duplicates on re-open)
+  if settings_view.notebook:get_pane("ai_plugin_gen") then return end
+
+  settings_view.ai_plugin_gen_pane =
+    settings_view.notebook:add_pane("ai_plugin_gen", "AI Plugins")
+  -- Use plain ASCII char like built-in panes do
+  settings_view.notebook:set_pane_icon("ai_plugin_gen", "A")
+
+  local pane = settings_view.ai_plugin_gen_pane
+  local gen  = AIPluginGen(pane)
+  gen.border.width = 0
+  gen.render_background = false  -- we draw our own bg
+
+  -- Resize widget to fill the pane container on every update cycle
+  local _pane_update = pane.update
+  function pane:update()
+    local res = _pane_update and _pane_update(self) or true
+    if gen and gen:is_visible() then
+      gen:set_position(0, 0)
+      gen:set_size(self.size.x, self.size.y)
+    end
+    return res
   end
+end
 
-  local _orig_new = Settings.new
-  function Settings:new(...)
-    _orig_new(self, ...)
+core.add_thread(function()
+  coroutine.yield(2.0)  -- let all plugins finish loading
 
-    -- Insert our pane; it appears after About (last) due to notebook ordering
-    self.ai_plugin_gen_pane = self.notebook:add_pane("ai_plugin_gen", "AI Plugins")
-    self.notebook:set_pane_icon("ai_plugin_gen", "\u{f0e7}")
+  -- 1. Wrap the settings command so we inject on every open
+  local ok_cmd, command_mod = pcall(require, "core.command")
+  local ok_set, Settings    = pcall(require, "plugins.settings")
 
-    -- Attach our custom widget as child of the pane container
-    local pane = self.ai_plugin_gen_pane
-    local gen  = AIPluginGen(pane)
-    gen.border.width = 0
+  if ok_cmd and ok_set and Settings then
+    -- Patch Settings.new for all future windows
+    local _orig_new = Settings.new
+    function Settings:new(...)
+      _orig_new(self, ...)
+      inject_into_settings(self)
+    end
 
-    -- Keep our widget filling the pane on every frame
-    local old_update = pane.update
-    function pane:update()
-      local res = old_update and old_update(self) or true
-      if gen:is_visible() then
-        gen:set_position(0, 0)
-        gen:set_size(self.size.x, self.size.y)
+    -- Also wrap the ui:settings command to catch already-open instances
+    local cmd = command_mod.map["ui:settings"]
+    if cmd then
+      local _orig_perform = cmd.perform
+      cmd.perform = function(...)
+        local result = _orig_perform(...)
+        -- Find the newly opened (or existing) settings view and inject
+        core.add_thread(function()
+          coroutine.yield(0.1)
+          for _, node in pairs(core.root_view.root_node) do
+            if type(node) == "table" and node.views then
+              for _, v in ipairs(node.views) do
+                if v and v.notebook then inject_into_settings(v) end
+              end
+            end
+          end
+        end)
+        return result
       end
-      return res
     end
   end
+
+  -- 2. Immediately inject into any ALREADY-OPEN settings window
+  local function find_and_inject()
+    local function walk(node)
+      if not node then return end
+      if node.views then
+        for _, v in ipairs(node.views) do
+          if v and v.notebook then inject_into_settings(v) end
+        end
+      end
+      if node.a then walk(node.a) end
+      if node.b then walk(node.b) end
+    end
+    if core.root_view and core.root_view.root_node then
+      walk(core.root_view.root_node)
+    end
+  end
+
+  find_and_inject()
+  core.log("[AI Plugin Gen] Settings tab injected. Open Settings → AI Plugins to start.")
 end)
 
 -- ── Auto-healer: aware of new plugins ────────────────────────────────────────
