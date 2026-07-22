@@ -51,9 +51,10 @@ style.mossy = {
   active_row_text  = c "#C0CAF5",
   hover_row        = c "#13141C",
   
-  -- The requested Gold Yellow Status Bar with Pure Black Text
-  status_bg        = c "#FFCC00",
-  status_text      = c "#000000",
+  -- Warm amber-gold status bar — softer than pure yellow, still vivid
+  -- Dark near-black text for maximum contrast on the light background
+  status_bg        = c "#C9A227",  -- warm amber-gold (muted, not harsh)
+  status_text      = c "#12111A",  -- very dark purple-black (softer than #000)
   
   -- The Tokyo Night Purple Activity Bar
   activity_bg      = c "#BB9AF7",
