@@ -63,7 +63,8 @@ local function analyze_code(code, lang)
       
       -- Time Complexity Heuristics
       local is_loop = clean:match("%Wfor%W") or clean:match("^for%W") or clean:match("%Wwhile%W") or clean:match("^while%W")
-      if is_loop then
+      local is_traversal = clean:match("dfs%(") or clean:match("bfs%(") or clean:match("backtrack%(") or clean:match("helper%(") or clean:match("solve%(") or clean:match("recurse%(")
+      if is_loop or is_traversal then
         tc_stack[#tc_stack] = 1 -- Adds O(N) to this depth level
       end
       
@@ -82,7 +83,7 @@ local function analyze_code(code, lang)
       
       -- Space Complexity Heuristics
       local is_alloc = clean:match("%[%]") or clean:match("new%s+%w+%[") or clean:match("new%s+List") or clean:match("new%s+Map") or clean:match("new%s+Set") or clean:match("new%s+HashMap") or clean:match("new%s+ArrayList") or clean:match("%{.*%}") or clean:match("malloc")
-      if is_alloc and not clean:match("return%s+[^%s]") then
+      if (is_alloc and not clean:match("return%s+[^%s]")) or is_traversal then
         sc_stack[#sc_stack] = 1
       end
       
