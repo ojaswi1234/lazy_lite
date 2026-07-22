@@ -29,6 +29,31 @@ function core.status_view:draw_background(...)
   renderer.draw_rect(0, self.position.y, self.size.x, 1 * SCALE, border_bg)
 end
 
+-- The REAL fix: hook update_active_items() where item.cached_item is built.
+-- StatusView caches get_item() results into item.cached_item during update(),
+-- then draw() just renders item.cached_item. Swapping colors in draw() is
+-- too late — the colors are already baked in. We must swap them here.
+local old_update_active = core.status_view.update_active_items
+function core.status_view:update_active_items(...)
+  local old_text   = style.text
+  local old_dim    = style.dim
+  local old_icon   = style.icon_color
+  local old_accent = style.accent
+  if style.mossy and style.mossy.status_text then
+    local st = style.mossy.status_text
+    style.text       = st
+    style.dim        = st
+    style.icon_color = st
+    style.accent     = st
+  end
+  old_update_active(self, ...)
+  style.text       = old_text
+  style.dim        = old_dim
+  style.icon_color = old_icon
+  style.accent     = old_accent
+end
+
+-- Also hook draw() for items that use on_draw callbacks (they run during draw)
 local old_draw = core.status_view.draw
 function core.status_view:draw(...)
   local old_text   = style.text
@@ -37,8 +62,6 @@ function core.status_view:draw(...)
   local old_accent = style.accent
   if style.mossy and style.mossy.status_text then
     local st = style.mossy.status_text
-    -- Override ALL foreground color roles so every item (text, icons,
-    -- accent-coloured items like git branch) renders dark on the light bg.
     style.text       = st
     style.dim        = st
     style.icon_color = st
