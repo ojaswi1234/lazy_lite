@@ -209,7 +209,12 @@ function LeetCodeResultView:on_key_pressed(key)
 end
 
 function LeetCodeResultView:on_mouse_wheel(delta)
-  self.scroll_y = math.max(0, math.min(self.max_scroll, self.scroll_y - function LeetCodeResultView:draw()
+  self.scroll_y = math.max(0, math.min(self.max_scroll, self.scroll_y - delta * 40))
+  core.redraw = true
+  return true
+end
+
+function LeetCodeResultView:draw()
   self:draw_background(style.background)
 
   local res = self.result
