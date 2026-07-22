@@ -31,18 +31,24 @@ end
 
 local old_draw = core.status_view.draw
 function core.status_view:draw(...)
-  local old_text = style.text
-  local old_dim = style.dim
-  local old_icon = style.icon_color
-  if style.mossy then
-    style.text = style.mossy.status_text or style.text
-    style.dim = style.mossy.sidebar_muted or style.dim
-    style.icon_color = style.mossy.status_text or style.icon_color
+  local old_text   = style.text
+  local old_dim    = style.dim
+  local old_icon   = style.icon_color
+  local old_accent = style.accent
+  if style.mossy and style.mossy.status_text then
+    local st = style.mossy.status_text
+    -- Override ALL foreground color roles so every item (text, icons,
+    -- accent-coloured items like git branch) renders dark on the light bg.
+    style.text       = st
+    style.dim        = st
+    style.icon_color = st
+    style.accent     = st
   end
   old_draw(self, ...)
-  style.text = old_text
-  style.dim = old_dim
+  style.text       = old_text
+  style.dim        = old_dim
   style.icon_color = old_icon
+  style.accent     = old_accent
 end
 
 -- ── 2. Git Branch Indicator ───────────────────────────────────────────────────
@@ -107,7 +113,9 @@ core.status_view:add_item({
       return {} 
     end
 
-    local fg = style.accent or style.text
+    -- Read style.text at draw time — the draw hook will have already swapped
+    -- it to status_text, so this correctly goes dark on a light status bar.
+    local fg = style.text
     
     -- The branch icon (using standard Nerd Font code \xee\x82\xa0 which is U+E0A0)
     -- or just a clear text prefix. We'll use the standard branch icon character.
