@@ -726,6 +726,8 @@ function TermView:draw()
   local available_w = w - right_w
   local col_w = math.floor(available_w / #self.split_indices)
   local lh = style.code_font:get_height() + 2 * SCALE
+  local char_w = style.code_font:get_width("W")
+  local max_cols = math.max(20, math.floor((col_w - 20 * SCALE) / char_w))
 
   for col_idx, sess_idx in ipairs(self.split_indices) do
     local s = self.sessions[sess_idx]
@@ -781,16 +783,84 @@ function TermView:draw()
         prompt = prompt .. clean
       end
       
-      local full_txt = prompt .. (s.input or "")
-      draw_ansi_text(style.code_font, full_txt, text_x, text_y, fg)
+      local inp = s.input or ""
+      local chunks = {}
+      local start_i = 1
+      local vis_len = #strip_ansi(prompt)
+      
+      local target_c = s.cursor or (#inp + 1)
+      local cursor_chunk_idx = 1
+      local cursor_offset_bytes = 0
+      
+      if target_c == 1 then
+        cursor_chunk_idx = 1
+        cursor_offset_bytes = 0
+      end
+      
+      local i = 1
+      while i <= #inp do
+        if target_c == i then
+          cursor_chunk_idx = #chunks + 1
+          cursor_offset_bytes = i - start_i
+        end
+        
+        local b = inp:byte(i)
+        local char_len = 1
+        if b >= 0xC0 then
+          if b >= 0xF0 then char_len = 4
+          elseif b >= 0xE0 then char_len = 3
+          else char_len = 2 end
+        end
+        
+        if b == 10 then
+          table.insert(chunks, { text = inp:sub(start_i, i - 1), start_byte = start_i })
+          start_i = i + 1
+          vis_len = 0
+        else
+          vis_len = vis_len + 1
+          if vis_len >= max_cols then
+            table.insert(chunks, { text = inp:sub(start_i, i + char_len - 1), start_byte = start_i })
+            start_i = i + char_len
+            vis_len = 0
+          end
+        end
+        
+        i = i + char_len
+        
+        if target_c == i then
+          cursor_chunk_idx = #chunks + 1
+          cursor_offset_bytes = i - start_i
+        end
+      end
+      if start_i <= #inp + 1 then
+        table.insert(chunks, { text = inp:sub(start_i), start_byte = start_i })
+      end
+      
+      local cy = text_y
+      local cx = draw_ansi_text(style.code_font, prompt, text_x, cy, fg)
+      
+      if #chunks > 0 then
+        renderer.draw_text(style.code_font, chunks[1].text, cx, cy, fg)
+        cy = cy + lh
+        for j = 2, #chunks do
+          renderer.draw_text(style.code_font, chunks[j].text, text_x, cy, fg)
+          cy = cy + lh
+        end
+      end
       
       if core.active_view == self and sess_idx == self.active_idx then
-        local abs_cursor = #strip_ansi(prompt) + (s.cursor or (#(s.input or "") + 1))
-        local left_txt = strip_ansi(full_txt):sub(1, abs_cursor - 1)
-        local cx = text_x + style.code_font:get_width(left_txt)
-        local cy = text_y
-        if system.get_time() % 1 < 0.5 and cy <= out_bot then
-          renderer.draw_rect(cx, cy, style.code_font:get_width("M"), style.code_font:get_height(), { common.color("#A9DC76", 180) })
+        local cursor_cy = text_y + (cursor_chunk_idx - 1) * lh
+        local cursor_cx = text_x
+        if cursor_chunk_idx == 1 then
+          local left_str = strip_ansi(prompt) .. (chunks[1] and chunks[1].text:sub(1, cursor_offset_bytes) or "")
+          cursor_cx = text_x + style.code_font:get_width(left_str)
+        else
+          local left_str = chunks[cursor_chunk_idx] and chunks[cursor_chunk_idx].text:sub(1, cursor_offset_bytes) or ""
+          cursor_cx = text_x + style.code_font:get_width(left_str)
+        end
+        
+        if system.get_time() % 1 < 0.5 and cursor_cy <= out_bot then
+          renderer.draw_rect(cursor_cx, cursor_cy, style.code_font:get_width("M"), style.code_font:get_height(), { common.color("#A9DC76", 180) })
         end
       end
     end
