@@ -179,6 +179,7 @@ function TreeView:on_mouse_pressed(button, x, y, clicks)
     self.dnd_start_y = y
     self.dnd_item = self.hovered_item
     self.is_dragging = false
+    self.mouse_held = true   -- track that button is physically down
   end
 
   if orig_on_mouse_pressed then
@@ -190,8 +191,18 @@ local orig_on_mouse_moved = TreeView.on_mouse_moved
 function TreeView:on_mouse_moved(x, y, dx, dy)
   local res = orig_on_mouse_moved and orig_on_mouse_moved(self, x, y, dx, dy)
   
+  -- Only allow drag state while the left mouse button is physically held down.
+  -- If mouse_held is false (button was released or never pressed), kill any
+  -- stale drag state immediately so no ghost appears during normal hover.
+  if not self.mouse_held then
+    self.dnd_item = nil
+    self.is_dragging = false
+    return res
+  end
+
   if self.dnd_item then
     if not self.is_dragging then
+      -- Only start dragging after a meaningful movement threshold
       if math.abs(x - self.dnd_start_x) > 5 or math.abs(y - self.dnd_start_y) > 5 then
         self.is_dragging = true
       end
@@ -206,6 +217,9 @@ end
 
 local orig_on_mouse_released = TreeView.on_mouse_released
 function TreeView:on_mouse_released(button, x, y)
+  if button == "left" then
+    self.mouse_held = false   -- button is no longer down
+  end
   if button == "left" and self.is_dragging and self.dnd_item then
     local target = self.hovered_item
     if target and target ~= self.dnd_item then
