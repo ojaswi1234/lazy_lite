@@ -569,6 +569,37 @@ function TermView:update()
     self.size.y = dest
   end
   
+  if self.dragging_selection then
+    local s = self:state()
+    if s then
+      local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
+      local hdr_h = 26 * SCALE
+      local top = self.position.y + hdr_h
+      local bottom = self.position.y + self.size.y
+      local lh = style.code_font:get_height() + 2 * SCALE
+      
+      local scrolled = false
+      if my < top then
+        s.scroll_y = math.max(0, (s.scroll_y or 0) - lh)
+        scrolled = true
+      elseif my > bottom then
+        local out_h = self.size.y - 31 * SCALE
+        local max_scroll = math.max(0, (#s.lines + 1) * lh - out_h + 10 * SCALE)
+        s.scroll_y = math.min(max_scroll, (s.scroll_y or 0) + lh)
+        scrolled = true
+      end
+      
+      if scrolled then
+        s.scroll_to_bottom = false
+        local l, c = self:resolve_position(mx, my)
+        if not s.selection then s.selection = { l1 = l, c1 = c, l2 = l, c2 = c } end
+        s.selection.l2 = l
+        s.selection.c2 = c
+        core.redraw = true
+      end
+    end
+  end
+  
   for _, s in ipairs(self.sessions) do
     if s.proc then
       local has_chunk = false
