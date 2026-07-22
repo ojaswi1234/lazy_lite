@@ -14,19 +14,37 @@ local function is_editor_node(node)
   return false
 end
 
+-- ── Cache real size in update() ────────────────────────────────────────────
+-- Node:update() is called every frame with the TRUE layout dimensions, before
+-- any monkeypatching hook (like close_all_tabs) can spoof self.size.x.
+-- This is the only safe place to snapshot the real width, because:
+--   • draw_tabs  → close_all_tabs sets size.x=999999 BEFORE calling us
+--   • on_mouse_moved → close_all_tabs shrinks size.x BEFORE calling us
+-- Both of those would give us a wrong value. update() has no such spoofing.
+local old_update = Node.update
+function Node:update(...)
+  if self.type == "leaf" and is_editor_node(self) then
+    self._real_size_x = self.size.x
+  end
+  return old_update(self, ...)
+end
+
+-- ── Draw split buttons ──────────────────────────────────────────────────────
+-- Layout (right → left):  [ v ][ >> ][ X close-all ] | tabs...
+--
+-- close_all_tabs.lua reserves:  total_bw = x_btn_w + 50*SCALE
+--   X button  →  [real_right - x_btn_w - 50*SCALE,  real_right - 50*SCALE]
+--   our slot  →  [real_right - 50*SCALE,             real_right           ]
+--     >>  →  [real_right - 50*SCALE,  real_right - 25*SCALE]
+--      v  →  [real_right - 25*SCALE,  real_right           ]
 local old_draw_tabs = Node.draw_tabs
 function Node:draw_tabs(...)
   old_draw_tabs(self, ...)
-  
+
   if not is_editor_node(self) then return end
-  
-  -- Draw split buttons on the right side of the tab bar.
-  -- Layout (right → left):  [v down][>> right][  X close-all  ] | tabs...
-  -- close_all_tabs reserves total_bw = x_btn_w + 50*SCALE on the right.
-  --   X button starts at:  real_right - x_btn_w - 50*SCALE, width = x_btn_w
-  --   50*SCALE slot (for us) is: [real_right - 50*SCALE, real_right]
-  --     v  button: [real_right - 25*SCALE, real_right]
-  --     >> button: [real_right - 50*SCALE, real_right - 25*SCALE]
+
+  -- Use the true width snapshot from update(); fall back to current size only
+  -- if update() hasn't run yet (first frame edge case).
   local real_right = self.position.x + (self._real_size_x or self.size.x)
   local btn_w = 25 * SCALE
 
@@ -35,31 +53,27 @@ function Node:draw_tabs(...)
 
   local bx_down  = real_right - btn_w           -- v  (rightmost)
   local bx_right = real_right - 2 * btn_w       -- >> (left of v)
-  local by = self.position.y
+  local by    = self.position.y
   local icon_y = by + (th - style.icon_font:get_height()) / 2
 
   core.push_clip_rect(self.position.x, by, real_right - self.position.x, th)
 
   -- Split Right Button (>>)
   local hovered_right = (self.hovered_split == "right")
-  renderer.draw_text(style.icon_font, "\u{f054}", bx_right, icon_y, hovered_right and style.accent or style.dim)
+  renderer.draw_text(style.icon_font, "\u{f054}", bx_right, icon_y,
+    hovered_right and style.accent or style.dim)
 
   -- Split Down Button (v)
   local hovered_down = (self.hovered_split == "down")
-  renderer.draw_text(style.icon_font, "\u{f078}", bx_down, icon_y, hovered_down and style.accent or style.dim)
+  renderer.draw_text(style.icon_font, "\u{f078}", bx_down, icon_y,
+    hovered_down and style.accent or style.dim)
 
   core.pop_clip_rect()
-
-  -- Save real size.x for mouse hit-testing (it may have been spoofed by close_all_tabs)
-  self._real_size_x = self._real_size_x or self.size.x
 end
 
+-- ── Mouse hover detection ───────────────────────────────────────────────────
 local old_on_mouse_moved = Node.on_mouse_moved
 function Node:on_mouse_moved(x, y, ...)
-  -- Keep real size fresh (it may get spoofed by close_all_tabs mid-call)
-  if is_editor_node(self) then
-    self._real_size_x = self.size.x
-  end
   local res = old_on_mouse_moved(self, x, y, ...)
   if not is_editor_node(self) then return res end
 
@@ -68,6 +82,7 @@ function Node:on_mouse_moved(x, y, ...)
 
   self.hovered_split = nil
   if y >= self.position.y and y <= self.position.y + th then
+    -- Use the true width from update(), same as draw_tabs does.
     local real_right = self.position.x + (self._real_size_x or self.size.x)
     local btn_w    = 25 * SCALE
     local bx_down  = real_right - btn_w
@@ -87,6 +102,7 @@ function Node:on_mouse_moved(x, y, ...)
   return res
 end
 
+-- ── Click handling ──────────────────────────────────────────────────────────
 local old_on_mouse_pressed = RootView.on_mouse_pressed
 function RootView:on_mouse_pressed(button, x, y, clicks)
   local node = self.root_node:get_child_overlapping_point(x, y)
