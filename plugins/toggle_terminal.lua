@@ -1256,6 +1256,13 @@ function TermView:on_key_pressed(key)
     return true
   end
   if key == "ctrl+c" then
+    if self:state().selection then
+      command.perform("terminal:copy")
+      self:state().selection = nil
+      core.redraw = true
+      return true
+    end
+    
     if self:state().persistent_proc then
       -- Send SIGINT to the remote bash process via the persistent SSH shell
       pcall(function() self:state().persistent_proc:write("\x03") end)

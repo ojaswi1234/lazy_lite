@@ -2080,13 +2080,16 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "backspace" then
-    local c = self:state().cursor or #self:state().input
-    if c > 0 then
-      local prev_c = utf8_prev(self:state().input, c)
-      local before = self:state().input:sub(1, prev_c)
-      local after = self:state().input:sub(c + 1)
-      self:state().input = before .. after
-      self:state().cursor = prev_c
+    local text = self:state().input or ""
+    local c = self:state().cursor or #text
+    if #text > 0 and c > 0 then
+      local i = c
+      -- step back over continuation bytes (10xxxxxx)
+      while i > 1 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
+        i = i - 1
+      end
+      self:state().input = text:sub(1, i - 1) .. text:sub(c + 1)
+      self:state().cursor = i - 1
       self:_update_mentions()
       core.redraw = true
     end
