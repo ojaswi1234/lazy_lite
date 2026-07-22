@@ -834,17 +834,187 @@ keymap.add({
   ["gui+v"] = "leetcode:paste",
 })
 
--- Drawing utilities
+-- ── Rich markdown-aware text renderer ──────────────────────────────────────
+local SECTION_HEADERS = {
+  ["Example"]    = true, ["Input"]      = true, ["Output"]     = true,
+  ["Explanation"]= true, ["Constraints"]= true, ["Note"]       = true,
+  ["Follow-up"]  = true, ["Follow up"]  = true, ["Definition"] = true,
+}
+
+local function draw_inline_rich(font, text, x, y, max_x, default_color)
+  -- Renders a single line with inline code spans highlighted
+  local cx = x
+  local i = 1
+  local code_bg = {30, 30, 40, 200}
+  local code_fg = LC_COLORS.easy
+  while i <= #text do
+    local tick_s = text:find("`", i, true)
+    if tick_s then
+      -- draw plain text before the backtick
+      local plain = text:sub(i, tick_s - 1)
+      if #plain > 0 then
+        cx = renderer.draw_text(font, plain, cx, y, default_color)
+      end
+      local tick_e = text:find("`", tick_s + 1, true)
+      if tick_e then
+        local code = text:sub(tick_s + 1, tick_e - 1)
+        local cw = font:get_width(code) + 6 * SCALE
+        renderer.draw_rect(cx, y, cw, font:get_height(), code_bg)
+        cx = renderer.draw_text(font, code, cx + 3 * SCALE, y, code_fg)
+        cx = cx + 3 * SCALE
+        i = tick_e + 1
+      else
+        cx = renderer.draw_text(font, "`", cx, y, default_color)
+        i = tick_s + 1
+      end
+    else
+      local remain = text:sub(i)
+      cx = renderer.draw_text(font, remain, cx, y, default_color)
+      break
+    end
+  end
+  return cx
+end
+
+local function draw_rich_content(font, text, x, y, max_w, scroll_offset)
+  -- Full rich renderer: section headers, inline code, bullets, image links
+  local lh    = math.floor(font:get_height() * 1.3)
+  local cy    = y
+  local cx    = x
+  if not text or text == "" then return cy end
+
+  if lc_view then lc_view.image_links = lc_view.image_links or {} end
+
+  local sec_accent   = LC_COLORS.easy
+  local bullet_color = {common.color("#888888")}
+  local dim          = style.dim
+  local main_fg      = style.text
+
+  for raw_line in (text .. "\n"):gmatch("(.-)\n") do
+    -- strip trailing whitespace
+    local line = raw_line:match("^(.-)%s*$")
+
+    if line == "" then
+      cy = cy + lh * 0.5
+    elseif line:match("^Example%s*%d") or line:match("^Constraints:?") or
+           line:match("^Follow%s*%-?%s*up:?") or line:match("^Note:?") then
+      -- ── Section header ────────────────────────────────
+      local is_example  = line:match("^Example")
+      local is_constrs  = line:match("^Constraint")
+      local hl_color    = is_example  and {common.color("#A9DC76")} or
+                          is_constrs  and {common.color("#FFD866")} or
+                          {common.color("#AB9DF2")}
+      local clean       = line:gsub(":%s*$", "")
+      local tw          = font:get_width(clean)
+      local pad         = 8 * SCALE
+      local pill_h      = math.floor(font:get_height() + 6 * SCALE)
+      cy = cy + lh * 0.4
+      -- pill background
+      renderer.draw_rect(cx - pad, cy, tw + pad * 2, pill_h,
+                         {hl_color[1], hl_color[2], hl_color[3], 30})
+      -- left accent bar
+      renderer.draw_rect(cx - pad, cy, 3 * SCALE, pill_h, hl_color)
+      renderer.draw_text(font, clean, cx, cy + 3 * SCALE, hl_color)
+      cy = cy + pill_h + lh * 0.3
+
+    elseif line:match("^Input:") or line:match("^Output:") or line:match("^Explanation:") then
+      -- ── Example sub-labels ─────────────────────────────
+      local label, rest = line:match("^([^:]+:)%s*(.*)$")
+      if label then
+        local label_w = font:get_width(label)
+        renderer.draw_text(font, label, cx + 12*SCALE, cy, dim)
+        if rest and rest ~= "" then
+          draw_inline_rich(font, rest, cx + 12*SCALE + label_w + 4*SCALE, cy,
+                           cx + max_w, main_fg)
+        end
+        cy = cy + lh
+      end
+
+    elseif line:match("^%s*%-") or line:match("^%s*%*") then
+      -- ── Bullet point ──────────────────────────────────
+      local indent = #(line:match("^(%s*)"))
+      local content = line:match("^%s*[%-%*]%s*(.*)") or ""
+      local bx = cx + indent * 4 * SCALE
+      renderer.draw_text(font, "•", bx, cy, bullet_color)
+      local bx2 = bx + font:get_width("• ")
+      -- word-wrap the bullet content inline
+      local words = {}
+      for w in content:gmatch("%S+") do words[#words+1] = w end
+      local lx = bx2
+      for wi, word in ipairs(words) do
+        local img_url = word:match("^%[Image:(.-)%]$")
+        if img_url then
+          if lc_view then
+            table.insert(lc_view.image_links, {x=lx, y=cy, w=font:get_width("[image]"), h=lh, url=img_url})
+          end
+          lx = renderer.draw_text(font, "[image] ", lx, cy, LC_COLORS.accepted)
+        else
+          if lx + font:get_width(word) > cx + max_w and lx > bx2 then
+            cy = cy + lh; lx = bx2
+          end
+          -- check for inline code
+          if word:match("`") then
+            lx = draw_inline_rich(font, word .. " ", lx, cy, cx + max_w, main_fg)
+          else
+            lx = renderer.draw_text(font, word .. " ", lx, cy, main_fg)
+          end
+        end
+      end
+      cy = cy + lh
+
+    elseif line:match("^%[Image:") then
+      -- ── Standalone image placeholder ─────────────────
+      local img_url = line:match("^%[Image:(.-)%]")
+      if img_url and lc_view then
+        local label = "📷  View diagram →"
+        renderer.draw_rect(cx, cy, max_w, lh + 4*SCALE, {30,40,60,200})
+        renderer.draw_text(font, label, cx + 8*SCALE, cy + 2*SCALE, LC_COLORS.accepted)
+        table.insert(lc_view.image_links, {x=cx, y=cy, w=max_w, h=lh+4*SCALE, url=img_url})
+      end
+      cy = cy + lh + 8*SCALE
+
+    else
+      -- ── Normal paragraph line – word-wrap with inline code ─────────────
+      local words = {}
+      for w in line:gmatch("%S+") do words[#words+1] = w end
+      if #words == 0 then
+        cy = cy + lh * 0.5
+      else
+        local lx = cx
+        for _, word in ipairs(words) do
+          local img_url = word:match("^%[Image:(.-)%]$")
+          if img_url then
+            if lc_view then
+              table.insert(lc_view.image_links, {x=lx, y=cy, w=font:get_width("[img]"), h=lh, url=img_url})
+            end
+            lx = renderer.draw_text(font, "[img] ", lx, cy, LC_COLORS.accepted)
+          else
+            -- measure word (may have backticks)
+            local plain_word = word:gsub("`", "")
+            local ww = font:get_width(plain_word) + 8 * SCALE -- rough with padding
+            if lx + ww > cx + max_w and lx > cx then
+              cy = cy + lh; lx = cx
+            end
+            lx = draw_inline_rich(font, word .. " ", lx, cy, cx + max_w, main_fg)
+          end
+        end
+        cy = cy + lh
+      end
+    end
+  end
+  return cy
+end
+
+-- Keep the old draw_text_wrap for non-problem uses (result view, etc.)
 local function draw_text_wrap(font, color, text, x, y, max_w)
   local lh = font:get_height()
   local cy = y
   if not text or text == "" then return cy end
-  
+
   if lc_view and lc_view.state == "problem" and not lc_view.is_fetching then
-     -- Clear image links for this frame
      if y == lc_view.content_y_start then lc_view.image_links = {} end
   end
-  
+
   for line in (text .. "\n"):gmatch("(.-)\n") do
     if line == "" then
       cy = cy + lh
@@ -855,12 +1025,10 @@ local function draw_text_wrap(font, color, text, x, y, max_w)
         if img_url then
           local label = "[View Image]"
           if cx + font:get_width(label) > x + max_w and cx > x then cx = x; cy = cy + lh end
-          
           if lc_view and lc_view.state == "problem" then
             lc_view.image_links = lc_view.image_links or {}
             table.insert(lc_view.image_links, {x = cx, y = cy, w = font:get_width(label), h = lh, url = img_url})
           end
-          
           cx = renderer.draw_text(font, label .. " ", cx, cy, LC_COLORS.accepted or style.accent)
         else
           if cx + font:get_width(word) > x + max_w and cx > x then cx = x; cy = cy + lh end
@@ -1359,101 +1527,205 @@ function LeetCodeView:draw()
 
   elseif self.state == "problem" and self.current then
     local p = self.current
-    local dc = LC_COLORS[p.difficulty:lower()]
-    local back_w = style.font:get_width("<- Back")
-    self.back_btn_rect = {x = cx, y = cy, w = back_w, h = style.font:get_height()}
-    renderer.draw_text(style.font, "<- Back", cx, cy, style.dim)
-    renderer.draw_text(style.big_font, p.title, cx + 80*SCALE, cy - 4*SCALE, style.text)
-    
-    local copy_text = "[Copy Description]"
-    local copy_w = style.font:get_width(copy_text)
-    self.copy_btn_rect = {x = cx + cw - 120*SCALE - copy_w, y = cy, w = copy_w, h = style.font:get_height()}
-    renderer.draw_text(style.font, copy_text, self.copy_btn_rect.x, self.copy_btn_rect.y, style.accent)
-    
-    renderer.draw_text(style.font, "[" .. p.difficulty .. "]", cx + cw - 100*SCALE, cy, dc)
-    cy = cy + 25*SCALE
-    
+    local diff_lower = p.difficulty:lower()
+    local dc = LC_COLORS[diff_lower] or style.text
+
+    -- ── Header Bar ───────────────────────────────────────────────────────────
+    -- Back button
+    local back_label = "\u{f053}  Back"
+    local back_w = style.font:get_width(back_label) + 16 * SCALE
+    local back_h = 22 * SCALE
+    renderer.draw_rect(cx, cy, back_w, back_h,
+      {style.background2[1] or 40, style.background2[2] or 40, style.background2[3] or 50, 255})
+    renderer.draw_text(style.font, back_label, cx + 8*SCALE, cy + 3*SCALE, style.dim)
+    self.back_btn_rect = {x=cx, y=cy, w=back_w, h=back_h}
+
+    -- Difficulty badge
+    local diff_badge_x = cx + cw - style.font:get_width(p.difficulty) - 20*SCALE
+    local badge_w = style.font:get_width(p.difficulty) + 16*SCALE
+    local badge_h = 22*SCALE
+    renderer.draw_rect(diff_badge_x, cy, badge_w, badge_h, {dc[1], dc[2], dc[3], 35})
+    renderer.draw_rect(diff_badge_x, cy, badge_w, 1*SCALE, dc)
+    renderer.draw_rect(diff_badge_x, cy + badge_h - SCALE, badge_w, 1*SCALE, dc)
+    renderer.draw_text(style.font, p.difficulty, diff_badge_x + 8*SCALE, cy + 3*SCALE, dc)
+
+    cy = cy + back_h + 10*SCALE
+
+    -- Title
+    local title_font = style.big_font or style.font
+    local title_h = title_font:get_height()
+    renderer.draw_text(title_font, p.title, cx, cy, style.text)
+    cy = cy + title_h + 8*SCALE
+
+    -- Stat chips row: id, topics, companies, copy
+    local chip_y = cy
+    local chip_h = style.font:get_height() + 6*SCALE
+    local chip_x = cx
+
+    local function draw_chip(label, fg, bg)
+      bg = bg or {fg[1], fg[2], fg[3], 25}
+      local cw2 = style.font:get_width(label) + 14*SCALE
+      renderer.draw_rect(chip_x, chip_y, cw2, chip_h, bg)
+      renderer.draw_text(style.font, label, chip_x + 7*SCALE, chip_y + 3*SCALE, fg)
+      chip_x = chip_x + cw2 + 6*SCALE
+      return cw2
+    end
+
+    if p.question_id or p.id then
+      draw_chip("#" .. (p.question_id or p.id), {common.color("#888888")})
+    end
     if p.topics and #p.topics > 0 then
-      local topics_str = "Topics: " .. table.concat(p.topics, ", ")
-      cy = draw_text_wrap(style.font, style.dim, topics_str, cx, cy, cw)
-      cy = cy + 10*SCALE
+      for _, t in ipairs(p.topics) do
+        if chip_x + style.font:get_width(t) + 20*SCALE < cx + cw - 100*SCALE then
+          draw_chip(t, {common.color("#75BFFF")})
+        end
+      end
     end
-    
+
+    -- Copy description button (right-aligned)
+    local copy_label = "\u{f0c5}  Copy"
+    local copy_w = style.font:get_width(copy_label) + 14*SCALE
+    self.copy_btn_rect = {x = cx + cw - copy_w, y = chip_y, w = copy_w, h = chip_h}
+    renderer.draw_rect(cx + cw - copy_w, chip_y, copy_w, chip_h, {style.accent[1], style.accent[2], style.accent[3], 30})
+    renderer.draw_text(style.font, copy_label, cx + cw - copy_w + 7*SCALE, chip_y + 3*SCALE, style.accent)
+
+    cy = chip_y + chip_h + 10*SCALE
+
+    -- Company row
     if p.companies and #p.companies > 0 then
-      local comp_str = "Companies: " .. table.concat(p.companies, ", ")
-      cy = draw_text_wrap(style.font, style.accent, comp_str, cx, cy, cw)
-      cy = cy + 10*SCALE
-    elseif p.companies and #p.companies == 0 then
-      cy = draw_text_wrap(style.font, style.dim, "Companies: [Premium Required / Not Available]", cx, cy, cw)
-      cy = cy + 10*SCALE
+      local comp_x = cx
+      local comp_y = cy
+      renderer.draw_text(style.font, "Asked by:", comp_x, comp_y + 2*SCALE, style.dim)
+      comp_x = comp_x + style.font:get_width("Asked by: ")
+      for ci, company in ipairs(p.companies) do
+        if ci > 8 then
+          renderer.draw_text(style.font, "+ " .. (#p.companies - 8) .. " more", comp_x, comp_y + 2*SCALE, style.dim)
+          break
+        end
+        local cw2 = style.font:get_width(company) + 10*SCALE
+        renderer.draw_rect(comp_x, comp_y, cw2, chip_h - 2*SCALE,
+          {common.color("#FF6188", 25)})
+        renderer.draw_text(style.font, company, comp_x + 5*SCALE, comp_y + 2*SCALE,
+          {common.color("#FF6188")})
+        comp_x = comp_x + cw2 + 5*SCALE
+        if comp_x > cx + cw - 80*SCALE then break end
+      end
+      cy = comp_y + chip_h + 10*SCALE
     end
-    
-    renderer.draw_text(style.font, "Click a language below to scaffold your local solution file.", cx, cy, style.accent)
-    cy = cy + 25*SCALE
-    renderer.draw_rect(cx, cy, cw, 1*SCALE, style.dim)
-    cy = cy + 15*SCALE
-    
+
+    -- Language picker hint
+    renderer.draw_text(style.font, "Pick a language to scaffold your solution:",
+      cx, cy, {common.color("#888888")})
+    cy = cy + style.font:get_height() + 5*SCALE
+
+    -- Divider with accent
+    renderer.draw_rect(cx, cy, cw, 1*SCALE, dc)
+    cy = cy + 8*SCALE
+
+    -- ── Scrollable content area ───────────────────────────────────────────
     local scroll_area_h = (y + h - 20*SCALE) - cy
     self.problem_scroll_y_start = cy
     self.problem_scroll_h = scroll_area_h
     core.push_clip_rect(cx, cy, cw, scroll_area_h)
-    
+
     local inner_cy = cy - self.scroll_y
     self.content_y_start = inner_cy
-    
-    inner_cy = draw_text_wrap(style.font, style.text, p.content_plain, cx, inner_cy, cw)
-    
-    inner_cy = inner_cy + 25*SCALE
-    renderer.draw_rect(cx, inner_cy, cw, 1*SCALE, style.dim)
-    inner_cy = inner_cy + 15*SCALE
-    renderer.draw_text(style.font, "Open in:", cx, inner_cy, style.text)
-    
+    lc_view.image_links = {}
+
+    -- ── Problem content ────────────────────────────────────────────────────
+    inner_cy = draw_rich_content(style.font, p.content_plain, cx + 4*SCALE, inner_cy, cw - 8*SCALE, self.scroll_y)
+
+    inner_cy = inner_cy + 20*SCALE
+    renderer.draw_rect(cx, inner_cy, cw, 1*SCALE, {common.color("#444444")})
+    inner_cy = inner_cy + 16*SCALE
+
+    -- ── Language buttons ─────────────────────────────────────────────────
+    local LANG_COLORS = {
+      python3    = {common.color("#3572A5")},
+      javascript = {common.color("#F1E05A")},
+      typescript = {common.color("#3178C6")},
+      cpp        = {common.color("#F34B7D")},
+      c          = {common.color("#555555")},
+      java       = {common.color("#B07219")},
+      csharp     = {common.color("#178600")},
+      golang     = {common.color("#00ADD8")},
+      rust       = {common.color("#DEA584")},
+      ruby       = {common.color("#701516")},
+      swift      = {common.color("#F05138")},
+      kotlin     = {common.color("#A97BFF")},
+      php        = {common.color("#4F5D95")},
+      lua        = {common.color("#000080")},
+      bash       = {common.color("#89E051")},
+    }
+    local lang_lh = 32 * SCALE
     local lang_cy = inner_cy
     local bx = cx
-    
     local sorted_langs = {}
-    for lang, _ in pairs(p.starters or {}) do table.insert(sorted_langs, lang) end
+    for lang in pairs(p.starters or {}) do table.insert(sorted_langs, lang) end
     table.sort(sorted_langs)
-    
     self.lang_buttons = {}
+
     for _, lang in ipairs(sorted_langs) do
       local lbl = lang
-      local lw = style.font:get_width(lbl)
-      
-      if bx + lw + 20*SCALE > cx + cw then
+      local lcol = LANG_COLORS[lang] or {common.color("#888888")}
+      local lw = style.font:get_width(lbl) + 28*SCALE
+
+      if bx + lw > cx + cw then
         bx = cx
-        lang_cy = lang_cy + 28*SCALE
+        lang_cy = lang_cy + lang_lh + 6*SCALE
       end
-      
-      renderer.draw_rect(bx, lang_cy, lw + 12*SCALE, 22*SCALE, style.dim)
-      renderer.draw_rect(bx+1, lang_cy+1, lw + 10*SCALE, 20*SCALE, style.background2)
-      renderer.draw_text(style.font, lbl, bx + 6*SCALE, lang_cy + 3*SCALE, style.text)
-      table.insert(self.lang_buttons, { x = bx, y = lang_cy, w = lw + 12*SCALE, h = 22*SCALE, lang = lang })
-      
-      bx = bx + lw + 20*SCALE
+
+      -- Card background
+      renderer.draw_rect(bx, lang_cy, lw, lang_lh,
+        {lcol[1], lcol[2], lcol[3], 20})
+      -- Top accent line
+      renderer.draw_rect(bx, lang_cy, lw, 2*SCALE, lcol)
+      -- Language dot
+      renderer.draw_rect(bx + 8*SCALE, lang_cy + lang_lh/2 - 4*SCALE, 8*SCALE, 8*SCALE, lcol)
+      -- Label
+      renderer.draw_text(style.font, lbl, bx + 22*SCALE, lang_cy + lang_lh/2 - style.font:get_height()/2, style.text)
+
+      table.insert(self.lang_buttons, {x=bx, y=lang_cy, w=lw, h=lang_lh, lang=lang})
+      bx = bx + lw + 8*SCALE
     end
-    lang_cy = lang_cy + 24*SCALE
-    
+    lang_cy = lang_cy + lang_lh + 16*SCALE
+
+    -- ── Similar questions ────────────────────────────────────────────────
     self.similar_buttons = {}
     if p.similar_questions and #p.similar_questions > 0 then
-      lang_cy = lang_cy + 20*SCALE
-      renderer.draw_text(style.font, "Similar Problems:", cx, lang_cy, style.dim)
-      lang_cy = lang_cy + 24*SCALE
+      lang_cy = lang_cy + 8*SCALE
+      renderer.draw_text(style.font, "Similar Problems", cx, lang_cy, style.dim)
+      lang_cy = lang_cy + style.font:get_height() + 10*SCALE
+
+      local sq_x = cx
       for _, sq in ipairs(p.similar_questions) do
-        local btn_text = "> " .. sq.title .. " [" .. sq.difficulty .. "]"
-        local bw = style.font:get_width(btn_text)
-        local diff_col = LC_COLORS[sq.difficulty:lower()] or style.text
-        
-        table.insert(self.similar_buttons, { x = cx, y = lang_cy, w = bw, h = 20*SCALE, slug = sq.titleSlug })
-        
-        renderer.draw_text(style.font, btn_text, cx, lang_cy, diff_col)
-        lang_cy = lang_cy + 24*SCALE
+        local diff_col  = LC_COLORS[sq.difficulty:lower()] or style.dim
+        local sq_label  = sq.title
+        local sq_w      = style.font:get_width(sq_label) + 24*SCALE
+        local diff_tag  = " [" .. sq.difficulty:sub(1,1) .. "]"
+        local dtw       = style.font:get_width(diff_tag)
+        local total_w   = sq_w + dtw + 4*SCALE
+
+        if sq_x + total_w > cx + cw then
+          sq_x = cx; lang_cy = lang_cy + 28*SCALE
+        end
+
+        renderer.draw_rect(sq_x, lang_cy, sq_w, 24*SCALE, {diff_col[1], diff_col[2], diff_col[3], 20})
+        renderer.draw_rect(sq_x, lang_cy, 3*SCALE, 24*SCALE, diff_col)
+        renderer.draw_text(style.font, sq_label, sq_x + 8*SCALE, lang_cy + 3*SCALE, style.text)
+        renderer.draw_text(style.font, diff_tag, sq_x + sq_w, lang_cy + 3*SCALE, diff_col)
+
+        table.insert(self.similar_buttons, {
+          x=sq_x, y=lang_cy, w=total_w, h=24*SCALE, slug=sq.titleSlug
+        })
+        sq_x = sq_x + total_w + 10*SCALE
       end
+      lang_cy = lang_cy + 32*SCALE
     end
-    
+
     local content_total_h = lang_cy - (cy - self.scroll_y)
     self.max_scroll = math.max(0, content_total_h - scroll_area_h + 50*SCALE)
-    
+
     core.pop_clip_rect()
     
   elseif self.state == "result" and self.result then
