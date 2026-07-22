@@ -27,6 +27,9 @@ local function analyze_code(code, lang)
   local max_sc_pow = 0
   local is_log = false
   local has_nlogn = false
+  local has_heap = false
+  local has_dp = false
+  local num_recursive_calls = 0
   
   local tc_stack = {}
   local sc_stack = {}
@@ -68,6 +71,26 @@ local function analyze_code(code, lang)
         tc_stack[#tc_stack] = 1 -- Adds O(N) to this depth level
       end
       
+      -- Track multiple recursive branches for O(2^N) (Exponential)
+      if is_traversal then
+        num_recursive_calls = num_recursive_calls + select(2, clean:gsub("dfs%(", ""))
+        num_recursive_calls = num_recursive_calls + select(2, clean:gsub("bfs%(", ""))
+        num_recursive_calls = num_recursive_calls + select(2, clean:gsub("helper%(", ""))
+        num_recursive_calls = num_recursive_calls + select(2, clean:gsub("solve%(", ""))
+        num_recursive_calls = num_recursive_calls + select(2, clean:gsub("backtrack%(", ""))
+        num_recursive_calls = num_recursive_calls + select(2, clean:gsub("recurse%(", ""))
+      end
+      
+      -- Dynamic Programming / Memoization
+      if clean:match("@cache") or clean:match("@lru_cache") or clean:match("memo%[") or clean:match("dp%[") or clean:match("cache%[") then
+        has_dp = true
+      end
+      
+      -- Heap / Priority Queue operations
+      if clean:match("PriorityQueue") or clean:match("priority_queue") or clean:match("heapq") or clean:match("heappush") or clean:match("heappop") or clean:match("%.poll%(") or clean:match("%.offer%(") or clean:match("push_heap") then
+        has_heap = true
+      end
+      
       -- Check for divide/conquer step in while loops
       if clean:match("%/=?%s*2") or clean:match(">>%s*1") then
         if #tc_stack > 0 and tc_stack[#tc_stack] == 1 then
@@ -83,8 +106,13 @@ local function analyze_code(code, lang)
       
       -- Space Complexity Heuristics
       local is_alloc = clean:match("%[%]") or clean:match("new%s+%w+%[") or clean:match("new%s+List") or clean:match("new%s+Map") or clean:match("new%s+Set") or clean:match("new%s+HashMap") or clean:match("new%s+ArrayList") or clean:match("%{.*%}") or clean:match("malloc")
-      if (is_alloc and not clean:match("return%s+[^%s]")) or is_traversal then
+      if (is_alloc and not clean:match("return%s+[^%s]")) or is_traversal or has_dp then
         sc_stack[#sc_stack] = 1
+      end
+      
+      -- 2D Table allocations for DP -> O(N^2) Space
+      if clean:match("new%s+%w+%[%w+%][%w+]") or clean:match("vector<vector") or clean:match("make%([%w%[%]]+,%s*%w+%)") then
+         if depth > 0 then sc_stack[#sc_stack] = 2 else max_sc_pow = math.max(max_sc_pow, 2) end
       end
       
       -- Calculate current absolute powers
@@ -98,10 +126,22 @@ local function analyze_code(code, lang)
     end
   end
   
+  -- Ensure DP minimums
+  if has_dp then
+    if max_tc_pow == 0 then max_tc_pow = 1 end
+    if max_sc_pow == 0 then max_sc_pow = 1 end
+  end
+  
   -- Format TC
   local tc_str = "O(1)"
-  if has_nlogn and max_tc_pow <= 1 then
-    tc_str = "O(N log N)"
+  if num_recursive_calls >= 2 and not has_dp then
+    tc_str = "O(2^N)"
+  elseif has_nlogn or has_heap then
+    if max_tc_pow > 1 then
+      tc_str = "O(N^" .. max_tc_pow .. " log N)"
+    else
+      tc_str = "O(N log N)"
+    end
   elseif max_tc_pow == 1 then
     tc_str = is_log and "O(log N)" or "O(N)"
   elseif max_tc_pow > 1 then
@@ -163,7 +203,8 @@ local function draw_graph(cx, cy, w, h, user_tc)
     { label = "O(log N)",   func = function(n) return math.log(n + 1) * 20 end, color = {100, 255, 100, 255} },
     { label = "O(N)",       func = function(n) return n * 15 end, color = {255, 255, 0, 255} },
     { label = "O(N log N)", func = function(n) return n * math.log(n + 1) * 5 end, color = {255, 165, 0, 255} },
-    { label = "O(N^2)",     func = function(n) return n * n end, color = {255, 50, 50, 255} }
+    { label = "O(N^2)",     func = function(n) return n * n end, color = {255, 50, 50, 255} },
+    { label = "O(2^N)",     func = function(n) return math.pow(2, n / 2) * 2 end, color = {255, 0, 255, 255} }
   }
   
   local colors = {
@@ -172,11 +213,15 @@ local function draw_graph(cx, cy, w, h, user_tc)
     ["O(N)"] = curves[3].color,
     ["O(N log N)"] = curves[4].color,
     ["O(N^2)"] = curves[5].color,
+    ["O(2^N)"] = curves[6].color,
   }
   
-  -- We parse user_tc. If it's higher than O(N^2) we treat it as O(N^2) for graphing
+  -- We parse user_tc. If it's higher than O(2^N) we treat it as O(2^N) for graphing
   local active_curve = user_tc
-  if not colors[user_tc] then active_curve = "O(N^2)" end
+  if not colors[user_tc] then
+    if user_tc:match("O%(N%^") then active_curve = "O(N^2)"
+    else active_curve = "O(2^N)" end
+  end
   
   for _, curve in ipairs(curves) do
     local is_active = (curve.label == active_curve)
