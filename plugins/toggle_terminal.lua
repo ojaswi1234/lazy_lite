@@ -1545,26 +1545,17 @@ function TermView:on_mouse_moved(x, y, dx, dy)
         local col_w = math.floor(available_w / #self.split_indices)
         local col_idx = math.floor((x - self.position.x) / col_w) + 1
         col_idx = common.clamp(col_idx, 1, #self.split_indices)
-        self.active_idx = self.split_indices[col_idx]
-        core.redraw = true
+        -- Only change focus if we actually want focus-follows-mouse, but usually click is better.
+        -- self.active_idx = self.split_indices[col_idx] 
+        -- core.redraw = true
   
         local url = self:get_url_at(x, y)
         if url then
-          if PLATFORM == "Windows" then
-            os.execute('start "" "' .. url .. '"')
-          elseif PLATFORM == "Mac OS X" then
-            os.execute('open "' .. url .. '"')
-          else
-            os.execute('xdg-open "' .. url .. '"')
-          end
-          return true
+          system.set_cursor("hand")
+        else
+          system.set_cursor("ibeam")
         end
-        
-        local l, c = self:resolve_position(x, y)
-        self:state().selection = { l1 = l, c1 = c, l2 = l, c2 = c }
-        self.dragging_selection = true
-        core.redraw = true
-        return true
+        return false
       end
     end
   return false
