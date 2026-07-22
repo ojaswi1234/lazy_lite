@@ -320,7 +320,8 @@ local function open_problem(problem, lang)
   local dir = dir_parent .. PATHSEP .. "Leetcode " .. num
   system.mkdir(dir)
   local ext   = LANG_EXT[lang] or "txt"
-  
+
+  -- Still write the .md for reference/backup but don't open it in editor
   local fname_md = num .. "_" .. problem.slug .. ".md"
   local fpath_md = dir .. PATHSEP .. fname_md
   local f_md = io.open(fpath_md, "r")
@@ -337,7 +338,7 @@ local function open_problem(problem, lang)
   else
     f_md:close()
   end
-  
+
   local fname = num .. "_" .. problem.slug .. "." .. ext
   local fpath = dir .. PATHSEP .. fname
   local f = io.open(fpath, "r")
@@ -375,28 +376,29 @@ local function open_problem(problem, lang)
     mf:close()
   end
 
-  local node = core.root_view:get_active_node_default()
-  
-  local doc_md = core.open_doc(fpath_md)
-  core.root_view:open_doc(doc_md)
-  command.perform("line-wrapping:enable")
-  
-  -- Open the code file natively for editing in a right split
+  -- Open code file in a right split, keeping the LeetCode panel on the left as the problem viewer
   local doc_code = core.open_doc(fpath)
   local views = core.get_views_referencing_doc(doc_code)
   local view_code = views[1]
-  
+
   if not view_code then
     local DocView = require "core.docview"
     view_code = DocView(doc_code)
-    local new_node = node:split("right")
-    new_node:add_view(view_code)
+    -- Find a non-leetcode node to split from
+    local target_node = core.root_view:get_active_node_default()
+    local split_node = target_node:split("right")
+    split_node:add_view(view_code)
   end
-  
+
   core.set_active_view(view_code)
 
-  command.perform("leetcode:toggle")
-  core.redraw  = true
+  -- Keep the LeetCode panel open and in 'problem' state so it serves as the rich viewer
+  -- (do NOT call leetcode:toggle which would close it)
+  if lc_view then
+    lc_view.state = "problem"
+    lc_view.scroll_y = 0
+  end
+  core.redraw = true
 end
 
 command.add(nil, {
@@ -1532,11 +1534,10 @@ function LeetCodeView:draw()
 
     -- ── Header Bar ───────────────────────────────────────────────────────────
     -- Back button
-    local back_label = "\u{f053}  Back"
+    local back_label = "<  Back"
     local back_w = style.font:get_width(back_label) + 16 * SCALE
     local back_h = 22 * SCALE
-    renderer.draw_rect(cx, cy, back_w, back_h,
-      {style.background2[1] or 40, style.background2[2] or 40, style.background2[3] or 50, 255})
+    renderer.draw_rect(cx, cy, back_w, back_h, style.background2)
     renderer.draw_text(style.font, back_label, cx + 8*SCALE, cy + 3*SCALE, style.dim)
     self.back_btn_rect = {x=cx, y=cy, w=back_w, h=back_h}
 
@@ -1583,7 +1584,7 @@ function LeetCodeView:draw()
     end
 
     -- Copy description button (right-aligned)
-    local copy_label = "\u{f0c5}  Copy"
+    local copy_label = "Copy desc"
     local copy_w = style.font:get_width(copy_label) + 14*SCALE
     self.copy_btn_rect = {x = cx + cw - copy_w, y = chip_y, w = copy_w, h = chip_h}
     renderer.draw_rect(cx + cw - copy_w, chip_y, copy_w, chip_h, {style.accent[1], style.accent[2], style.accent[3], 30})
@@ -1603,10 +1604,10 @@ function LeetCodeView:draw()
           break
         end
         local cw2 = style.font:get_width(company) + 10*SCALE
-        renderer.draw_rect(comp_x, comp_y, cw2, chip_h - 2*SCALE,
-          {common.color("#FF6188", 25)})
-        renderer.draw_text(style.font, company, comp_x + 5*SCALE, comp_y + 2*SCALE,
-          {common.color("#FF6188")})
+        -- Fix: common.color returns r,g,b,a separately so must wrap correctly
+        local rc, gc, bc = 255, 97, 136
+        renderer.draw_rect(comp_x, comp_y, cw2, chip_h - 2*SCALE, {rc, gc, bc, 30})
+        renderer.draw_text(style.font, company, comp_x + 5*SCALE, comp_y + 2*SCALE, {rc, gc, bc, 255})
         comp_x = comp_x + cw2 + 5*SCALE
         if comp_x > cx + cw - 80*SCALE then break end
       end
