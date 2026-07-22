@@ -6,12 +6,22 @@ local RootView = require "core.rootview"
 
 local DocView = require "core.docview"
 
+local MAX_EDITOR_SPLITS = 4
+
 local function is_editor_node(node)
   if not node or node.type ~= "leaf" or not node.views then return false end
   for _, v in ipairs(node.views) do
     if v:is(DocView) then return true end
   end
   return false
+end
+
+-- Count every editor leaf in the tree
+local function count_editor_leaves(root)
+  if root.type == "leaf" then
+    return is_editor_node(root) and 1 or 0
+  end
+  return count_editor_leaves(root.a) + count_editor_leaves(root.b)
 end
 
 -- ── Cache real size in update() ────────────────────────────────────────────
@@ -27,7 +37,6 @@ end
 
 -- ── Toggle-split helpers ────────────────────────────────────────────────────
 -- Recursively close all views in a node using Node's own remove_view API.
--- This correctly handles collapse when the last view is removed.
 local function close_node_views(n, root)
   if n.type == "leaf" then
     local views = {table.unpack(n.views)}
@@ -41,26 +50,31 @@ local function close_node_views(n, root)
 end
 
 -- Toggle split for `node` in `dir` ("right"→hsplit, "down"→vsplit).
---   • Uses the built-in get_parent_node() API to reliably find the parent.
---   • If node is the LEFT/TOP child (a) of the matching split, collapses it.
---   • Empty sibling (fresh split) → parent:consume(node) directly.
---   • Non-empty sibling → close each view via remove_view (triggers collapse).
+--   • Collapses if already split from this pane (acts as toggle-off).
+--   • Refuses to split if MAX_EDITOR_SPLITS panes are already open.
 local function toggle_split(node, dir)
   local split_type = (dir == "right") and "hsplit" or "vsplit"
   local root = core.root_view.root_node
   local parent = node:get_parent_node(root)
 
   if parent and parent.type == split_type and parent.a == node then
+    -- Already split from this pane → collapse the sibling
     local sibling = parent.b
     if sibling:is_empty() then
-      -- Fresh empty split pane — just consume directly (same as Lite XL internals)
       parent:consume(node)
     else
-      -- Sibling has files — close them via remove_view (prompts for unsaved)
       close_node_views(sibling, root)
     end
     core.redraw = true
   else
+    -- Check limit before creating a new split
+    local current = count_editor_leaves(root)
+    if current >= MAX_EDITOR_SPLITS then
+      core.log(string.format(
+        "[Split] Maximum of %d editor panes reached. Close a pane first.",
+        MAX_EDITOR_SPLITS))
+      return
+    end
     node:split(dir)
   end
 end
@@ -85,10 +99,12 @@ function Node:draw_tabs(...)
   local th = style.font:get_height() + (style.padding.y * 2)
   if self.tab_height then th = self.tab_height end
 
-  -- Detect active split state for visual feedback
-  local parent = find_parent(core.root_view.root_node, self)
+  -- Detect split state and limit using built-in API
+  local root = core.root_view.root_node
+  local parent = self:get_parent_node(root)
   local is_split_right = parent and parent.type == "hsplit" and parent.a == self
   local is_split_down  = parent and parent.type == "vsplit" and parent.a == self
+  local at_limit = count_editor_leaves(root) >= MAX_EDITOR_SPLITS
 
   local bx_down  = real_right - btn_w           -- v  (rightmost)
   local bx_right = real_right - 2 * btn_w       -- >> (left of v)
@@ -97,18 +113,34 @@ function Node:draw_tabs(...)
 
   core.push_clip_rect(self.position.x, by, real_right - self.position.x, th)
 
-  -- Split Right Button (>>) — lit up when split is active
   local hovered_right = (self.hovered_split == "right")
-  local col_right = hovered_right and style.accent
-                 or is_split_right and style.text
-                 or style.dim
+  local hovered_down  = (self.hovered_split == "down")
+
+  -- >> (split right): accent on hover, text when active, dim when idle,
+  --                   greyed to dim when at limit and not already split (can't open more)
+  local col_right
+  if hovered_right then
+    col_right = is_split_right and style.accent or (at_limit and style.dim or style.accent)
+  elseif is_split_right then
+    col_right = style.text        -- active / lit up = can toggle OFF
+  elseif at_limit then
+    col_right = {style.dim[1], style.dim[2], style.dim[3], 80} -- faded = disabled
+  else
+    col_right = style.dim
+  end
   renderer.draw_text(style.icon_font, "\u{f054}", bx_right, icon_y, col_right)
 
-  -- Split Down Button (v) — lit up when split is active
-  local hovered_down = (self.hovered_split == "down")
-  local col_down = hovered_down and style.accent
-                or is_split_down and style.text
-                or style.dim
+  -- v (split down)
+  local col_down
+  if hovered_down then
+    col_down = is_split_down and style.accent or (at_limit and style.dim or style.accent)
+  elseif is_split_down then
+    col_down = style.text
+  elseif at_limit then
+    col_down = {style.dim[1], style.dim[2], style.dim[3], 80}
+  else
+    col_down = style.dim
+  end
   renderer.draw_text(style.icon_font, "\u{f078}", bx_down, icon_y, col_down)
 
   core.pop_clip_rect()
@@ -125,20 +157,33 @@ function Node:on_mouse_moved(x, y, ...)
 
   self.hovered_split = nil
   if y >= self.position.y and y <= self.position.y + th then
+    local root = core.root_view.root_node
     local real_right = self.position.x + (self._real_size_x or self.size.x)
     local btn_w    = 25 * SCALE
     local bx_down  = real_right - btn_w
     local bx_right = real_right - 2 * btn_w
 
+    -- Check if this specific direction can be toggled (active → can close)
+    -- or if we are still under the limit (can open)
+    local parent = self:get_parent_node(root)
+    local is_split_right = parent and parent.type == "hsplit" and parent.a == self
+    local is_split_down  = parent and parent.type == "vsplit" and parent.a == self
+    local at_limit = count_editor_leaves(root) >= MAX_EDITOR_SPLITS
+
     if x >= bx_down and x < bx_down + btn_w then
-      self.hovered_split = "down"
-      core.request_cursor("hand")
-      return true
+      -- Allow hover if: split is active (can close) OR under limit (can open)
+      if is_split_down or not at_limit then
+        self.hovered_split = "down"
+        core.request_cursor("hand")
+        return true
+      end
     end
     if x >= bx_right and x < bx_right + btn_w then
-      self.hovered_split = "right"
-      core.request_cursor("hand")
-      return true
+      if is_split_right or not at_limit then
+        self.hovered_split = "right"
+        core.request_cursor("hand")
+        return true
+      end
     end
   end
   return res
