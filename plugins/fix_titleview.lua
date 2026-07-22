@@ -25,3 +25,24 @@ function TitleView:on_mouse_pressed(button, x, y, clicks)
     return true
   end
 end
+
+-- Override fullscreen toggle to keep the title bar visible
+local command = require "core.command"
+local config = require "core.config"
+local system = require "system"
+
+command.add(nil, {
+  ["core:toggle-fullscreen"] = function()
+    local is_fullscreen = (core.window_mode == "fullscreen" or system.get_window_mode() == "fullscreen")
+    if is_fullscreen then
+      system.set_window_mode("normal")
+      core.show_title_bar(config.borderless)
+      core.title_view:configure_hit_test(config.borderless)
+    else
+      system.set_window_mode("fullscreen")
+      -- Keep the title bar visible instead of hiding it!
+      core.show_title_bar(true)
+      core.title_view:configure_hit_test(true)
+    end
+  end
+})
