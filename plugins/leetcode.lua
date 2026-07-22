@@ -143,6 +143,35 @@ local function api_call(params, callback)
   end
 end
 
+
+-- ── Drawing utilities (defined early so ResultView can use them) ─────────────────
+local function draw_text_wrap(font, color, text, x, y, max_w)
+  local lh = font:get_height()
+  local cy = y
+  if not text or text == "" then return cy end
+
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    if line == "" then
+      cy = cy + lh
+    else
+      local cx = x
+      for word in line:gmatch("%S+") do
+        local img_url = word:match("^%[Image:(.-)%]$")
+        if img_url then
+          local label = "[View Image]"
+          if cx + font:get_width(label) > x + max_w and cx > x then cx = x; cy = cy + lh end
+          cx = renderer.draw_text(font, label .. " ", cx, cy, LC_COLORS.accepted or style.accent)
+        else
+          if cx + font:get_width(word) > x + max_w and cx > x then cx = x; cy = cy + lh end
+          cx = renderer.draw_text(font, word .. " ", cx, cy, color)
+        end
+      end
+      cy = cy + lh
+    end
+  end
+  return cy
+end
+
 -- ── Standalone Result View (opens as a tab in the code editor section) ──────
 local LeetCodeResultView = View:extend()
 
@@ -1204,41 +1233,6 @@ local function draw_rich_content(font, text, x, y, max_w, scroll_offset)
   return cy
 end
 
--- Keep the old draw_text_wrap for non-problem uses (result view, etc.)
-local function draw_text_wrap(font, color, text, x, y, max_w)
-  local lh = font:get_height()
-  local cy = y
-  if not text or text == "" then return cy end
-
-  if lc_view and lc_view.state == "problem" and not lc_view.is_fetching then
-     if y == lc_view.content_y_start then lc_view.image_links = {} end
-  end
-
-  for line in (text .. "\n"):gmatch("(.-)\n") do
-    if line == "" then
-      cy = cy + lh
-    else
-      local cx = x
-      for word in line:gmatch("%S+") do
-        local img_url = word:match("^%[Image:(.-)%]$")
-        if img_url then
-          local label = "[View Image]"
-          if cx + font:get_width(label) > x + max_w and cx > x then cx = x; cy = cy + lh end
-          if lc_view and lc_view.state == "problem" then
-            lc_view.image_links = lc_view.image_links or {}
-            table.insert(lc_view.image_links, {x = cx, y = cy, w = font:get_width(label), h = lh, url = img_url})
-          end
-          cx = renderer.draw_text(font, label .. " ", cx, cy, LC_COLORS.accepted or style.accent)
-        else
-          if cx + font:get_width(word) > x + max_w and cx > x then cx = x; cy = cy + lh end
-          cx = renderer.draw_text(font, word .. " ", cx, cy, color)
-        end
-      end
-      cy = cy + lh
-    end
-  end
-  return cy
-end
 
 function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
   local res = LeetCodeView.super.on_mouse_pressed(self, btn, mouse_x, mouse_y, clicks)
