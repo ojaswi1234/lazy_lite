@@ -21,36 +21,36 @@ function Node:draw_tabs(...)
   if not is_editor_node(self) then return end
   
   -- Draw split buttons on the right side of the tab bar.
-  -- IMPORTANT: close_all_tabs.lua spoofs self.size.x = 999999 while calling
-  -- old_draw_tabs, so we MUST use a saved real_size_x to calculate positions.
-  -- close_all_tabs reserves `50 * SCALE` for these two split buttons (see its
-  -- get_tab_spacing). The X button sits at (real_right - X_btn_width), and the
-  -- two split buttons sit immediately to the left of that.
+  -- Layout (right → left):  [v down][>> right][  X close-all  ] | tabs...
+  -- close_all_tabs reserves total_bw = x_btn_w + 50*SCALE on the right.
+  --   X button starts at:  real_right - x_btn_w - 50*SCALE, width = x_btn_w
+  --   50*SCALE slot (for us) is: [real_right - 50*SCALE, real_right]
+  --     v  button: [real_right - 25*SCALE, real_right]
+  --     >> button: [real_right - 50*SCALE, real_right - 25*SCALE]
   local real_right = self.position.x + (self._real_size_x or self.size.x)
-  -- Try to get the X-btn width from close_all_tabs so we don't hardcode
-  local x_btn_w = style.icon_font:get_width("X") + 16 * SCALE
-  local btn_w   = 25 * SCALE
-  
-  -- The two split icons are drawn left-of the X button
+  local btn_w = 25 * SCALE
+
   local th = style.font:get_height() + (style.padding.y * 2)
   if self.tab_height then th = self.tab_height end
-  
-  -- Right split-button (v  = split down) is closest to X, left (>> = split right) is further
-  local bx_down  = real_right - x_btn_w - btn_w
-  local bx_right = bx_down - btn_w
+
+  local bx_down  = real_right - btn_w           -- v  (rightmost)
+  local bx_right = real_right - 2 * btn_w       -- >> (left of v)
   local by = self.position.y
+  local icon_y = by + (th - style.icon_font:get_height()) / 2
+
+  core.push_clip_rect(self.position.x, by, real_right - self.position.x, th)
 
   -- Split Right Button (>>)
   local hovered_right = (self.hovered_split == "right")
-  core.push_clip_rect(self.position.x, by, real_right - self.position.x, th)
-  renderer.draw_text(style.icon_font, "\u{f054}", bx_right, by + (th - style.icon_font:get_height())/2, hovered_right and style.accent or style.dim)
+  renderer.draw_text(style.icon_font, "\u{f054}", bx_right, icon_y, hovered_right and style.accent or style.dim)
 
   -- Split Down Button (v)
   local hovered_down = (self.hovered_split == "down")
-  renderer.draw_text(style.icon_font, "\u{f078}", bx_down, by + (th - style.icon_font:get_height())/2, hovered_down and style.accent or style.dim)
+  renderer.draw_text(style.icon_font, "\u{f078}", bx_down, icon_y, hovered_down and style.accent or style.dim)
+
   core.pop_clip_rect()
-  
-  -- Save the real size.x for mouse hit-testing (it may have been spoofed)
+
+  -- Save real size.x for mouse hit-testing (it may have been spoofed by close_all_tabs)
   self._real_size_x = self._real_size_x or self.size.x
 end
 
@@ -69,10 +69,9 @@ function Node:on_mouse_moved(x, y, ...)
   self.hovered_split = nil
   if y >= self.position.y and y <= self.position.y + th then
     local real_right = self.position.x + (self._real_size_x or self.size.x)
-    local x_btn_w    = style.icon_font:get_width("X") + 16 * SCALE
-    local btn_w      = 25 * SCALE
-    local bx_down    = real_right - x_btn_w - btn_w
-    local bx_right   = bx_down - btn_w
+    local btn_w    = 25 * SCALE
+    local bx_down  = real_right - btn_w
+    local bx_right = real_right - 2 * btn_w
 
     if x >= bx_down and x < bx_down + btn_w then
       self.hovered_split = "down"
