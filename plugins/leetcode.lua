@@ -189,8 +189,8 @@ function LeetCodeResultView:get_name()
   local res = self.result
   if not res then return "LC: Result" end
   local status = res.status or res.err or "Error"
-  local icon = res.ok and "✓" or "✗"
-  return "LC: " .. icon .. " " .. status:sub(1, 20)
+  local icon = res.ok and "[OK]" or "[X]"
+  return "LC " .. icon .. ": " .. status:sub(1, 22)
 end
 
 function LeetCodeResultView:on_key_pressed(key)
@@ -209,23 +209,21 @@ function LeetCodeResultView:on_key_pressed(key)
 end
 
 function LeetCodeResultView:on_mouse_wheel(delta)
-  self.scroll_y = math.max(0, math.min(self.max_scroll, self.scroll_y - delta * 40))
-  core.redraw = true
-  return true
-end
-
-function LeetCodeResultView:draw()
+  self.scroll_y = math.max(0, math.min(self.max_scroll, self.scroll_y - function LeetCodeResultView:draw()
   self:draw_background(style.background)
 
   local res = self.result
   if not res then return end
 
   local sw, sh = self.size.x, self.size.y
-  local pad = math.min(20 * SCALE, sw * 0.04)
-  local x, y = self.position.x, self.position.y
-  local w, h = sw, sh
-  local cx, cy_base = x + pad, y + pad
-  local cw = w - 2 * pad
+  local pad    = math.max(16 * SCALE, math.min(28 * SCALE, sw * 0.05))
+  local x, y   = self.position.x, self.position.y
+  local w, h   = sw, sh
+  local cx     = x + pad
+  local cw     = w - 2 * pad
+  local lh     = style.font:get_height()
+  local section_gap = 20 * SCALE   -- space between major sections
+  local card_gap    = 12 * SCALE   -- space between cards
 
   local status_text = res.status or res.err or "Unknown Error"
   local title_c = (res.ok) and LC_COLORS.accepted or LC_COLORS.wrong
@@ -233,113 +231,167 @@ function LeetCodeResultView:draw()
   if status_text:match("Limit Exceeded") then title_c = LC_COLORS.tle end
   if status_text:match("Error") then title_c = LC_COLORS.hard end
 
-  -- Left accent bar
-  renderer.draw_rect(x, y, 3 * SCALE, h, title_c)
-  -- Top accent bar
+  -- Left accent bar + top accent bar
+  renderer.draw_rect(x, y, 4 * SCALE, h, title_c)
   renderer.draw_rect(x, y, w, 2 * SCALE, title_c)
 
   core.push_clip_rect(x, y, w, h)
 
-  local cy = cy_base - self.scroll_y
+  -- Start content below top bar, with left indent past accent bar
+  local cy = y + 24 * SCALE - self.scroll_y
   local content_start = cy
+  cx = x + pad + 6 * SCALE   -- extra 6px past accent bar
 
-  -- Problem title subtitle
+  -- Problem title (small dim label)
   if self.prob_title and self.prob_title ~= "" then
-    renderer.draw_text(style.font, self.prob_title, cx + 8*SCALE, cy + 2*SCALE, style.dim)
-    cy = cy + style.font:get_height() + 6*SCALE
+    renderer.draw_text(style.font, self.prob_title, cx, cy, style.dim)
+    cy = cy + lh + 4 * SCALE
   end
 
-  -- Big status header
+  -- Big verdict status
   local big_font = style.big_font or style.font
-  renderer.draw_text(big_font, status_text, cx + 8*SCALE, cy, title_c)
-  cy = cy + big_font:get_height() + 10*SCALE
+  local big_lh   = big_font:get_height()
+  renderer.draw_text(big_font, status_text, cx, cy, title_c)
+  cy = cy + big_lh + 6 * SCALE
 
-  renderer.draw_rect(cx, cy, cw, 1*SCALE, {title_c[1], title_c[2], title_c[3], 60})
-  cy = cy + 12*SCALE
+  -- Result type label (Run / Submit)
+  local type_label = (self.result_type == "submit") and "Submission Result" or "Run Result"
+  renderer.draw_text(style.font, type_label, cx, cy, {title_c[1], title_c[2], title_c[3], 150})
+  cy = cy + lh + section_gap
+
+  -- Full-width divider
+  renderer.draw_rect(cx, cy, cw - 6*SCALE, 1 * SCALE, {title_c[1], title_c[2], title_c[3], 50})
+  cy = cy + section_gap
 
   if res.compile_error and res.compile_error ~= "" then
-    cy = draw_text_wrap(style.font, LC_COLORS.hard or style.error,
-      "Compile Error:\n\n" .. res.compile_error, cx + 8*SCALE, cy, cw - 16*SCALE)
-  elseif res.runtime_error and res.runtime_error ~= "" then
-    cy = draw_text_wrap(style.font, LC_COLORS.hard or style.error,
-      "Runtime Error:\n\n" .. res.runtime_error, cx + 8*SCALE, cy, cw - 16*SCALE)
-  else
-    -- ── Metric cards (runtime / memory / complexity) ──────────────────────
-    local card_gutter = 10 * SCALE
-    local card_w = math.max(140 * SCALE, (cw - card_gutter) / 2)
-    local card_h = 72 * SCALE
-    local card_pad = 10 * SCALE
+    -- ── Compile error block ─────────────────────────────────────────────────
+    renderer.draw_text(style.font, "Compile Error", cx, cy, style.dim)
+    cy = cy + lh + 6 * SCALE
+    local err_col = LC_COLORS.hard or style.error
+    renderer.draw_rect(cx, cy, cw - 6*SCALE, 2*SCALE, err_col)
+    cy = cy + 8 * SCALE
+    cy = draw_text_wrap(style.code_font, err_col, res.compile_error, cx + 8*SCALE, cy, cw - 20*SCALE)
+    cy = cy + section_gap
 
-    local function draw_metric_card(lx, label, value, beats, beats_color)
+  elseif res.runtime_error and res.runtime_error ~= "" then
+    -- ── Runtime error block ───────────────────────────────────────────────
+    renderer.draw_text(style.font, "Runtime Error", cx, cy, style.dim)
+    cy = cy + lh + 6 * SCALE
+    local err_col = LC_COLORS.hard or style.error
+    renderer.draw_rect(cx, cy, cw - 6*SCALE, 2*SCALE, err_col)
+    cy = cy + 8 * SCALE
+    cy = draw_text_wrap(style.code_font, err_col, res.runtime_error, cx + 8*SCALE, cy, cw - 20*SCALE)
+    cy = cy + section_gap
+
+  else
+    -- ── Metric cards ────────────────────────────────────────────────────────
+    local card_w   = math.max(120 * SCALE, (cw - card_gap - 6*SCALE) / 2)
+    local card_h   = 5 * lh + 12 * SCALE
+    local card_pad = 12 * SCALE
+
+    local function draw_card(lx, label, value, beats, accent)
+      accent = accent or title_c
       renderer.draw_rect(lx, cy, card_w, card_h, style.background2)
-      renderer.draw_rect(lx, cy, card_w, 2*SCALE, beats_color or title_c)
+      renderer.draw_rect(lx, cy, card_w, 2 * SCALE, accent)
+      -- Label
       renderer.draw_text(style.font, label, lx + card_pad, cy + card_pad, style.dim)
-      renderer.draw_text(style.font, value or "N/A", lx + card_pad, cy + card_pad + style.font:get_height() + 4*SCALE, style.text)
+      -- Value
+      renderer.draw_text(style.font, value or "N/A",
+        lx + card_pad, cy + card_pad + lh + 4 * SCALE, style.text)
+      -- Beats
       if beats and beats > 0 then
-        local bl = "Beats " .. beats .. "%"
-        renderer.draw_text(style.font, bl, lx + card_pad, cy + card_pad + style.font:get_height() * 2 + 8*SCALE, beats_color or LC_COLORS.accepted)
-        local bar_y = cy + card_h - 8*SCALE
+        renderer.draw_text(style.font, "Beats " .. beats .. "%",
+          lx + card_pad, cy + card_pad + lh * 2 + 10 * SCALE, accent)
+        local bar_y = cy + card_h - 10 * SCALE
         renderer.draw_rect(lx + card_pad, bar_y, card_w - 2*card_pad, 4*SCALE, style.background3)
-        renderer.draw_rect(lx + card_pad, bar_y, (card_w - 2*card_pad) * beats / 100, 4*SCALE, beats_color or LC_COLORS.accepted)
+        renderer.draw_rect(lx + card_pad, bar_y,
+          (card_w - 2*card_pad) * math.min(100, beats) / 100, 4*SCALE, accent)
       end
     end
 
-    local rt_col = (res.runtime_percentile and res.runtime_percentile > 75) and LC_COLORS.accepted or style.accent
-    draw_metric_card(cx, "Runtime", res.runtime, res.runtime_percentile, rt_col)
-    local mem_col = (res.memory_percentile and res.memory_percentile > 75) and LC_COLORS.accepted or style.accent
-    draw_metric_card(cx + card_w + card_gutter, "Memory", res.memory, res.memory_percentile, mem_col)
-    cy = cy + card_h + card_gutter
+    local rt_col  = (res.runtime_percentile and res.runtime_percentile > 75)
+                    and LC_COLORS.accepted or style.accent
+    local mem_col = (res.memory_percentile and res.memory_percentile > 75)
+                    and LC_COLORS.accepted or style.accent
 
-    -- Complexity cards
+    draw_card(cx,                    "Runtime", res.runtime, res.runtime_percentile, rt_col)
+    draw_card(cx + card_w + card_gap, "Memory",  res.memory,  res.memory_percentile,  mem_col)
+    cy = cy + card_h + section_gap
+
+    -- ── Complexity cards ───────────────────────────────────────────────────
     renderer.draw_rect(cx, cy, card_w, card_h, style.background2)
-    renderer.draw_text(style.font, "Est. Time Complexity", cx + card_pad, cy + card_pad, style.dim)
-    renderer.draw_text(style.font, res.est_tc or "O(?)", cx + card_pad, cy + card_pad + style.font:get_height() + 6*SCALE, style.accent)
-    renderer.draw_rect(cx + card_w + card_gutter, cy, card_w, card_h, style.background2)
-    renderer.draw_text(style.font, "Est. Space Complexity", cx + card_w + card_gutter + card_pad, cy + card_pad, style.dim)
-    renderer.draw_text(style.font, res.est_sc or "O(?)", cx + card_w + card_gutter + card_pad, cy + card_pad + style.font:get_height() + 6*SCALE, style.accent)
-    cy = cy + card_h + card_gutter
+    renderer.draw_rect(cx, cy, card_w, 2*SCALE, style.accent)
+    renderer.draw_text(style.font, "Est. Time", cx + card_pad, cy + card_pad, style.dim)
+    renderer.draw_text(style.font, res.est_tc or "O(?)",
+      cx + card_pad, cy + card_pad + lh + 4 * SCALE, style.accent)
 
+    renderer.draw_rect(cx + card_w + card_gap, cy, card_w, card_h, style.background2)
+    renderer.draw_rect(cx + card_w + card_gap, cy, card_w, 2*SCALE, style.accent)
+    renderer.draw_text(style.font, "Est. Space",
+      cx + card_w + card_gap + card_pad, cy + card_pad, style.dim)
+    renderer.draw_text(style.font, res.est_sc or "O(?)",
+      cx + card_w + card_gap + card_pad, cy + card_pad + lh + 4 * SCALE, style.accent)
+    cy = cy + card_h + section_gap
+
+    -- ── Complexity graph ──────────────────────────────────────────────────
     local ok2, complexity = pcall(require, "plugins.complexity")
     if ok2 and complexity.draw_graph then
-      complexity.draw_graph(cx + 10*SCALE, cy + 20*SCALE, math.min(300*SCALE, cw - 20*SCALE), 130*SCALE, res.est_tc or "O(?)")
-      cy = cy + 130*SCALE + 40*SCALE
+      complexity.draw_graph(cx, cy, math.min(320*SCALE, cw - 6*SCALE), 120*SCALE, res.est_tc or "O(?)")
+      cy = cy + 120*SCALE + section_gap
     end
 
-    -- Testcases
+    -- ── Testcases bar ───────────────────────────────────────────────────────
     if res.total_testcases then
-      local tc_str = "Testcases Passed: " .. (res.total_correct or 0) .. " / " .. res.total_testcases
-      local tc_col = (res.total_correct == res.total_testcases) and LC_COLORS.accepted or LC_COLORS.tle
-      renderer.draw_rect(cx, cy, cw, style.font:get_height() + 10*SCALE, {tc_col[1], tc_col[2], tc_col[3], 20})
-      renderer.draw_text(style.font, tc_str, cx + 8*SCALE, cy + 5*SCALE, tc_col)
-      cy = cy + style.font:get_height() + 18*SCALE
+      local correct = res.total_correct or 0
+      local total   = res.total_testcases
+      local all_pass = (correct == total)
+      local tc_col   = all_pass and LC_COLORS.accepted or LC_COLORS.tle
+      local bar_h    = lh + 14 * SCALE
+      renderer.draw_rect(cx, cy, cw - 6*SCALE, bar_h, {tc_col[1], tc_col[2], tc_col[3], 20})
+      renderer.draw_rect(cx, cy, 3 * SCALE, bar_h, tc_col)
+      local tc_str = "Testcases: " .. correct .. " / " .. total .. " passed"
+      renderer.draw_text(style.font, tc_str, cx + 12*SCALE, cy + 7*SCALE, tc_col)
+      -- Progress bar
+      local prog_w = cw - 6*SCALE - 24*SCALE
+      local prog_y = cy + bar_h + 4 * SCALE
+      renderer.draw_rect(cx, prog_y, prog_w, 4*SCALE, style.background3)
+      renderer.draw_rect(cx, prog_y, prog_w * correct / math.max(1, total), 4*SCALE, tc_col)
+      cy = cy + bar_h + 12 * SCALE + section_gap
     end
 
-    -- Wrong answer / run diff
+    -- ── Wrong answer diff (Run mode only) ───────────────────────────────
     if not res.ok and self.result_type == "run" then
       local function draw_output_box(label, text, col)
         renderer.draw_text(style.font, label, cx, cy, style.dim)
-        cy = cy + style.font:get_height() + 4*SCALE
-        local box_h = style.font:get_height() + 12*SCALE
-        renderer.draw_rect(cx, cy, cw, box_h, style.background2)
-        renderer.draw_rect(cx, cy, 3*SCALE, box_h, col)
-        cy = draw_text_wrap(style.code_font, col, text, cx + 10*SCALE, cy + 6*SCALE, cw - 14*SCALE) + 10*SCALE
+        cy = cy + lh + 6 * SCALE
+        local lines_h = math.max(lh + 16*SCALE,
+          select(2, text:gsub("\n", "\n")) * lh + 16*SCALE)
+        renderer.draw_rect(cx, cy, cw - 6*SCALE, lines_h, style.background2)
+        renderer.draw_rect(cx, cy, 3*SCALE, lines_h, col)
+        cy = draw_text_wrap(style.code_font, col, text,
+          cx + 12*SCALE, cy + 8*SCALE, cw - 22*SCALE)
+        cy = cy + 12*SCALE + section_gap
       end
-      local co = type(res.code_output) == "table" and table.concat(res.code_output, "\n") or (res.code_output or "")
-      local eo = type(res.expected_output) == "table" and table.concat(res.expected_output, "\n") or (res.expected_output or "")
+      local co = type(res.code_output) == "table"
+                 and table.concat(res.code_output, "\n") or (res.code_output or "")
+      local eo = type(res.expected_output) == "table"
+                 and table.concat(res.expected_output, "\n") or (res.expected_output or "")
       draw_output_box("Your Output", co, LC_COLORS.hard or style.error)
-      draw_output_box("Expected", eo, LC_COLORS.accepted or style.accent)
+      draw_output_box("Expected",    eo, LC_COLORS.accepted or style.accent)
     end
 
+    -- ── Stdout ───────────────────────────────────────────────────────────────
     if res.std_output and res.std_output ~= "" then
       renderer.draw_text(style.font, "Stdout", cx, cy, style.dim)
-      cy = cy + style.font:get_height() + 4*SCALE
-      local sbox_h = style.font:get_height() + 12*SCALE
-      renderer.draw_rect(cx, cy, cw, sbox_h, style.background2)
-      cy = draw_text_wrap(style.font, style.text, res.std_output, cx + 10*SCALE, cy + 6*SCALE, cw - 14*SCALE) + 10*SCALE
+      cy = cy + lh + 6 * SCALE
+      renderer.draw_rect(cx, cy, cw - 6*SCALE, lh + 16*SCALE, style.background2)
+      cy = draw_text_wrap(style.font, style.text, res.std_output,
+        cx + 12*SCALE, cy + 8*SCALE, cw - 22*SCALE)
+      cy = cy + section_gap
     end
   end
 
-  local content_h = cy - content_start + self.scroll_y
+  local content_h = (cy + self.scroll_y) - (y + 24 * SCALE)
   self.max_scroll = math.max(0, content_h - h + pad)
   core.pop_clip_rect()
 end
@@ -1513,13 +1565,14 @@ function LeetCodeView:draw()
     renderer.draw_text(style.font, "Connect", cx + 20*SCALE, cy + 5*SCALE, style.background)
     
     if self.auth_status ~= "" then
-      local prefix = (self.auth_status:match("Successfully") or self.auth_status:match("Connected")) and "✓ " or "✗ "
-      local stat_c = (prefix == "✓ ") and LC_COLORS.accepted or LC_COLORS.wrong
+      local is_ok = (self.auth_status:match("Successfully") or self.auth_status:match("Connected") or self.auth_status:match("Found"))
+      local prefix = is_ok and "[OK] " or "[!] "
+      local stat_c = is_ok and LC_COLORS.accepted or (LC_COLORS.wrong or style.error)
       renderer.draw_text(style.font, prefix .. self.auth_status, cx, cy + 50*SCALE, stat_c)
     end
     
   elseif self.state == "loading" or self.state == "running" then
-    local SPINNER = {"⣾","⣽","⣻","⢿","⡿","⣟","⣯","⣷"}
+    local SPINNER = {"|", "/", "-", "\\", "|", "/", "-", "\\"}
     local dots = " " .. SPINNER[math.floor(system.get_time() * 8) % 8 + 1]
     local msg = self.loading_msg .. dots
     local tw = style.font:get_width(msg)
