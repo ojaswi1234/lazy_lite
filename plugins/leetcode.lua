@@ -143,6 +143,195 @@ local function api_call(params, callback)
   end
 end
 
+-- ── Standalone Result View (opens as a tab in the code editor section) ──────
+local LeetCodeResultView = View:extend()
+
+function LeetCodeResultView:new(result, result_type, title)
+  LeetCodeResultView.super.new(self)
+  self.scrollable  = true
+  self.result      = result
+  self.result_type = result_type or "run"
+  self.prob_title  = title or "Result"
+  self.scroll_y    = 0
+  self.max_scroll  = 0
+end
+
+function LeetCodeResultView:get_name()
+  local res = self.result
+  if not res then return "LC: Result" end
+  local status = res.status or res.err or "Error"
+  local icon = res.ok and "✓" or "✗"
+  return "LC: " .. icon .. " " .. status:sub(1, 20)
+end
+
+function LeetCodeResultView:on_key_pressed(key)
+  if key == "down" then
+    self.scroll_y = math.min(self.max_scroll, self.scroll_y + 40)
+    core.redraw = true; return true
+  elseif key == "up" then
+    self.scroll_y = math.max(0, self.scroll_y - 40)
+    core.redraw = true; return true
+  elseif key == "escape" or key == "ctrl+w" then
+    local node = core.root_view.root_node:get_node_for_view(self)
+    if node then node:close_view(core.root_view.root_node, self) end
+    return true
+  end
+  return false
+end
+
+function LeetCodeResultView:on_mouse_wheel(delta)
+  self.scroll_y = math.max(0, math.min(self.max_scroll, self.scroll_y - delta * 40))
+  core.redraw = true
+  return true
+end
+
+function LeetCodeResultView:draw()
+  self:draw_background(style.background)
+
+  local res = self.result
+  if not res then return end
+
+  local sw, sh = self.size.x, self.size.y
+  local pad = math.min(20 * SCALE, sw * 0.04)
+  local x, y = self.position.x, self.position.y
+  local w, h = sw, sh
+  local cx, cy_base = x + pad, y + pad
+  local cw = w - 2 * pad
+
+  local status_text = res.status or res.err or "Unknown Error"
+  local title_c = (res.ok) and LC_COLORS.accepted or LC_COLORS.wrong
+  if not title_c then title_c = style.text end
+  if status_text:match("Limit Exceeded") then title_c = LC_COLORS.tle end
+  if status_text:match("Error") then title_c = LC_COLORS.hard end
+
+  -- Left accent bar
+  renderer.draw_rect(x, y, 3 * SCALE, h, title_c)
+  -- Top accent bar
+  renderer.draw_rect(x, y, w, 2 * SCALE, title_c)
+
+  core.push_clip_rect(x, y, w, h)
+
+  local cy = cy_base - self.scroll_y
+  local content_start = cy
+
+  -- Problem title subtitle
+  if self.prob_title and self.prob_title ~= "" then
+    renderer.draw_text(style.font, self.prob_title, cx + 8*SCALE, cy + 2*SCALE, style.dim)
+    cy = cy + style.font:get_height() + 6*SCALE
+  end
+
+  -- Big status header
+  local big_font = style.big_font or style.font
+  renderer.draw_text(big_font, status_text, cx + 8*SCALE, cy, title_c)
+  cy = cy + big_font:get_height() + 10*SCALE
+
+  renderer.draw_rect(cx, cy, cw, 1*SCALE, {title_c[1], title_c[2], title_c[3], 60})
+  cy = cy + 12*SCALE
+
+  if res.compile_error and res.compile_error ~= "" then
+    cy = draw_text_wrap(style.font, LC_COLORS.hard or style.error,
+      "Compile Error:\n\n" .. res.compile_error, cx + 8*SCALE, cy, cw - 16*SCALE)
+  elseif res.runtime_error and res.runtime_error ~= "" then
+    cy = draw_text_wrap(style.font, LC_COLORS.hard or style.error,
+      "Runtime Error:\n\n" .. res.runtime_error, cx + 8*SCALE, cy, cw - 16*SCALE)
+  else
+    -- ── Metric cards (runtime / memory / complexity) ──────────────────────
+    local card_gutter = 10 * SCALE
+    local card_w = math.max(140 * SCALE, (cw - card_gutter) / 2)
+    local card_h = 72 * SCALE
+    local card_pad = 10 * SCALE
+
+    local function draw_metric_card(lx, label, value, beats, beats_color)
+      renderer.draw_rect(lx, cy, card_w, card_h, style.background2)
+      renderer.draw_rect(lx, cy, card_w, 2*SCALE, beats_color or title_c)
+      renderer.draw_text(style.font, label, lx + card_pad, cy + card_pad, style.dim)
+      renderer.draw_text(style.font, value or "N/A", lx + card_pad, cy + card_pad + style.font:get_height() + 4*SCALE, style.text)
+      if beats and beats > 0 then
+        local bl = "Beats " .. beats .. "%"
+        renderer.draw_text(style.font, bl, lx + card_pad, cy + card_pad + style.font:get_height() * 2 + 8*SCALE, beats_color or LC_COLORS.accepted)
+        local bar_y = cy + card_h - 8*SCALE
+        renderer.draw_rect(lx + card_pad, bar_y, card_w - 2*card_pad, 4*SCALE, style.background3)
+        renderer.draw_rect(lx + card_pad, bar_y, (card_w - 2*card_pad) * beats / 100, 4*SCALE, beats_color or LC_COLORS.accepted)
+      end
+    end
+
+    local rt_col = (res.runtime_percentile and res.runtime_percentile > 75) and LC_COLORS.accepted or style.accent
+    draw_metric_card(cx, "Runtime", res.runtime, res.runtime_percentile, rt_col)
+    local mem_col = (res.memory_percentile and res.memory_percentile > 75) and LC_COLORS.accepted or style.accent
+    draw_metric_card(cx + card_w + card_gutter, "Memory", res.memory, res.memory_percentile, mem_col)
+    cy = cy + card_h + card_gutter
+
+    -- Complexity cards
+    renderer.draw_rect(cx, cy, card_w, card_h, style.background2)
+    renderer.draw_text(style.font, "Est. Time Complexity", cx + card_pad, cy + card_pad, style.dim)
+    renderer.draw_text(style.font, res.est_tc or "O(?)", cx + card_pad, cy + card_pad + style.font:get_height() + 6*SCALE, style.accent)
+    renderer.draw_rect(cx + card_w + card_gutter, cy, card_w, card_h, style.background2)
+    renderer.draw_text(style.font, "Est. Space Complexity", cx + card_w + card_gutter + card_pad, cy + card_pad, style.dim)
+    renderer.draw_text(style.font, res.est_sc or "O(?)", cx + card_w + card_gutter + card_pad, cy + card_pad + style.font:get_height() + 6*SCALE, style.accent)
+    cy = cy + card_h + card_gutter
+
+    local ok2, complexity = pcall(require, "plugins.complexity")
+    if ok2 and complexity.draw_graph then
+      complexity.draw_graph(cx + 10*SCALE, cy + 20*SCALE, math.min(300*SCALE, cw - 20*SCALE), 130*SCALE, res.est_tc or "O(?)")
+      cy = cy + 130*SCALE + 40*SCALE
+    end
+
+    -- Testcases
+    if res.total_testcases then
+      local tc_str = "Testcases Passed: " .. (res.total_correct or 0) .. " / " .. res.total_testcases
+      local tc_col = (res.total_correct == res.total_testcases) and LC_COLORS.accepted or LC_COLORS.tle
+      renderer.draw_rect(cx, cy, cw, style.font:get_height() + 10*SCALE, {tc_col[1], tc_col[2], tc_col[3], 20})
+      renderer.draw_text(style.font, tc_str, cx + 8*SCALE, cy + 5*SCALE, tc_col)
+      cy = cy + style.font:get_height() + 18*SCALE
+    end
+
+    -- Wrong answer / run diff
+    if not res.ok and self.result_type == "run" then
+      local function draw_output_box(label, text, col)
+        renderer.draw_text(style.font, label, cx, cy, style.dim)
+        cy = cy + style.font:get_height() + 4*SCALE
+        local box_h = style.font:get_height() + 12*SCALE
+        renderer.draw_rect(cx, cy, cw, box_h, style.background2)
+        renderer.draw_rect(cx, cy, 3*SCALE, box_h, col)
+        cy = draw_text_wrap(style.code_font, col, text, cx + 10*SCALE, cy + 6*SCALE, cw - 14*SCALE) + 10*SCALE
+      end
+      local co = type(res.code_output) == "table" and table.concat(res.code_output, "\n") or (res.code_output or "")
+      local eo = type(res.expected_output) == "table" and table.concat(res.expected_output, "\n") or (res.expected_output or "")
+      draw_output_box("Your Output", co, LC_COLORS.hard or style.error)
+      draw_output_box("Expected", eo, LC_COLORS.accepted or style.accent)
+    end
+
+    if res.std_output and res.std_output ~= "" then
+      renderer.draw_text(style.font, "Stdout", cx, cy, style.dim)
+      cy = cy + style.font:get_height() + 4*SCALE
+      local sbox_h = style.font:get_height() + 12*SCALE
+      renderer.draw_rect(cx, cy, cw, sbox_h, style.background2)
+      cy = draw_text_wrap(style.font, style.text, res.std_output, cx + 10*SCALE, cy + 6*SCALE, cw - 14*SCALE) + 10*SCALE
+    end
+  end
+
+  local content_h = cy - content_start + self.scroll_y
+  self.max_scroll = math.max(0, content_h - h + pad)
+  core.pop_clip_rect()
+end
+
+-- ── Helper: open result as new tab in the code editor node ───────────────────
+local function open_result_tab(result, result_type, prob_title)
+  local rv = LeetCodeResultView(result, result_type, prob_title)
+  -- Find the node that holds the active LeetCode code file
+  -- (prefer the node of the currently active view)
+  local target_node = nil
+  if core.active_view then
+    target_node = core.root_view.root_node:get_node_for_view(core.active_view)
+  end
+  if not target_node then
+    target_node = core.root_view:get_active_node_default()
+  end
+  target_node:add_view(rv)
+  core.set_active_view(rv)
+  core.redraw = true
+end
+
 
 local LeetCodeView = View:extend()
 
@@ -725,14 +914,18 @@ command.add(nil, {
       test_input  = meta.test_cases:gsub("\\n", "\n"),
     }, function(resp)
       if not lc_view or lc_view.run_req_id ~= my_req_id then return end
-      lc_view.result      = resp.data or {}
-      lc_view.result.ok   = resp.ok
-      lc_view.result.err  = resp.error
-      lc_view.result.est_tc = est_tc
-      lc_view.result.est_sc = est_sc
-      lc_view.result_type = "run"
-      lc_view.state       = "result"
-      core.redraw       = true
+      local result      = resp.data or {}
+      result.ok   = resp.ok
+      result.err  = resp.error
+      result.est_tc = est_tc
+      result.est_sc = est_sc
+      -- Restore the problem panel on the left
+      if lc_view then
+        lc_view.state = lc_view.current and "problem" or "list"
+      end
+      -- Open result as a new tab in the code editor section
+      local title = (meta and meta.title) or ""
+      open_result_tab(result, "run", title)
     end)
   end,
   
@@ -778,14 +971,18 @@ command.add(nil, {
       code        = code,
     }, function(resp)
       if not lc_view or lc_view.run_req_id ~= my_req_id then return end
-      lc_view.result      = resp.data or {}
-      lc_view.result.ok   = resp.ok
-      lc_view.result.err  = resp.error
-      lc_view.result.est_tc = est_tc
-      lc_view.result.est_sc = est_sc
-      lc_view.result_type = "submit"
-      lc_view.state       = "result"
-      core.redraw       = true
+      local result      = resp.data or {}
+      result.ok   = resp.ok
+      result.err  = resp.error
+      result.est_tc = est_tc
+      result.est_sc = est_sc
+      -- Restore the problem panel on the left
+      if lc_view then
+        lc_view.state = lc_view.current and "problem" or "list"
+      end
+      -- Open result as a new tab in the code editor section
+      local title = (meta and meta.title) or ""
+      open_result_tab(result, "submit", title)
     end)
   end,
 })
