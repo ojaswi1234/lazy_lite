@@ -618,17 +618,25 @@ local function parse_pty_model_list(raw)
     then
       seen[line] = true
       local name = line
+      
+      -- If the line starts with an ID followed by multiple spaces (e.g. "gemini-3.1-pro-high   Gemini 3.1 Pro (High)")
+      -- strip the ID and keep only the display name for the CLI.
+      local id, disp = line:match("^([^%s]+)%s%s+(.+)$")
+      if id and disp then
+        name = disp
+      end
+
       local usage = nil
       local limited = false
       
       -- Parse usage e.g. "Gemini 1.5 Pro (50/50)"
-      local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
+      local base_name, u1, u2 = name:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
       if base_name and u1 and u2 then
         name = base_name
         usage = u1 .. "/" .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
-        base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
+        base_name, u1, u2 = name:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
         if base_name and u1 and u2 then
           name = base_name
           usage = u1 .. "/" .. u2
@@ -1332,19 +1340,27 @@ function parse_pty_model_list(raw)
     then
       seen[line] = true
       local name = line
+      
+      -- If the line starts with an ID followed by multiple spaces (e.g. "gemini-3.1-pro-high   Gemini 3.1 Pro (High)")
+      -- strip the ID and keep only the display name for the CLI.
+      local id, disp = line:match("^([^%s]+)%s%s+(.+)$")
+      if id and disp then
+        name = disp
+      end
+
       local usage = nil
       local limited = false
       
       -- Parse usage e.g. "Gemini 1.5 Pro (50/50)"
-      local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
+      local base_name, u1, u2 = name:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
       if base_name and u1 and u2 then
         name = base_name
         usage = u1 .. "/" .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
-        local base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
+        local base_name2, pct = name:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
         if not base_name2 then
-          base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)%%[^%]%)]*[%]%)]?%s*$")
+          base_name2, pct = name:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)%%[^%]%)]*[%]%)]?%s*$")
         end
         if base_name2 and pct then
           name = base_name2
