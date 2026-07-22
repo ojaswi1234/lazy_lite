@@ -476,9 +476,6 @@ function TermView:_push_chunk(kind, chunk, no_redraw)
       last_line = s.lines[#s.lines]
       s.vis_len = 0
       i = i + 1
-      if #s.lines > (config.terminal.scrollback or 500) then
-        table.remove(s.lines, 1)
-      end
     elseif b == 13 then -- \r
       if i < len and chunk:byte(i + 1) == 10 then
         -- Skip \r if it's part of a \r\n sequence to prevent erasing the line before \n
@@ -502,11 +499,15 @@ function TermView:_push_chunk(kind, chunk, no_redraw)
         table.insert(s.lines, {kind = kind, text = ""})
         last_line = s.lines[#s.lines]
         s.vis_len = 0
-        if #s.lines > (config.terminal.scrollback or 500) then
-          table.remove(s.lines, 1)
-        end
       end
     end
+  end
+
+  local max_scroll = config.terminal.scrollback or 500
+  if #s.lines > max_scroll + 50 then
+    local overflow = #s.lines - max_scroll
+    table.move(s.lines, overflow + 1, #s.lines, 1)
+    for j = max_scroll + 1, #s.lines do s.lines[j] = nil end
   end
 
   if s.scroll_to_bottom then
@@ -572,7 +573,8 @@ function TermView:update()
     if s.proc then
       local has_chunk = false
       local loops = 0
-      while loops < 64 do
+      local deadline = system.get_time() + 0.012
+      while loops < 128 do
         local chunk = s.proc:read_stdout(4096)
         if chunk and #chunk > 0 then
           has_chunk = true
@@ -582,6 +584,7 @@ function TermView:update()
           break
         end
         loops = loops + 1
+        if system.get_time() > deadline then break end
       end
       
       loops = 0
@@ -594,6 +597,7 @@ function TermView:update()
           break
         end
         loops = loops + 1
+        if system.get_time() > deadline then break end
       end
       
       if not has_chunk and not s.proc:running() then
