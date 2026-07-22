@@ -1248,16 +1248,17 @@ function LeetCodeView:draw()
   self:draw_background(style.background)
 
   local sw, sh = self.size.x, self.size.y
-  local w = math.min(1200 * SCALE, math.max(700 * SCALE, sw - 80 * SCALE))
-  local h = math.max(500 * SCALE, sh - 80 * SCALE)
-  
-  local x, y = self.position.x + (sw - w) / 2, self.position.y + (sh - h) / 2
-  
-  renderer.draw_rect(x, y, w, h, style.background)
+  -- Fully fluid: always fill the actual allocated split width/height
+  -- Small pad (8px) on sides so text doesn't touch edges
+  local pad = math.min(16 * SCALE, sw * 0.03)
+  local x, y = self.position.x, self.position.y
+  local w, h = sw, sh
+
+  -- Top accent bar scales with width
   renderer.draw_rect(x, y, w, 2 * SCALE, style.accent)
-  
-  local cx, cy = x + 20 * SCALE, y + 20 * SCALE
-  local cw = w - 40 * SCALE
+
+  local cx, cy = x + pad, y + 14 * SCALE
+  local cw = w - 2 * pad
 
   local rem_run = 3 - (os.time() - last_run_time)
   local rem_sub = 10 - (os.time() - last_submit_time)
@@ -1371,33 +1372,41 @@ function LeetCodeView:draw()
     end
     cy = cy + 30*SCALE
     
-    renderer.draw_text(style.font, "Alt+R: Run Code  |  Alt+S: Submit  |  #tag for topics  |  @company for companies", cx, cy, style.accent)
+    -- In narrow mode, skip the inline hints and use abbreviated layout
+    local narrow = cw < 350 * SCALE
+    if not narrow then
+      renderer.draw_text(style.font, "Alt+R:Run  Alt+S:Submit  #tag  @co", cx, cy, style.accent)
+    else
+      renderer.draw_text(style.font, "Alt+R Run  Alt+S Submit", cx, cy, style.accent)
+    end
     cy = cy + 30*SCALE
     
     renderer.draw_text(style.font, "Search:", cx, cy, style.text)
-    local search_x = cx + 60*SCALE
+    local search_lbl_w = style.font:get_width("Search: ")
+    local search_x = cx + search_lbl_w
     local search_y = cy
     self.search_y_start = search_y
-    local search_w = cw - 200*SCALE
+    -- Pick One button width (hide if panel is too narrow)
+    local pick_btn_w = (cw > 280*SCALE) and (style.font:get_width("Pick One") + 24*SCALE) or 0
+    local search_w = cw - search_lbl_w - (pick_btn_w > 0 and pick_btn_w + 10*SCALE or 0)
     local search_h = 24*SCALE
-    
+
     local border_color = self.search_focus and style.accent or style.dim
-    -- Minimalist Material-style bottom line
     renderer.draw_rect(search_x, search_y + search_h, search_w, 2*SCALE, border_color)
-    
     renderer.draw_text(style.font, self.search_input, search_x + 5*SCALE, search_y + 2*SCALE, style.text)
-    
-    -- Draw Pick One button
-    local r_x = search_x + search_w + 30*SCALE
-    local r_y = search_y
-    local r_w = 90*SCALE
-    local r_h = 24*SCALE
-    self.random_btn_rect = {x = r_x, y = r_y, w = r_w, h = r_h}
-    
-    renderer.draw_rect(r_x, r_y, r_w, r_h, style.background2)
-    renderer.draw_rect(r_x, r_y, r_w, 1*SCALE, LC_COLORS.accepted)
-    renderer.draw_rect(r_x, r_y + r_h - 1*SCALE, r_w, 1*SCALE, LC_COLORS.accepted)
-    renderer.draw_text(style.font, "Pick One", r_x + 14*SCALE, r_y + 4*SCALE, LC_COLORS.accepted)
+
+    if pick_btn_w > 0 then
+      local r_x = search_x + search_w + 10*SCALE
+      local r_y = search_y
+      local r_h = 24*SCALE
+      self.random_btn_rect = {x = r_x, y = r_y, w = pick_btn_w, h = r_h}
+      renderer.draw_rect(r_x, r_y, pick_btn_w, r_h, style.background2)
+      renderer.draw_rect(r_x, r_y, pick_btn_w, 1*SCALE, LC_COLORS.accepted)
+      renderer.draw_rect(r_x, r_y + r_h - 1*SCALE, pick_btn_w, 1*SCALE, LC_COLORS.accepted)
+      renderer.draw_text(style.font, "Pick One", r_x + 8*SCALE, r_y + 4*SCALE, LC_COLORS.accepted)
+    else
+      self.random_btn_rect = nil
+    end
     
     cy = cy + 30*SCALE
     
@@ -1435,29 +1444,54 @@ function LeetCodeView:draw()
             renderer.draw_rect(cx - 5*SCALE, item_y - 2*SCALE, 3*SCALE, 24*SCALE, style.accent)
           end
           renderer.draw_text(style.font, "#" .. p.id, cx, item_y, style.dim)
-          
-          local diff_x = cx + cw - 250 * SCALE
-          local stat_x = cx + cw - 150 * SCALE
-          local prem_x = cx + cw - 80 * SCALE
-          
-          local max_title_chars = math.max(15, math.floor((diff_x - (cx + 50*SCALE)) / style.font:get_width("A")) * 1.5)
+
+          -- Proportional columns: diff=15%, stat=12%, prem=10% from right edge
+          local narrow_list = cw < 300 * SCALE
+          local diff_x, stat_x, prem_x
+          if narrow_list then
+            -- In narrow mode: just id + title, no extra columns
+            diff_x  = cx + cw + 1  -- push off-screen
+            stat_x  = cx + cw + 1
+            prem_x  = cx + cw + 1
+          else
+            local has_prem = p.paid
+            prem_x  = has_prem and (cx + cw - style.font:get_width("(Prem)") - 4*SCALE) or (cx + cw + 1)
+            local stat_fw = style.font:get_width("50.0% [AC]")
+            stat_x  = (prem_x < cx + cw) and (prem_x - stat_fw - 10*SCALE) or (cx + cw - stat_fw - 4*SCALE)
+            local diff_fw = style.font:get_width("Medium")
+            diff_x  = stat_x - diff_fw - 14*SCALE
+          end
+
+          local title_max_x = (diff_x < cx + cw) and diff_x or (cx + cw)
+          local title_avail = title_max_x - (cx + 50*SCALE) - 8*SCALE
           local title = p.title
-          if #title > max_title_chars then title = title:sub(1, max_title_chars) .. "..." end
-          
+          -- Clip title to fit by pixel width
+          while #title > 4 and style.font:get_width(title) > title_avail do
+            title = title:sub(1, -2)
+          end
+          if title ~= p.title then title = title .. "..." end
+
           local title_color = style.text
           if p.status == "ac" then title_color = LC_COLORS.accepted end
           if p.status == "notac" then title_color = LC_COLORS.tle end
           renderer.draw_text(style.font, title, cx + 50*SCALE, item_y, title_color)
-          local dc = LC_COLORS[p.difficulty:lower()]
-          local bg_dc = {dc[1], dc[2], dc[3], dc[4] * 0.15}
-          local dw = style.font:get_width(p.difficulty)
-          renderer.draw_rect(diff_x - 6*SCALE, item_y - 2*SCALE, dw + 12*SCALE, style.font:get_height() + 4*SCALE, bg_dc)
-          renderer.draw_text(style.font, p.difficulty, diff_x, item_y, dc)
-          local stat_str = p.ac_rate .. "%"
-          if p.status == "ac" then stat_str = stat_str .. " [AC]" end
-          local stat_color = p.status == "ac" and LC_COLORS.accepted or style.dim
-          renderer.draw_text(style.font, stat_str, stat_x, item_y, stat_color)
-          if p.paid then renderer.draw_text(style.font, "(Premium)", prem_x, item_y, LC_COLORS.tle) end
+
+          if diff_x <= cx + cw then
+            local dc = LC_COLORS[p.difficulty:lower()]
+            local bg_dc = {dc[1], dc[2], dc[3], dc[4] * 0.15}
+            local dw = style.font:get_width(p.difficulty)
+            renderer.draw_rect(diff_x - 4*SCALE, item_y - 2*SCALE, dw + 8*SCALE, style.font:get_height() + 4*SCALE, bg_dc)
+            renderer.draw_text(style.font, p.difficulty, diff_x, item_y, dc)
+          end
+          if stat_x <= cx + cw then
+            local stat_str = p.ac_rate .. "%"
+            if p.status == "ac" then stat_str = stat_str .. " [AC]" end
+            local stat_color = p.status == "ac" and LC_COLORS.accepted or style.dim
+            renderer.draw_text(style.font, stat_str, stat_x, item_y, stat_color)
+          end
+          if p.paid and prem_x <= cx + cw then
+            renderer.draw_text(style.font, "(Prem)", prem_x, item_y, LC_COLORS.tle)
+          end
         end
         item_y = item_y + 24*SCALE
       end
@@ -1536,36 +1570,55 @@ function LeetCodeView:draw()
     -- Back button
     local back_label = "<  Back"
     local back_w = style.font:get_width(back_label) + 16 * SCALE
-    local back_h = 22 * SCALE
+    local back_h = style.font:get_height() + 8 * SCALE
     renderer.draw_rect(cx, cy, back_w, back_h, style.background2)
-    renderer.draw_text(style.font, back_label, cx + 8*SCALE, cy + 3*SCALE, style.dim)
+    renderer.draw_text(style.font, back_label, cx + 8*SCALE, cy + 4*SCALE, style.dim)
     self.back_btn_rect = {x=cx, y=cy, w=back_w, h=back_h}
 
-    -- Difficulty badge
-    local diff_badge_x = cx + cw - style.font:get_width(p.difficulty) - 20*SCALE
+    -- Difficulty badge (right-aligned)
+    local diff_badge_x = cx + cw - style.font:get_width(p.difficulty) - 16*SCALE
     local badge_w = style.font:get_width(p.difficulty) + 16*SCALE
-    local badge_h = 22*SCALE
+    local badge_h = back_h
     renderer.draw_rect(diff_badge_x, cy, badge_w, badge_h, {dc[1], dc[2], dc[3], 35})
     renderer.draw_rect(diff_badge_x, cy, badge_w, 1*SCALE, dc)
     renderer.draw_rect(diff_badge_x, cy + badge_h - SCALE, badge_w, 1*SCALE, dc)
-    renderer.draw_text(style.font, p.difficulty, diff_badge_x + 8*SCALE, cy + 3*SCALE, dc)
+    renderer.draw_text(style.font, p.difficulty, diff_badge_x + 8*SCALE, cy + 4*SCALE, dc)
 
-    cy = cy + back_h + 10*SCALE
+    cy = cy + back_h + 8*SCALE
 
-    -- Title
-    local title_font = style.big_font or style.font
-    local title_h = title_font:get_height()
-    renderer.draw_text(title_font, p.title, cx, cy, style.text)
-    cy = cy + title_h + 8*SCALE
+    -- Title - wraps if too long for narrow panel
+    local title_font = (cw > 300*SCALE) and (style.big_font or style.font) or style.font
+    local title = p.title
+    local title_max_w = cw - badge_w - 8*SCALE
+    -- If title overflows, draw it on two lines by splitting at nearest word
+    if title_font:get_width(title) > cw then
+      local half = math.floor(#title / 2)
+      while half > 0 and title:sub(half, half) ~= " " do half = half - 1 end
+      if half > 0 then
+        renderer.draw_text(title_font, title:sub(1, half), cx, cy, style.text)
+        cy = cy + title_font:get_height() + 2*SCALE
+        renderer.draw_text(title_font, title:sub(half + 1), cx, cy, style.text)
+      else
+        renderer.draw_text(title_font, title, cx, cy, style.text)
+      end
+    else
+      renderer.draw_text(title_font, title, cx, cy, style.text)
+    end
+    cy = cy + title_font:get_height() + 8*SCALE
 
-    -- Stat chips row: id, topics, companies, copy
+    -- Chip row: wraps when narrow
     local chip_y = cy
     local chip_h = style.font:get_height() + 6*SCALE
     local chip_x = cx
+    local chip_row_max_x = cx + cw - (style.font:get_width("Copy desc") + 14*SCALE) - 8*SCALE
 
     local function draw_chip(label, fg, bg)
       bg = bg or {fg[1], fg[2], fg[3], 25}
       local cw2 = style.font:get_width(label) + 14*SCALE
+      if chip_x + cw2 > chip_row_max_x then
+        chip_x = cx
+        chip_y = chip_y + chip_h + 4*SCALE
+      end
       renderer.draw_rect(chip_x, chip_y, cw2, chip_h, bg)
       renderer.draw_text(style.font, label, chip_x + 7*SCALE, chip_y + 3*SCALE, fg)
       chip_x = chip_x + cw2 + 6*SCALE
@@ -1577,18 +1630,17 @@ function LeetCodeView:draw()
     end
     if p.topics and #p.topics > 0 then
       for _, t in ipairs(p.topics) do
-        if chip_x + style.font:get_width(t) + 20*SCALE < cx + cw - 100*SCALE then
-          draw_chip(t, {common.color("#75BFFF")})
-        end
+        draw_chip(t, {common.color("#75BFFF")})
       end
     end
 
-    -- Copy description button (right-aligned)
+    -- Copy button always right-aligned at the same cy as start of chip row
     local copy_label = "Copy desc"
     local copy_w = style.font:get_width(copy_label) + 14*SCALE
-    self.copy_btn_rect = {x = cx + cw - copy_w, y = chip_y, w = copy_w, h = chip_h}
-    renderer.draw_rect(cx + cw - copy_w, chip_y, copy_w, chip_h, {style.accent[1], style.accent[2], style.accent[3], 30})
-    renderer.draw_text(style.font, copy_label, cx + cw - copy_w + 7*SCALE, chip_y + 3*SCALE, style.accent)
+    local init_chip_y = cy  -- original chip row start
+    self.copy_btn_rect = {x = cx + cw - copy_w, y = init_chip_y, w = copy_w, h = chip_h}
+    renderer.draw_rect(cx + cw - copy_w, init_chip_y, copy_w, chip_h, {style.accent[1], style.accent[2], style.accent[3], 30})
+    renderer.draw_text(style.font, copy_label, cx + cw - copy_w + 7*SCALE, init_chip_y + 3*SCALE, style.accent)
 
     cy = chip_y + chip_h + 10*SCALE
 
