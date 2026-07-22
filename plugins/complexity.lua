@@ -204,7 +204,7 @@ local function draw_graph(cx, cy, w, h, user_tc)
     { label = "O(N)",       func = function(n) return n * 15 end, color = {255, 255, 0, 255} },
     { label = "O(N log N)", func = function(n) return n * math.log(n + 1) * 5 end, color = {255, 165, 0, 255} },
     { label = "O(N^2)",     func = function(n) return n * n end, color = {255, 50, 50, 255} },
-    { label = "O(2^N)",     func = function(n) return math.pow(2, n / 2) * 2 end, color = {255, 0, 255, 255} }
+    { label = "O(2^N)",     func = function(n) return (2 ^ (n / 2)) * 2 end, color = {255, 0, 255, 255} }
   }
   
   local colors = {
