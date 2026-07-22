@@ -12,7 +12,7 @@ syntax.add {
     { pattern = "$-?%d+[%d%.eE]*",      type = "number"  },
     { pattern = "%$[%a_][%w_]*",       type = "keyword2" },
     { pattern = "%${[%a_][%w_]*}",     type = "keyword2" },
-    { pattern = "^%s*([%a_]+)",        type = "keyword" },
+    { pattern = "^%s*()[%a_]+",        type = { "normal", "keyword" } },
     { pattern = "[%a_][%w_]*",         type = "symbol"  },
   },
   symbols = {
