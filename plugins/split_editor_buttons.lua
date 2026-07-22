@@ -26,41 +26,41 @@ function Node:update(...)
 end
 
 -- ── Toggle-split helpers ────────────────────────────────────────────────────
--- Walk the node tree to find the parent of `target`.
-local function find_parent(root, target)
-  if root.type == "leaf" then return nil end
-  if root.a == target or root.b == target then return root end
-  return find_parent(root.a, target) or find_parent(root.b, target)
-end
-
--- Recursively close all views in a node so it collapses/merges away.
-local function close_node_views(n)
+-- Recursively close all views in a node using Node's own remove_view API.
+-- This correctly handles collapse when the last view is removed.
+local function close_node_views(n, root)
   if n.type == "leaf" then
-    -- snapshot the list first; close_view mutates n.views
     local views = {table.unpack(n.views)}
     for _, v in ipairs(views) do
-      pcall(function() n:close_view(core.root_view.root_node, v) end)
+      pcall(function() n:remove_view(root, v) end)
     end
   else
-    -- close b first so the tree merges cleanly top-down
-    close_node_views(n.b)
-    close_node_views(n.a)
+    close_node_views(n.b, root)
+    close_node_views(n.a, root)
   end
 end
 
 -- Toggle split for `node` in `dir` ("right"→hsplit, "down"→vsplit).
---   • If `node` is already the LEFT/TOP child of the matching split type,
---     collapse the sibling (right/bottom pane) — acting as an undo.
---   • Otherwise, create a fresh split.
+--   • Uses the built-in get_parent_node() API to reliably find the parent.
+--   • If node is the LEFT/TOP child (a) of the matching split, collapses it.
+--   • Empty sibling (fresh split) → parent:consume(node) directly.
+--   • Non-empty sibling → close each view via remove_view (triggers collapse).
 local function toggle_split(node, dir)
   local split_type = (dir == "right") and "hsplit" or "vsplit"
-  local parent = find_parent(core.root_view.root_node, node)
+  local root = core.root_view.root_node
+  local parent = node:get_parent_node(root)
 
   if parent and parent.type == split_type and parent.a == node then
-    -- Already split in this direction from our node → collapse sibling
-    close_node_views(parent.b)
+    local sibling = parent.b
+    if sibling:is_empty() then
+      -- Fresh empty split pane — just consume directly (same as Lite XL internals)
+      parent:consume(node)
+    else
+      -- Sibling has files — close them via remove_view (prompts for unsaved)
+      close_node_views(sibling, root)
+    end
+    core.redraw = true
   else
-    -- Not yet split (or we are the secondary pane) → create split
     node:split(dir)
   end
 end
