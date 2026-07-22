@@ -505,18 +505,27 @@ function PodmanView:draw()
           local bx = x + w - 60 * SCALE
           
           bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function()
-            local toggle_term = require("plugins.toggle_terminal")
-            local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-            if not term then 
-              command.perform("terminal:toggle")
-              term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
-            end
-            if term and not term.visible then command.perform("terminal:toggle") end
-            if term then
-              core.set_active_view(term)
-              term:add_session({ name = (item.repo or "Image"), prompt_prefix = "", is_remote_tty = true })
-              term:run(PODMAN_EXE .. " run -it --rm " .. item.id)
-            end
+            core.command_view:enter("Port mapping (e.g. 8080:80, leave blank for none)", {
+              submit = function(text)
+                local port_flag = ""
+                if text and text:match("%S") then
+                  port_flag = "-p " .. text:gsub("%s+", "") .. " "
+                end
+                
+                local toggle_term = require("plugins.toggle_terminal")
+                local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+                if not term then 
+                  command.perform("terminal:toggle")
+                  term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+                end
+                if term and not term.visible then command.perform("terminal:toggle") end
+                if term then
+                  core.set_active_view(term)
+                  term:add_session({ name = (item.repo or "Image"), prompt_prefix = "", is_remote_tty = true })
+                  term:run(PODMAN_EXE .. " run -it --rm " .. port_flag .. item.id)
+                end
+              end
+            })
           end, "Run", item_hovered)
           
           draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rmi", "-f", item.id}, function() self:refresh_images() end) end, "Delete", item_hovered)
