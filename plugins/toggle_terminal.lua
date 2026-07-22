@@ -480,9 +480,14 @@ function TermView:_push_chunk(kind, chunk, no_redraw)
         table.remove(s.lines, 1)
       end
     elseif b == 13 then -- \r
-      last_line.text = ""
-      s.vis_len = 0
-      i = i + 1
+      if i < len and chunk:byte(i + 1) == 10 then
+        -- Skip \r if it's part of a \r\n sequence to prevent erasing the line before \n
+        i = i + 1
+      else
+        last_line.text = ""
+        s.vis_len = 0
+        i = i + 1
+      end
     else
       local char_len = 1
       if b >= 0xC0 then
