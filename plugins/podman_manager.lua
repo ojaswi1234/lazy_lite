@@ -502,7 +502,23 @@ function PodmanView:draw()
           core.pop_clip_rect()
 
           local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
-          local bx = x + w - 30 * SCALE
+          local bx = x + w - 60 * SCALE
+          
+          bx = draw_icon_btn(self, "\u{f04b}", bx, y + 5 * SCALE, style.dim, function()
+            local toggle_term = require("plugins.toggle_terminal")
+            local term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            if not term then 
+              command.perform("terminal:toggle")
+              term = type(toggle_term) == "table" and toggle_term.get_instance() or nil
+            end
+            if term and not term.visible then command.perform("terminal:toggle") end
+            if term then
+              core.set_active_view(term)
+              term:add_session({ name = (item.repo or "Image"), prompt_prefix = "", is_remote_tty = true })
+              term:run(PODMAN_EXE .. " run -it --rm " .. item.id)
+            end
+          end, "Run", item_hovered)
+          
           draw_icon_btn(self, "\u{f1f8}", bx, y + 5 * SCALE, style.dim, function() async_exec({PODMAN_EXE, "rmi", "-f", item.id}, function() self:refresh_images() end) end, "Delete", item_hovered)
           
         elseif sec.id == "k8s" then

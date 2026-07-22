@@ -1256,13 +1256,6 @@ function TermView:on_key_pressed(key)
     return true
   end
   if key == "ctrl+c" then
-    if self:state().selection then
-      command.perform("terminal:copy")
-      self:state().selection = nil
-      core.redraw = true
-      return true
-    end
-    
     if self:state().persistent_proc then
       -- Send SIGINT to the remote bash process via the persistent SSH shell
       pcall(function() self:state().persistent_proc:write("\x03") end)
@@ -1679,11 +1672,12 @@ command.add(nil, {
     local res = {}
     for i = l1, l2 do
       local txt = ""
-      if i <= #instance:state().lines then txt = instance:state().lines[i].text
+      if i <= #instance:state().lines then 
+        txt = strip_ansi(instance:state().lines[i].text or "")
       else
         local s = instance:state()
         local prompt = get_prompt(s)
-        txt = prompt .. instance:state().input
+        txt = strip_ansi(prompt .. instance:state().input)
       end
       local sc = (i == l1) and c1 or 1
       local ec = (i == l2) and c2 - 1 or #txt
