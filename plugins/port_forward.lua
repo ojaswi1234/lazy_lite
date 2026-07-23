@@ -182,30 +182,46 @@ function PortForwardView:update()
         fw.raw_output = (fw.raw_output or "") .. out
         
         -- Fully strip the QR code block which causes '?' rendering due to Unicode block elements
-        if not fw.qr_started then
-          fw.output = fw.output .. out
-          local qr_idx = fw.output:find("Open your tunnel address")
-          if qr_idx then
-            fw.output = fw.output:sub(1, qr_idx - 1)
-            fw.qr_started = true
+        if fw.cmd:match("pinggy%.io") then
+          -- Prepare a proper, perfectly clean UI for logs. We completely hide Pinggy's raw terminal output
+          -- to guarantee no '?' artifacts from its interactive dashboard, and only show the finalized URL block.
+          if out:match("Connection reset") or out:match("refused") or out:match("kex_exchange_identification") or out:match("Permission denied") then
+            fw.output = fw.output .. out 
           end
-        end
-        
-        if fw.cmd:match("pinggy%.io") and not fw.url_printed then
-          local url = fw.raw_output:match('https://([%w%-%.]+%.pinggy%.link)')
-              or fw.raw_output:match('https://([%w%-%.]+%.pinggy%.online)')
-          if url and url ~= "localhost" then
-            -- Auto-copy to clipboard for frictionless usage
-            if system.set_clipboard then system.set_clipboard("https://" .. url) end
-            
-            -- Just append the URL highlight, don't wipe the raw logs
-            fw.output = fw.output .. "\n======================================================\n" ..
-                        "🌍 PUBLIC URL: https://" .. url .. "\n" ..
-                        "⚠️ Note: Pinggy free tier tunnels expire after 60 minutes.\n" ..
-                        "(Automatically copied to clipboard!)\n" ..
-                        "======================================================\n"
-            fw.url_printed = true
-            fw.restart_count = 0
+          
+          if not fw.url_printed then
+            local url = fw.raw_output:match('https://([%w%-%.]+pinggy[%w%-%.]*)')
+            if url and url ~= "localhost" then
+              if system.set_clipboard then system.set_clipboard("https://" .. url) end
+              fw.output = fw.output .. "\n======================================================\n" ..
+                          "🌍 PUBLIC URL: https://" .. url .. "\n" ..
+                          "⚠️ Note: Pinggy free tier tunnels expire after 60 minutes.\n" ..
+                          "(Automatically copied to clipboard!)\n" ..
+                          "======================================================\n"
+              fw.url_printed = true
+              fw.restart_count = 0
+            end
+          end
+        else
+          if not fw.qr_started then
+            fw.output = fw.output .. out
+            local qr_idx = fw.output:find("Open your tunnel address")
+            if qr_idx then
+              fw.output = fw.output:sub(1, qr_idx - 1)
+              fw.qr_started = true
+            end
+          end
+          
+          if fw.cmd:match("localhost%.run") and not fw.url_printed then
+            local url = fw.raw_output:match('https://([%w%-%.]+%.lhr%.life)')
+                or fw.raw_output:match('https://([%w%-%.]+%.localhost%.run)')
+                or fw.raw_output:match('https://([%w%-%.]+%.lhr%.rocks)')
+            if url and url ~= "localhost" then
+              if system.set_clipboard then system.set_clipboard("https://" .. url) end
+              fw.output = fw.output .. "\n======================================================\n🌍 PUBLIC URL: https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
+              fw.url_printed = true
+              fw.restart_count = 0
+            end
           end
         end
         
@@ -582,7 +598,7 @@ command.add(nil, {
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=15' ..
           ' -o LogLevel=ERROR' ..
-          ' -R 0:localhost:%s free@a.pinggy.io', proxy_port)
+          ' -T -R 0:localhost:%s free@a.pinggy.io', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
