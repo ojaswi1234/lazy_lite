@@ -190,7 +190,13 @@ function PortForwardView:update()
           end
           
           if not fw.url_printed then
-            local url = fw.raw_output:match('https://([%w%-%.]+pinggy[%w%-%.]*)')
+            local url = nil
+            for match in fw.raw_output:gmatch('https://([%w%-%.]+pinggy[%w%-%.]*)') do
+              if not match:match("dashboard%.pinggy%.io") and not match:match("^pinggy%.io") then
+                url = match
+                break
+              end
+            end
             if url and url ~= "localhost" then
               if system.set_clipboard then system.set_clipboard("https://" .. url) end
               fw.output = fw.output .. "\n======================================================\n" ..
