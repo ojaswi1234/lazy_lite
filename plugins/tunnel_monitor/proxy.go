@@ -94,7 +94,7 @@ func main() {
 		}
 	}
 
-	targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%s", targetPort))
+	targetURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%s", targetPort))
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	
 	// NEW: Add custom transport with timeouts to prevent hangs
@@ -171,7 +171,7 @@ func main() {
 				}
 			}
 
-			targetConn, err := net.Dial("tcp", "localhost:"+targetPort)
+			targetConn, err := net.Dial("tcp", "127.0.0.1:"+targetPort)
 			if err != nil {
 				log.Printf("WebSocket dial failed: %v", err)
 				http.Error(w, "Backend unavailable", http.StatusBadGateway)
@@ -249,11 +249,11 @@ func main() {
 
 	go func() {
 		log.Printf("Analytics API running on http://localhost:%s/api/visitors", adminPort)
-		http.ListenAndServe("localhost:"+adminPort, adminMux)
+		http.ListenAndServe("127.0.0.1:"+adminPort, adminMux)
 	}()
 
 	log.Printf("Proxy starting: listening on %s, forwarding to localhost:%s", listenPort, targetPort)
-	err = http.ListenAndServe("localhost:"+listenPort, proxyHandler)
+	err = http.ListenAndServe("127.0.0.1:"+listenPort, proxyHandler)
 	if err != nil {
 		log.Fatal(err)
 	}

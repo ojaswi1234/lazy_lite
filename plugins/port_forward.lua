@@ -604,7 +604,7 @@ command.add(nil, {
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=15' ..
           ' -o LogLevel=ERROR' ..
-          ' -T -R 0:localhost:%s free@a.pinggy.io', proxy_port)
+          ' -T -R 0:127.0.0.1:%s free@a.pinggy.io', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
