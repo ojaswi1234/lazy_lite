@@ -200,10 +200,11 @@ function PortForwardView:update()
                 break
               end
             end
-            if url and url ~= "localhost" then
-              if system.set_clipboard then system.set_clipboard("https://" .. url) end
+              local display_url = url
+              if url:match("pinggy") then display_url = "lazy:lite@" .. url end
+              if system.set_clipboard then system.set_clipboard("https://" .. display_url) end
               fw.output = fw.output .. "\n======================================================\n" ..
-                          "[PUBLIC URL] https://" .. url .. "\n" ..
+                          "[PUBLIC URL] https://" .. display_url .. "\n" ..
                           "[AUTH PIN]   " .. fw.auth_pin .. "\n" ..
                           "[NOTE] Pinggy free tier tunnels expire after 60 minutes.\n" ..
                           "(Automatically copied to clipboard!)\n" ..
@@ -653,7 +654,7 @@ command.add(nil, {
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=15' ..
           ' -o LogLevel=ERROR' ..
-          ' -T -R 0:127.0.0.1:%s free@a.pinggy.io', proxy_port)
+          ' -T -R 0:127.0.0.1:%s free:lazy:lite@a.pinggy.io', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
