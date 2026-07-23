@@ -351,16 +351,22 @@ function TunnelVisitorView:draw()
   y = y + (style.big_font and style.big_font:get_height() or lh) + style.padding.y * 2
   
   -- Dynamically calculate column widths based on the active font to prevent overlaps
-  local ip_w = math.max(160, style.font:get_width("255.255.255.255    "))
-  local loc_w = math.max(350, style.font:get_width("Ghaziabad, Uttar Pradesh, India    "))
-  local time_w = math.max(250, style.font:get_width("2026-10-10 12:00:00    "))
-  local col_w = { ip_w, loc_w, time_w, 600 }
+  local ip_w = math.max(220, style.font:get_width("255.255.255.255 (Google LLC)    "))
+  local path_w = math.max(200, style.font:get_width("POST /api/v1/users/login    "))
+  local dev_w = math.max(300, style.font:get_width("Chrome on Windows | https://reddit.com/    "))
+  local loc_w = math.max(280, style.font:get_width("Ghaziabad, Uttar Pradesh, India (en-US)    "))
+  local time_w = math.max(120, style.font:get_width("12:00:00 PM    "))
+  local col_w = { ip_w, path_w, dev_w, loc_w, time_w }
   
   renderer.draw_rect(x, y - 2, self.size.x, lh + 4, style.line_highlight)
-  renderer.draw_text(style.font, "IP Address", x, y, style.text)
-  renderer.draw_text(style.font, "Location", x + col_w[1], y, style.text)
-  renderer.draw_text(style.font, "Time", x + col_w[1] + col_w[2], y, style.text)
-  renderer.draw_text(style.font, "User Agent", x + col_w[1] + col_w[2] + col_w[3], y, style.text)
+  
+  local cx = x
+  renderer.draw_text(style.font, "IP / ISP", cx, y, style.text); cx = cx + col_w[1]
+  renderer.draw_text(style.font, "Request", cx, y, style.text); cx = cx + col_w[2]
+  renderer.draw_text(style.font, "Device & Referer", cx, y, style.text); cx = cx + col_w[3]
+  renderer.draw_text(style.font, "Location & Lang", cx, y, style.text); cx = cx + col_w[4]
+  renderer.draw_text(style.font, "Time", cx, y, style.text)
+  
   y = y + lh + style.padding.y
   
   if #self.visitors == 0 then
@@ -369,24 +375,41 @@ function TunnelVisitorView:draw()
     for i, v in ipairs(self.visitors) do
       if i % 2 == 0 then renderer.draw_rect(x, y - 2, self.size.x, lh + 4, style.line_highlight) end
       
-      -- IP Column
-      core.push_clip_rect(x, y, col_w[1] - 10, lh)
-      renderer.draw_text(style.font, v.ip, x, y, style.text)
+      cx = x
+      -- IP & ISP Column
+      core.push_clip_rect(cx, y, col_w[1] - 10, lh)
+      local ip_str = v.ip
+      if v.isp and v.isp ~= "" and v.isp ~= "Unknown ISP" then ip_str = ip_str .. " (" .. v.isp .. ")" end
+      renderer.draw_text(style.font, ip_str, cx, y, style.text)
       core.pop_clip_rect()
       
-      -- Location Column
-      core.push_clip_rect(x + col_w[1], y, col_w[2] - 10, lh)
-      renderer.draw_text(style.font, v.location, x + col_w[1], y, style.text)
+      -- Path Column
+      cx = cx + col_w[1]
+      core.push_clip_rect(cx, y, col_w[2] - 10, lh)
+      local path_str = (v.method or "GET") .. " " .. (v.path or "/")
+      renderer.draw_text(style.font, path_str, cx, y, style.text)
+      core.pop_clip_rect()
+      
+      -- Device & Referer Column
+      cx = cx + col_w[2]
+      core.push_clip_rect(cx, y, col_w[3] - 10, lh)
+      local dev_str = v.userAgent or "Unknown"
+      if v.referer and v.referer ~= "" then dev_str = dev_str .. " | " .. v.referer end
+      renderer.draw_text(style.font, dev_str, cx, y, style.dim)
+      core.pop_clip_rect()
+      
+      -- Location & Lang Column
+      cx = cx + col_w[3]
+      core.push_clip_rect(cx, y, col_w[4] - 10, lh)
+      local loc_str = v.location or "Unknown"
+      if v.language and v.language ~= "" and v.language ~= "Unknown" then loc_str = loc_str .. " (" .. v.language .. ")" end
+      renderer.draw_text(style.font, loc_str, cx, y, style.dim)
       core.pop_clip_rect()
       
       -- Time Column
-      core.push_clip_rect(x + col_w[1] + col_w[2], y, col_w[3] - 10, lh)
-      renderer.draw_text(style.font, v.time, x + col_w[1] + col_w[2], y, style.dim)
-      core.pop_clip_rect()
-      
-      -- User Agent Column
-      core.push_clip_rect(x + col_w[1] + col_w[2] + col_w[3], y, self.size.x - (x + col_w[1] + col_w[2] + col_w[3]), lh)
-      renderer.draw_text(style.font, v.userAgent, x + col_w[1] + col_w[2] + col_w[3], y, style.dim)
+      cx = cx + col_w[4]
+      core.push_clip_rect(cx, y, self.size.x - cx, lh)
+      renderer.draw_text(style.font, v.time or "", cx, y, style.dim)
       core.pop_clip_rect()
       
       y = y + lh + 4

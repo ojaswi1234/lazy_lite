@@ -22,17 +22,23 @@ type Visitor struct {
 	Location  string `json:"location"`
 	UserAgent string `json:"userAgent"`
 	Time      string `json:"time"`
+	Path      string `json:"path"`
+	Method    string `json:"method"`
+	Referer   string `json:"referer"`
+	Language  string `json:"language"`
+	ISP       string `json:"isp"`
 }
 
 type GeoAPIResponse struct {
-	CountryName string `json:"countryName"`
-	CityName    string `json:"cityName"`
-	IsProxy     bool   `json:"isProxy"`
+	CountryName     string `json:"countryName"`
+	CityName        string `json:"cityName"`
+	IsProxy         bool   `json:"isProxy"`
+	AsnOrganization string `json:"asnOrganization"`
 }
 
 var (
 	visitors []Visitor
-	seenIPs  = make(map[string]bool)
+	geoCache = make(map[string]GeoAPIResponse)
 	mutex    sync.Mutex
 	logFile  string
 )
@@ -40,43 +46,99 @@ var (
 func saveLog() {
 	mutex.Lock()
 	defer mutex.Unlock()
-
 	data, err := json.MarshalIndent(visitors, "", "  ")
 	if err == nil {
 		os.WriteFile(logFile, data, 0644)
 	}
 }
 
-func fetchGeoAndLog(ip string, ua string) {
-	resp, err := http.Get(fmt.Sprintf("https://freeipapi.com/api/json/%s", ip))
-	location := "Unknown Location"
-	if err == nil {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		var geo GeoAPIResponse
-		if json.Unmarshal(body, &geo) == nil {
-			if geo.CityName != "" {
-				location = fmt.Sprintf("%s, %s", geo.CityName, geo.CountryName)
-				if geo.IsProxy {
-					location += " [VPN/PROXY]"
-				}
-			}
+func parseUA(ua string) string {
+	browser := "Unknown Browser"
+	if strings.Contains(ua, "Firefox") { browser = "Firefox" }
+	if strings.Contains(ua, "Chrome") { browser = "Chrome" }
+	if strings.Contains(ua, "Safari") && !strings.Contains(ua, "Chrome") { browser = "Safari" }
+	if strings.Contains(ua, "Edge") || strings.Contains(ua, "Edg") { browser = "Edge" }
+
+	osStr := "Unknown OS"
+	if strings.Contains(ua, "Windows") { osStr = "Windows" }
+	if strings.Contains(ua, "Macintosh") || strings.Contains(ua, "Mac OS") { osStr = "macOS" }
+	if strings.Contains(ua, "Linux") { osStr = "Linux" }
+	if strings.Contains(ua, "Android") { osStr = "Android" }
+	if strings.Contains(ua, "iPhone") { osStr = "iPhone" }
+	if strings.Contains(ua, "iPad") { osStr = "iPad" }
+	
+	if browser == "Unknown Browser" && osStr == "Unknown OS" {
+		if len(ua) > 20 { return ua[:20] + "..." }
+		return ua
+	}
+	return browser + " on " + osStr
+}
+
+func parseLang(l string) string {
+	if l == "" { return "Unknown" }
+	return strings.Split(l, ",")[0]
+}
+
+func fetchGeoAndLog(ip, ua, path, method, referer, lang string) {
+	mutex.Lock()
+	geo, ok := geoCache[ip]
+	mutex.Unlock()
+
+	if !ok {
+		resp, err := http.Get("https://freeipapi.com/api/json/" + ip)
+		if err == nil {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			json.Unmarshal(body, &geo)
+			mutex.Lock()
+			geoCache[ip] = geo
+			mutex.Unlock()
 		}
-	} else {
-		location = "Geo-Fetch Failed"
 	}
 
-	timestamp := time.Now().Format("1/2/2006, 3:04:05 PM")
+	location := "Unknown Location"
+	if geo.CityName != "" {
+		location = geo.CityName + ", " + geo.CountryName
+		if geo.IsProxy {
+			location += " [VPN/PROXY]"
+		}
+	}
+	isp := geo.AsnOrganization
+	if isp == "" { isp = "Unknown ISP" }
+
+	timestamp := time.Now().Format("15:04:05")
+
+	v := Visitor{
+		IP:        ip,
+		Location:  location,
+		UserAgent: parseUA(ua),
+		Time:      timestamp,
+		Path:      path,
+		Method:    method,
+		Referer:   referer,
+		Language:  parseLang(lang),
+		ISP:       isp,
+	}
 
 	mutex.Lock()
-	// Prepend to slice
-	visitors = append([]Visitor{{IP: ip, Location: location, UserAgent: ua, Time: timestamp}}, visitors...)
+	visitors = append([]Visitor{v}, visitors...)
 	if len(visitors) > 50 {
 		visitors = visitors[:50]
 	}
 	mutex.Unlock()
 
 	saveLog()
+}
+
+func isIgnored(path string) bool {
+	exts := []string{".js", ".css", ".ico", ".png", ".jpg", ".jpeg", ".svg", ".woff", ".woff2", ".ttf", ".map"}
+	lowPath := strings.ToLower(path)
+	for _, ext := range exts {
+		if strings.HasSuffix(lowPath, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func main() {
@@ -93,15 +155,11 @@ func main() {
 	data, err := os.ReadFile(logFile)
 	if err == nil {
 		json.Unmarshal(data, &visitors)
-		for _, v := range visitors {
-			seenIPs[v.IP] = true
-		}
 	}
 
 	targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%s", targetPort))
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	
-	// NEW: Add custom transport with timeouts to prevent hangs
 	proxy.Transport = &http.Transport{
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   10,
@@ -112,10 +170,9 @@ func main() {
 			Timeout:   5 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		ForceAttemptHTTP2: false, // localhost.run uses HTTP/1.1 for tunnels
+		ForceAttemptHTTP2: false,
 	}
 	
-	// Ensure Host header matches target (critical for Vite/Django)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
@@ -136,45 +193,15 @@ func main() {
 		rawIP := r.Header.Get("X-Forwarded-For")
 		if rawIP != "" {
 			ip := strings.TrimSpace(strings.Split(rawIP, ",")[0])
-			if ip != "" && ip != "127.0.0.1" && ip != "::1" {
-				mutex.Lock()
-				if !seenIPs[ip] {
-					seenIPs[ip] = true
-					mutex.Unlock()
-
-					ua := r.Header.Get("User-Agent")
-					if ua == "" {
-						ua = "Unknown"
-					}
-					if len(ua) > 50 {
-						ua = ua[:47] + "..."
-					}
-					go fetchGeoAndLog(ip, ua)
-				} else {
-					mutex.Unlock()
-				}
+			if ip != "" && ip != "127.0.0.1" && ip != "::1" && !isIgnored(r.URL.Path) {
+				ua := r.Header.Get("User-Agent")
+				ref := r.Header.Get("Referer")
+				lang := r.Header.Get("Accept-Language")
+				go fetchGeoAndLog(ip, ua, r.URL.Path, r.Method, ref, lang)
 			}
 		}
 
 		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
-			rawIP := r.Header.Get("X-Forwarded-For")
-			if rawIP != "" {
-				ip := strings.TrimSpace(strings.Split(rawIP, ",")[0])
-				if ip != "" && ip != "127.0.0.1" && ip != "::1" {
-					mutex.Lock()
-					if !seenIPs[ip] {
-						seenIPs[ip] = true
-						mutex.Unlock()
-						ua := r.Header.Get("User-Agent")
-						if ua == "" { ua = "Unknown" }
-						if len(ua) > 50 { ua = ua[:47] + "..." }
-						go fetchGeoAndLog(ip, ua)
-					} else {
-						mutex.Unlock()
-					}
-				}
-			}
-
 			targetConn, err := net.Dial("tcp", "localhost:"+targetPort)
 			if err != nil {
 				log.Printf("WebSocket dial failed: %v", err)
@@ -204,7 +231,6 @@ func main() {
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-
 			go func() {
 				defer wg.Done()
 				io.Copy(targetConn, clientConn)
@@ -223,7 +249,6 @@ func main() {
 		proxy.ServeHTTP(w, r)
 	})
 
-	// Start Admin API Server
 	adminPortInt, _ := strconv.Atoi(listenPort)
 	adminPort := strconv.Itoa(adminPortInt + 1000)
 
@@ -252,7 +277,7 @@ func main() {
 	})
 
 	go func() {
-		log.Printf("Analytics API running on http://localhost:%s/api/visitors", adminPort)
+		log.Printf("Analytics API running on http://127.0.0.1:%s/api/visitors", adminPort)
 		http.ListenAndServe("127.0.0.1:"+adminPort, adminMux)
 	}()
 
