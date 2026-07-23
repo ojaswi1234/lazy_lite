@@ -254,6 +254,14 @@ if [ -d "$SRC_DIR/plugins/tunnel_monitor" ]; then cp -rf "$SRC_DIR/plugins/tunne
 if [ -d "$SRC_DIR/plugins/python_runtime" ]; then cp -rf "$SRC_DIR/plugins/python_runtime" "$CONFIG_DIR/plugins/"; fi
 echo "Copied plugins, scripts, fonts, and color scheme."
 
+# Copy Antigravity custom skills
+GEMINI_CONFIG_DIR="$HOME/.gemini/config"
+if [ -d "$SRC_DIR/skills" ]; then
+    mkdir -p "$GEMINI_CONFIG_DIR/skills"
+    cp -rf "$SRC_DIR/skills/"* "$GEMINI_CONFIG_DIR/skills/"
+    echo "Copied custom Antigravity skills."
+fi
+
 # Update init.lua safely (append LazyLite block if not already present)
 INIT_FILE="$CONFIG_DIR/init.lua"
 

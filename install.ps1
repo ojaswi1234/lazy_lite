@@ -212,6 +212,14 @@ if (Test-Path "$srcDir\plugins\python_runtime") {
 }
 Write-Host "Copied plugins, scripts, fonts, and color scheme."
 
+# Copy custom agent skills
+$geminiConfigDir = "$env:USERPROFILE\.gemini\config"
+if (Test-Path "$srcDir\skills") {
+    New-Item -ItemType Directory -Force -Path "$geminiConfigDir\skills" | Out-Null
+    Copy-Item -Path "$srcDir\skills\*" -Destination "$geminiConfigDir\skills\" -Recurse -Force
+    Write-Host "Copied custom Antigravity skills."
+}
+
 # Update init.lua safely (append LazyLite block if not already present)
 $initFile = "$configDir\init.lua"
 $marker = "-- [[ LazyLite Configuration ]]"

@@ -129,6 +129,14 @@ if exist "%SRC_DIR%plugins\tunnel_monitor" xcopy /e /i /y "%SRC_DIR%plugins\tunn
 if exist "%SRC_DIR%plugins\python_runtime" xcopy /e /i /y "%SRC_DIR%plugins\python_runtime" "%CONFIG_DIR%\plugins\python_runtime" >nul
 echo Copied plugins, scripts, fonts, and color scheme.
 
+:: Copy Antigravity custom skills
+set "GEMINI_CONFIG_DIR=%USERPROFILE%\.gemini\config"
+if exist "%SRC_DIR%skills" (
+    if not exist "%GEMINI_CONFIG_DIR%\skills" mkdir "%GEMINI_CONFIG_DIR%\skills"
+    xcopy /e /i /y "%SRC_DIR%skills" "%GEMINI_CONFIG_DIR%\skills" >nul
+    echo Copied custom Antigravity skills.
+)
+
 :: Update init.lua safely (append LazyLite block if not already present)
 set "INIT_FILE=%CONFIG_DIR%\init.lua"
 set "MARKER=-- [[ LazyLite Configuration ]]"
