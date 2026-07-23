@@ -25,8 +25,9 @@ type Visitor struct {
 }
 
 type GeoAPIResponse struct {
-	CityName    string `json:"cityName"`
 	CountryName string `json:"countryName"`
+	CityName    string `json:"cityName"`
+	IsProxy     bool   `json:"isProxy"`
 }
 
 var (
@@ -56,6 +57,9 @@ func fetchGeoAndLog(ip string, ua string) {
 		if json.Unmarshal(body, &geo) == nil {
 			if geo.CityName != "" {
 				location = fmt.Sprintf("%s, %s", geo.CityName, geo.CountryName)
+				if geo.IsProxy {
+					location += " [VPN/PROXY]"
+				}
 			}
 		}
 	} else {
