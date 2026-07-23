@@ -178,13 +178,15 @@ function PortForwardView:update()
         fw.raw_output = (fw.raw_output or "") .. out
         
         if fw.cmd:match("localhost%.run") and not fw.url_printed then
-          local url = fw.raw_output:match('"address":%s*"([^"]+)"')
+          local url = fw.raw_output:match('https://([%w%-%.]+%.lhr%.life)')
+              or fw.raw_output:match('https://([%w%-%.]+%.localhost%.run)')
+              or fw.raw_output:match('https://([%w%-%.]+%.lhr%.rocks)')
           if url and url ~= "localhost" then
             -- Auto-copy to clipboard for frictionless usage
             if system.set_clipboard then system.set_clipboard("https://" .. url) end
             
-            -- Clean the UI by wiping the raw JSON/QR code from the log and showing just the URL
-            fw.output = "Started command: " .. fw.cmd .. "\n\n======================================================\n🌍 PUBLIC URL: https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
+            -- Just append the URL highlight, don't wipe the raw logs
+            fw.output = fw.output .. "\n======================================================\n🌍 PUBLIC URL: https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
             fw.url_printed = true
             fw.restart_count = 0
           end
@@ -197,8 +199,8 @@ function PortForwardView:update()
         end
       end
 
-      -- EC6: Force reconnect after 20 minutes to prevent localhost.run domain rotation staleness
-      if running and fw.auto_restart and fw.start_time and os.time() - fw.start_time > 1200 then
+      -- EC6: Force reconnect after 1 hour to prevent localhost.run domain rotation staleness
+      if running and fw.auto_restart and fw.start_time and os.time() - fw.start_time > 3600 then
         fw.output = fw.output .. "Domain might be rotating, forcing reconnect...\n"
         if fw.proxy_proc then
           pcall(function()
@@ -216,6 +218,7 @@ function PortForwardView:update()
         fw.proc = nil
         fw.start_time = nil
         fw.url_printed = false
+        fw.raw_output = ""
         fw.output = fw.output .. "\nProcess exited.\n"
         -- Auto-reconnect with exponential backoff if this was a tunnel that should be running
         if fw.auto_restart then
@@ -532,13 +535,13 @@ command.add(nil, {
 
           -- Use SSH tunneling with --output json to reliably get the URL without a TTY on Windows
         local cmd = string.format(
-          'ssh -N -o StrictHostKeyChecking=accept-new' ..
+          'ssh -o StrictHostKeyChecking=accept-new' ..
           ' -o ServerAliveInterval=30' ..
           ' -o ServerAliveCountMax=3' ..
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=10' ..
           ' -o LogLevel=ERROR' ..
-          ' -R 80:localhost:%s localhost.run -- --output json 2>&1', proxy_port)
+          ' -R 80:localhost:%s localhost.run', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
