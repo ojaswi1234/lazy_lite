@@ -324,18 +324,17 @@ func main() {
 				return
 			}
 
-			var wg sync.WaitGroup
-			wg.Add(2)
+			errc := make(chan error, 2)
 			go func() {
-				defer wg.Done()
-				io.Copy(targetConn, clientConn)
+				_, err := io.Copy(targetConn, clientConn)
+				errc <- err
 			}()
 			go func() {
-				defer wg.Done()
-				io.Copy(clientConn, targetConn)
+				_, err := io.Copy(clientConn, targetConn)
+				errc <- err
 			}()
 
-			wg.Wait()
+			<-errc
 			targetConn.Close()
 			clientConn.Close()
 			return
