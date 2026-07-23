@@ -193,19 +193,28 @@ function PortForwardView:update()
           end
           
           if not fw.url_printed then
-            local url = nil
-            for match in fw.raw_output:gmatch('https://([%w%-%.]+pinggy[%w%-%.]*)') do
-              if not match:match("dashboard%.pinggy%.io") and not match:match("^pinggy%.io") then
-                url = match
-                break
+            local display_url = nil
+            
+            -- Capture TCP tunnel URL (to bypass Pinggy's Layer 7 HTTP Splash Screen)
+            local tcp_match = fw.raw_output:match('tcp://([%w%-%.]+pinggy[%w%-%.]*:%d+)')
+            if tcp_match then
+              display_url = "http://" .. tcp_match
+            end
+            
+            -- Fallback to HTTPS if they manually configured an HTTP tunnel
+            if not display_url then
+              for match in fw.raw_output:gmatch('https://([%w%-%.]+pinggy[%w%-%.]*)') do
+                if not match:match("dashboard%.pinggy%.io") and not match:match("^pinggy%.io") then
+                  display_url = "https://" .. match
+                  break
+                end
               end
             end
-            if url and url ~= "localhost" then
-              local display_url = url
-              if url:match("pinggy") then display_url = "lazy:lite@" .. url end
-              if system.set_clipboard then system.set_clipboard("https://" .. display_url) end
+            
+            if display_url and display_url ~= "localhost" then
+              if system.set_clipboard then system.set_clipboard(display_url) end
               fw.output = fw.output .. "\n======================================================\n" ..
-                          "[PUBLIC URL] https://" .. display_url .. "\n" ..
+                          "[PUBLIC URL] " .. display_url .. "\n" ..
                           "[AUTH PIN]   " .. fw.auth_pin .. "\n" ..
                           "[NOTE] Pinggy free tier tunnels expire after 60 minutes.\n" ..
                           "(Automatically copied to clipboard!)\n" ..
@@ -655,7 +664,7 @@ command.add(nil, {
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=15' ..
           ' -o LogLevel=ERROR' ..
-          ' -T -R 0:127.0.0.1:%s free:lazy:lite@a.pinggy.io', proxy_port)
+          ' -T -R 0:127.0.0.1:%s tcp@a.pinggy.io', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
