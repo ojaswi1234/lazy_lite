@@ -360,16 +360,13 @@ function AIPluginGen:draw_describe()
 
   -- Buttons row
   local bh = sp(32)
-  local bw_paste = sp(100)
-  local bw_gen = w - pad*2 - bw_paste - sp(10)
+  local bw_gen = w - pad*2
   
-  local hov_paste = self.hovered == "paste"
-  draw_btn(cx, cy, bw_paste, bh, "\u{f0ea}  Paste", hov_paste, style.background3 or c(70,70,70))
-  table.insert(self.buttons, {x=cx, y=cy, w=bw_paste, h=bh, id="paste"})
-  
+  rawset(_G, "ai_plugin_gen_last_doc", self.doc)
+
   local hov_gen = self.hovered == "generate"
-  draw_btn(cx + bw_paste + sp(10), cy, bw_gen, bh, "\u{f135}  Generate Plan", hov_gen, c(60,160,100))
-  table.insert(self.buttons, {x=cx + bw_paste + sp(10), y=cy, w=bw_gen, h=bh, id="generate"})
+  draw_btn(cx, cy, bw_gen, bh, "\u{f135}  Generate Plan", hov_gen, c(60,160,100))
+  table.insert(self.buttons, {x=cx, y=cy, w=bw_gen, h=bh, id="generate"})
   cy = cy + bh + sp(20)
 
   -- Divider
@@ -999,12 +996,6 @@ function AIPluginGen:handle_click(id)
     end
     self:do_generate_plan()
 
-  elseif id == "paste" then
-    local text = system.get_clipboard()
-    if text then
-      self.doc:text_input(text)
-    end
-
   elseif id == "approve" then
     self:do_build()
 
@@ -1328,3 +1319,20 @@ command.add(nil, {
 -- The auto_healer checks _G.auto_healer_new_plugins for context.
 -- Also expose a public resume signal for the healer to call back into.
 core.log("[AI Plugin Gen] Loaded — use 'ai-plugin-gen:toggle' or Activity Bar \u{f0e7} to start.")
+
+command.add(
+  function()
+    return (type(core.active_view) == "table" and core.active_view.name == "AI Plugins")
+        or (type(core.active_view) == "table" and core.active_view.doc == _G.ai_plugin_gen_last_doc)
+  end,
+  {
+    ["ai-plugin-gen:paste"] = function()
+      local text = system.get_clipboard()
+      if text and _G.ai_plugin_gen_last_doc then
+        _G.ai_plugin_gen_last_doc:text_input(text)
+      end
+    end
+  }
+)
+keymap.add({ ["ctrl+v"] = "ai-plugin-gen:paste", ["cmd+v"] = "ai-plugin-gen:paste" })
+
