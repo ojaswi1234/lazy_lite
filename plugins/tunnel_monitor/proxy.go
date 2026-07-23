@@ -99,11 +99,16 @@ func main() {
 	
 	// NEW: Add custom transport with timeouts to prevent hangs
 	proxy.Transport = &http.Transport{
-		ResponseHeaderTimeout: 60 * time.Second,
-		IdleConnTimeout:       30 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		MaxConnsPerHost:       50,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       10 * time.Second,
 		DialContext: (&net.Dialer{
-			Timeout: 5 * time.Second,
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
 		}).DialContext,
+		ForceAttemptHTTP2: false, // localhost.run uses HTTP/1.1 for tunnels
 	}
 	
 	// Ensure Host header matches target (critical for Vite/Django)
@@ -111,11 +116,17 @@ func main() {
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.Host = targetURL.Host
+		req.Header.Set("X-Forwarded-For", req.RemoteAddr)
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Real-IP", req.RemoteAddr)
 	}
 
 	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 		rw.WriteHeader(http.StatusBadGateway)
-		rw.Write([]byte("Bad Gateway"))
+		rw.Write([]byte(`<!DOCTYPE html>
+<html><head><meta http-equiv="refresh" content="3"></head>
+<body><h2>Server restarting...</h2><p>Retrying in 3 seconds...</p></body></html>`))
 	}
 
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,29 +177,42 @@ func main() {
 				http.Error(w, "Bad Gateway", http.StatusBadGateway)
 				return
 			}
-			defer targetConn.Close()
 
 			hj, ok := w.(http.Hijacker)
 			if !ok {
+				targetConn.Close()
 				http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
 				return
 			}
 			clientConn, _, err := hj.Hijack()
 			if err != nil {
+				targetConn.Close()
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			defer clientConn.Close()
 
 			err = r.Write(targetConn)
 			if err != nil {
+				targetConn.Close()
+				clientConn.Close()
 				return
 			}
 
+			var wg sync.WaitGroup
+			wg.Add(2)
+
 			go func() {
+				defer wg.Done()
 				io.Copy(targetConn, clientConn)
 			}()
-			io.Copy(clientConn, targetConn)
+			go func() {
+				defer wg.Done()
+				io.Copy(clientConn, targetConn)
+			}()
+
+			wg.Wait()
+			targetConn.Close()
+			clientConn.Close()
 			return
 		}
 

@@ -113,6 +113,7 @@ local function start_forward(idx)
   if ok and proc then
     fw.proc = proc
     fw.start_time = os.time()
+    fw.raw_output = ""
     fw.output = "Started command: " .. fw.cmd .. "\n"
     core.log("Port forward '%s' started.", fw.name)
   else
@@ -174,9 +175,10 @@ function PortForwardView:update()
       
       if #out > 0 then 
         fw.output = fw.output .. out 
+        fw.raw_output = (fw.raw_output or "") .. out
         
         if fw.cmd:match("localhost%.run") and not fw.url_printed then
-          local url = fw.output:match('"address":%s*"([^"]+)"')
+          local url = fw.raw_output:match('"address":%s*"([^"]+)"')
           if url and url ~= "localhost" then
             -- Auto-copy to clipboard for frictionless usage
             if system.set_clipboard then system.set_clipboard("https://" .. url) end
@@ -198,6 +200,13 @@ function PortForwardView:update()
       -- EC6: Force reconnect after 20 minutes to prevent localhost.run domain rotation staleness
       if running and fw.auto_restart and fw.start_time and os.time() - fw.start_time > 1200 then
         fw.output = fw.output .. "Domain might be rotating, forcing reconnect...\n"
+        if fw.proxy_proc then
+          pcall(function()
+            if fw.proxy_proc.terminate then fw.proxy_proc:terminate()
+            elseif fw.proxy_proc.kill then fw.proxy_proc:kill() end
+          end)
+          fw.proxy_proc = nil
+        end
         stop_forward(idx)
         running = false
         ok = true
@@ -523,12 +532,13 @@ command.add(nil, {
 
           -- Use SSH tunneling with --output json to reliably get the URL without a TTY on Windows
         local cmd = string.format(
-          'ssh -o StrictHostKeyChecking=accept-new' ..
+          'ssh -N -o StrictHostKeyChecking=accept-new' ..
           ' -o ServerAliveInterval=30' ..
           ' -o ServerAliveCountMax=3' ..
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=10' ..
-          ' -R 80:localhost:%s localhost.run -- --output json', proxy_port)
+          ' -o LogLevel=ERROR' ..
+          ' -R 80:localhost:%s localhost.run -- --output json 2>&1', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
