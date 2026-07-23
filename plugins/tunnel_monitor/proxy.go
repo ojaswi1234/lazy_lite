@@ -39,6 +39,7 @@ type GeoAPIResponse struct {
 var (
 	visitors []Visitor
 	geoCache = make(map[string]GeoAPIResponse)
+	geoMutex sync.Mutex
 	mutex    sync.Mutex
 	logFile  string
 )
@@ -80,21 +81,18 @@ func parseLang(l string) string {
 }
 
 func fetchGeoAndLog(ip, ua, path, method, referer, lang string) {
-	mutex.Lock()
+	geoMutex.Lock()
 	geo, ok := geoCache[ip]
-	mutex.Unlock()
-
 	if !ok {
 		resp, err := http.Get("https://freeipapi.com/api/json/" + ip)
 		if err == nil {
 			defer resp.Body.Close()
 			body, _ := io.ReadAll(resp.Body)
 			json.Unmarshal(body, &geo)
-			mutex.Lock()
 			geoCache[ip] = geo
-			mutex.Unlock()
 		}
 	}
+	geoMutex.Unlock()
 
 	location := "Unknown Location"
 	if geo.CityName != "" {
@@ -122,8 +120,8 @@ func fetchGeoAndLog(ip, ua, path, method, referer, lang string) {
 
 	mutex.Lock()
 	visitors = append([]Visitor{v}, visitors...)
-	if len(visitors) > 50 {
-		visitors = visitors[:50]
+	if len(visitors) > 200 {
+		visitors = visitors[:200]
 	}
 	mutex.Unlock()
 
@@ -131,7 +129,7 @@ func fetchGeoAndLog(ip, ua, path, method, referer, lang string) {
 }
 
 func isIgnored(path string) bool {
-	exts := []string{".js", ".css", ".ico", ".png", ".jpg", ".jpeg", ".svg", ".woff", ".woff2", ".ttf", ".map"}
+	exts := []string{".js", ".css", ".ico", ".png", ".jpg", ".jpeg", ".svg", ".woff", ".woff2", ".ttf", ".map", ".ts", ".vue", ".jsx", ".tsx", "@vite/client"}
 	lowPath := strings.ToLower(path)
 	for _, ext := range exts {
 		if strings.HasSuffix(lowPath, ext) {
