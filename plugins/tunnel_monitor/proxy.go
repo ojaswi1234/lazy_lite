@@ -122,11 +122,10 @@ func main() {
 	}
 
 	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
+		log.Printf("Proxy error: %v", err)
 		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 		rw.WriteHeader(http.StatusBadGateway)
-		rw.Write([]byte(`<!DOCTYPE html>
-<html><head><meta http-equiv="refresh" content="3"></head>
-<body><h2>Server restarting...</h2><p>Retrying in 3 seconds...</p></body></html>`))
+		rw.Write([]byte("<h2>Bad Gateway</h2><p>Backend server may be restarting. Refresh in a few seconds.</p>"))
 	}
 
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +173,8 @@ func main() {
 
 			targetConn, err := net.Dial("tcp", "localhost:"+targetPort)
 			if err != nil {
-				http.Error(w, "Bad Gateway", http.StatusBadGateway)
+				log.Printf("WebSocket dial failed: %v", err)
+				http.Error(w, "Backend unavailable", http.StatusBadGateway)
 				return
 			}
 
@@ -252,7 +252,7 @@ func main() {
 		http.ListenAndServe("localhost:"+adminPort, adminMux)
 	}()
 
-	log.Printf("Proxy running on localhost:%s forwarding to %s", listenPort, targetPort)
+	log.Printf("Proxy starting: listening on %s, forwarding to localhost:%s", listenPort, targetPort)
 	err = http.ListenAndServe("localhost:"+listenPort, proxyHandler)
 	if err != nil {
 		log.Fatal(err)

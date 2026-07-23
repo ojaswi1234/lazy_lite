@@ -114,6 +114,9 @@ local function start_forward(idx)
     fw.proc = proc
     fw.start_time = os.time()
     fw.raw_output = ""
+    fw.health_check_scheduled = true
+    fw.health_check_time = os.time() + 5
+    if not fw.initial_retries then fw.initial_retries = 0 end
     fw.output = "Started command: " .. fw.cmd .. "\n"
     core.log("Port forward '%s' started.", fw.name)
   else
@@ -173,11 +176,20 @@ function PortForwardView:update()
         end
       end)
       if #out > 0 then 
-        -- Strip ANSI escape sequences (e.g. localhost.run QR code colors) to prevent '?' rendering in the UI
+        -- Strip ANSI escape sequences
         out = out:gsub("\27%[[%d;]*[a-zA-Z]", "")
         
-        fw.output = fw.output .. out 
         fw.raw_output = (fw.raw_output or "") .. out
+        
+        -- Fully strip the QR code block which causes '?' rendering due to Unicode block elements
+        if not fw.qr_started then
+          fw.output = fw.output .. out
+          local qr_idx = fw.output:find("Open your tunnel address")
+          if qr_idx then
+            fw.output = fw.output:sub(1, qr_idx - 1)
+            fw.qr_started = true
+          end
+        end
         
         if fw.cmd:match("localhost%.run") and not fw.url_printed then
           local url = fw.raw_output:match('https://([%w%-%.]+%.lhr%.life)')
@@ -198,6 +210,23 @@ function PortForwardView:update()
         if #fw.output > 5000 then
           fw.output = fw.output:sub(-5000)
           fw.output = fw.output:match("[^\n]*\n(.*)") or fw.output
+        end
+      end
+
+      if running and fw.health_check_scheduled and os.time() >= fw.health_check_time then
+        fw.health_check_scheduled = false
+        if fw.proxy_port then
+          local null_file = (PLATFORM == "Windows") and "NUL" or "/dev/null"
+          local test_cmd = string.format('curl -s -o %s -w "%%{http_code}" http://localhost:%s', null_file, fw.proxy_port)
+          local handle = io.popen(test_cmd)
+          if handle then
+            local result = handle:read("*a")
+            handle:close()
+            if result:match("^000") then
+              fw.output = fw.output .. "Warning: Tunnel may not be forwarding traffic yet. Try refreshing in 10 seconds.\n"
+              needs_redraw = true
+            end
+          end
         end
       end
 
@@ -224,17 +253,24 @@ function PortForwardView:update()
         fw.output = fw.output .. "\nProcess exited.\n"
         -- Auto-reconnect with exponential backoff if this was a tunnel that should be running
         if fw.auto_restart then
-          fw.restart_count = (fw.restart_count or 0) + 1
-          if fw.restart_count <= 15 then
-            local backoff = math.min(300, 2 ^ fw.restart_count)
-            if not fw.last_restart or os.time() - fw.last_restart > backoff then
-              fw.last_restart = os.time()
-              fw.output = fw.output .. "Auto-reconnecting (attempt " .. fw.restart_count .. ")...\n"
-              core.log("Tunnel '%s' died — auto-reconnecting...", fw.name)
-              start_forward(idx)
-            end
+          if not fw.url_printed then
+            fw.initial_retries = (fw.initial_retries or 0) + 1
+          end
+          if not fw.url_printed and fw.initial_retries > 3 then
+            fw.output = fw.output .. "Failed to connect after 3 attempts. Port 22 might be blocked, or network is down.\n"
           else
-            fw.output = fw.output .. "Max reconnect retries reached.\n"
+            fw.restart_count = (fw.restart_count or 0) + 1
+            if fw.restart_count <= 15 then
+              local backoff = math.min(300, 2 ^ fw.restart_count)
+              if not fw.last_restart or os.time() - fw.last_restart > backoff then
+                fw.last_restart = os.time()
+                fw.output = fw.output .. "Auto-reconnecting (attempt " .. fw.restart_count .. ")...\n"
+                core.log("Tunnel '%s' died — auto-reconnecting...", fw.name)
+                start_forward(idx)
+              end
+            else
+              fw.output = fw.output .. "Max reconnect retries reached.\n"
+            end
           end
         end
         needs_redraw = true
@@ -537,11 +573,11 @@ command.add(nil, {
 
           -- Use SSH tunneling with --output json to reliably get the URL without a TTY on Windows
         local cmd = string.format(
-          'ssh -o StrictHostKeyChecking=accept-new' ..
-          ' -o ServerAliveInterval=30' ..
-          ' -o ServerAliveCountMax=3' ..
+          'ssh -p 443 -o StrictHostKeyChecking=accept-new' ..
+          ' -o ServerAliveInterval=60' ..
+          ' -o ServerAliveCountMax=10' ..
           ' -o ExitOnForwardFailure=yes' ..
-          ' -o ConnectTimeout=10' ..
+          ' -o ConnectTimeout=15' ..
           ' -o LogLevel=ERROR' ..
           ' -R 80:localhost:%s localhost.run', proxy_port)
         table.insert(forwards, { 
