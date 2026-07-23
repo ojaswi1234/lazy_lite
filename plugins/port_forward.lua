@@ -350,7 +350,12 @@ function TunnelVisitorView:draw()
   renderer.draw_text(style.big_font or style.font, "[Analytics] Tunnel Visitors", x, y, style.accent)
   y = y + (style.big_font and style.big_font:get_height() or lh) + style.padding.y * 2
   
-  local col_w = { 150, 200, 220, 400 }
+  -- Dynamically calculate column widths based on the active font to prevent overlaps
+  local ip_w = math.max(160, style.font:get_width("255.255.255.255    "))
+  local loc_w = math.max(350, style.font:get_width("Ghaziabad, Uttar Pradesh, India    "))
+  local time_w = math.max(250, style.font:get_width("2026-10-10 12:00:00    "))
+  local col_w = { ip_w, loc_w, time_w, 600 }
+  
   renderer.draw_rect(x, y - 2, self.size.x, lh + 4, style.line_highlight)
   renderer.draw_text(style.font, "IP Address", x, y, style.text)
   renderer.draw_text(style.font, "Location", x + col_w[1], y, style.text)
@@ -363,10 +368,27 @@ function TunnelVisitorView:draw()
   else
     for i, v in ipairs(self.visitors) do
       if i % 2 == 0 then renderer.draw_rect(x, y - 2, self.size.x, lh + 4, style.line_highlight) end
+      
+      -- IP Column
+      core.push_clip_rect(x, y, col_w[1] - 10, lh)
       renderer.draw_text(style.font, v.ip, x, y, style.text)
+      core.pop_clip_rect()
+      
+      -- Location Column
+      core.push_clip_rect(x + col_w[1], y, col_w[2] - 10, lh)
       renderer.draw_text(style.font, v.location, x + col_w[1], y, style.text)
+      core.pop_clip_rect()
+      
+      -- Time Column
+      core.push_clip_rect(x + col_w[1] + col_w[2], y, col_w[3] - 10, lh)
       renderer.draw_text(style.font, v.time, x + col_w[1] + col_w[2], y, style.dim)
+      core.pop_clip_rect()
+      
+      -- User Agent Column
+      core.push_clip_rect(x + col_w[1] + col_w[2] + col_w[3], y, self.size.x - (x + col_w[1] + col_w[2] + col_w[3]), lh)
       renderer.draw_text(style.font, v.userAgent, x + col_w[1] + col_w[2] + col_w[3], y, style.dim)
+      core.pop_clip_rect()
+      
       y = y + lh + 4
     end
   end
