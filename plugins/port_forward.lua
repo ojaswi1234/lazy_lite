@@ -104,7 +104,10 @@ local function start_forward(idx)
        end)
      end
      local exe_ext = (PLATFORM == "Windows") and ".exe" or ""
-     local go_cmd = string.format('"%s/plugins/tunnel_monitor/proxy%s" %s %s', USERDIR, exe_ext, fw.proxy_port, fw.target_port)
+     if not fw.auth_pin then
+       fw.auth_pin = string.format("%04d", math.random(1000, 9999))
+     end
+     local go_cmd = string.format('"%s/plugins/tunnel_monitor/proxy%s" %s %s %s', USERDIR, exe_ext, fw.proxy_port, fw.target_port, fw.auth_pin)
      local go_args = parse_cmd(go_cmd)
      pcall(function() fw.proxy_proc = process.start(go_args) end)
   end
@@ -201,6 +204,7 @@ function PortForwardView:update()
               if system.set_clipboard then system.set_clipboard("https://" .. url) end
               fw.output = fw.output .. "\n======================================================\n" ..
                           "[PUBLIC URL] https://" .. url .. "\n" ..
+                          "[AUTH PIN]   " .. fw.auth_pin .. "\n" ..
                           "[NOTE] Pinggy free tier tunnels expire after 60 minutes.\n" ..
                           "(Automatically copied to clipboard!)\n" ..
                           "======================================================\n"
@@ -224,7 +228,7 @@ function PortForwardView:update()
                 or fw.raw_output:match('https://([%w%-%.]+%.lhr%.rocks)')
             if url and url ~= "localhost" then
               if system.set_clipboard then system.set_clipboard("https://" .. url) end
-              fw.output = fw.output .. "\n======================================================\n[PUBLIC URL] https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
+              fw.output = fw.output .. "\n======================================================\n[PUBLIC URL] https://" .. url .. "\n[AUTH PIN]   " .. fw.auth_pin .. "\n(Automatically copied to clipboard!)\n======================================================\n"
               fw.url_printed = true
               fw.restart_count = 0
             end

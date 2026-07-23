@@ -141,11 +141,15 @@ func isIgnored(path string) bool {
 
 func main() {
 	if len(os.Args) < 3 {
-		log.Fatal("Usage: proxy <listenPort> <targetPort>")
+		log.Fatal("Usage: proxy <listenPort> <targetPort> [authToken]")
 	}
 
 	listenPort := os.Args[1]
 	targetPort := os.Args[2]
+	authToken := ""
+	if len(os.Args) >= 4 {
+		authToken = os.Args[3]
+	}
 
 	exePath, _ := os.Executable()
 	logFile = filepath.Join(filepath.Dir(exePath), "visitors.json")
@@ -188,6 +192,36 @@ func main() {
 	}
 
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authToken != "" {
+			if r.Method == "POST" && r.URL.Path == "/__tunnel_auth" {
+				r.ParseForm()
+				token := r.FormValue("token")
+				if token == authToken {
+					http.SetCookie(w, &http.Cookie{
+						Name:     "tunnel_auth",
+						Value:    token,
+						Path:     "/",
+						HttpOnly: true,
+						MaxAge:   86400,
+					})
+					http.Redirect(w, r, "/", http.StatusFound)
+				} else {
+					w.Header().Set("Content-Type", "text/html")
+					w.WriteHeader(http.StatusUnauthorized)
+					w.Write([]byte(`<!DOCTYPE html><html><head><title>Auth Required</title><style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;padding:32px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);text-align:center}input{padding:10px 16px;border-radius:6px;border:1px solid #ef4444;background:#0f172a;color:#e2e8f0;width:200px}button{padding:10px 24px;border-radius:6px;border:none;background:#3b82f6;color:white;cursor:pointer;margin-top:12px}</style></head><body><div class="card"><h2>🔒 LazyLite Tunnel</h2><p style="color:#ef4444">Invalid access token.</p><form method="POST" action="/__tunnel_auth"><input type="password" name="token" placeholder="Token" autofocus><br><button type="submit">Try Again</button></form></div></body></html>`))
+				}
+				return
+			}
+
+			cookie, _ := r.Cookie("tunnel_auth")
+			if cookie == nil || cookie.Value != authToken {
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`<!DOCTYPE html><html><head><title>Auth Required</title><style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;padding:32px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);text-align:center}input{padding:10px 16px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;width:200px}button{padding:10px 24px;border-radius:6px;border:none;background:#3b82f6;color:white;cursor:pointer;margin-top:12px}</style></head><body><div class="card"><h2>🔒 LazyLite Tunnel</h2><p>Enter access token to continue</p><form method="POST" action="/__tunnel_auth"><input type="password" name="token" placeholder="Token" autofocus><br><button type="submit">Access</button></form></div></body></html>`))
+				return
+			}
+		}
+
 		rawIP := r.Header.Get("X-Forwarded-For")
 		if rawIP != "" {
 			ip := strings.TrimSpace(strings.Split(rawIP, ",")[0])
