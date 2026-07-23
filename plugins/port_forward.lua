@@ -200,6 +200,7 @@ function PortForwardView:update()
                 break
               end
             end
+            if url and url ~= "localhost" then
               local display_url = url
               if url:match("pinggy") then display_url = "lazy:lite@" .. url end
               if system.set_clipboard then system.set_clipboard("https://" .. display_url) end
