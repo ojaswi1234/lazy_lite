@@ -112,7 +112,7 @@ end
 function PortForwardView:update()
   PortForwardView.super.update(self)
   local needs_redraw = false
-  for _, fw in ipairs(forwards) do
+  for idx, fw in ipairs(forwards) do
     if fw.proc then
       local ok, running = pcall(function() return fw.proc:running() end)
       
@@ -151,6 +151,13 @@ function PortForwardView:update()
       if ok and not running then
         fw.proc = nil
         fw.output = fw.output .. "\nProcess exited.\n"
+        -- Auto-reconnect with backoff if this was a tunnel that should be running
+        if fw.auto_restart and (not fw.last_restart or os.time() - fw.last_restart > 5) then
+          fw.last_restart = os.time()
+          fw.output = fw.output .. "Auto-reconnecting...\n"
+          core.log("Tunnel '%s' died — auto-reconnecting...", fw.name)
+          start_forward(idx)
+        end
         needs_redraw = true
       end
     end
@@ -384,22 +391,42 @@ command.add(nil, {
           if f then
             local content = f:read("*a")
             f:close()
+            local modified = false
+            
+            -- 1. Patch allowedHosts
             if not content:match("allowedHosts%s*:") then
               local new_content, count = content:gsub("server%s*:%s*%{", "server: { allowedHosts: true,")
               if count == 0 then
                 new_content = content:gsub("defineConfig%s*%(%s*%{", "defineConfig({\n  server: { allowedHosts: true },")
               end
               if new_content ~= content then
-                local fw = io.open(path, "w")
-                if fw then
-                   fw:write(new_content)
-                   fw:close()
-                   core.log("Auto-patched vite.config." .. ext .. " to allow public tunnels!")
-                end
-                end
+                content = new_content
+                modified = true
+              end
+            end
+            
+            -- 2. Patch HMR clientPort
+            if not content:match("clientPort") then
+              local new_content, count = content:gsub("server%s*:%s*%{", "server: { hmr: { clientPort: 443 },")
+              if count == 0 then
+                new_content = content:gsub("defineConfig%s*%(%s*%{", "defineConfig({\n  server: { hmr: { clientPort: 443 } },")
+              end
+              if new_content ~= content then
+                content = new_content
+                modified = true
+              end
+            end
+            
+            if modified then
+              local fw = io.open(path, "w")
+              if fw then
+                fw:write(content)
+                fw:close()
+                core.log("Auto-patched vite.config." .. ext .. " for public tunneling (HMR + Allowed Hosts)!")
               end
             end
           end
+        end
 
           -- Automatically patch Python Django configs to prevent DisallowedHost errors
           -- (Note: Flask, FastAPI, Go, and Java Spring Boot do NOT block hosts by default, so they already work out of the box!)
@@ -430,8 +457,23 @@ command.add(nil, {
           local proxy_port = local_port + 10000
 
           -- Use SSH tunneling with --output json to reliably get the URL without a TTY on Windows
-        local cmd = string.format('ssh -o StrictHostKeyChecking=accept-new -R 80:127.0.0.1:%s localhost.run -- --output json', proxy_port)
-        table.insert(forwards, { name = "Public Tunnel (Port " .. local_port .. ")", cmd = cmd, output = "Press Enter/Double-click to start.\n", proc = nil, url_printed = false, target_port = local_port, proxy_port = proxy_port })
+        local cmd = string.format(
+          'ssh -o StrictHostKeyChecking=accept-new' ..
+          ' -o ServerAliveInterval=30' ..
+          ' -o ServerAliveCountMax=3' ..
+          ' -o ExitOnForwardFailure=yes' ..
+          ' -o ConnectTimeout=10' ..
+          ' -N -R 80:localhost:%s localhost.run -- --output json', proxy_port)
+        table.insert(forwards, { 
+          name = "Public Tunnel (Port " .. local_port .. ")", 
+          cmd = cmd, 
+          output = "Press Enter/Double-click to start.\n", 
+          proc = nil, 
+          url_printed = false, 
+          target_port = local_port, 
+          proxy_port = proxy_port,
+          auto_restart = true 
+        })
         core.log("Added Public Tunnel for port: %s", local_port)
       end
     })

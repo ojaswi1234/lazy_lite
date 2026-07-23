@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -96,6 +97,15 @@ func main() {
 	targetURL, _ := url.Parse(fmt.Sprintf("http://localhost:%s", targetPort))
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	
+	// NEW: Add custom transport with timeouts to prevent hangs
+	proxy.Transport = &http.Transport{
+		ResponseHeaderTimeout: 10 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+		DialContext: (&net.Dialer{
+			Timeout: 5 * time.Second,
+		}).DialContext,
+	}
+	
 	// Ensure Host header matches target (critical for Vite/Django)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
@@ -131,6 +141,39 @@ func main() {
 				}
 			}
 		}
+
+		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+			targetConn, err := net.Dial("tcp", "localhost:"+targetPort)
+			if err != nil {
+				http.Error(w, "Bad Gateway", http.StatusBadGateway)
+				return
+			}
+			defer targetConn.Close()
+
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
+				return
+			}
+			clientConn, _, err := hj.Hijack()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer clientConn.Close()
+
+			err = r.Write(targetConn)
+			if err != nil {
+				return
+			}
+
+			go func() {
+				io.Copy(targetConn, clientConn)
+			}()
+			io.Copy(clientConn, targetConn)
+			return
+		}
+
 		proxy.ServeHTTP(w, r)
 	})
 
