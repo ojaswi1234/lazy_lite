@@ -172,8 +172,10 @@ function PortForwardView:update()
           out = fw.proc:read() or ""
         end
       end)
-      
       if #out > 0 then 
+        -- Strip ANSI escape sequences (e.g. localhost.run QR code colors) to prevent '?' rendering in the UI
+        out = out:gsub("\27%[[%d;]*[a-zA-Z]", "")
+        
         fw.output = fw.output .. out 
         fw.raw_output = (fw.raw_output or "") .. out
         
