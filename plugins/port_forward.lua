@@ -257,7 +257,7 @@ function PortForwardView:update()
             fw.initial_retries = (fw.initial_retries or 0) + 1
           end
           if not fw.url_printed and fw.initial_retries > 3 then
-            fw.output = fw.output .. "Failed to connect after 3 attempts. Port 22 might be blocked, or network is down.\n"
+            fw.output = fw.output .. "Failed to connect after 3 attempts. Network might be down or SSH is blocked.\n"
           else
             fw.restart_count = (fw.restart_count or 0) + 1
             if fw.restart_count <= 15 then
@@ -573,7 +573,7 @@ command.add(nil, {
 
           -- Use SSH tunneling with --output json to reliably get the URL without a TTY on Windows
         local cmd = string.format(
-          'ssh -p 443 -o StrictHostKeyChecking=accept-new' ..
+          'ssh -o StrictHostKeyChecking=accept-new' ..
           ' -o ServerAliveInterval=60' ..
           ' -o ServerAliveCountMax=10' ..
           ' -o ExitOnForwardFailure=yes' ..
