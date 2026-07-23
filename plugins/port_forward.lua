@@ -191,16 +191,19 @@ function PortForwardView:update()
           end
         end
         
-        if fw.cmd:match("localhost%.run") and not fw.url_printed then
-          local url = fw.raw_output:match('https://([%w%-%.]+%.lhr%.life)')
-              or fw.raw_output:match('https://([%w%-%.]+%.localhost%.run)')
-              or fw.raw_output:match('https://([%w%-%.]+%.lhr%.rocks)')
+        if fw.cmd:match("pinggy%.io") and not fw.url_printed then
+          local url = fw.raw_output:match('https://([%w%-%.]+%.pinggy%.link)')
+              or fw.raw_output:match('https://([%w%-%.]+%.pinggy%.online)')
           if url and url ~= "localhost" then
             -- Auto-copy to clipboard for frictionless usage
             if system.set_clipboard then system.set_clipboard("https://" .. url) end
             
             -- Just append the URL highlight, don't wipe the raw logs
-            fw.output = fw.output .. "\n======================================================\n🌍 PUBLIC URL: https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
+            fw.output = fw.output .. "\n======================================================\n" ..
+                        "🌍 PUBLIC URL: https://" .. url .. "\n" ..
+                        "⚠️ Note: Pinggy free tier tunnels expire after 60 minutes.\n" ..
+                        "(Automatically copied to clipboard!)\n" ..
+                        "======================================================\n"
             fw.url_printed = true
             fw.restart_count = 0
           end
@@ -230,9 +233,9 @@ function PortForwardView:update()
         end
       end
 
-      -- EC6: Force reconnect after 1 hour to prevent localhost.run domain rotation staleness
+      -- EC6: Force reconnect after 1 hour to prevent pinggy domain rotation staleness
       if running and fw.auto_restart and fw.start_time and os.time() - fw.start_time > 3600 then
-        fw.output = fw.output .. "Domain might be rotating, forcing reconnect...\n"
+        fw.output = fw.output .. "Tunnel reached 60-minute free tier limit, forcing reconnect...\n"
         if fw.proxy_proc then
           pcall(function()
             if fw.proxy_proc.terminate then fw.proxy_proc:terminate()
@@ -571,15 +574,15 @@ command.add(nil, {
 
           local proxy_port = local_port + 10000
 
-          -- Use SSH tunneling with --output json to reliably get the URL without a TTY on Windows
+          -- Use SSH tunneling to pinggy.io
         local cmd = string.format(
-          'ssh -o StrictHostKeyChecking=accept-new' ..
+          'ssh -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=' .. ((PLATFORM == "Windows") and "NUL" or "/dev/null") ..
           ' -o ServerAliveInterval=60' ..
           ' -o ServerAliveCountMax=10' ..
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=15' ..
           ' -o LogLevel=ERROR' ..
-          ' -R 80:localhost:%s localhost.run', proxy_port)
+          ' -R 0:localhost:%s free@a.pinggy.io', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
