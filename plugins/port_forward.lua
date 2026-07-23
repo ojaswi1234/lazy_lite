@@ -184,6 +184,7 @@ function PortForwardView:update()
             -- Clean the UI by wiping the raw JSON/QR code from the log and showing just the URL
             fw.output = "Started command: " .. fw.cmd .. "\n\n======================================================\n🌍 PUBLIC URL: https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
             fw.url_printed = true
+            fw.restart_count = 0
           end
         end
         
@@ -527,7 +528,7 @@ command.add(nil, {
           ' -o ServerAliveCountMax=3' ..
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=10' ..
-          ' -N -R 80:localhost:%s localhost.run -- --output json', proxy_port)
+          ' -R 80:localhost:%s localhost.run -- --output json', proxy_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
