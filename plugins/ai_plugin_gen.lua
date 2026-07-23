@@ -221,6 +221,7 @@ local function parse_plan(text)
     shortcuts  = shortcuts,
     hooks      = hooks,
     testing    = split_bullets(etag(text,"TESTING")),
+    edge_cases = split_bullets(etag(text,"EDGE_CASES")),
     files      = files,
     github_repos = split_bullets(etag(text,"GITHUB_REPOS")),
     integration = etag(text,"INTEGRATION") or "Independent Plugin",
@@ -359,10 +360,16 @@ function AIPluginGen:draw_describe()
 
   -- Buttons row
   local bh = sp(32)
-  local bw_gen = w - pad*2
+  local bw_paste = sp(100)
+  local bw_gen = w - pad*2 - bw_paste - sp(10)
+  
+  local hov_paste = self.hovered == "paste"
+  draw_btn(cx, cy, bw_paste, bh, "\u{f0ea}  Paste", hov_paste, style.background3 or c(70,70,70))
+  table.insert(self.buttons, {x=cx, y=cy, w=bw_paste, h=bh, id="paste"})
+  
   local hov_gen = self.hovered == "generate"
-  draw_btn(cx, cy, bw_gen, bh, "\u{f135}  Generate Plan", hov_gen, c(60,160,100))
-  table.insert(self.buttons, {x=cx, y=cy, w=bw_gen, h=bh, id="generate"})
+  draw_btn(cx + bw_paste + sp(10), cy, bw_gen, bh, "\u{f135}  Generate Plan", hov_gen, c(60,160,100))
+  table.insert(self.buttons, {x=cx + bw_paste + sp(10), y=cy, w=bw_gen, h=bh, id="generate"})
   cy = cy + bh + sp(20)
 
   -- Divider
@@ -613,6 +620,20 @@ function AIPluginGen:draw_plan()
     end)
   end
 
+  if plan.edge_cases and #plan.edge_cases > 0 then
+    left_y = bento(left_x, left_y, left_w, c(220,100,50), function(sx, sy, cw_c, m)
+      sy = d_header(m, "\u{f071}  Critical Edge Cases", sx, sy, c(220,100,50))
+      for _, it in ipairs(plan.edge_cases) do
+        d_icon(m, font, "\u{f0da}", sx, sy, style.dim)
+        for _, ln in ipairs(wrap_text(font, it, cw_c - sp(16))) do
+          d_text(m, font, ln, sx + sp(16), sy, style.text); sy = sy + fh + sp(4)
+        end
+        sy = sy + sp(4)
+      end
+      return sy
+    end)
+  end
+
   if plan.design ~= "" then
     left_y = bento(left_x, left_y, left_w, c(180,100,200), function(sx, sy, cw_c, m)
       sy = d_header(m, "\u{f1fb}  Sample Design", sx, sy, c(180,100,200))
@@ -760,11 +781,23 @@ function AIPluginGen:draw_plan()
 
   if #plan.github_repos > 0 then
     right_y = bento(right_x, right_y, right_w, c(150,150,220), function(sx, sy, cw_c, m)
-      sy = d_header(m, "\u{f09b}  Related GitHub Repos", sx, sy, c(150,150,220))
-      for _, repo in ipairs(plan.github_repos) do
+      sy = d_header(m, "\u{f09b}  Related GitHub Repos & Tools", sx, sy, c(150,150,220))
+      for i, repo in ipairs(plan.github_repos) do
         d_icon(m, font, "\u{f126}", sx, sy, style.dim)
-        for _, ln in ipairs(wrap_text(font, repo, cw_c - sp(24))) do
+        local url = repo:match("https?://[%w-_%.%?%.:/%%+=&]+")
+        local text_to_draw = repo
+        if url then text_to_draw = repo:gsub("https?://[%w-_%.%?%.:/%%+=&]+", "") end
+        
+        for _, ln in ipairs(wrap_text(font, text_to_draw, cw_c - sp(24))) do
           d_text(m, font, ln, sx + sp(24), sy, style.text); sy = sy + fh + sp(4)
+        end
+        if url and not m then
+          local btn_w = math.min(cw_c - sp(24), font:get_width(url) + sp(30))
+          draw_btn(sx + sp(24), sy, btn_w, fh + sp(8), "\u{f08e} Open Link", self.hovered == ("repo_btn_"..i))
+          table.insert(self.buttons, {x=sx + sp(24), y=sy, w=btn_w, h=fh + sp(8), id="repo_btn_"..i, url=url})
+          sy = sy + fh + sp(12)
+        elseif url and m then
+          sy = sy + fh + sp(12)
         end
         sy = sy + sp(4)
       end
@@ -966,6 +999,12 @@ function AIPluginGen:handle_click(id)
     end
     self:do_generate_plan()
 
+  elseif id == "paste" then
+    local text = system.get_clipboard()
+    if text then
+      self.doc:text_input(text)
+    end
+
   elseif id == "approve" then
     self:do_build()
 
@@ -1029,6 +1068,14 @@ function AIPluginGen:handle_click(id)
       table.remove(store.installed, i)
       save_store(); core.redraw = true
     end
+
+  elseif id:match("^repo_btn_%d+$") then
+    for _, btn in ipairs(self.buttons) do
+      if btn.id == id and btn.url then
+        local cmd = PLATFORM == "Windows" and ('start "" "' .. btn.url .. '"') or ('xdg-open "' .. btn.url .. '"')
+        os.execute(cmd)
+      end
+    end
   end
 end
 
@@ -1079,6 +1126,10 @@ Respond with ONLY the exact structured format. No preamble, no extra text.
 [CHALLENGES_EASY]
 - easy challenge
 [/CHALLENGES_EASY]
+[EDGE_CASES]
+- edge case 1
+- edge case 2
+[/EDGE_CASES]
 [DESIGN]
 ╔═══════════════════════════════╗
 ║  Plugin UI Sample             ║
@@ -1147,14 +1198,9 @@ function AIPluginGen:do_build()
   end
 
   local prompt = ([[
-Write a COMPLETE, WORKING Lite XL plugin in Lua.
+Write a COMPLETE, WORKING Lite XL plugin in Lua based on the following approved plan:
 
-Plugin name:  %s
-Overview:     %s
-Complexity:   %d/10
-Dependencies: %s
-API hooks:    %s
-Output files: %s
+%s
 
 Rules:
 1. First line MUST be: -- mod-version:3
@@ -1172,8 +1218,7 @@ Output the COMPLETE Lua source between [PLUGIN_CODE] and [/PLUGIN_CODE] tags ONL
 [PLUGIN_CODE]
 -- write complete plugin code here
 [/PLUGIN_CODE]
-]]):format(plan.name, plan.overview, plan.complexity, plan.deps,
-    table.concat(plan.hooks,", "), table.concat(plan.files,", "), sc_hints)
+]]):format(plan.raw, sc_hints)
 
   self.build_step = 1
 
