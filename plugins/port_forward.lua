@@ -200,8 +200,8 @@ function PortForwardView:update()
             if url and url ~= "localhost" then
               if system.set_clipboard then system.set_clipboard("https://" .. url) end
               fw.output = fw.output .. "\n======================================================\n" ..
-                          "🌍 PUBLIC URL: https://" .. url .. "\n" ..
-                          "⚠️ Note: Pinggy free tier tunnels expire after 60 minutes.\n" ..
+                          "[PUBLIC URL] https://" .. url .. "\n" ..
+                          "[NOTE] Pinggy free tier tunnels expire after 60 minutes.\n" ..
                           "(Automatically copied to clipboard!)\n" ..
                           "======================================================\n"
               fw.url_printed = true
@@ -224,7 +224,7 @@ function PortForwardView:update()
                 or fw.raw_output:match('https://([%w%-%.]+%.lhr%.rocks)')
             if url and url ~= "localhost" then
               if system.set_clipboard then system.set_clipboard("https://" .. url) end
-              fw.output = fw.output .. "\n======================================================\n🌍 PUBLIC URL: https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
+              fw.output = fw.output .. "\n======================================================\n[PUBLIC URL] https://" .. url .. "\n(Automatically copied to clipboard!)\n======================================================\n"
               fw.url_printed = true
               fw.restart_count = 0
             end
@@ -347,7 +347,7 @@ function TunnelVisitorView:draw()
   local y = oy + style.padding.y
   core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
   
-  renderer.draw_text(style.big_font or style.font, "🕵️ Tunnel Visitor Analytics", x, y, style.accent)
+  renderer.draw_text(style.big_font or style.font, "[Analytics] Tunnel Visitors", x, y, style.accent)
   y = y + (style.big_font and style.big_font:get_height() or lh) + style.padding.y * 2
   
   local col_w = { 150, 200, 220, 400 }
