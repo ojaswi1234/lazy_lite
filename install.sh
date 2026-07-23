@@ -250,6 +250,8 @@ if [ -d "$SRC_DIR/plugins/lsp" ];          then cp -rf "$SRC_DIR/plugins/lsp"   
 if [ -d "$SRC_DIR/plugins/widget" ];       then cp -rf "$SRC_DIR/plugins/widget"       "$CONFIG_DIR/plugins/"; fi
 if [ -d "$SRC_DIR/plugins/lintplus" ];     then cp -rf "$SRC_DIR/plugins/lintplus"     "$CONFIG_DIR/plugins/"; fi
 if [ -d "$SRC_DIR/plugins/loader_games" ]; then cp -rf "$SRC_DIR/plugins/loader_games" "$CONFIG_DIR/plugins/"; fi
+if [ -d "$SRC_DIR/plugins/tunnel_monitor" ]; then cp -rf "$SRC_DIR/plugins/tunnel_monitor" "$CONFIG_DIR/plugins/"; fi
+if [ -d "$SRC_DIR/plugins/python_runtime" ]; then cp -rf "$SRC_DIR/plugins/python_runtime" "$CONFIG_DIR/plugins/"; fi
 echo "Copied plugins, scripts, fonts, and color scheme."
 
 # Update init.lua safely (append LazyLite block if not already present)

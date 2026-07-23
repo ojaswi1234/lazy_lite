@@ -125,6 +125,8 @@ if exist "%SRC_DIR%plugins\lsp"          xcopy /e /i /y "%SRC_DIR%plugins\lsp"  
 if exist "%SRC_DIR%plugins\widget"       xcopy /e /i /y "%SRC_DIR%plugins\widget"       "%CONFIG_DIR%\plugins\widget"       >nul
 if exist "%SRC_DIR%plugins\lintplus"     xcopy /e /i /y "%SRC_DIR%plugins\lintplus"     "%CONFIG_DIR%\plugins\lintplus"     >nul
 if exist "%SRC_DIR%plugins\loader_games" xcopy /e /i /y "%SRC_DIR%plugins\loader_games" "%CONFIG_DIR%\plugins\loader_games" >nul
+if exist "%SRC_DIR%plugins\tunnel_monitor" xcopy /e /i /y "%SRC_DIR%plugins\tunnel_monitor" "%CONFIG_DIR%\plugins\tunnel_monitor" >nul
+if exist "%SRC_DIR%plugins\python_runtime" xcopy /e /i /y "%SRC_DIR%plugins\python_runtime" "%CONFIG_DIR%\plugins\python_runtime" >nul
 echo Copied plugins, scripts, fonts, and color scheme.
 
 :: Update init.lua safely (append LazyLite block if not already present)

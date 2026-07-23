@@ -204,6 +204,12 @@ if (Test-Path "$srcDir\plugins\lintplus") {
 if (Test-Path "$srcDir\plugins\loader_games") {
     Copy-Item -Path "$srcDir\plugins\loader_games" -Destination "$configDir\plugins\loader_games" -Recurse -Force
 }
+if (Test-Path "$srcDir\plugins\tunnel_monitor") {
+    Copy-Item -Path "$srcDir\plugins\tunnel_monitor" -Destination "$configDir\plugins\tunnel_monitor" -Recurse -Force
+}
+if (Test-Path "$srcDir\plugins\python_runtime") {
+    Copy-Item -Path "$srcDir\plugins\python_runtime" -Destination "$configDir\plugins\python_runtime" -Recurse -Force
+}
 Write-Host "Copied plugins, scripts, fonts, and color scheme."
 
 # Update init.lua safely (append LazyLite block if not already present)
