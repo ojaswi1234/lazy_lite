@@ -44,6 +44,67 @@ var (
 	logFile  string
 )
 
+const authHTMLTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LazyLite Tunnel Auth</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      --card-bg: rgba(30, 41, 59, 0.6);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --error: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', system-ui, sans-serif; min-height: 100vh; display: flex; justify-content: center; align-items: center; background: var(--bg-gradient); background-size: 400% 400%; animation: gradientBG 15s ease infinite; color: var(--text); padding: 20px; }
+    @keyframes gradientBG { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+    .auth-container { background: var(--card-bg); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid var(--card-border); border-radius: 24px; padding: 48px 40px; width: 100%; max-width: 420px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); animation: slideUp 0.6s cubic-bezier(0.16,1,0.3,1); }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .icon-wrapper { width: 64px; height: 64px; background: rgba(99,102,241,0.1); border-radius: 50%; display: flex; justify-content: center; align-items: center; margin: 0 auto 24px; border: 1px solid rgba(99,102,241,0.2); }
+    .icon-wrapper svg { width: 28px; height: 28px; fill: var(--primary); }
+    h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; letter-spacing: -0.5px; }
+    p { color: var(--text-muted); font-size: 15px; margin-bottom: 32px; line-height: 1.5; }
+    .form-group { position: relative; margin-bottom: 24px; }
+    input { width: 100%; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 16px 20px; color: white; font-size: 16px; font-family: inherit; transition: all 0.3s ease; outline: none; text-align: center; letter-spacing: 2px; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(99,102,241,0.15); }
+    input::placeholder { color: #475569; letter-spacing: normal; }
+    button { width: 100%; background: var(--primary); color: white; border: none; border-radius: 12px; padding: 16px; font-size: 16px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s ease; display: flex; justify-content: center; align-items: center; gap: 8px; }
+    button:hover { background: var(--primary-hover); transform: translateY(-1px); }
+    button:active { transform: translateY(1px); }
+    button svg { width: 18px; height: 18px; fill: currentColor; }
+    .error-msg { color: var(--error); font-size: 14px; margin-bottom: 20px; animation: shake 0.5s; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); padding: 10px; border-radius: 8px; font-weight: 500; }
+    @keyframes shake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-4px);} 75%{transform:translateX(4px);} }
+    @media (max-width: 480px) { .auth-container { padding: 40px 24px; border-radius: 20px; } h1 { font-size: 22px; } }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="icon-wrapper">
+      <svg viewBox="0 0 24 24"><path d="M12 2C9.243 2 7 4.243 7 7v3H6c-1.103 0-2 .897-2 2v8c0 1.103.897 2 2 2h12c1.103 0 2-.897 2-2v-8c0-1.103-.897-2-2-2h-1V7c0-2.757-2.243-5-5-5zm-3 5c0-1.654 1.346-3 3-3s3 1.346 3 3v3H9V7zm9 13H6v-8h12v8z"/><circle cx="12" cy="16" r="2"/></svg>
+    </div>
+    <h1>LazyLite Tunnel</h1>
+    <p>Please enter your access PIN to<br>connect to the local environment.</p>
+    {{ERROR_PLACEHOLDER}}
+    <form method="POST" action="/__tunnel_auth">
+      <div class="form-group">
+        <input type="password" name="token" placeholder="Enter PIN..." autofocus required autocomplete="off">
+      </div>
+      <button type="submit">
+        Authenticate
+        <svg viewBox="0 0 24 24"><path d="M10.707 17.707 16.414 12l-5.707-5.707-1.414 1.414L13.586 12l-4.293 4.293z"/></svg>
+      </button>
+    </form>
+  </div>
+</body>
+</html>`
+
 func saveLog() {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -208,7 +269,8 @@ func main() {
 				} else {
 					w.Header().Set("Content-Type", "text/html")
 					w.WriteHeader(http.StatusUnauthorized)
-					w.Write([]byte(`<!DOCTYPE html><html><head><title>Auth Required</title><style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;padding:32px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);text-align:center}input{padding:10px 16px;border-radius:6px;border:1px solid #ef4444;background:#0f172a;color:#e2e8f0;width:200px}button{padding:10px 24px;border-radius:6px;border:none;background:#3b82f6;color:white;cursor:pointer;margin-top:12px}</style></head><body><div class="card"><h2>🔒 LazyLite Tunnel</h2><p style="color:#ef4444">Invalid access token.</p><form method="POST" action="/__tunnel_auth"><input type="password" name="token" placeholder="Token" autofocus><br><button type="submit">Try Again</button></form></div></body></html>`))
+					html := strings.Replace(authHTMLTemplate, "{{ERROR_PLACEHOLDER}}", `<div class="error-msg">Incorrect PIN. Please try again.</div>`, 1)
+					w.Write([]byte(html))
 				}
 				return
 			}
@@ -217,7 +279,8 @@ func main() {
 			if cookie == nil || cookie.Value != authToken {
 				w.Header().Set("Content-Type", "text/html")
 				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`<!DOCTYPE html><html><head><title>Auth Required</title><style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;padding:32px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);text-align:center}input{padding:10px 16px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;width:200px}button{padding:10px 24px;border-radius:6px;border:none;background:#3b82f6;color:white;cursor:pointer;margin-top:12px}</style></head><body><div class="card"><h2>🔒 LazyLite Tunnel</h2><p>Enter access token to continue</p><form method="POST" action="/__tunnel_auth"><input type="password" name="token" placeholder="Token" autofocus><br><button type="submit">Access</button></form></div></body></html>`))
+				html := strings.Replace(authHTMLTemplate, "{{ERROR_PLACEHOLDER}}", "", 1)
+				w.Write([]byte(html))
 				return
 			}
 		}
