@@ -143,6 +143,24 @@ func main() {
 		}
 
 		if strings.ToLower(r.Header.Get("Upgrade")) == "websocket" {
+			rawIP := r.Header.Get("X-Forwarded-For")
+			if rawIP != "" {
+				ip := strings.TrimSpace(strings.Split(rawIP, ",")[0])
+				if ip != "" && ip != "127.0.0.1" && ip != "::1" {
+					mutex.Lock()
+					if !seenIPs[ip] {
+						seenIPs[ip] = true
+						mutex.Unlock()
+						ua := r.Header.Get("User-Agent")
+						if ua == "" { ua = "Unknown" }
+						if len(ua) > 50 { ua = ua[:47] + "..." }
+						go fetchGeoAndLog(ip, ua)
+					} else {
+						mutex.Unlock()
+					}
+				}
+			}
+
 			targetConn, err := net.Dial("tcp", "localhost:"+targetPort)
 			if err != nil {
 				http.Error(w, "Bad Gateway", http.StatusBadGateway)

@@ -16,6 +16,45 @@ local process = has_process and process_module or _G.process
 
 local forwards = {}
 
+local config_path = USERDIR .. "/plugins/tunnel_monitor/rules.lua"
+
+local function save_rules()
+  local f = io.open(config_path, "w")
+  if not f then return end
+  f:write("return {\n")
+  for _, fw in ipairs(forwards) do
+    f:write(string.format("  { name = %q, cmd = %q, target_port = %s, proxy_port = %s, auto_restart = %s },\n", 
+      fw.name, fw.cmd, fw.target_port or "nil", fw.proxy_port or "nil", tostring(fw.auto_restart)))
+  end
+  f:write("}\n")
+  f:close()
+end
+
+local function load_rules()
+  local f = io.open(config_path, "r")
+  if not f then return end
+  f:close()
+  local ok, data = pcall(dofile, config_path)
+  if ok and type(data) == "table" then
+    forwards = {}
+    for _, item in ipairs(data) do
+      table.insert(forwards, {
+        name = item.name,
+        cmd = item.cmd,
+        output = "Press Enter/Double-click to start.\n",
+        proc = nil,
+        url_printed = false,
+        target_port = item.target_port,
+        proxy_port = item.proxy_port,
+        auto_restart = item.auto_restart
+      })
+    end
+  end
+end
+
+-- Load rules on init
+load_rules()
+
 -- Helper to safely parse command strings respecting quotes
 local function parse_cmd(cmd_str)
   local args = {}
@@ -499,6 +538,7 @@ command.add(nil, {
           proxy_port = proxy_port,
           auto_restart = true 
         })
+        save_rules()
         core.log("Added Public Tunnel for port: %s", local_port)
       end
     })
@@ -531,7 +571,8 @@ command.add(nil, {
                     
                     -- Auto-generate secure command based on standard local forwarding
                     local cmd = string.format("ssh -N -L %s:localhost:%s %s", local_port, remote_port, host)
-                    table.insert(forwards, { name = name, cmd = cmd, output = "Press Enter/Double-click to start.\\n", proc = nil })
+                    table.insert(forwards, { name = name, cmd = cmd, output = "Press Enter/Double-click to start.\n", proc = nil })
+                    save_rules()
                     core.log("Added secure port forward: %s", name)
                   end
                 })
@@ -556,6 +597,7 @@ command.add(PortForwardView, {
     if view.selected_idx and forwards[view.selected_idx] then
       stop_forward(view.selected_idx)
       table.remove(forwards, view.selected_idx)
+      save_rules()
       view.selected_idx = math.max(1, math.min(view.selected_idx, #forwards))
       core.redraw = true
     end
