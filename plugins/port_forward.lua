@@ -58,7 +58,8 @@ local function start_forward(idx)
   if #args == 0 then return end
   
   if fw.target_port and fw.proxy_port then
-     local go_cmd = string.format("C:\\Users\\ojasw\\.config\\lite-xl\\plugins\\tunnel_monitor\\proxy.exe %s %s", fw.proxy_port, fw.target_port)
+     local exe_ext = (PLATFORM == "Windows") and ".exe" or ""
+     local go_cmd = string.format('"%s/plugins/tunnel_monitor/proxy%s" %s %s', USERDIR, exe_ext, fw.proxy_port, fw.target_port)
      local go_args = parse_cmd(go_cmd)
      pcall(function() fw.proxy_proc = process.start(go_args) end)
   end
@@ -402,9 +403,7 @@ command.add(nil, {
 
           -- Automatically patch Python Django configs to prevent DisallowedHost errors
           -- (Note: Flask, FastAPI, Go, and Java Spring Boot do NOT block hosts by default, so they already work out of the box!)
-          local function patch_django(dir)
-            local pcall_ok, p = pcall(core.get_plugins) -- Just a dummy way to safely traverse, we can just use a simple glob or find
-          end
+
           -- To keep it simple and fast without blocking the UI with recursive searches, 
           -- we'll check the most common Django project structure: core/settings.py, config/settings.py, backend/settings.py or just settings.py
           local django_paths = {"settings.py", "core/settings.py", "config/settings.py", "backend/settings.py", "app/settings.py", "project/settings.py"}
@@ -431,7 +430,7 @@ command.add(nil, {
           local proxy_port = local_port + 10000
 
           -- Use SSH tunneling with --output json to reliably get the URL without a TTY on Windows
-        local cmd = string.format('ssh -o StrictHostKeyChecking=accept-new -R 80:localhost:%s localhost.run -- --output json', proxy_port)
+        local cmd = string.format('ssh -o StrictHostKeyChecking=accept-new -R 80:127.0.0.1:%s localhost.run -- --output json', proxy_port)
         table.insert(forwards, { name = "Public Tunnel (Port " .. local_port .. ")", cmd = cmd, output = "Press Enter/Double-click to start.\n", proc = nil, url_printed = false, target_port = local_port, proxy_port = proxy_port })
         core.log("Added Public Tunnel for port: %s", local_port)
       end
@@ -439,7 +438,7 @@ command.add(nil, {
   end,
 
   ["port_forward:show-visitors"] = function()
-    local path = "C:\\Users\\ojasw\\.config\\lite-xl\\plugins\\tunnel_monitor\\visitors.json"
+    local path = USERDIR .. "/plugins/tunnel_monitor/visitors.json"
     
     local view = TunnelVisitorView(path)
     core.root_view:get_primary_node():add_view(view)

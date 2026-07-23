@@ -222,6 +222,8 @@ local function parse_plan(text)
     hooks      = hooks,
     testing    = split_bullets(etag(text,"TESTING")),
     files      = files,
+    github_repos = split_bullets(etag(text,"GITHUB_REPOS")),
+    integration = etag(text,"INTEGRATION") or "Independent Plugin",
     raw        = text,
   }
 end
@@ -446,7 +448,14 @@ function AIPluginGen:draw_loading(mode)
   local n_done = mode=="planning"
     and math.min(#PLAN_STEPS, math.floor(elapsed/2))
     or math.min(#BUILD_STEPS, self.build_step or 0)
-  local pct = math.min(0.97, n_done / #steps + (elapsed % 2.0) / (2.0 * #steps))
+    
+  local pct
+  if mode == "planning" then
+    pct = math.min(0.97, n_done / #steps + (elapsed % 2.0) / (2.0 * #steps))
+  else
+    pct = math.min(0.99, n_done / #steps)
+  end
+  
   local bar_w = inner_w
   renderer.draw_rect(cx, cy, bar_w, sp(6), style.background3 or c(50,50,50))
   renderer.draw_rect(cx, cy, math.floor(bar_w*pct), sp(6), pc)
@@ -455,9 +464,15 @@ function AIPluginGen:draw_loading(mode)
 
   -- Checklist
   for i, step in ipairs(steps) do
-    local step_elapsed = elapsed - (i-1) * (mode=="planning" and 2.0 or 5.0)
-    local done   = step_elapsed > 1.5
-    local active = (not done) and step_elapsed > 0
+    local done, active
+    if mode == "planning" then
+      local step_elapsed = elapsed - (i-1) * 2.0
+      done   = step_elapsed > 1.5
+      active = (not done) and step_elapsed > 0
+    else
+      done   = i <= (self.build_step or 0)
+      active = i == (self.build_step or 0) + 1
+    end
     local icon   = done and "\u{f00c}" or (active and spinners[(math.floor(t*8) % #spinners)+1] or "\u{f111}")
     local col    = done and c(80,200,80) or (active and pc or style.dim)
     draw_icon_text(style.font, icon.."  "..step, cx+sp(4), cy, col)
@@ -645,6 +660,14 @@ function AIPluginGen:draw_plan()
     end
     sy = sy + sp(6)
     
+    local lbl3 = "\u{f12e}  Integration:"
+    d_icon(m, font, lbl3, sx, sy, style.dim)
+    local lw3 = get_icon_text_width(font, lbl3) + sp(12)
+    for _, ln in ipairs(wrap_text(font, plan.integration, cw_c - lw3)) do
+      d_text(m, font, ln, sx + lw3, sy, style.text); sy = sy + fh + sp(2)
+    end
+    sy = sy + sp(6)
+    
     return sy
   end)
 
@@ -727,6 +750,20 @@ function AIPluginGen:draw_plan()
       for _, t2 in ipairs(plan.testing) do
         d_icon(m, font, "\u{f00c}", sx, sy, c(80,200,80))
         for _, ln in ipairs(wrap_text(font, t2, cw_c - sp(24))) do
+          d_text(m, font, ln, sx + sp(24), sy, style.text); sy = sy + fh + sp(4)
+        end
+        sy = sy + sp(4)
+      end
+      return sy
+    end)
+  end
+
+  if #plan.github_repos > 0 then
+    right_y = bento(right_x, right_y, right_w, c(150,150,220), function(sx, sy, cw_c, m)
+      sy = d_header(m, "\u{f09b}  Related GitHub Repos", sx, sy, c(150,150,220))
+      for _, repo in ipairs(plan.github_repos) do
+        d_icon(m, font, "\u{f126}", sx, sy, style.dim)
+        for _, ln in ipairs(wrap_text(font, repo, cw_c - sp(24))) do
           d_text(m, font, ln, sx + sp(24), sy, style.text); sy = sy + fh + sp(4)
         end
         sy = sy + sp(4)

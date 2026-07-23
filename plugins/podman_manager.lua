@@ -509,7 +509,12 @@ function PodmanView:draw()
               submit = function(text)
                 local port_flag = ""
                 if text and text:match("%S") then
-                  port_flag = "-p " .. text:gsub("%s+", "") .. " "
+                  local t = text:match("^%s*(.-)%s*$")
+                  if not t:match("^%-") then
+                    port_flag = "-p " .. t .. " "
+                  else
+                    port_flag = t .. " "
+                  end
                 end
                 
                 local toggle_term = require("plugins.toggle_terminal")

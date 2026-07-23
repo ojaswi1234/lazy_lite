@@ -995,6 +995,13 @@ function TermView:draw_port_manager(x, y, w, h)
   renderer.draw_rect(kill_sel_x, cy, kill_sel_w, ref_h, {common.color "#FB4934"})
   renderer.draw_text(style.font, "Kill Selected", kill_sel_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), {255, 255, 255, 255})
   
+  -- Port Forwarding button
+  local pf_btn_w = style.font:get_width("Port Forwarding") + 20*SCALE
+  local pf_btn_x = kill_sel_x - pf_btn_w - 10*SCALE
+  s.pf_btn_rect = { x = pf_btn_x, y = cy, w = pf_btn_w, h = ref_h }
+  renderer.draw_rect(pf_btn_x, cy, pf_btn_w, ref_h, style.accent or {common.color "#E67E80"})
+  renderer.draw_text(style.font, "Port Forwarding", pf_btn_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), {255, 255, 255, 255})
+  
   cy = cy + 40*SCALE
   
   -- Search Box
@@ -1386,6 +1393,13 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
             end
           end
           self:refresh_ports(s)
+          return true
+        end
+      end
+      if s.pf_btn_rect then
+        local r = s.pf_btn_rect
+        if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+          command.perform("port_forward:toggle")
           return true
         end
       end

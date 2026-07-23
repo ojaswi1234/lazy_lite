@@ -50,6 +50,7 @@ function MarkdownView:new(doc)
   self.fonts = {
     normal = normal_font,
     code = style.code_font,
+    bold = normal_font,
   }
   
   -- Safely try to load varied fonts
