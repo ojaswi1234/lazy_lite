@@ -58,6 +58,12 @@ local function start_forward(idx)
   if #args == 0 then return end
   
   if fw.target_port and fw.proxy_port then
+     if fw.proxy_proc then
+       pcall(function()
+         if fw.proxy_proc.terminate then fw.proxy_proc:terminate()
+         elseif fw.proxy_proc.kill then fw.proxy_proc:kill() end
+       end)
+     end
      local exe_ext = (PLATFORM == "Windows") and ".exe" or ""
      local go_cmd = string.format('"%s/plugins/tunnel_monitor/proxy%s" %s %s', USERDIR, exe_ext, fw.proxy_port, fw.target_port)
      local go_args = parse_cmd(go_cmd)
@@ -67,6 +73,7 @@ local function start_forward(idx)
   local ok, proc = pcall(function() return process.start(args) end)
   if ok and proc then
     fw.proc = proc
+    fw.start_time = os.time()
     fw.output = "Started command: " .. fw.cmd .. "\n"
     core.log("Port forward '%s' started.", fw.name)
   else
@@ -130,8 +137,8 @@ function PortForwardView:update()
         fw.output = fw.output .. out 
         
         if fw.cmd:match("localhost%.run") and not fw.url_printed then
-          local url = fw.output:match('"address":%s*"([^"]+%.lhr%.life)"')
-          if url then
+          local url = fw.output:match('"address":%s*"([^"]+)"')
+          if url and url ~= "localhost" then
             -- Auto-copy to clipboard for frictionless usage
             if system.set_clipboard then system.set_clipboard("https://" .. url) end
             
@@ -148,15 +155,33 @@ function PortForwardView:update()
         end
       end
 
+      -- EC6: Force reconnect after 20 minutes to prevent localhost.run domain rotation staleness
+      if running and fw.auto_restart and fw.start_time and os.time() - fw.start_time > 1200 then
+        fw.output = fw.output .. "Domain might be rotating, forcing reconnect...\n"
+        stop_forward(idx)
+        running = false
+        ok = true
+      end
+
       if ok and not running then
         fw.proc = nil
+        fw.start_time = nil
+        fw.url_printed = false
         fw.output = fw.output .. "\nProcess exited.\n"
-        -- Auto-reconnect with backoff if this was a tunnel that should be running
-        if fw.auto_restart and (not fw.last_restart or os.time() - fw.last_restart > 5) then
-          fw.last_restart = os.time()
-          fw.output = fw.output .. "Auto-reconnecting...\n"
-          core.log("Tunnel '%s' died — auto-reconnecting...", fw.name)
-          start_forward(idx)
+        -- Auto-reconnect with exponential backoff if this was a tunnel that should be running
+        if fw.auto_restart then
+          fw.restart_count = (fw.restart_count or 0) + 1
+          if fw.restart_count <= 15 then
+            local backoff = math.min(300, 2 ^ fw.restart_count)
+            if not fw.last_restart or os.time() - fw.last_restart > backoff then
+              fw.last_restart = os.time()
+              fw.output = fw.output .. "Auto-reconnecting (attempt " .. fw.restart_count .. ")...\n"
+              core.log("Tunnel '%s' died — auto-reconnecting...", fw.name)
+              start_forward(idx)
+            end
+          else
+            fw.output = fw.output .. "Max reconnect retries reached.\n"
+          end
         end
         needs_redraw = true
       end
@@ -405,11 +430,11 @@ command.add(nil, {
               end
             end
             
-            -- 2. Patch HMR clientPort
+            -- 2. Patch HMR clientPort and protocol (supports Vite 5/6 'hmr' and Vite 7 'ws' configs)
             if not content:match("clientPort") then
-              local new_content, count = content:gsub("server%s*:%s*%{", "server: { hmr: { clientPort: 443 },")
+              local new_content, count = content:gsub("server%s*:%s*%{", "server: { ws: { clientPort: 443, protocol: 'wss' }, hmr: { clientPort: 443, protocol: 'wss' },")
               if count == 0 then
-                new_content = content:gsub("defineConfig%s*%(%s*%{", "defineConfig({\n  server: { hmr: { clientPort: 443 } },")
+                new_content = content:gsub("defineConfig%s*%(%s*%{", "defineConfig({\n  server: { ws: { clientPort: 443, protocol: 'wss' }, hmr: { clientPort: 443, protocol: 'wss' } },")
               end
               if new_content ~= content then
                 content = new_content

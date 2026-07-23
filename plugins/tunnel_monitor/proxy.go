@@ -99,7 +99,7 @@ func main() {
 	
 	// NEW: Add custom transport with timeouts to prevent hangs
 	proxy.Transport = &http.Transport{
-		ResponseHeaderTimeout: 10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
 		IdleConnTimeout:       30 * time.Second,
 		DialContext: (&net.Dialer{
 			Timeout: 5 * time.Second,
