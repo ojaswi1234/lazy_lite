@@ -2064,7 +2064,18 @@ function AGView:on_key_pressed(key, ...)
 
   local mods = keymap.modkeys or {}
 
-  if key == "return" and not mods["ctrl"] then
+  if key == "return" and mods["shift"] and not mods["ctrl"] then
+    local c = self:state().cursor or #self:state().input
+    local before = self:state().input:sub(1, c)
+    local after = self:state().input:sub(c + 1)
+    self:state().input = before .. "\n" .. after
+    self:state().cursor = c + 1
+    self:_update_mentions()
+    core.redraw = true
+    return true
+  end
+
+  if key == "return" and not mods["ctrl"] and not mods["shift"] then
     local q = self:state().input:match("^%s*(.-)%s*$")
     if q and #q > 0 then self:submit(q) end
     self:state().input = ""
