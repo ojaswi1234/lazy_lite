@@ -1,4 +1,4 @@
-﻿-- mod-version:3
+-- mod-version:3
 -- Antigravity AI Sidebar â€” modern chat UI, Ctrl+Shift+A
 -- Size-animation toggle (same pattern as built-in treeview).
 
@@ -2063,7 +2063,7 @@ end
 
 function AGView:on_paste(text)
   if not text then return end
-  local is_long = #text > 1000 or text:find("\n") ~= nil
+  local is_long = #text > 3000
   local paste_txt = text
   if is_long then
     local tmp_dir = USERDIR .. "/tempfiles"
@@ -2076,13 +2076,13 @@ function AGView:on_paste(text)
       f:write(text)
       f:close()
       table.insert(self.temp_files, filepath)
-      core.log("Saved multiline/long paste to %s", filename)
+      core.log("Saved long paste to %s", filename)
       paste_txt = " @" .. filename .. " "
     else
-      paste_txt = text:gsub("\n", " "):gsub("\r", "")
+      paste_txt = text:gsub("\r", "")
     end
   else
-    paste_txt = text:gsub("\n", " "):gsub("\r", "")
+    paste_txt = text:gsub("\r", "")
   end
   local c = self:state().cursor or #self:state().input
   local before = self:state().input:sub(1, c)
@@ -2678,6 +2678,15 @@ command.add(
   function() return core.active_view == instance end,
   {
     ["antigravity:return"]    = function() instance:on_key_pressed("return") end,
+    ["antigravity:shift-return"] = function()
+      local c = instance:state().cursor or #instance:state().input
+      local before = instance:state().input:sub(1, c)
+      local after = instance:state().input:sub(c + 1)
+      instance:state().input = before .. "\n" .. after
+      instance:state().cursor = c + 1
+      instance:_update_mentions()
+      core.redraw = true
+    end,
     ["antigravity:backspace"] = function() instance:on_key_pressed("backspace") end,
     ["antigravity:scroll-up"] = function() instance:on_key_pressed("up") end,
     ["antigravity:scroll-down"] = function() instance:on_key_pressed("down") end,
@@ -2693,8 +2702,9 @@ command.add(
 
 local keymap = require "core.keymap"
 keymap.add {
-  ["return"]    = "antigravity:return",
-  ["backspace"] = "antigravity:backspace",
+  ["return"]       = "antigravity:return",
+  ["shift+return"] = "antigravity:shift-return",
+  ["backspace"]    = "antigravity:backspace",
   ["up"]        = "antigravity:scroll-up",
   ["down"]      = "antigravity:scroll-down",
   ["escape"]    = "antigravity:escape",
