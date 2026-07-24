@@ -183,6 +183,9 @@ function PortForwardView:update()
         out = out:gsub("\27%[[%d;]*[a-zA-Z]", "")
         
         fw.raw_output = (fw.raw_output or "") .. out
+        if #fw.raw_output > 10000 then
+          fw.raw_output = fw.raw_output:sub(-10000)
+        end
         
         -- Fully strip the QR code block which causes '?' rendering due to Unicode block elements
         if fw.cmd:match("pinggy%.io") then
