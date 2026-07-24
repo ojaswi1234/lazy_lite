@@ -2692,7 +2692,11 @@ command.add(
     ["antigravity:scroll-up"] = function() core.active_view:on_key_pressed("up") end,
     ["antigravity:scroll-down"] = function() core.active_view:on_key_pressed("down") end,
     ["antigravity:escape"]    = function() core.active_view:on_key_pressed("escape") end,
-    ["antigravity:paste"]     = function() core.active_view:on_paste(system.get_clipboard()) end,
+    ["antigravity:paste"] = function()
+      local cb = system.get_clipboard()
+      core.log("AGVIEW PASTE PRESSED! system.get_clipboard() returned: " .. type(cb))
+      core.active_view:on_paste(cb)
+    end,
     ["antigravity:delete"]    = function() core.active_view:on_key_pressed("delete") end,
     ["antigravity:cursor-left"]  = function() core.active_view:on_key_pressed("left") end,
     ["antigravity:cursor-right"] = function() core.active_view:on_key_pressed("right") end,
@@ -2730,6 +2734,8 @@ if ok then
     { text = "Generate Documentation",command = "antigravity:docs" },
   })
 end
+
+
 
 
 
