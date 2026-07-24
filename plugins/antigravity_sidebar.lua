@@ -1,5 +1,5 @@
--- mod-version:3
--- Antigravity AI Sidebar — modern chat UI, Ctrl+Shift+A
+﻿-- mod-version:3
+-- Antigravity AI Sidebar â€” modern chat UI, Ctrl+Shift+A
 -- Size-animation toggle (same pattern as built-in treeview).
 
 local core    = require "core"
@@ -31,10 +31,10 @@ local common  = require "core.common"
 local process = require "process"
 local system  = require "system"
 
--- ── Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) ─
+-- â”€â”€ Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) â”€
 local function lum(r, g, b) return r*0.299 + g*0.587 + b*0.114 end
 
--- ── Emoji-aware rendering ─────────────────────────────────────────────────────
+-- â”€â”€ Emoji-aware rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- Lite XL's default fonts (FiraCode, etc.) have no emoji glyphs, so emoji
 -- codepoints render as '?'. We load the system emoji font once and use it
 -- to draw emoji segments, falling back gracefully if unavailable.
@@ -184,10 +184,10 @@ local function contrast_fg(bg)
   if type(bg) ~= "table" then return { 0,0,0,255 } end
   local r,g,b = bg[1],bg[2],bg[3]
   if lum(r,g,b) > 128 then
-    -- light bg → near-black tinted text
+    -- light bg â†’ near-black tinted text
     return { math.floor(r*0.15), math.floor(g*0.15), math.floor(b*0.15), 255 }
   else
-    -- dark bg → near-white tinted text
+    -- dark bg â†’ near-white tinted text
     return { math.min(255,math.floor(r+(255-r)*0.85)), math.min(255,math.floor(g+(255-g)*0.85)), math.min(255,math.floor(b+(255-b)*0.85)), 255 }
   end
 end
@@ -197,7 +197,7 @@ local function muted(fg, factor)
   return { math.floor(fg[1]*factor), math.floor(fg[2]*factor), math.floor(fg[3]*factor), 255 }
 end
 
--- Recomputed every draw — automatically tracks theme changes
+-- Recomputed every draw â€” automatically tracks theme changes
 local function get_palette()
   local base = style.background or { 255,255,255,255 }
   local bg       = contrast_bg(base, 0.08)
@@ -265,7 +265,7 @@ local function get_palette()
   }
 end
 
--- ── Config ────────────────────────────────────────────────────────────────────
+-- â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 config.antigravity = {
   cli = (function()
     local applocal = os.getenv("LOCALAPPDATA") or ""
@@ -295,7 +295,7 @@ config.antigravity = {
   },
 }
 
--- ── PTY Bridge helper ─────────────────────────────────────────────────────────
+-- â”€â”€ PTY Bridge helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- This is the VS Code Copilot approach: spawn agy inside a real pseudoterminal
 -- (Python pywinpty / pty module) so it produces output, then pipe from Python.
 local function get_pty_bridge()
@@ -323,7 +323,7 @@ end
 
 local parse_pty_model_list
 
--- ── Helpers ───────────────────────────────────────────────────────────────────
+-- â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 local function get_context()
   local av = core.active_view
   -- If the sidebar itself is focused, fallback to finding the most recent/first DocView
@@ -376,16 +376,16 @@ local function get_mention_suggestions(query)
   -- If we are inside a subfolder, add a ".." option
   if target_dir ~= "" then
     local parent = target_dir:match("^(.*[/])[^/]+[/]$") or ""
-    table.insert(folders, { type = "dir", full_path = parent, display = "📁 .." })
+    table.insert(folders, { type = "dir", full_path = parent, display = "ðŸ“ .." })
   end
   
   for _, f in ipairs(files) do
     if f:lower():find(search_term, 1, true) then
       local info = system.get_file_info(abs_dir .. f)
       if info and info.type == "dir" then
-        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", display = "📁 " .. f .. "/" })
+        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", display = "ðŸ“ " .. f .. "/" })
       else
-        table.insert(raw_files, { type = "file", full_path = target_dir .. f, display = "📄 " .. f })
+        table.insert(raw_files, { type = "file", full_path = target_dir .. f, display = "ðŸ“„ " .. f })
       end
     end
   end
@@ -568,7 +568,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
           local segments = parse_inline(line)
           -- adjust fonts for headers
           local f = (level > 0) and (style.big_font or base_font) or base_font
-          local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("• ") or 0))
+          local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("â€¢ ") or 0))
           table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
         else
           table.insert(final_blocks, { type = "empty" })
@@ -579,12 +579,12 @@ local function parse_blocks(text, base_font, code_font, max_w)
   return final_blocks
 end
 
--- ── View ──────────────────────────────────────────────────────────────────────
+-- â”€â”€ View â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 local AGView    = View:extend()
 local instance  = nil
 local node_built = false
 
--- ── Model list parser ─────────────────────────────────────────────────────────
+-- â”€â”€ Model list parser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 local function parse_model_list(raw)
   local models = {}
   for line in raw:gmatch("([^\n]+)") do
@@ -613,7 +613,7 @@ local function parse_pty_model_list(raw)
     if #line > 0
       and not line:lower():match("^%s*fetching")
       and not line:lower():match("^%s*loading")
-      and #line > 3  -- skip single spinner chars like ⠋ ⠙ etc
+      and #line > 3  -- skip single spinner chars like â ‹ â ™ etc
       and not seen[line]
     then
       seen[line] = true
@@ -864,7 +864,7 @@ function AGView:show_resume_picker()
         if not is_auto_healer then
           local is_pinned = pinned[cid]
           if is_pinned then
-            title = "📌 " .. title
+            title = "ðŸ“Œ " .. title
           end
           
           table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0, pinned = is_pinned })
@@ -1154,7 +1154,7 @@ function AGView:update()
 
 
 
-  -- ── Drain model-fetch process (via PTY bridge) ───────────────────────
+  -- â”€â”€ Drain model-fetch process (via PTY bridge) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if self.model_proc then
     local buf = ""
     while true do
@@ -1196,7 +1196,7 @@ function AGView:update()
     end
   end
 
-  -- ── Drain chat processes (ALL TABS) ───────────────────────────
+  -- â”€â”€ Drain chat processes (ALL TABS) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   for i, tab in ipairs(self.chats) do
     local is_active_process = tab.process ~= nil
     local ai_len = tab._ai_buf and #tab._ai_buf or 0
@@ -1230,7 +1230,7 @@ function AGView:update()
           if not tab._ai_buf or tab._ai_buf == "" then
             local elapsed = os.time() - (tab._chat_started_at or os.time())
             tab._ai_buf = string.format(
-              "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
+              "(no output after %.0fs â€” process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
               elapsed, tostring(rc))
           end
           dirty = true
@@ -1251,7 +1251,7 @@ function AGView:update()
           tab.process = nil
           tab.status  = "error"
           local fix_msg = table.concat({
-            "⏱ Request timed out after 5 minutes with no response.",
+            "â± Request timed out after 5 minutes with no response.",
             "",
             "Most likely causes:",
             "  1. The AI model is taking too long to generate a response.",
@@ -1266,7 +1266,7 @@ function AGView:update()
           
           tab._ai_buf = fix_msg
           dirty = true
-          core.error("[Antigravity] CLI timed out — agy install may be required.")
+          core.error("[Antigravity] CLI timed out â€” agy install may be required.")
           core.redraw = true
         end
       end
@@ -1320,7 +1320,7 @@ function AGView:fetch_models(force)
   if p then
     self.model_proc = p
   else
-    -- Bridge failed — load from settings.json as reliable fallback
+    -- Bridge failed â€” load from settings.json as reliable fallback
     self:_load_models_from_settings()
   end
 end
@@ -1333,7 +1333,7 @@ function parse_pty_model_list(raw)
     line = line:match("^%s*(.-)%s*$")
     -- Skip spinner lines, empty lines, and "Fetching" lines
     if #line > 0
-      and not line:match("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]")
+      and not line:match("^[â ‹â ™â ¹â ¸â ¼â ´â ¦â §â ‡â ]")
       and not line:lower():match("fetching")
       and not line:lower():match("loading")
       and not seen[line]
@@ -1437,7 +1437,7 @@ function core.quit(force)
   return old_quit(force)
 end
 
--- ── Draw helpers ──────────────────────────────────────────────────────────────
+-- â”€â”€ Draw helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 local function draw_rect_outline(x, y, w, h, col)
   renderer.draw_rect(x,     y,     w, 1, col)
   renderer.draw_rect(x,     y+h-1, w, 1, col)
@@ -1456,7 +1456,7 @@ local function wrap_input_text(font, text, max_w)
   local line_str = ""
   local current_byte = 1
   
-  for char in text:gmatch("[%z-W94-¤][
+  for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
 8-91]*") do
     if char == "\n" then
       table.insert(lines, { text = line_str, start_byte = line_start, end_byte = current_byte - 1, has_nl = true })
@@ -1488,14 +1488,14 @@ function AGView:draw()
   local pad   = 10 * SCALE
   local cur_y = y
 
-  -- ── Full background ─────────────────────────────────────────────────────────
+  -- â”€â”€ Full background â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   renderer.draw_rect(x, y, w, h, P.bg)
   -- Left border (panel is on the right side)
   renderer.draw_rect(x, y, 1, h, P.border)
 
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   -- HEADER
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   local hdr_h = 40 * SCALE
   renderer.draw_rect(x, cur_y, w, hdr_h, P.bg_darker)
   renderer.draw_rect(x, cur_y + hdr_h - 1, w, 1, P.border)
@@ -1553,7 +1553,7 @@ function AGView:draw()
   cur_y = cur_y + hdr_h
 
     -- QUICK ACTION PILLS (single row, compact)
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   local pill_h    = 24 * SCALE
   local pill_gap  = 4 * SCALE
   local n         = #config.antigravity.actions
@@ -1593,9 +1593,9 @@ function AGView:draw()
   renderer.draw_rect(x + pad, cur_y, w - 2*pad, 1, P.border)
   cur_y = cur_y + 8 * SCALE
 
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   -- INPUT AREA (at bottom, fixed)
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   local send_h   = 30 * SCALE
   local inp_x = x + pad
   local inp_w = w - 2 * pad
@@ -1680,7 +1680,7 @@ function AGView:draw()
   core.pop_clip_rect()
 
   -- Hint text bottom-right of input
-  local hint = "Enter ↵"
+  local hint = "Enter â†µ"
   renderer.draw_text(style.font, hint,
     inp_x + inp_w - style.font:get_width(hint) - 6 * SCALE,
     inp_y + input_h - style.font:get_height() - 5 * SCALE,
@@ -1719,9 +1719,9 @@ function AGView:draw()
   -- Store send button bounds for click detection
   self._send_rect = { x = send_x, y = send_y, w = send_w, h = send_h }
 
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   -- CHAT HISTORY (scrollable, between quick-actions and input)
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     local tab_h = 24 * SCALE
   self.tab_rects = {}
   self.tab_stop_rects = {}
@@ -1901,10 +1901,10 @@ function AGView:draw()
           if line_y + lh >= chat_top and line_y <= chat_bot then
             local lx = x + pad + msg_pad
             if blk.list and l_idx == 1 then
-              renderer.draw_text(f, "• ", lx, line_y, P.fg_accent)
-              lx = lx + f:get_width("• ")
+              renderer.draw_text(f, "â€¢ ", lx, line_y, P.fg_accent)
+              lx = lx + f:get_width("â€¢ ")
             elseif blk.list then
-              lx = lx + f:get_width("• ")
+              lx = lx + f:get_width("â€¢ ")
             end
             
             for _, seg in ipairs(w_line) do
@@ -1949,7 +1949,7 @@ function AGView:draw()
     if self:state().status == "running" and not is_user
        and sess == self:state().sessions[#self:state().sessions]
        and sess.text == "" then
-      local dots = string.rep("•", (math.floor(self.tick / 20) % 4))
+      local dots = string.rep("â€¢", (math.floor(self.tick / 20) % 4))
       renderer.draw_text(style.font, dots,
         x + pad + msg_pad, ty + msg_pad, P.fg_muted)
     end
@@ -1979,9 +1979,9 @@ function AGView:draw()
   end
   core.pop_clip_rect()
 
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   -- MENTION POPUP
-  -- ═══════════════════════════════════════════════════════════════════
+  -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   if self:state().mention_suggestions and #self:state().mention_suggestions > 0 then
     local pop_w = w - 2 * pad
     local item_h = style.font:get_height() + 8 * SCALE
@@ -2051,7 +2051,7 @@ function AGView:draw()
   end
 end
 
--- ── Input ──────────────────────────────────────────────────────────────────────
+-- â”€â”€ Input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AGView:on_text_input(text)
   local c = self:state().cursor or #self:state().input
   local before = self:state().input:sub(1, c)
@@ -2232,7 +2232,7 @@ function AGView:on_key_pressed(key, ...)
   return false
 end
 
--- ── Mouse ──────────────────────────────────────────────────────────────────────
+-- â”€â”€ Mouse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AGView:on_mouse_moved(mx, my, ...)
   AGView.super.on_mouse_moved(self, mx, my, ...)
   self.hover_btn  = nil
@@ -2516,7 +2516,7 @@ function AGView:open_artifacts_popup()
   })
 end
 
--- ── Commands ──────────────────────────────────────────────────────────────────
+-- â”€â”€ Commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 command.add(nil, {
   ["antigravity:toggle"] = function()
     if not instance then
@@ -2539,7 +2539,7 @@ command.add(nil, {
     else
       -- Toggle ON: force AI open, closing any other plugin in the sidebar
       if sidebar then
-        -- Sidebar exists — close other views and add/activate AI
+        -- Sidebar exists â€” close other views and add/activate AI
         for i = #sidebar.views, 1, -1 do
           if sidebar.views[i] ~= instance then
             sidebar:close_view(core.root_view.root_node, sidebar.views[i])
@@ -2553,7 +2553,7 @@ command.add(nil, {
         node_built = true
         core.set_active_view(instance)
       else
-        -- No sidebar yet — create one by splitting with instance directly.
+        -- No sidebar yet â€” create one by splitting with instance directly.
         -- Passing instance into split() avoids ever having an empty EmptyView placeholder.
         local primary = core.root_view:get_primary_node()
         local new_node = primary:split("right", instance, { x = true }, true)
