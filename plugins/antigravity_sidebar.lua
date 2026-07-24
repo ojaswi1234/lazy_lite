@@ -1457,7 +1457,6 @@ local function wrap_input_text(font, text, max_w)
   local current_byte = 1
   
   for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-8-91]*") do
     if char == "\n" then
       table.insert(lines, { text = line_str, start_byte = line_start, end_byte = current_byte - 1, has_nl = true })
       line_start = current_byte + 1
