@@ -1988,10 +1988,11 @@ end
 
 function AGView:on_paste(text)
   if not text then return end
-  local is_long = #text > 1000 or select(2, text:gsub("\n", "")) > 10
+  local is_long = #text > 1000 or text:find("\n") ~= nil
   local paste_txt = text
   if is_long then
     local tmp_dir = USERDIR .. "/tempfiles"
+    os.execute('mkdir "' .. tmp_dir:gsub("/", "\\") .. '" 2>nul')
     pcall(system.mkdir, tmp_dir)
     local filename = os.date("pasted_text_%Y%m%d_%H%M%S.txt")
     local filepath = tmp_dir .. "/" .. filename
@@ -2000,9 +2001,13 @@ function AGView:on_paste(text)
       f:write(text)
       f:close()
       table.insert(self.temp_files, filepath)
-      core.log("Saved long paste to %s", filename)
+      core.log("Saved multiline/long paste to %s", filename)
       paste_txt = " @" .. filename .. " "
+    else
+      paste_txt = text:gsub("\n", " "):gsub("\r", "")
     end
+  else
+    paste_txt = text:gsub("\n", " "):gsub("\r", "")
   end
   local c = self:state().cursor or #self:state().input
   local before = self:state().input:sub(1, c)
