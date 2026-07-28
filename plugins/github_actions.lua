@@ -285,6 +285,54 @@ end
 
 -- ─── Panel rendering ──────────────────────────────────────────────────────────
 
+local function draw_run_details(x, y, w, h)
+  local sf = get_sf()
+  local fh = math.floor(sf:get_height())
+  local pad = 10 * SCALE
+  local base = style.background or {30,30,30,255}
+  local bg = contrast_bg(base)
+  
+  renderer.draw_rect(x, y, w, h, bg)
+  
+  -- Header
+  local hdr_h = fh + pad * 2
+  renderer.draw_rect(x, y, w, hdr_h, {255, 255, 255, 10})
+  renderer.draw_text(sf, "← Back to Runs  |  Run #" .. tostring(gh_state.run_details_id), x + pad, math.floor(y + pad), style.text)
+  
+  y = y + hdr_h
+  h = h - hdr_h
+  
+  if gh_state.run_details_loading then
+    renderer.draw_text(sf, "Fetching workflow details and logs...", x + pad, y + pad, style.dim)
+    return
+  end
+  
+  local lines = gh_state.run_details_text
+  if not lines then return end
+  
+  core.push_clip_rect(x, y, w, h)
+  local line_h = math.floor(fh * 1.3)
+  local oy = y - gh_state.run_details_scroll
+  
+  for i, line in ipairs(lines) do
+    local ry = oy + (i - 1) * line_h
+    if ry + line_h < y or ry > y + h then goto skip end
+    
+    local c = style.text
+    if line:match("^#") then c = style.accent end
+    if line:match("❌") or line:match("Failed") then c = {220, 80, 80, 255} end
+    if line:match("✅") then c = {80, 200, 120, 255} end
+    
+    renderer.draw_text(sf, line, x + pad, ry, c)
+    ::skip::
+  end
+  core.pop_clip_rect()
+  
+  local total_h = #lines * line_h
+  local max_s = math.max(0, total_h - h + pad * 2)
+  gh_state.run_details_scroll = math.max(0, math.min(gh_state.run_details_scroll, max_s))
+end
+
 local function draw_actions_panel(x, y, w, h)
   local sf   = get_sf()
   local fh   = math.floor(sf:get_height())
@@ -293,6 +341,11 @@ local function draw_actions_panel(x, y, w, h)
   local base = style.background or {30,30,30,255}
   local bg   = contrast_bg(base)
   local hdr_bg = contrast_bg(bg)
+
+  if gh_state.run_details_id then
+    draw_run_details(x, y, w, h)
+    return
+  end
 
   renderer.draw_rect(x, y, w, h, bg)
 
@@ -730,6 +783,16 @@ core.add_thread(function()
         local out_top= self.position.y + hdr_h + 3*SCALE
         
         if button == "left" and gh_state.active_panel == PANEL_ACTIONS and my >= out_top then
+          if gh_state.run_details_id then
+             local sf = get_sf()
+             local hdr_h = math.floor(sf:get_height()) + 20 * SCALE
+             if my >= out_top and my < out_top + hdr_h then
+               gh_state.run_details_id = nil
+               core.redraw = true
+             end
+             return true
+          end
+
           local sf = get_sf()
           local fh = math.floor(sf:get_height())
           local row_h = math.floor(fh * 2.4 + 6*SCALE)
@@ -737,18 +800,11 @@ core.add_thread(function()
           if run_idx >= 1 and run_idx <= #gh_state.actions_items then
             local run = gh_state.actions_items[run_idx]
             if run and run.databaseId then
-              local Doc = require "core.doc"
-              local doc = Doc()
-              local title = "Run #" .. tostring(run.databaseId) .. ".log"
-              doc.filename = title
-              doc.abs_filename = title
-              doc:insert(1, 1, "Loading action log for " .. title .. "...\n")
-              doc:clean()
-              table.insert(core.docs, doc)
-              local MarkdownView = require "plugins.markdown_view"
-              local view = MarkdownView(doc)
-              local node = core.root_view:get_primary_node()
-              node:add_view(view)
+              gh_state.run_details_id = run.databaseId
+              gh_state.run_details_loading = true
+              gh_state.run_details_text = {}
+              gh_state.run_details_scroll = 0
+              core.redraw = true
               
               local p_dir = core.project_dir or ""
               core.add_thread(function()
@@ -813,22 +869,26 @@ core.add_thread(function()
                 -- Fetch failed logs
                 local fail_out = exec_gh({"gh", "run", "view", tostring(run.databaseId), "--log-failed"})
                 if fail_out and fail_out ~= "" and fail_out:match("%S") then
-                  md = md .. "## Detailed Logs (Failed Steps)\n```text\n" .. fail_out .. "\n```\n\n"
+                  md = md .. "## Detailed Logs (Failed Steps)\n" .. fail_out .. "\n\n"
                 end
                 
-                -- Fetch full logs as fallback (only if no failed logs, to avoid overwhelming the view, or append it)
+                -- Fetch full logs as fallback
                 local full_log = exec_gh({"gh", "run", "view", tostring(run.databaseId), "--log"})
                 if full_log and full_log ~= "" then
-                  md = md .. "## Full Logs\n```text\n" .. full_log .. "\n```\n"
+                  md = md .. "## Full Logs\n" .. full_log .. "\n"
                 end
                 
-                doc:remove(1, 1, math.huge, math.huge)
-                doc:insert(1, 1, md)
-                doc:clean()
+                local lines = {}
+                for line in string.gmatch(md .. "\n", "([^\n]*)\n") do
+                   table.insert(lines, line:gsub("\r", ""))
+                end
+                gh_state.run_details_text = lines
+                gh_state.run_details_loading = false
                 core.redraw = true
               end)
             end
           end
+          return true
         end
 
         if my >= out_top then
@@ -842,7 +902,11 @@ core.add_thread(function()
     local orig_wheel = TermClass.on_mouse_wheel
     TermClass.on_mouse_wheel = function(self, dy, ...)
       if gh_state.active_panel == PANEL_ACTIONS then
-        gh_state.actions_scroll = math.max(0, gh_state.actions_scroll - dy * 30 * SCALE)
+        if gh_state.run_details_id then
+          gh_state.run_details_scroll = math.max(0, (gh_state.run_details_scroll or 0) - dy * 30 * SCALE)
+        else
+          gh_state.actions_scroll = math.max(0, gh_state.actions_scroll - dy * 30 * SCALE)
+        end
         core.redraw = true
         return true
       elseif gh_state.active_panel == PANEL_INSIGHTS then
