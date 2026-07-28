@@ -2491,7 +2491,9 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     local line = wrapped_lines[clicked_line_idx]
     local click_x = mx - tx
     
-    if click_x <= 0 then
+    if #self:state().input == 0 then
+      self:state().cursor = 0
+    elseif click_x <= 0 then
       self:state().cursor = line.start_byte - 1
     else
       local best_cursor = line.start_byte - 1
