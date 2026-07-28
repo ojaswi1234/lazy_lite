@@ -200,10 +200,11 @@ local function fetch_insights()
   gh_state.insights_error   = nil
   core.redraw = true
 
-  -- Fetch repo info
+  -- Fetch repo info using jq for a flat JSON struct
   run_gh(
-    {"gh", "repo", "view",
-     "--json", "name,description,stargazerCount,forkCount,watchers,primaryLanguage,url"},
+    {"gh", "repo", "view", "--json",
+     "name,description,stargazerCount,forkCount,watchers,primaryLanguage,createdAt,updatedAt,licenseInfo,issues,pullRequests,latestRelease",
+     "--jq", '{"name":.name,"description":(.description//""),"stars":.stargazerCount,"forks":.forkCount,"watchers":.watchers.totalCount,"language":(.primaryLanguage.name//""),"created":.createdAt,"updated":.updatedAt,"license":(.licenseInfo.name//"None"),"issues":.issues.totalCount,"prs":.pullRequests.totalCount,"release":(.latestRelease.tagName//"None")}'},
     function(out, err)
       if err then
         gh_state.insights_error   = err
@@ -211,24 +212,20 @@ local function fetch_insights()
         core.redraw = true
         return
       end
-      -- Parse single object
+      -- Parse flat JSON
       local info = {}
       if out then
         for k,v in out:gmatch('"([^"]+)"%s*:%s*"([^"]*)"') do info[k]=v end
-        for k,v in out:gmatch('"([^"]+)"%s*:%s*(-?%d+)') do if not info[k] then info[k]=tonumber(v) end end
-        -- primaryLanguage is nested: {"name":"Lua"}
-        info.language = out:match('"primaryLanguage"%s*:%s*{[^}]*"name"%s*:%s*"([^"]+)"') or "—"
+        for k,v in out:gmatch('"([^"]+)"%s*:%s*(-?%d+)') do info[k]=tonumber(v) end
       end
       gh_state.insights = info
 
-      -- Now fetch top contributors
+      -- Fetch top contributors
       run_gh(
         {"gh", "api", "repos/{owner}/{repo}/contributors",
          "--paginate", "--jq", ".[0:10] | .[] | {login:.login, contributions:.contributions}"},
         function(cout, cerr)
-          gh_state.insights_loading = false
           if not cerr and cout then
-            -- Output is NDJSON lines of {login:..., contributions:...}
             gh_state.contrib_items = {}
             for line in cout:gmatch("[^\r\n]+") do
               local item = {}
@@ -237,7 +234,18 @@ local function fetch_insights()
               if item.login then table.insert(gh_state.contrib_items, item) end
             end
           end
-          core.redraw = true
+          
+          -- Fetch open issues (good for open source contributors)
+          run_gh(
+            {"gh", "issue", "list", "--state", "open", "--limit", "5", "--json", "title,number"},
+            function(iout, ierr)
+              gh_state.insights_loading = false
+              if not ierr and iout then
+                gh_state.insights_issues = parse_json_array(iout)
+              end
+              core.redraw = true
+            end
+          )
         end
       )
     end
@@ -459,7 +467,7 @@ local function draw_insights_panel(x, y, w, h)
 
   -- Stat cards row
   local card_gap  = 6*SCALE
-  local n_cards   = 4
+  local n_cards   = 5
   local card_w    = math.floor((w - pad*2 - card_gap*(n_cards-1)) / n_cards)
   local card_h    = math.floor(fh * 3.5)
   local colors    = {
@@ -467,11 +475,14 @@ local function draw_insights_panel(x, y, w, h)
     {100, 220, 100, 255},  -- forks: green
     {255, 180,  50, 255},  -- watchers: orange
     {220, 100, 220, 255},  -- issues: purple
+    {255, 120, 120, 255},  -- prs: red
   }
   local cards = {
-    {label="Stars",      value=info.stargazerCount},
-    {label="Forks",      value=info.forkCount},
+    {label="Stars",      value=info.stars},
+    {label="Forks",      value=info.forks},
     {label="Watchers",   value=info.watchers},
+    {label="Issues",     value=info.issues},
+    {label="Pull Reqs",  value=info.prs},
   }
   for i, card in ipairs(cards) do
     local cx2 = x + pad + (i-1)*(card_w + card_gap)
@@ -479,8 +490,11 @@ local function draw_insights_panel(x, y, w, h)
   end
   cy = cy + card_h + 12*SCALE
 
-  -- Language
-  renderer.draw_text(sf, "Primary Language: " .. (info.language or "—"), x+pad, cy, style.text)
+  -- Details Row
+  local lang_str = "Language: " .. (info.language or "—")
+  local lic_str  = "License: " .. (info.license or "—")
+  local rel_str  = "Latest: " .. (info.release or "—")
+  renderer.draw_text(sf, lang_str .. "  •  " .. lic_str .. "  •  " .. rel_str, x+pad, cy, style.text)
   cy = cy + fh + 10*SCALE
 
   -- Top contributors
@@ -491,6 +505,7 @@ local function draw_insights_panel(x, y, w, h)
   local contribs = gh_state.contrib_items
   if #contribs == 0 then
     renderer.draw_text(sf, "(Loading contributors...)", x+pad, cy, style.dim)
+    cy = cy + fh + 4*SCALE
   else
     local max_c = 1
     for _, c in ipairs(contribs) do
@@ -516,6 +531,28 @@ local function draw_insights_panel(x, y, w, h)
         bar_x + bar_max + 4*SCALE, cy, style.dim)
       cy = cy + fh + 4*SCALE
     end
+  end
+
+  cy = cy + 10*SCALE
+  renderer.draw_text(sf, "Recent Open Issues", x+pad, cy, style.accent or style.text)
+  cy = cy + fh + 6*SCALE
+
+  if gh_state.insights_issues and #gh_state.insights_issues > 0 then
+    for _, issue in ipairs(gh_state.insights_issues) do
+      if cy > y + h then break end
+      local text = "#" .. (issue.number or "?") .. " " .. (issue.title or "Unknown")
+      -- wrap issue text if needed (simplistic truncate for now)
+      local max_w = w - pad*2
+      if sf:get_width(text) > max_w then
+        while #text > 5 and sf:get_width(text.."...") > max_w do text = text:sub(1, #text-1) end
+        text = text .. "..."
+      end
+      renderer.draw_text(sf, text, x+pad, cy, style.text)
+      cy = cy + fh + 4*SCALE
+    end
+  else
+    renderer.draw_text(sf, "(No open issues or still loading)", x+pad, cy, style.dim)
+    cy = cy + fh + 4*SCALE
   end
 
   core.pop_clip_rect()
