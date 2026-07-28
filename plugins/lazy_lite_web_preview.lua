@@ -474,7 +474,7 @@ local preview_status = core.status_view:add_item({
   alignment = core.status_view.Item.RIGHT,
   tooltip = "Click to start Web Preview",
   get_item = function()
-    local icon = "\u{f0c1} " -- FontAwesome link icon
+    local icon = "[Web] " -- basic ASCII fallback for link icon
     local text = active_url and (":" .. active_port) or "Idle"
     local color = active_url and style.good or style.dim
     return {
