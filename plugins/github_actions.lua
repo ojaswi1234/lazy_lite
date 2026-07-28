@@ -320,8 +320,8 @@ local function draw_run_details(x, y, w, h)
     
     local c = style.text
     if line:match("^#") then c = style.accent end
-    if line:match("❌") or line:match("Failed") then c = {220, 80, 80, 255} end
-    if line:match("✅") then c = {80, 200, 120, 255} end
+    if line:match("✗") or line:match("Failed") then c = {220, 80, 80, 255} end
+    if line:match("✓") then c = {80, 200, 120, 255} end
     
     renderer.draw_text(sf, line, x + pad, ry, c)
     ::skip::
@@ -853,7 +853,7 @@ core.add_thread(function()
                   for line in jobs_out:gmatch("[^\r\n]+") do
                     local t, name, concl, started, completed = line:match("^(%w+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
                     if t then
-                      local icon = concl == "success" and "✅" or concl == "failure" and "❌" or "⏸"
+                      local icon = concl == "success" and "✓" or concl == "failure" and "✗" or "○"
                       local dstr = format_dur(parse_iso(completed) - parse_iso(started))
                       if dstr ~= "" then dstr = " *(" .. dstr .. ")*" end
                       if t == "JOB" then
