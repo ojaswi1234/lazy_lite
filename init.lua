@@ -249,6 +249,21 @@ function core.add_project_directory(path)
   end
   return original_add_project_directory(path)
 end
+
+-- ── 8. Fix Aggressive Filesystem Indexing Timeout ──────────────────────────────
+-- Extends the ~333ms scan limit to ~3.3 seconds to allow full indexing on Windows
+local dirwatch = require "core.dirwatch"
+local orig_get_directory_files = dirwatch.get_directory_files
+function dirwatch.get_directory_files(dir, root, path, entries_count, recurse_pred)
+  local new_pred = function(d, filename, count, t_elapsed)
+    -- Divide elapsed time by 10 to simulate running 10x faster
+    -- This pushes the 0.33s timeout to ~3.33s
+    return recurse_pred(d, filename, count, t_elapsed / 10)
+  end
+  return orig_get_directory_files(dir, root, path, entries_count, new_pred)
+end
+config.max_project_files = 10000
+
 config.borderless = true
 safe_require "plugins.resource_monitor"
 
