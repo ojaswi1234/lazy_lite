@@ -96,21 +96,7 @@ local function start_forward(idx)
   local args = parse_cmd(fw.cmd)
   if #args == 0 then return end
   
-  if fw.target_port and fw.proxy_port then
-     if fw.proxy_proc then
-       pcall(function()
-         if fw.proxy_proc.terminate then fw.proxy_proc:terminate()
-         elseif fw.proxy_proc.kill then fw.proxy_proc:kill() end
-       end)
-     end
-     local exe_ext = (PLATFORM == "Windows") and ".exe" or ""
-     if not fw.auth_pin then
-       fw.auth_pin = string.format("%04d", math.random(1000, 9999))
-     end
-     local go_cmd = string.format('"%s/plugins/tunnel_monitor/proxy%s" %s %s %s', USERDIR, exe_ext, fw.proxy_port, fw.target_port, fw.auth_pin)
-     local go_args = parse_cmd(go_cmd)
-     pcall(function() fw.proxy_proc = process.start(go_args) end)
-  end
+  -- (Proxy spawning logic cleanly removed)
 
   local ok, proc = pcall(function() return process.start(args) end)
   if ok and proc then
@@ -134,13 +120,7 @@ local function stop_forward(idx)
     if fw.proc.terminate then fw.proc:terminate()
     elseif fw.proc.kill then fw.proc:kill() end
   end)
-  if fw.proxy_proc then
-    pcall(function()
-      if fw.proxy_proc.terminate then fw.proxy_proc:terminate()
-      elseif fw.proxy_proc.kill then fw.proxy_proc:kill() end
-    end)
-    fw.proxy_proc = nil
-  end
+  -- (Proxy cleanup logic cleanly removed)
   fw.proc = nil
   fw.output = fw.output .. "Stopped.\n"
   core.log("Port forward '%s' stopped.", fw.name)
@@ -258,19 +238,7 @@ function PortForwardView:update()
 
       if running and fw.health_check_scheduled and os.time() >= fw.health_check_time then
         fw.health_check_scheduled = false
-        if fw.proxy_port then
-          local null_file = (PLATFORM == "Windows") and "NUL" or "/dev/null"
-          local test_cmd = string.format('curl -s -o %s -w "%%{http_code}" http://localhost:%s', null_file, fw.proxy_port)
-          local handle = io.popen(test_cmd)
-          if handle then
-            local result = handle:read("*a")
-            handle:close()
-            if result:match("^000") then
-              fw.output = fw.output .. "Warning: Tunnel may not be forwarding traffic yet. Try refreshing in 10 seconds.\n"
-              needs_redraw = true
-            end
-          end
-        end
+        -- Removed blocking curl io.popen health check here that was causing Lite XL to freeze
       end
 
       -- EC6: Force reconnect after 1 hour to prevent pinggy domain rotation staleness
@@ -657,9 +625,7 @@ command.add(nil, {
             end
           end
 
-          local proxy_port = local_port + 10000
-
-          -- Use SSH tunneling to pinggy.io
+          -- Use SSH tunneling to pinggy.io directly to local_port
         local cmd = string.format(
           'ssh -p 443 -o StrictHostKeyChecking=no -o UserKnownHostsFile=' .. ((PLATFORM == "Windows") and "NUL" or "/dev/null") ..
           ' -o ServerAliveInterval=60' ..
@@ -667,7 +633,7 @@ command.add(nil, {
           ' -o ExitOnForwardFailure=yes' ..
           ' -o ConnectTimeout=15' ..
           ' -o LogLevel=ERROR' ..
-          ' -T -R 0:127.0.0.1:%s tcp@a.pinggy.io', proxy_port)
+          ' -T -R 0:127.0.0.1:%s tcp@a.pinggy.io', local_port)
         table.insert(forwards, { 
           name = "Public Tunnel (Port " .. local_port .. ")", 
           cmd = cmd, 
@@ -675,7 +641,6 @@ command.add(nil, {
           proc = nil, 
           url_printed = false, 
           target_port = local_port, 
-          proxy_port = proxy_port,
           auto_restart = true 
         })
         save_rules()

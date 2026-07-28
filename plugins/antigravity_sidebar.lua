@@ -1,5 +1,5 @@
-﻿-- mod-version:3
--- Antigravity AI Sidebar Ã¢â‚¬â€ modern chat UI, Ctrl+Shift+A
+-- mod-version:3
+-- Antigravity AI Sidebar — modern chat UI, Ctrl+Shift+A
 -- Size-animation toggle (same pattern as built-in treeview).
 
 local core    = require "core"
@@ -31,10 +31,10 @@ local common  = require "core.common"
 local process = require "process"
 local system  = require "system"
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) Ã¢â€â‚¬
+-- ── Dynamic contrast helpers (same system as mossy_statusbar / mossy_treeview) ─
 local function lum(r, g, b) return r*0.299 + g*0.587 + b*0.114 end
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Emoji-aware rendering Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Emoji-aware rendering ─────────────────────────────────────────────────────
 -- Lite XL's default fonts (FiraCode, etc.) have no emoji glyphs, so emoji
 -- codepoints render as '?'. We load the system emoji font once and use it
 -- to draw emoji segments, falling back gracefully if unavailable.
@@ -184,10 +184,10 @@ local function contrast_fg(bg)
   if type(bg) ~= "table" then return { 0,0,0,255 } end
   local r,g,b = bg[1],bg[2],bg[3]
   if lum(r,g,b) > 128 then
-    -- light bg Ã¢â€ â€™ near-black tinted text
+    -- light bg → near-black tinted text
     return { math.floor(r*0.15), math.floor(g*0.15), math.floor(b*0.15), 255 }
   else
-    -- dark bg Ã¢â€ â€™ near-white tinted text
+    -- dark bg → near-white tinted text
     return { math.min(255,math.floor(r+(255-r)*0.85)), math.min(255,math.floor(g+(255-g)*0.85)), math.min(255,math.floor(b+(255-b)*0.85)), 255 }
   end
 end
@@ -197,7 +197,7 @@ local function muted(fg, factor)
   return { math.floor(fg[1]*factor), math.floor(fg[2]*factor), math.floor(fg[3]*factor), 255 }
 end
 
--- Recomputed every draw Ã¢â‚¬â€ automatically tracks theme changes
+-- Recomputed every draw — automatically tracks theme changes
 local function get_palette()
   local base = style.background or { 255,255,255,255 }
   local bg       = contrast_bg(base, 0.08)
@@ -265,7 +265,7 @@ local function get_palette()
   }
 end
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Config Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Config ────────────────────────────────────────────────────────────────────
 config.antigravity = {
   cli = (function()
     local applocal = os.getenv("LOCALAPPDATA") or ""
@@ -295,7 +295,7 @@ config.antigravity = {
   },
 }
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ PTY Bridge helper Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── PTY Bridge helper ─────────────────────────────────────────────────────────
 -- This is the VS Code Copilot approach: spawn agy inside a real pseudoterminal
 -- (Python pywinpty / pty module) so it produces output, then pipe from Python.
 local function get_pty_bridge()
@@ -323,7 +323,7 @@ end
 
 local parse_pty_model_list
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Helpers ───────────────────────────────────────────────────────────────────
 local function get_context()
   local av = core.active_view
   -- If the sidebar itself is focused, fallback to finding the most recent/first DocView
@@ -376,16 +376,16 @@ local function get_mention_suggestions(query)
   -- If we are inside a subfolder, add a ".." option
   if target_dir ~= "" then
     local parent = target_dir:match("^(.*[/])[^/]+[/]$") or ""
-    table.insert(folders, { type = "dir", full_path = parent, display = "Ã°Å¸â€œÂ .." })
+    table.insert(folders, { type = "dir", full_path = parent, display = "📁 .." })
   end
   
   for _, f in ipairs(files) do
     if f:lower():find(search_term, 1, true) then
       local info = system.get_file_info(abs_dir .. f)
       if info and info.type == "dir" then
-        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", display = "Ã°Å¸â€œÂ " .. f .. "/" })
+        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", display = "📁 " .. f .. "/" })
       else
-        table.insert(raw_files, { type = "file", full_path = target_dir .. f, display = "Ã°Å¸â€œâ€ž " .. f })
+        table.insert(raw_files, { type = "file", full_path = target_dir .. f, display = "📄 " .. f })
       end
     end
   end
@@ -409,31 +409,44 @@ end
 
 -- Wrap text into lines that fit within max_w pixels using given font
 local function parse_inline(text)
+  -- Strip LaTeX math wrappers: $expr$ -> expr, \(expr\) -> expr
+  text = text:gsub("%$([^%$]+)%$", "%1")
+  text = text:gsub("\\%((.-)\\%)", "%1")
+  text = text:gsub("\\%[(.-)\\%]", "%1")
+  -- Convert HTML entities
+  text = text:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&")
+
   local segments = {}
   local s_idx = 1
   while s_idx <= #text do
     local b_s, b_e = text:find("%*%*.-%*%*", s_idx)
+    local i_s, i_e = text:find("%*[^%*]+%*", s_idx)  -- *italic*
     local c_s, c_e = text:find("`.-`", s_idx)
     local l_s, l_e = text:find("%[.-%]%([^%)]+%)", s_idx) -- [link](url)
-    
+
     local next_s, next_e, type
     local min_s = math.huge
-    
+
     if b_s and b_s < min_s then min_s = b_s; next_s, next_e, type = b_s, b_e, "bold" end
     if c_s and c_s < min_s then min_s = c_s; next_s, next_e, type = c_s, c_e, "code" end
     if l_s and l_s < min_s then min_s = l_s; next_s, next_e, type = l_s, l_e, "link" end
-    
+    -- italic only wins if it doesn't overlap with bold
+    if i_s and i_s < min_s and (not b_s or i_s ~= b_s) then
+      min_s = i_s; next_s, next_e, type = i_s, i_e, "italic"
+    end
+
     if next_s then
       if next_s > s_idx then table.insert(segments, { text = text:sub(s_idx, next_s - 1), type = "normal" }) end
-      
+
       local inner_text = text:sub(next_s, next_e)
       if type == "bold" then
         table.insert(segments, { text = inner_text:sub(3, -3), type = "bold" })
+      elseif type == "italic" then
+        table.insert(segments, { text = inner_text:sub(2, -2), type = "italic" })
       elseif type == "code" then
         table.insert(segments, { text = inner_text:sub(2, -2), type = "code" })
       elseif type == "link" then
         local label, url = inner_text:match("%[(.-)%]%(([^%)]+)%)")
-        -- If the link label itself contains code, e.g. [`code`](url), unwrap it
         if label:match("^`.-`$") then
           label = label:sub(2, -2)
           table.insert(segments, { text = label, type = "code_link", url = url })
@@ -521,7 +534,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
   local is_code = false
   local cur_text = ""
   local cur_lang = ""
-  
+
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     local lang_match = line:match("^%s*```(%w*)")
     if lang_match then
@@ -540,7 +553,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
       cur_text = cur_text .. line .. "\n"
     end
   end
-  
+
   if #cur_text > 0 then
     cur_text = cur_text:gsub("\n$", "")
     if is_code then
@@ -549,29 +562,106 @@ local function parse_blocks(text, base_font, code_font, max_w)
       table.insert(blocks, { type = "text", raw = cur_text })
     end
   end
-  
-  -- post-process text blocks line by line for headers and lists
+
+  -- Helper: parse a pipe-delimited table row into cell strings
+  local function parse_table_row(line)
+    local cells = {}
+    -- strip leading/trailing pipe
+    local inner = line:match("^%s*|(.+)|%s*$") or line:match("^%s*|(.+)")
+    if not inner then return nil end
+    for cell in (inner .. "|"):gmatch("([^|]*)|") do
+      table.insert(cells, cell:match("^%s*(.-)%s*$"))
+    end
+    return cells
+  end
+
+  local function is_table_separator(line)
+    return line:match("^%s*|[%s|:%-]+|%s*$") ~= nil
+  end
+
+  local function is_table_row(line)
+    return line:match("^%s*|.+|%s*$") ~= nil or line:match("^%s*|.+") ~= nil
+  end
+
+  -- post-process text blocks line by line
   local final_blocks = {}
   for _, blk in ipairs(blocks) do
     if blk.type == "code" then
       table.insert(final_blocks, blk)
     else
+      local raw_lines = {}
       for line in (blk.raw .. "\n"):gmatch("([^\n]*)\n") do
-        if #line > 0 then
+        table.insert(raw_lines, line)
+      end
+
+      local i = 1
+      while i <= #raw_lines do
+        local line = raw_lines[i]
+
+        -- Horizontal rule: --- or *** or ===
+        if line:match("^%s*%-%-%-+%s*$") or line:match("^%s*%*%*%*+%s*$") or line:match("^%s*===+%s*$") then
+          table.insert(final_blocks, { type = "hr" })
+          i = i + 1
+
+        -- Table detection: starts with |
+        elseif is_table_row(line) then
+          local header_cells = parse_table_row(line)
+          local rows = {}
+          i = i + 1
+          -- skip separator row (|---|---|)
+          if i <= #raw_lines and is_table_separator(raw_lines[i]) then
+            i = i + 1
+          end
+          while i <= #raw_lines and is_table_row(raw_lines[i]) do
+            local cells = parse_table_row(raw_lines[i])
+            if cells then table.insert(rows, cells) end
+            i = i + 1
+          end
+          -- Compute column widths
+          local col_count = header_cells and #header_cells or 0
+          local col_widths = {}
+          for c = 1, col_count do
+            local max_cw = base_font:get_width(header_cells[c] or "")
+            for _, row in ipairs(rows) do
+              local cw = base_font:get_width(row[c] or "")
+              if cw > max_cw then max_cw = cw end
+            end
+            col_widths[c] = max_cw + 12 * SCALE
+          end
+          table.insert(final_blocks, {
+            type = "table",
+            headers = header_cells,
+            rows = rows,
+            col_widths = col_widths,
+            col_count = col_count,
+          })
+
+        elseif #line > 0 then
           local header = line:match("^%s*(#+)%s")
-          local list = line:match("^%s*[%-%*]%s")
-          local level = header and #header or 0
-          
-          -- strip header symbols for parsing
+          local list   = line:match("^%s*[%-%*]%s")
+          local numlist = line:match("^%s*%d+%.%s")
+          local level  = header and #header or 0
+
           if header then line = line:gsub("^%s*#+%s", "") end
-          
-          local segments = parse_inline(line)
-          -- adjust fonts for headers
-          local f = (level > 0) and (style.big_font or base_font) or base_font
-          local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("Ã¢â‚¬Â¢ ") or 0))
-          table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
+          if numlist then
+            local num = line:match("^%s*(%d+%.%s)")
+            local rest = line:gsub("^%s*%d+%.%s", "")
+            local segments = parse_inline(rest)
+            local f = base_font
+            local prefix_w = f:get_width(num or "1. ")
+            local wrapped = wrap_segments(segments, f, code_font, max_w - prefix_w)
+            table.insert(final_blocks, { type = "paragraph", level = 0, list = false, numlist = num, wrapped_lines = wrapped })
+          else
+            local segments = parse_inline(line)
+            local f = (level > 0) and (style.big_font or base_font) or base_font
+            local indent = (list and f:get_width("• ") or 0)
+            local wrapped = wrap_segments(segments, f, code_font, max_w - indent)
+            table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
+          end
+          i = i + 1
         else
           table.insert(final_blocks, { type = "empty" })
+          i = i + 1
         end
       end
     end
@@ -579,12 +669,12 @@ local function parse_blocks(text, base_font, code_font, max_w)
   return final_blocks
 end
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ View Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── View ──────────────────────────────────────────────────────────────────────
 local AGView    = View:extend()
 local instance  = nil
 local node_built = false
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Model list parser Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Model list parser ─────────────────────────────────────────────────────────
 local function parse_model_list(raw)
   local models = {}
   for line in raw:gmatch("([^\n]+)") do
@@ -613,7 +703,7 @@ local function parse_pty_model_list(raw)
     if #line > 0
       and not line:lower():match("^%s*fetching")
       and not line:lower():match("^%s*loading")
-      and #line > 3  -- skip single spinner chars like Ã¢Â â€¹ Ã¢Â â„¢ etc
+      and #line > 3  -- skip single spinner chars like ⠋ ⠙ etc
       and not seen[line]
     then
       seen[line] = true
@@ -864,7 +954,7 @@ function AGView:show_resume_picker()
         if not is_auto_healer then
           local is_pinned = pinned[cid]
           if is_pinned then
-            title = "Ã°Å¸â€œÅ’ " .. title
+            title = "📌 " .. title
           end
           
           table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0, pinned = is_pinned })
@@ -1154,7 +1244,7 @@ function AGView:update()
 
 
 
-  -- Ã¢â€â‚¬Ã¢â€â‚¬ Drain model-fetch process (via PTY bridge) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  -- ── Drain model-fetch process (via PTY bridge) ───────────────────────
   if self.model_proc then
     local buf = ""
     while true do
@@ -1196,7 +1286,7 @@ function AGView:update()
     end
   end
 
-  -- Ã¢â€â‚¬Ã¢â€â‚¬ Drain chat processes (ALL TABS) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  -- ── Drain chat processes (ALL TABS) ───────────────────────────
   for i, tab in ipairs(self.chats) do
     local is_active_process = tab.process ~= nil
     local ai_len = tab._ai_buf and #tab._ai_buf or 0
@@ -1230,7 +1320,7 @@ function AGView:update()
           if not tab._ai_buf or tab._ai_buf == "" then
             local elapsed = os.time() - (tab._chat_started_at or os.time())
             tab._ai_buf = string.format(
-              "(no output after %.0fs Ã¢â‚¬â€ process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
+              "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
               elapsed, tostring(rc))
           end
           dirty = true
@@ -1251,7 +1341,7 @@ function AGView:update()
           tab.process = nil
           tab.status  = "error"
           local fix_msg = table.concat({
-            "Ã¢ÂÂ± Request timed out after 5 minutes with no response.",
+            "⏱ Request timed out after 5 minutes with no response.",
             "",
             "Most likely causes:",
             "  1. The AI model is taking too long to generate a response.",
@@ -1266,7 +1356,7 @@ function AGView:update()
           
           tab._ai_buf = fix_msg
           dirty = true
-          core.error("[Antigravity] CLI timed out Ã¢â‚¬â€ agy install may be required.")
+          core.error("[Antigravity] CLI timed out — agy install may be required.")
           core.redraw = true
         end
       end
@@ -1277,9 +1367,12 @@ function AGView:update()
 
       -- Typewriter effect logic
       if is_typing then
-        -- Reveal characters chunk by chunk (approx 60fps * 150 chars = 9000 chars/sec)
-        tab._ai_displayed_chars = math.min(ai_len, tab._ai_displayed_chars + 150)
-        dirty = true
+        local now = system.get_time()
+        if now - (tab.last_typewriter_time or 0) > 0.1 then
+          tab.last_typewriter_time = now
+          tab._ai_displayed_chars = math.min(ai_len, tab._ai_displayed_chars + 1000)
+          dirty = true
+        end
       end
       
       -- Update text if dirty
@@ -1320,7 +1413,7 @@ function AGView:fetch_models(force)
   if p then
     self.model_proc = p
   else
-    -- Bridge failed Ã¢â‚¬â€ load from settings.json as reliable fallback
+    -- Bridge failed — load from settings.json as reliable fallback
     self:_load_models_from_settings()
   end
 end
@@ -1333,7 +1426,7 @@ function parse_pty_model_list(raw)
     line = line:match("^%s*(.-)%s*$")
     -- Skip spinner lines, empty lines, and "Fetching" lines
     if #line > 0
-      and not line:match("^[Ã¢Â â€¹Ã¢Â â„¢Ã¢Â Â¹Ã¢Â Â¸Ã¢Â Â¼Ã¢Â Â´Ã¢Â Â¦Ã¢Â Â§Ã¢Â â€¡Ã¢Â Â]")
+      and not line:match("^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]")
       and not line:lower():match("fetching")
       and not line:lower():match("loading")
       and not seen[line]
@@ -1437,7 +1530,7 @@ function core.quit(force)
   return old_quit(force)
 end
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Draw helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Draw helpers ──────────────────────────────────────────────────────────────
 local function draw_rect_outline(x, y, w, h, col)
   renderer.draw_rect(x,     y,     w, 1, col)
   renderer.draw_rect(x,     y+h-1, w, 1, col)
@@ -1445,17 +1538,13 @@ local function draw_rect_outline(x, y, w, h, col)
   renderer.draw_rect(x+w-1, y,     1, h, col)
 end
 
-
 local function wrap_input_text(font, text, max_w)
   local lines = {}
-  if text == "" then
-    return {{ text = "", start_byte = 1, end_byte = 0, has_nl = false }}
-  end
-  
+  text = text:gsub("\r", "")
+  if text == "" then return {{ text = "", start_byte = 1, end_byte = 0, has_nl = false }} end
   local line_start = 1
   local line_str = ""
   local current_byte = 1
-  
   for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
     if char == "\n" then
       table.insert(lines, { text = line_str, start_byte = line_start, end_byte = current_byte - 1, has_nl = true })
@@ -1487,14 +1576,14 @@ function AGView:draw()
   local pad   = 10 * SCALE
   local cur_y = y
 
-  -- Ã¢â€â‚¬Ã¢â€â‚¬ Full background Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  -- ── Full background ─────────────────────────────────────────────────────────
   renderer.draw_rect(x, y, w, h, P.bg)
   -- Left border (panel is on the right side)
   renderer.draw_rect(x, y, 1, h, P.border)
 
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   -- HEADER
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   local hdr_h = 40 * SCALE
   renderer.draw_rect(x, cur_y, w, hdr_h, P.bg_darker)
   renderer.draw_rect(x, cur_y + hdr_h - 1, w, 1, P.border)
@@ -1552,7 +1641,7 @@ function AGView:draw()
   cur_y = cur_y + hdr_h
 
     -- QUICK ACTION PILLS (single row, compact)
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   local pill_h    = 24 * SCALE
   local pill_gap  = 4 * SCALE
   local n         = #config.antigravity.actions
@@ -1592,26 +1681,19 @@ function AGView:draw()
   renderer.draw_rect(x + pad, cur_y, w - 2*pad, 1, P.border)
   cur_y = cur_y + 8 * SCALE
 
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   -- INPUT AREA (at bottom, fixed)
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   local send_h   = 30 * SCALE
-  local inp_x = x + pad
   local inp_w = w - 2 * pad
   local max_text_w = inp_w - 16 * SCALE
-
   local display_text = #self:state().input > 0 and self:state().input or "Ask anything about your code."
   local wrapped_lines = wrap_input_text(style.font, display_text, max_text_w)
-  
   local line_h = style.font:get_height()
   local num_lines = #wrapped_lines
-  local max_lines = 10
-  local visible_lines = math.min(num_lines, max_lines)
-  local input_text_h = visible_lines * line_h
-  
-  local input_pad_y = 8 * SCALE
-  local hint_h = 10 * SCALE
-  local input_h = input_text_h + (input_pad_y * 2) + hint_h
+
+  local input_h = math.max(56 * SCALE, num_lines * line_h + 16 * SCALE)
+  input_h = math.min(input_h, self.size.y * 0.4) 
   
   local bottom_h = input_h + send_h + 3 * pad
   local chat_bot = y + h - bottom_h
@@ -1620,13 +1702,14 @@ function AGView:draw()
   renderer.draw_rect(x, chat_bot, w, 1, P.border)
 
   -- Input box
+  local inp_x = x + pad
   local inp_y = chat_bot + pad
   renderer.draw_rect(inp_x, inp_y, inp_w, input_h, P.bg_input)
   draw_rect_outline(inp_x, inp_y, inp_w, input_h,
     core.active_view == self and P.border_input or P.border)
 
   local fg_inp = #self:state().input > 0 and P.fg or P.fg_muted
-
+  local tx = inp_x + 8 * SCALE
   local cursor_idx = self:state().cursor or #self:state().input
   local cursor_x = 0
   local cursor_y_idx = 1
@@ -1648,11 +1731,10 @@ function AGView:draw()
       break
     end
   end
-  
-  if not self:state().input_scroll_y then self:state().input_scroll_y = 0 end
-  
-  local tx = inp_x + 8 * SCALE
+
+  local input_text_h = input_h - 16 * SCALE
   local cursor_y_pos = (cursor_y_idx - 1) * line_h
+  if not self:state().input_scroll_y then self:state().input_scroll_y = 0 end
   if core.active_view == self then
     if cursor_y_pos < self:state().input_scroll_y then
       self:state().input_scroll_y = cursor_y_pos
@@ -1661,9 +1743,9 @@ function AGView:draw()
     end
   end
   
-  core.push_clip_rect(inp_x, inp_y, inp_w, input_text_h + (input_pad_y * 2))
+  core.push_clip_rect(inp_x, inp_y, inp_w, input_h)
   for i, line in ipairs(wrapped_lines) do
-    local ly = inp_y + input_pad_y + (i - 1) * line_h - self:state().input_scroll_y
+    local ly = inp_y + 8 * SCALE + (i - 1) * line_h - self:state().input_scroll_y
     if ly + line_h >= inp_y and ly <= inp_y + input_h then
       renderer.draw_text(style.font, line.text, tx, ly, fg_inp)
     end
@@ -1673,19 +1755,18 @@ function AGView:draw()
   if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
     local cw = #self:state().input > 0 and cursor_x or style.font:get_width(display_text)
     if #self:state().input == 0 then cw = 0 end
-    local cy = inp_y + input_pad_y + (cursor_y_idx - 1) * line_h - self:state().input_scroll_y
+    local cy = inp_y + 8 * SCALE + (cursor_y_idx - 1) * line_h - self:state().input_scroll_y
     renderer.draw_rect(tx + cw, cy, 2 * SCALE, line_h, P.fg_accent)
   end
   core.pop_clip_rect()
 
   -- Hint text bottom-right of input
-  local hint = "Enter Ã¢â€ Âµ"
+  local hint = "Enter ⏎"
   renderer.draw_text(style.font, hint,
     inp_x + inp_w - style.font:get_width(hint) - 6 * SCALE,
     inp_y + input_h - style.font:get_height() - 5 * SCALE,
     P.fg_muted)
 
-  -- Send/Stop button and Attachment button
   local send_y = inp_y + input_h + 4 * SCALE
   local attach_w = 34 * SCALE
   local send_w = inp_w - attach_w - 4 * SCALE
@@ -1718,9 +1799,9 @@ function AGView:draw()
   -- Store send button bounds for click detection
   self._send_rect = { x = send_x, y = send_y, w = send_w, h = send_h }
 
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   -- CHAT HISTORY (scrollable, between quick-actions and input)
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
     local tab_h = 24 * SCALE
   self.tab_rects = {}
   self.tab_stop_rects = {}
@@ -1811,6 +1892,11 @@ function AGView:draw()
         msg_h = msg_h + #blk.raw_lines * lh_c + 8 * SCALE + 24 * SCALE
       elseif blk.type == "empty" then
         msg_h = msg_h + lh_f
+      elseif blk.type == "hr" then
+        msg_h = msg_h + 10 * SCALE
+      elseif blk.type == "table" then
+        local row_h = style.font:get_height() + 8 * SCALE
+        msg_h = msg_h + row_h * (1 + #blk.rows) + 4 * SCALE
       elseif blk.type == "paragraph" then
         local f = (blk.level > 0) and (style.big_font or style.font) or style.font
         local lh = f:get_height() + 2 * SCALE
@@ -1890,29 +1976,104 @@ function AGView:draw()
         
       elseif blk.type == "empty" then
         line_y = line_y + lh_f
-        
+
+      elseif blk.type == "hr" then
+        if line_y + 10 * SCALE >= chat_top and line_y <= chat_bot then
+          local hr_y = line_y + 4 * SCALE
+          renderer.draw_rect(x + pad + msg_pad, hr_y, msg_w - 2 * msg_pad, math.max(1, SCALE), P.border)
+        end
+        line_y = line_y + 10 * SCALE
+
+      elseif blk.type == "table" then
+        local row_h   = style.font:get_height() + 8 * SCALE
+        local cell_pad = 6 * SCALE
+        local tbl_x   = x + pad + msg_pad
+        local tbl_w   = msg_w - 2 * msg_pad
+        -- Compute total col width; clamp if wider than available
+        local total_cw = 0
+        for _, cw in ipairs(blk.col_widths) do total_cw = total_cw + cw end
+        local scale_f = (total_cw > tbl_w) and (tbl_w / total_cw) or 1.0
+        local col_widths = {}
+        for c, cw in ipairs(blk.col_widths) do col_widths[c] = math.floor(cw * scale_f) end
+
+        local function draw_table_row(cells, row_idx, is_header)
+          if line_y + row_h < chat_top or line_y > chat_bot then
+            line_y = line_y + row_h
+            return
+          end
+          -- Row bg
+          local row_bg = is_header and P.bg_darker
+                        or (row_idx % 2 == 0 and P.bg_ai_msg or P.bg_darker)
+          renderer.draw_rect(tbl_x, line_y, tbl_w, row_h, row_bg)
+          -- Border top
+          renderer.draw_rect(tbl_x, line_y, tbl_w, math.max(1, SCALE), P.border)
+          local cx = tbl_x
+          for c, cell in ipairs(cells) do
+            local cw = col_widths[c] or 60 * SCALE
+            -- vertical separator
+            renderer.draw_rect(cx, line_y, math.max(1, SCALE), row_h, P.border)
+            -- cell text (clipped)
+            local text = cell or ""
+            local segs = parse_inline(text)
+            local ty_cell = line_y + math.floor((row_h - style.font:get_height()) / 2)
+            local lx = cx + cell_pad
+            for _, seg in ipairs(segs) do
+              local sfont = (seg.type == "code" or seg.type == "code_link") and style.code_font or style.font
+              local scol  = is_header and P.fg_accent
+                            or (seg.type == "bold" and P.fg_accent
+                            or (seg.type == "code" and (style.syntax["keyword"] or P.fg_accent)
+                            or fg_col))
+              local sw = sfont:get_width(seg.text)
+              if lx + sw <= cx + cw - cell_pad then
+                draw_text_emoji(sfont, seg.text, lx, ty_cell, scol)
+              end
+              lx = lx + sw
+            end
+            cx = cx + cw
+          end
+          -- right border
+          renderer.draw_rect(cx, line_y, math.max(1, SCALE), row_h, P.border)
+          line_y = line_y + row_h
+        end
+
+        if blk.headers then draw_table_row(blk.headers, 0, true) end
+        -- Bottom border of header
+        renderer.draw_rect(tbl_x, line_y, tbl_w, math.max(1, SCALE) * 2, P.fg_accent)
+        for r_idx, row in ipairs(blk.rows) do
+          draw_table_row(row, r_idx, false)
+        end
+        -- Bottom border
+        renderer.draw_rect(tbl_x, line_y, tbl_w, math.max(1, SCALE), P.border)
+        line_y = line_y + 4 * SCALE
+
       elseif blk.type == "paragraph" then
         local f = (blk.level > 0) and (style.big_font or style.font) or style.font
         local lh = f:get_height() + 2 * SCALE
         local l_col = (blk.level > 0) and P.fg_accent or fg_col
-        
+
         for l_idx, w_line in ipairs(blk.wrapped_lines) do
           if line_y + lh >= chat_top and line_y <= chat_bot then
             local lx = x + pad + msg_pad
             if blk.list and l_idx == 1 then
-              renderer.draw_text(f, "Ã¢â‚¬Â¢ ", lx, line_y, P.fg_accent)
-              lx = lx + f:get_width("Ã¢â‚¬Â¢ ")
+              renderer.draw_text(f, "• ", lx, line_y, P.fg_accent)
+              lx = lx + f:get_width("• ")
             elseif blk.list then
-              lx = lx + f:get_width("Ã¢â‚¬Â¢ ")
+              lx = lx + f:get_width("• ")
+            elseif blk.numlist and l_idx == 1 then
+              renderer.draw_text(f, blk.numlist, lx, line_y, P.fg_accent)
+              lx = lx + f:get_width(blk.numlist)
+            elseif blk.numlist then
+              lx = lx + f:get_width(blk.numlist)
             end
-            
+
             for _, seg in ipairs(w_line) do
               local cfont = seg.font
               local ccol = l_col
               if seg.type == "code" or seg.type == "code_link" then ccol = style.syntax["keyword"] or P.fg_accent
               elseif seg.type == "bold" then ccol = P.fg_accent
+              elseif seg.type == "italic" then ccol = style.syntax["string"] or fg_col
               elseif seg.type == "link" then ccol = style.syntax["function"] or P.fg_accent end
-              
+
               draw_text_emoji(cfont, seg.text, lx, line_y, ccol)
               lx = lx + seg.width
             end
@@ -1948,7 +2109,7 @@ function AGView:draw()
     if self:state().status == "running" and not is_user
        and sess == self:state().sessions[#self:state().sessions]
        and sess.text == "" then
-      local dots = string.rep("Ã¢â‚¬Â¢", (math.floor(self.tick / 20) % 4))
+      local dots = string.rep("•", (math.floor(self.tick / 20) % 4))
       renderer.draw_text(style.font, dots,
         x + pad + msg_pad, ty + msg_pad, P.fg_muted)
     end
@@ -1978,9 +2139,9 @@ function AGView:draw()
   end
   core.pop_clip_rect()
 
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   -- MENTION POPUP
-  -- Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  -- ═══════════════════════════════════════════════════════════════════
   if self:state().mention_suggestions and #self:state().mention_suggestions > 0 then
     local pop_w = w - 2 * pad
     local item_h = style.font:get_height() + 8 * SCALE
@@ -2050,7 +2211,7 @@ function AGView:draw()
   end
 end
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Input Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Input ──────────────────────────────────────────────────────────────────────
 function AGView:on_text_input(text)
   local c = self:state().cursor or #self:state().input
   local before = self:state().input:sub(1, c)
@@ -2063,11 +2224,10 @@ end
 
 function AGView:on_paste(text)
   if not text then return end
-  local is_long = #text > 3000
+  local is_long = #text > 1000 or select(2, text:gsub("\n", "")) > 10
   local paste_txt = text
   if is_long then
     local tmp_dir = USERDIR .. "/tempfiles"
-    os.execute('mkdir "' .. tmp_dir:gsub("/", "\\") .. '" 2>nul')
     pcall(system.mkdir, tmp_dir)
     local filename = os.date("pasted_text_%Y%m%d_%H%M%S.txt")
     local filepath = tmp_dir .. "/" .. filename
@@ -2076,13 +2236,9 @@ function AGView:on_paste(text)
       f:write(text)
       f:close()
       table.insert(self.temp_files, filepath)
-      core.log("Saved long paste to %s", filename)
+      
       paste_txt = " @" .. filename .. " "
-    else
-      paste_txt = text:gsub("\r", "")
     end
-  else
-    paste_txt = text:gsub("\r", "")
   end
   local c = self:state().cursor or #self:state().input
   local before = self:state().input:sub(1, c)
@@ -2139,18 +2295,7 @@ function AGView:on_key_pressed(key, ...)
 
   local mods = keymap.modkeys or {}
 
-  if key == "return" and mods["shift"] and not mods["ctrl"] then
-    local c = self:state().cursor or #self:state().input
-    local before = self:state().input:sub(1, c)
-    local after = self:state().input:sub(c + 1)
-    self:state().input = before .. "\n" .. after
-    self:state().cursor = c + 1
-    self:_update_mentions()
-    core.redraw = true
-    return true
-  end
-
-  if key == "return" and not mods["ctrl"] and not mods["shift"] then
+  if key == "return" and not mods["ctrl"] then
     local q = self:state().input:match("^%s*(.-)%s*$")
     if q and #q > 0 then self:submit(q) end
     self:state().input = ""
@@ -2231,7 +2376,7 @@ function AGView:on_key_pressed(key, ...)
   return false
 end
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Mouse Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Mouse ──────────────────────────────────────────────────────────────────────
 function AGView:on_mouse_moved(mx, my, ...)
   AGView.super.on_mouse_moved(self, mx, my, ...)
   self.hover_btn  = nil
@@ -2322,34 +2467,56 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
 
   -- Check if clicked inside input
   local pad = 16 * SCALE
-  local chat_bot = self.size.y - (style.font:get_height() + 16 * SCALE) - 10 * SCALE - pad
+  local inp_w = self.size.x - 2 * pad
+  local max_text_w = inp_w - 16 * SCALE
+  local display_text = #self:state().input > 0 and self:state().input or "Ask anything about your code."
+  local wrapped_lines = wrap_input_text(style.font, display_text, max_text_w)
+  local line_h = style.font:get_height()
+  local input_h = math.max(56 * SCALE, #wrapped_lines * line_h + 16 * SCALE)
+  input_h = math.min(input_h, self.size.y * 0.4)
+  
+  local send_h   = 30 * SCALE
+  local bottom_h = input_h + send_h + 3 * pad
+  local chat_bot = self.position.y + self.size.y - bottom_h
   local inp_y = chat_bot + pad
-  local input_h = style.font:get_height() + 16 * SCALE
+  
   if my >= inp_y and my <= inp_y + input_h then
     local inp_x = self.position.x + pad
-    local inp_w = self.size.x - 2 * pad
     local tx = inp_x + 8 * SCALE
-    if core.active_view == self then
-      local max_text_w = inp_w - 16 * SCALE
-      local cursor_idx = self:state().cursor or #self:state().input
-      local cursor_x = style.font:get_width(self:state().input:sub(1, cursor_idx))
-      if cursor_x > max_text_w then tx = tx - (cursor_x - max_text_w) end
-    end
+    
+    local click_y = my - (inp_y + 8 * SCALE) + (self:state().input_scroll_y or 0)
+    local clicked_line_idx = math.floor(click_y / line_h) + 1
+    clicked_line_idx = math.max(1, math.min(clicked_line_idx, #wrapped_lines))
+    
+    local line = wrapped_lines[clicked_line_idx]
     local click_x = mx - tx
-    local best_cursor = 0
-    local min_dist = math.abs(click_x)
-    local i = 0
-    while i < #self:state().input do
-      local next_i = utf8_next(self:state().input, i)
-      local char_w = style.font:get_width(self:state().input:sub(1, next_i))
-      local dist = math.abs(char_w - click_x)
-      if dist < min_dist then
-        min_dist = dist
-        best_cursor = next_i
+    
+    if click_x <= 0 then
+      self:state().cursor = line.start_byte - 1
+    else
+      local best_cursor = line.start_byte - 1
+      local min_dist = math.abs(click_x)
+      local i = line.start_byte - 1
+      while i < line.end_byte do
+        local b = self:state().input:byte(i + 1)
+        local clen = 1
+        if b >= 0xC0 then
+          if b >= 0xF0 then clen = 4
+          elseif b >= 0xE0 then clen = 3
+          else clen = 2 end
+        end
+        i = i + clen
+        local sub_len = i - line.start_byte + 1
+        local cx = style.font:get_width(line.text:sub(1, sub_len))
+        local dist = math.abs(cx - click_x)
+        if dist < min_dist then
+          min_dist = dist
+          best_cursor = i
+        end
       end
-      i = next_i
+      self:state().cursor = best_cursor
     end
-    self:state().cursor = best_cursor
+    
     core.redraw = true
     return true
   end
@@ -2515,7 +2682,7 @@ function AGView:open_artifacts_popup()
   })
 end
 
--- Ã¢â€â‚¬Ã¢â€â‚¬ Commands Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+-- ── Commands ──────────────────────────────────────────────────────────────────
 command.add(nil, {
   ["antigravity:toggle"] = function()
     if not instance then
@@ -2538,7 +2705,7 @@ command.add(nil, {
     else
       -- Toggle ON: force AI open, closing any other plugin in the sidebar
       if sidebar then
-        -- Sidebar exists Ã¢â‚¬â€ close other views and add/activate AI
+        -- Sidebar exists — close other views and add/activate AI
         for i = #sidebar.views, 1, -1 do
           if sidebar.views[i] ~= instance then
             sidebar:close_view(core.root_view.root_node, sidebar.views[i])
@@ -2552,7 +2719,7 @@ command.add(nil, {
         node_built = true
         core.set_active_view(instance)
       else
-        -- No sidebar yet Ã¢â‚¬â€ create one by splitting with instance directly.
+        -- No sidebar yet — create one by splitting with instance directly.
         -- Passing instance into split() avoids ever having an empty EmptyView placeholder.
         local primary = core.root_view:get_primary_node()
         local new_node = primary:split("right", instance, { x = true }, true)
@@ -2675,51 +2842,37 @@ end
 
 -- Bind local commands that only activate when AI Sidebar is focused
 command.add(
-  function() return type(core.active_view) == "table" and core.active_view.get_name and core.active_view:get_name() == "Antigravity" end,
+  function() return core.active_view == instance end,
   {
-    ["antigravity:return"]    = function() core.active_view:on_key_pressed("return") end,
-    ["antigravity:shift-return"] = function()
-      local view = core.active_view
-      local c = view:state().cursor or #view:state().input
-      local before = view:state().input:sub(1, c)
-      local after = view:state().input:sub(c + 1)
-      view:state().input = before .. "\n" .. after
-      view:state().cursor = c + 1
-      view:_update_mentions()
-      core.redraw = true
-    end,
-    ["antigravity:backspace"] = function() core.active_view:on_key_pressed("backspace") end,
-    ["antigravity:scroll-up"] = function() core.active_view:on_key_pressed("up") end,
-    ["antigravity:scroll-down"] = function() core.active_view:on_key_pressed("down") end,
-    ["antigravity:escape"]    = function() core.active_view:on_key_pressed("escape") end,
-    ["antigravity:paste"] = function()
-      local cb = system.get_clipboard()
-      core.log("AGVIEW PASTE PRESSED! system.get_clipboard() returned: " .. type(cb))
-      core.active_view:on_paste(cb)
-    end,
-    ["antigravity:delete"]    = function() core.active_view:on_key_pressed("delete") end,
-    ["antigravity:cursor-left"]  = function() core.active_view:on_key_pressed("left") end,
-    ["antigravity:cursor-right"] = function() core.active_view:on_key_pressed("right") end,
-    ["antigravity:cursor-home"]  = function() core.active_view:on_key_pressed("home") end,
-    ["antigravity:cursor-end"]   = function() core.active_view:on_key_pressed("end") end,
+    ["antigravity:return"]    = function() instance:on_key_pressed("return") end,
+    ["antigravity:backspace"] = function() instance:on_key_pressed("backspace") end,
+    ["antigravity:scroll-up"] = function() instance:on_key_pressed("up") end,
+    ["antigravity:scroll-down"] = function() instance:on_key_pressed("down") end,
+    ["antigravity:escape"]    = function() instance:on_key_pressed("escape") end,
+    ["antigravity:paste"]     = function() instance:on_paste(system.get_clipboard()) end,
+    ["antigravity:delete"]    = function() instance:on_key_pressed("delete") end,
+    ["antigravity:cursor-left"]  = function() instance:on_key_pressed("left") end,
+    ["antigravity:cursor-right"] = function() instance:on_key_pressed("right") end,
+    ["antigravity:cursor-home"]  = function() instance:on_key_pressed("home") end,
+    ["antigravity:cursor-end"]   = function() instance:on_key_pressed("end") end,
   }
 )
 
 local keymap = require "core.keymap"
 keymap.add {
   ["return"]       = "antigravity:return",
-  ["shift+return"] = "antigravity:shift-return",
   ["backspace"]    = "antigravity:backspace",
-  ["up"]        = "antigravity:scroll-up",
-  ["down"]      = "antigravity:scroll-down",
-  ["escape"]    = "antigravity:escape",
-  ["ctrl+v"]    = "antigravity:paste",
-  ["cmd+v"]     = "antigravity:paste",
-  ["delete"]    = "antigravity:delete",
-  ["left"]      = "antigravity:cursor-left",
-  ["right"]     = "antigravity:cursor-right",
-  ["home"]      = "antigravity:cursor-home",
-  ["end"]       = "antigravity:cursor-end",
+  ["up"]           = "antigravity:scroll-up",
+  ["down"]         = "antigravity:scroll-down",
+  ["escape"]       = "antigravity:escape",
+  ["ctrl+v"]       = "antigravity:paste",
+  ["cmd+v"]        = "antigravity:paste",
+  ["shift+insert"] = "antigravity:paste",
+  ["delete"]       = "antigravity:delete",
+  ["left"]         = "antigravity:cursor-left",
+  ["right"]        = "antigravity:cursor-right",
+  ["home"]         = "antigravity:cursor-home",
+  ["end"]          = "antigravity:cursor-end",
 }
 
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
@@ -2732,7 +2885,15 @@ if ok then
     { text = "Fix Code with AI",      command = "antigravity:fix" },
     { text = "Generate Unit Tests",   command = "antigravity:tests" },
     { text = "Generate Documentation",command = "antigravity:docs" },
+    { text = "Copy for Antigravity",  command = "antigravity:copy-file" }
   })
+  
+  contextmenu:register(
+    function() return type(core.active_view) == "table" and core.active_view.get_name and core.active_view:get_name() == "Antigravity" end,
+    {
+      { text = "Paste", command = "antigravity:paste" }
+    }
+  )
 end
 
 

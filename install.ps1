@@ -51,19 +51,6 @@ if (-not $ghInstalled) {
     winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
 }
 
-# 1.6. Check Python + pywinpty (required for the AI sidebar's PTY bridge on Windows)
-$pythonInstalled = Get-Command "python" -ErrorAction SilentlyContinue
-if ($pythonInstalled) {
-    $pywinptyCheck = python -c "import winpty" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Installing pywinpty (required for AI sidebar streaming)..."
-        python -m pip install pywinpty --quiet
-    }
-} else {
-    Write-Host "WARNING: Python not found. The AI sidebar PTY bridge (agy_pty_bridge.py) requires Python + pywinpty."
-    Write-Host "         Install Python from https://python.org and then run: pip install pywinpty"
-}
-
 # 1.7. Download Nerd Font for icons
 Write-Host "Downloading FiraCode Nerd Font..."
 $fontDir = "$configDir\fonts"
@@ -165,11 +152,6 @@ Get-ChildItem -Path "$srcDir\plugins\*.lua" | ForEach-Object {
     }
 }
 
-# Copy Python bridge (required for AI sidebar on Windows)
-if ($installAgySidebar -and (Test-Path "$srcDir\plugins\agy_pty_bridge.py")) {
-    Copy-Item -Path "$srcDir\plugins\agy_pty_bridge.py" -Destination "$configDir\plugins\" -Force
-}
-
 # Copy color schemes
 Copy-Item -Path "$srcDir\colors\*.lua" -Destination "$configDir\colors\" -Force
 
@@ -203,6 +185,9 @@ if (Test-Path "$srcDir\plugins\lintplus") {
 }
 if (Test-Path "$srcDir\plugins\loader_games") {
     Copy-Item -Path "$srcDir\plugins\loader_games" -Destination "$configDir\plugins\loader_games" -Recurse -Force
+}
+if (Test-Path "$srcDir\plugins\toggle_terminal") {
+    Copy-Item -Path "$srcDir\plugins\toggle_terminal" -Destination "$configDir\plugins\toggle_terminal" -Recurse -Force
 }
 if (Test-Path "$srcDir\plugins\tunnel_monitor") {
     Copy-Item -Path "$srcDir\plugins\tunnel_monitor" -Destination "$configDir\plugins\tunnel_monitor" -Recurse -Force

@@ -83,11 +83,11 @@ if ! command -v gh &> /dev/null; then
     fi
 fi
 
-# 1.6. Check Python (required for the AI sidebar PTY bridge on Linux/macOS via the pty module)
+# 1.6. Check Python (required for MongoDB Explorer plugin)
 if command -v python3 &> /dev/null; then
-    echo "Python3 found - AI PTY bridge ready (uses built-in pty module on Linux/macOS)."
+    echo "Python3 found."
 else
-    echo "python3 not found. Installing Python 3 (required for AI sidebar PTY bridge and MongoDB)..."
+    echo "python3 not found. Installing Python 3 (required for MongoDB)..."
     if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv
     elif command -v apk &> /dev/null; then sudo apk add python3 py3-pip
     elif command -v dnf &> /dev/null; then sudo dnf install -y python3 python3-pip
@@ -218,11 +218,6 @@ for plugin in "$SRC_DIR"/plugins/*.lua; do
     cp -f "$plugin" "$CONFIG_DIR/plugins/"
 done
 
-# Copy Python PTY bridge (required for AI sidebar streaming)
-if [ "$INSTALL_AGY_SIDEBAR" = true ] && [ -f "$SRC_DIR/plugins/agy_pty_bridge.py" ]; then
-    cp -f "$SRC_DIR/plugins/agy_pty_bridge.py" "$CONFIG_DIR/plugins/"
-fi
-
 # Copy color schemes
 cp -f "$SRC_DIR"/colors/*.lua "$CONFIG_DIR/colors/"
 
@@ -250,6 +245,20 @@ if [ -d "$SRC_DIR/plugins/lsp" ];          then cp -rf "$SRC_DIR/plugins/lsp"   
 if [ -d "$SRC_DIR/plugins/widget" ];       then cp -rf "$SRC_DIR/plugins/widget"       "$CONFIG_DIR/plugins/"; fi
 if [ -d "$SRC_DIR/plugins/lintplus" ];     then cp -rf "$SRC_DIR/plugins/lintplus"     "$CONFIG_DIR/plugins/"; fi
 if [ -d "$SRC_DIR/plugins/loader_games" ]; then cp -rf "$SRC_DIR/plugins/loader_games" "$CONFIG_DIR/plugins/"; fi
+if [ -d "$SRC_DIR/plugins/toggle_terminal" ]; then
+    cp -rf "$SRC_DIR/plugins/toggle_terminal" "$CONFIG_DIR/plugins/"
+    
+    OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    ARCH="$(uname -m)"
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then ARCH="arm64"; fi
+    
+    BIN_NAME="lite-pty-${OS}-${ARCH}"
+    if [ -f "$CONFIG_DIR/plugins/toggle_terminal/lite-pty/$BIN_NAME" ]; then
+        mv "$CONFIG_DIR/plugins/toggle_terminal/lite-pty/$BIN_NAME" "$CONFIG_DIR/plugins/toggle_terminal/lite-pty/lite-pty"
+        chmod +x "$CONFIG_DIR/plugins/toggle_terminal/lite-pty/lite-pty"
+    fi
+fi
 if [ -d "$SRC_DIR/plugins/tunnel_monitor" ]; then
     cp -rf "$SRC_DIR/plugins/tunnel_monitor" "$CONFIG_DIR/plugins/"
     if command -v go &> /dev/null; then

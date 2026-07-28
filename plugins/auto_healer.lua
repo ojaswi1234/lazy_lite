@@ -274,13 +274,15 @@ function core.error(fmt, ...)
   else
     err_str = tostring(fmt)
   end
-  local trace = debug.traceback("", 2)
 
   -- Prevent infinite loops and ignore non-critical warnings
-  if err_str:find("Too many files in project directory") then return ret end
-  if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then return ret end
-  if err_str:find("auto_healer") then return ret end
-  if is_duplicate(err_str) then return ret end
+  -- (these checks are BEFORE debug.traceback to avoid expensive stack walks on benign errors)
+  if err_str:find("Too many files in project directory") then _healer_in_error = false; return ret end
+  if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then _healer_in_error = false; return ret end
+  if err_str:find("auto_healer") then _healer_in_error = false; return ret end
+  if is_duplicate(err_str) then _healer_in_error = false; return ret end
+
+  local trace = debug.traceback("", 2)
 
   core.add_thread(function()
     coroutine.yield(0.1)

@@ -30,19 +30,6 @@ if %errorlevel% neq 0 (
     winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements
 )
 
-:: 1.6. Check Python + pywinpty (required for AI sidebar PTY bridge on Windows)
-where python >nul 2>nul
-if %errorlevel% equ 0 (
-    python -c "import winpty" >nul 2>nul
-    if !errorlevel! neq 0 (
-        echo Installing pywinpty (required for AI sidebar streaming^)...
-        python -m pip install pywinpty --quiet
-    )
-) else (
-    echo WARNING: Python not found. The AI sidebar PTY bridge requires Python + pywinpty.
-    echo          Install Python from https://python.org and then run: pip install pywinpty
-)
-
 :: 1.7. Download Nerd Font for icons
 echo Downloading FiraCode Nerd Font...
 if not exist "%CONFIG_DIR%\fonts" mkdir "%CONFIG_DIR%\fonts"
@@ -102,13 +89,6 @@ for %%f in ("%SRC_DIR%plugins\*.lua") do (
     )
 )
 
-:: Copy Python PTY bridge (required for AI sidebar streaming on Windows)
-if "!INSTALL_AGY_SIDEBAR!"=="true" (
-    if exist "%SRC_DIR%plugins\agy_pty_bridge.py" (
-        copy /y "%SRC_DIR%plugins\agy_pty_bridge.py" "%CONFIG_DIR%\plugins\" >nul
-    )
-)
-
 :: Copy color schemes
 copy /y "%SRC_DIR%colors\*.lua" "%CONFIG_DIR%\colors\" >nul 2>nul
 
@@ -125,6 +105,7 @@ if exist "%SRC_DIR%plugins\lsp"          xcopy /e /i /y "%SRC_DIR%plugins\lsp"  
 if exist "%SRC_DIR%plugins\widget"       xcopy /e /i /y "%SRC_DIR%plugins\widget"       "%CONFIG_DIR%\plugins\widget"       >nul
 if exist "%SRC_DIR%plugins\lintplus"     xcopy /e /i /y "%SRC_DIR%plugins\lintplus"     "%CONFIG_DIR%\plugins\lintplus"     >nul
 if exist "%SRC_DIR%plugins\loader_games" xcopy /e /i /y "%SRC_DIR%plugins\loader_games" "%CONFIG_DIR%\plugins\loader_games" >nul
+if exist "%SRC_DIR%plugins\toggle_terminal" xcopy /e /i /y "%SRC_DIR%plugins\toggle_terminal" "%CONFIG_DIR%\plugins\toggle_terminal" >nul
 if exist "%SRC_DIR%plugins\tunnel_monitor" xcopy /e /i /y "%SRC_DIR%plugins\tunnel_monitor" "%CONFIG_DIR%\plugins\tunnel_monitor" >nul
 if exist "%SRC_DIR%plugins\python_runtime" xcopy /e /i /y "%SRC_DIR%plugins\python_runtime" "%CONFIG_DIR%\plugins\python_runtime" >nul
 echo Copied plugins, scripts, fonts, and color scheme.

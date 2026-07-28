@@ -305,7 +305,8 @@ end
 core.add_thread(function()
   coroutine.yield() -- Wait one frame for workspace to load
 
-  while true do
+  local max_iters = 20 -- Safety limit to prevent infinite loop
+  for iter = 1, max_iters do
     local editor_nodes = {}
     local function collect(node)
       if node.type == "leaf" then
@@ -340,6 +341,39 @@ core.add_thread(function()
       if #surviving_nodes > 0 then
         surviving_nodes[1]:add_view(view)
       end
+    else
+      break -- no view to move, stop
+    end
+  end
+end)
+
+-- Window Opacity Setting
+local settings_module = require "plugins.settings"
+if settings_module then
+  settings_module.add("Appearance", {
+    {
+      label = "Window Opacity",
+      description = "Adjust the global transparency of the editor window (glass effect).",
+      path = "window_opacity",
+      type = settings_module.type.NUMBER,
+      default = 1.0,
+      min = 0.1,
+      max = 1.0,
+      step = 0.05,
+      on_apply = function(value)
+        if system.set_window_opacity then
+          system.set_window_opacity(value)
+        end
+      end
+    }
+  })
+end
+
+core.add_thread(function()
+  coroutine.yield()
+  if config.window_opacity and config.window_opacity < 1.0 then
+    if system.set_window_opacity then
+      system.set_window_opacity(config.window_opacity)
     end
   end
 end)

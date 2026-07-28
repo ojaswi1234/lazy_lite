@@ -69,8 +69,8 @@ local function start_monitor()
     local script = string.format([[
       $ErrorActionPreference = 'SilentlyContinue'
       while ($true) {
-        $c = (Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
-        $o = Get-WmiObject Win32_OperatingSystem
+        $c = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+        $o = Get-CimInstance Win32_OperatingSystem
         if ($o) {
           $m = [math]::Round(($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) / $o.TotalVisibleMemorySize * 100)
           Write-Output "$c,$m"
@@ -125,6 +125,8 @@ core.add_thread(function()
           if not data or data == "" then break end
           out = out .. data
         end
+        -- Backoff delay to prevent tight spawn loops if process crashes instantly
+        coroutine.yield(2)
         start_monitor()
       end
     end

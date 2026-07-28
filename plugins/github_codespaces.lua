@@ -269,6 +269,9 @@ local function run_cmd_sync(args, timeout)
   local out = ""
   local start_time = system.get_time()
   
+  local co, is_main = coroutine.running()
+  local can_yield = co ~= nil and not is_main
+  
   while p:returncode() == nil do
     local elapsed = system.get_time() - start_time
     if elapsed > timeout then
@@ -286,7 +289,11 @@ local function run_cmd_sync(args, timeout)
       if not chunk or chunk == "" then break end
       out = out .. chunk
     end
-    coroutine.yield(0.01) -- 10ms yield to allow 60FPS+ for game loader
+    if can_yield then
+      coroutine.yield(0.01) -- 10ms yield to allow 60FPS+ for game loader
+    else
+      if system.sleep then system.sleep(0.01) end
+    end
   end
   while true do
     local chunk = p:read_stdout(4096)
@@ -324,7 +331,8 @@ end
 
 -- Auto-selects yielding vs blocking based on whether we're in a coroutine.
 local function run_cmd_auto(args, timeout)
-  if coroutine.running() then
+  local co, is_main = coroutine.running()
+  if co ~= nil and not is_main then
     return run_cmd_sync(args, timeout)
   else
     return run_cmd_blocking(args, timeout)

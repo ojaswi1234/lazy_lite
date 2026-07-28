@@ -77,9 +77,11 @@ end
 -- ── 2. Git Branch Indicator ───────────────────────────────────────────────────
 local current_branch = nil
 local last_check     = 0
-local check_interval = 2 -- seconds
+local check_interval = 5 -- seconds (was 2, increased to reduce process spawns)
+local git_checking   = false
 
 local function check_git_branch()
+  git_checking = true
   local p = process.start(
     PLATFORM == "Windows" 
       and { "cmd.exe", "/c", "git branch --show-current 2>nul" }
@@ -92,6 +94,7 @@ local function check_git_branch()
   
   if not p then 
     current_branch = nil
+    git_checking = false
     return 
   end
 
@@ -116,6 +119,7 @@ local function check_git_branch()
   else
     current_branch = nil
   end
+  git_checking = false
   core.redraw = true
 end
 
@@ -127,7 +131,7 @@ core.status_view:add_item({
   tooltip = "Current Git Branch",
   get_item = function()
     local now = system.get_time()
-    if now - last_check > check_interval then
+    if now - last_check > check_interval and not git_checking then
       last_check = now
       core.add_thread(check_git_branch)
     end
