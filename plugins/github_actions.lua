@@ -752,26 +752,80 @@ core.add_thread(function()
               
               local p_dir = core.project_dir or ""
               core.add_thread(function()
-                local cmd = {"gh", "run", "view", tostring(run.databaseId)}
-                if core.active_codespace then
-                  local safe = "'" .. table.concat(cmd, " "):gsub("'", "'\\''") .. "'"
-                  cmd = {"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", safe}
-                end
-                local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, cwd = p_dir ~= "" and p_dir or nil })
-                if p then
+                local md = "# Workflow Run " .. tostring(run.databaseId) .. "\n\n"
+                
+                -- Helper to run gh commands synchronously in this thread
+                local function exec_gh(args)
+                  if core.active_codespace then
+                     local quoted_args = {}
+                     for _, v in ipairs(args) do
+                       table.insert(quoted_args, "'" .. tostring(v):gsub("'", "'\\''") .. "'")
+                     end
+                     local safe = table.concat(quoted_args, " ")
+                     args = {"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", safe}
+                  end
+                  local p = process.start(args, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, cwd = p_dir ~= "" and p_dir or nil })
+                  if not p then return "" end
                   local out = ""
                   while p:returncode() == nil do
                     out = out .. (p:read_stdout(8192) or "")
                     coroutine.yield(0.05)
                   end
                   while true do local c = p:read_stdout(8192) or ""; if c == "" then break end; out = out .. c end
-                  out = out:gsub("\x1b%[[%d;]*[a-zA-Z]", "")
-                  if out == "" then out = "Failed to load action log." end
-                  doc:remove(1, 1, math.huge, math.huge)
-                  doc:insert(1, 1, out)
-                  doc:clean()
-                  core.redraw = true
+                  return out:gsub("\x1b%[[%d;]*[a-zA-Z]", "")
                 end
+                
+                -- Fetch jobs for flowchart & resource utilization
+                local jq_expr = '.jobs[]? | "JOB|" + .name + "|" + (.conclusion // "") + "|" + (.startedAt // "") + "|" + (.completedAt // ""), (.steps[]? | "STEP|" + .name + "|" + (.conclusion // "") + "|" + (.startedAt // "") + "|" + (.completedAt // ""))'
+                local jobs_out = exec_gh({"gh", "run", "view", tostring(run.databaseId), "--json", "jobs", "--jq", jq_expr})
+                
+                local function parse_iso(s)
+                  if not s or s == "" or s == "null" then return 0 end
+                  local y, m, d, h, min, sec = s:match("^(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)Z$")
+                  if not y then return 0 end
+                  return os.time({year=y, month=m, day=d, hour=h, min=min, sec=sec})
+                end
+                
+                local function format_dur(d)
+                  if d <= 0 then return "" end
+                  if d < 60 then return d .. "s" end
+                  return string.format("%dm %ds", math.floor(d/60), d%60)
+                end
+                
+                if jobs_out and jobs_out ~= "" then
+                  md = md .. "## Phases and Resource Utilization\n\n"
+                  for line in jobs_out:gmatch("[^\r\n]+") do
+                    local t, name, concl, started, completed = line:match("^(%w+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+                    if t then
+                      local icon = concl == "success" and "✅" or concl == "failure" and "❌" or "⏸"
+                      local dstr = format_dur(parse_iso(completed) - parse_iso(started))
+                      if dstr ~= "" then dstr = " *(" .. dstr .. ")*" end
+                      if t == "JOB" then
+                        md = md .. "- " .. icon .. " **" .. name .. "**" .. dstr .. "\n"
+                      elseif t == "STEP" then
+                        md = md .. "  - " .. icon .. " " .. name .. dstr .. "\n"
+                      end
+                    end
+                  end
+                  md = md .. "\n"
+                end
+                
+                -- Fetch failed logs
+                local fail_out = exec_gh({"gh", "run", "view", tostring(run.databaseId), "--log-failed"})
+                if fail_out and fail_out ~= "" and fail_out:match("%S") then
+                  md = md .. "## Detailed Logs (Failed Steps)\n```text\n" .. fail_out .. "\n```\n\n"
+                end
+                
+                -- Fetch full logs as fallback (only if no failed logs, to avoid overwhelming the view, or append it)
+                local full_log = exec_gh({"gh", "run", "view", tostring(run.databaseId), "--log"})
+                if full_log and full_log ~= "" then
+                  md = md .. "## Full Logs\n```text\n" .. full_log .. "\n```\n"
+                end
+                
+                doc:remove(1, 1, math.huge, math.huge)
+                doc:insert(1, 1, md)
+                doc:clean()
+                core.redraw = true
               end)
             end
           end
