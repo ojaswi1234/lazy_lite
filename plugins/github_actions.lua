@@ -880,7 +880,7 @@ core.add_thread(function()
                 
                 local lines = {}
                 for line in string.gmatch(md .. "\n", "([^\n]*)\n") do
-                   table.insert(lines, line:gsub("\r", ""))
+                   table.insert(lines, (line:gsub("\r", "")))
                 end
                 gh_state.run_details_text = lines
                 gh_state.run_details_loading = false
