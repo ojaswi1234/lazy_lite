@@ -67,6 +67,16 @@ EmptyView.draw = function(self)
   local lf  = style.font                      -- proportional for hints
   local dim = style.dim
 
+  -- Derive a bright foreground from style.accent (or fallback to a nice blue-white)
+  local acc = style.accent or { 120, 200, 255, 255 }
+  local bright = { acc[1], acc[2], acc[3], 220 }
+
+  -- Shadow color: very dark, semi-transparent
+  local shadow = { 0, 0, 0, 100 }
+
+  -- Shadow offset in pixels
+  local sh = math.ceil(2 * SCALE)
+
   local art_lines = split_lines(SPLASH_ART)
 
   -- Line height: slightly tighter for dense block art
@@ -94,14 +104,16 @@ EmptyView.draw = function(self)
   end
   local art_x = self.position.x + math.max(style.padding.x, (self.size.x - max_art_w) / 2)
 
-  -- Draw ASCII logo
+  -- Draw ASCII logo — shadow pass first, then bright text on top
   local cy = start_y
-  for i, l in ipairs(art_lines) do
-    -- Banner line (first line) gets a slightly brighter tint
-    local col = (i == 1) and { dim[1], dim[2], dim[3], math.floor((dim[4] or 255) * 0.7) } or dim
-    renderer.draw_text(sf, l, art_x, cy, col)
+  for _, l in ipairs(art_lines) do
+    -- Shadow (offset down-right)
+    renderer.draw_text(sf, l, art_x + sh, cy + sh, shadow)
+    -- Bright foreground
+    renderer.draw_text(sf, l, art_x, cy, bright)
     cy = cy + fh
   end
+
 
   cy = cy + 12
 
