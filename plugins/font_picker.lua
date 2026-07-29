@@ -46,7 +46,6 @@ end
 core.add_thread(function()
   coroutine.yield(1.5)
 
-  local out_path = USERDIR .. "/font_picker_list.txt"
   local cmd
 
   if PLATFORM == "Windows" then
@@ -65,14 +64,13 @@ core.add_thread(function()
     bf:write('for %%F in ("' .. userfonts .. '\\*.ttf" "' .. userfonts .. '\\*.ttc" "' .. userfonts .. '\\*.otf") do echo %%~fF\r\n')
     bf:close()
 
-    cmd = { "cmd.exe", "/c", bat_path .. " > \"" .. out_path .. "\" 2>nul" }
+    cmd = { "cmd.exe", "/c", bat_path }
 
   elseif PLATFORM == "Mac OS X" then
     local home = os.getenv("HOME") or ""
     local dirs = { "/System/Library/Fonts", "/Library/Fonts", home .. "/Library/Fonts" }
     local find_args = "find " .. table.concat(dirs, " ")
-      .. " \\( -name '*.ttf' -o -name '*.ttc' -o -name '*.otf' \\) -type f 2>/dev/null > '"
-      .. out_path .. "'"
+      .. " \\( -name '*.ttf' -o -name '*.ttc' -o -name '*.otf' \\) -type f 2>/dev/null"
     cmd = { "sh", "-c", find_args }
 
   else  -- Linux / BSD
@@ -93,33 +91,34 @@ core.add_thread(function()
       return
     end
     local find_args = "find " .. table.concat(existing, " ")
-      .. " \\( -name '*.ttf' -o -name '*.ttc' -o -name '*.otf' \\) -type f 2>/dev/null > '"
-      .. out_path .. "'"
+      .. " \\( -name '*.ttf' -o -name '*.ttc' -o -name '*.otf' \\) -type f 2>/dev/null"
     cmd = { "sh", "-c", find_args }
   end
 
-  local p = process.start(cmd, { stdout = process.REDIRECT_PIPE })
+  local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_DISCARD })
   if not p then
     core.log("[font_picker] ERROR: could not start scanner process")
     return
   end
 
+  local raw = ""
   local deadline = system.get_time() + 15
   while p:running() and system.get_time() < deadline do
-    coroutine.yield(0.2)
+    local chunk = p:read_stdout()
+    if chunk and chunk ~= "" then raw = raw .. chunk end
+    coroutine.yield(0.1)
   end
 
-  local rf = io.open(out_path, "r")
-  if rf then
-    local raw = rf:read("*a")
-    rf:close()
-    os.remove(out_path)
-    font_catalogue = build_catalogue(raw)
-    catalogue_ready = true
-    core.log(string.format("[font_picker] Found %d system fonts.", #font_catalogue))
-  else
-    core.log("[font_picker] ERROR: could not read font list output.")
+  -- Process might have exited but pipe might still have data
+  while true do
+    local chunk = p:read_stdout()
+    if not chunk or chunk == "" then break end
+    raw = raw .. chunk
   end
+
+  font_catalogue = build_catalogue(raw)
+  catalogue_ready = true
+  core.log(string.format("[font_picker] Found %d system fonts.", #font_catalogue))
 
   if PLATFORM == "Windows" then
     os.remove(USERDIR .. "\\font_picker_scan.bat")
