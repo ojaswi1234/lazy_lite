@@ -32,21 +32,30 @@ def art(text, font):
 
 def make_splash():
     """
-    Rich half-block Electronic logo for the empty editor view.
-    We render "Lite" and "XL" separately so the split is cleaner,
-    then combine them side-by-side.
+    Compact rich logo for the empty editor view.
+    Uses banner3-D (8 lines) — same dot-grid style, perfectly sized.
+    Wrapped in a light ASCII frame for a premium look.
     """
-    # Electronic renders each word tall — join into one art block
-    lines = art("Lite  XL", "Electronic")
+    lines = art("Lite  XL", "banner3-D")
     width = max(len(l) for l in lines)
 
-    # Fancy banner above
-    banner_text = "─── The Lightweight Text Editor ───"
-    pad_left  = (width - len(banner_text)) // 2
-    banner    = " " * max(0, pad_left) + banner_text
+    # Box frame
+    top  = "  ." + "-" * (width + 4) + "."
+    bot  = "  '" + "-" * (width + 4) + "'"
+    sep  = "  |" + " " * (width + 4) + "|"
 
-    result = [banner, ""] + lines
-    return "\n".join(result)
+    framed = [top, sep]
+    for l in lines:
+        framed.append("  |  " + l.ljust(width) + "  |")
+    framed.append(sep)
+    framed.append(bot)
+
+    # Tagline beneath the box
+    tagline  = "The Lightweight Text Editor"
+    tag_pad  = (width + 6 - len(tagline)) // 2
+    framed.append("")
+    framed.append(" " * (tag_pad + 2) + tagline)
+    return "\n".join(framed)
 
 
 def make_terminal_banner():
