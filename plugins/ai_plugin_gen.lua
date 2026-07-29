@@ -1188,6 +1188,7 @@ function AIPluginGen:do_redesign()
     .. 'Output ONLY [DESIGN]...\nProvide a highly creative ASCII mockup here...\n[/DESIGN]. No other text.'):format(user_input)
   run_agy(prompt, self.agy_conv_id, function(out, err)
     if err or not out then return end
+    if not self.plan then return end  -- plan was reset while AGY was running
     local d = etag(out, "DESIGN")
     if d and #d > 5 then self.plan.design = d; core.redraw = true end
   end)
