@@ -22,26 +22,49 @@ end
 -- NOTE: Lua module names cannot contain hyphens. File is everforest_lite_xl.lua
 require "colors.everforest_lite_xl"
 
--- ── 2. Font — Fira Code iScript ───────────────────────────────────────────────
--- Download from: https://github.com/kencrocken/FiraCodeiScript
--- Place the TTF at: ~/.config/lite-xl/fonts/FiraCode-iScript.ttf
--- Nerd Font for icons: ~/.config/lite-xl/fonts/FiraCodeNerdFont-Regular.ttf
+-- ── 2. Font — Auto-Native OS Fonts ──────────────────────────────────────────────
+-- First tries custom user fonts (Fira Code), then elegantly falls back to 
+-- native high-quality OS monospace fonts if they aren't installed.
 local function try_load_font(path, size, opts)
   local ok, f = pcall(renderer.font.load, path, size, opts or {})
   return ok and f or nil
 end
 
-local FONT_PATH = USERDIR .. "/fonts/FiraCode-iScript.ttf"
-local NERD_PATH = USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf"
+local os_fonts = {
+  USERDIR .. "/fonts/FiraCode-iScript.ttf",
+  USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf",
+}
 
-local base_font = try_load_font(FONT_PATH, 15 * SCALE)
-              or try_load_font(NERD_PATH,  15 * SCALE)
-              or nil
+if PLATFORM == "Windows" then
+  local windir = os.getenv("WINDIR") or "C:\\Windows"
+  table.insert(os_fonts, windir .. "\\Fonts\\consola.ttf") -- Consolas
+  table.insert(os_fonts, windir .. "\\Fonts\\lucon.ttf")   -- Lucida Console
+elseif PLATFORM == "Mac OS X" then
+  table.insert(os_fonts, "/System/Library/Fonts/Menlo.ttc")
+  table.insert(os_fonts, "/System/Library/Fonts/Monaco.ttf")
+else
+  table.insert(os_fonts, "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+  table.insert(os_fonts, "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf")
+  table.insert(os_fonts, "/usr/share/fonts/dejavu/DejaVuSansMono.ttf")
+end
+
+local base_font = nil
+local font_path_used = nil
+for _, path in ipairs(os_fonts) do
+  base_font = try_load_font(path, 15 * SCALE)
+  if base_font then 
+    font_path_used = path
+    break 
+  end
+end
 
 if base_font then
   style.font          = base_font
-  style.big_font      = try_load_font(FONT_PATH, 20 * SCALE) or base_font
+  style.big_font      = try_load_font(font_path_used, 20 * SCALE) or base_font
   style.code_font     = base_font
+  
+  -- Try to load icons, but fallback to base if missing
+  local NERD_PATH = USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf"
   style.icon_font     = try_load_font(NERD_PATH, 14 * SCALE) or base_font
   style.icon_big_font = try_load_font(NERD_PATH, 28 * SCALE) or base_font
 end
