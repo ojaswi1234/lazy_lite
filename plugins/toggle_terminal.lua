@@ -872,8 +872,7 @@ function TermView:draw()
   local available_w = w - right_w
   local col_w = math.floor(available_w / #self.split_indices)
   
-  -- Generous, VS Code-like line spacing
-  local lh = math.floor(style.code_font:get_height() * 1.3)
+  local lh = style.code_font:get_height() + 2 * SCALE
   local char_w = style.code_font:get_width("W")
   local max_cols = math.max(20, math.floor((col_w - 20 * SCALE) / char_w))
 
@@ -907,21 +906,28 @@ function TermView:draw()
             local current_str_parts = {}
             local cur_fg = nil
             local cur_bg = nil
-            local cur_bold = false
             local str_start_x = cx
             
-            -- Premium VS Code terminal color palette
+            -- Soft, theme-friendly ANSI palette
             local ansi = {
-              [0] = {common.color("#000000")}, [1] = {common.color("#cd3131")},
-              [2] = {common.color("#0dbc79")}, [3] = {common.color("#e5e510")},
-              [4] = {common.color("#2472c8")}, [5] = {common.color("#bc3fbc")},
-              [6] = {common.color("#11a8cd")}, [7] = {common.color("#e5e5e5")},
+              [0] = style.background3 or {common.color("#333333")},
+              [1] = style.error or {common.color("#cc6666")},
+              [2] = style.accent or {common.color("#b5bd68")},
+              [3] = style.syntax.string or {common.color("#f0c674")},
+              [4] = style.syntax.keyword or {common.color("#81a2be")},
+              [5] = style.syntax.literal or {common.color("#b294bb")},
+              [6] = style.syntax.operator or {common.color("#8abeb7")},
+              [7] = style.text or {common.color("#c5c8c6")},
             }
             local ansi_bright = {
-              [0] = {common.color("#666666")}, [1] = {common.color("#f14c4c")},
-              [2] = {common.color("#23d18b")}, [3] = {common.color("#f5f543")},
-              [4] = {common.color("#3b8eea")}, [5] = {common.color("#d670d6")},
-              [6] = {common.color("#29b8db")}, [7] = {common.color("#ffffff")},
+              [0] = style.dim or {common.color("#666666")},
+              [1] = {common.color("#d54e53")},
+              [2] = {common.color("#b9ca4a")},
+              [3] = {common.color("#e7c547")},
+              [4] = {common.color("#7aa6da")},
+              [5] = {common.color("#c397d8")},
+              [6] = {common.color("#70c0b1")},
+              [7] = {common.color("#ffffff")},
             }
             
             local function flush_chunk()
@@ -932,10 +938,6 @@ function TermView:draw()
                   renderer.draw_rect(str_start_x, cy, str_w, lh, cur_bg)
                 end
                 renderer.draw_text(style.code_font, str, str_start_x, cy, cur_fg)
-                if cur_bold then
-                  -- Simulate bold font weight by drawing with a tiny horizontal offset
-                  renderer.draw_text(style.code_font, str, str_start_x + math.max(1, math.ceil(0.5 * SCALE)), cy, cur_fg)
-                end
               end
             end
 
@@ -962,20 +964,20 @@ function TermView:draw()
                 local cell_bg = (cell.attr.bg ~= 0) and ansi[cell.attr.bg] or nil
                 
                 if cur_fg == nil then
-                  cur_fg, cur_bg, cur_bold = cell_fg, cell_bg, cell_bold
+                  cur_fg, cur_bg = cell_fg, cell_bg
                   table.insert(current_str_parts, cell.char)
-                elseif cur_fg == cell_fg and cur_bg == cell_bg and cur_bold == cell_bold then
+                elseif cur_fg == cell_fg and cur_bg == cell_bg then
                   table.insert(current_str_parts, cell.char)
                 else
                   flush_chunk()
                   str_start_x = cx
-                  cur_fg, cur_bg, cur_bold = cell_fg, cell_bg, cell_bold
+                  cur_fg, cur_bg = cell_fg, cell_bg
                   current_str_parts = { cell.char }
                 end
               else
                 flush_chunk()
                 current_str_parts = {}
-                cur_fg, cur_bg, cur_bold = nil, nil, false
+                cur_fg, cur_bg = nil, nil
                 str_start_x = cx + cw
               end
               cx = cx + cw
