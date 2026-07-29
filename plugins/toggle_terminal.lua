@@ -1077,8 +1077,24 @@ end
 function TermView:get_url_at(x, y)
   local line, col = self:resolve_position(x, y)
   local s = self:state()
-  if not s or not s.lines or not s.lines[line] then return nil end
-  local txt = strip_ansi(s.lines[line].text)
+  if not s then return nil end
+
+  local txt = ""
+  if s.term then
+    local row = s.term:get_absolute_line(line)
+    if not row then return nil end
+    local chars = {}
+    -- PTY rows are arrays of cell objects
+    for i = 1, s.term.cols do
+      if not row[i] then break end
+      table.insert(chars, row[i].char)
+    end
+    txt = table.concat(chars)
+  elseif s.lines and s.lines[line] then
+    txt = strip_ansi(s.lines[line].text)
+  else
+    return nil
+  end
   
   local i = 1
   while true do
