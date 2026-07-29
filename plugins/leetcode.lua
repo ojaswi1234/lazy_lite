@@ -898,10 +898,8 @@ command.add(nil, {
              end
           end
           lc_view.random_retries = 0
-          
           lc_view.loading_msg = "Loading " .. p.title
           core.redraw = true
-          
           api_call({ cmd = "problem_detail", slug = p.slug }, function(det_resp)
             if not lc_view then return end
             if det_resp.ok then
@@ -910,19 +908,38 @@ command.add(nil, {
               lc_view.scroll_y = 0
             else
               lc_view.state = "list"
-              core.log("[LeetCode] " .. (det_resp.error or "Failed to load random problem"))
+              lc_view.mock_timer_end = nil
+              lc_view.is_blind_mode = false
+              lc_view.last_error = det_resp.error or "Failed to load random problem"
+              core.log("[LeetCode] " .. lc_view.last_error)
             end
             core.redraw = true
           end)
         else
-          lc_view.state = "list"
-          core.log("[LeetCode] Failed to fetch random problem")
-          core.redraw = true
+          -- Network failure: auto-retry up to 3 times with a 2-second delay
+          lc_view.net_retries = (lc_view.net_retries or 0) + 1
+          if lc_view.net_retries <= 3 then
+            lc_view.loading_msg = "Retrying... (attempt " .. lc_view.net_retries .. "/3)"
+            core.redraw = true
+            core.add_thread(function()
+              coroutine.yield(2.0)
+              pick_random(total)
+            end)
+          else
+            lc_view.state = "list"
+            lc_view.net_retries = 0
+            lc_view.mock_timer_end = nil
+            lc_view.is_blind_mode = false
+            lc_view.last_error = (resp.error or "Network error") .. " — try again in a moment."
+            core.log("[LeetCode] Failed to fetch random problem: " .. lc_view.last_error)
+            core.redraw = true
+          end
         end
       end)
     end
     
     lc_view.random_retries = 0
+    lc_view.net_retries = 0
     api_call({
       cmd = "problem_list",
       skip = 0,
@@ -934,7 +951,10 @@ command.add(nil, {
         pick_random(resp.data.total)
       else
         lc_view.state = "list"
-        core.log("[LeetCode] Failed to fetch problem count for random")
+        lc_view.mock_timer_end = nil
+        lc_view.is_blind_mode = false
+        lc_view.last_error = (resp.error or "Network error") .. " — could not count problems."
+        core.log("[LeetCode] " .. lc_view.last_error)
         core.redraw = true
       end
     end)
