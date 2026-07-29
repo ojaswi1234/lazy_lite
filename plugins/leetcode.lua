@@ -444,6 +444,8 @@ function LeetCodeView:new()
   self.result_type   = "run"
   self._search_timer = nil
   self.run_req_id    = nil
+  self.mock_timer_end = nil
+  self.is_blind_mode = false
 end
 
 function LeetCodeView:get_name()
@@ -868,14 +870,14 @@ command.add(nil, {
     end)
   end,
   ["leetcode:random"] = function()
-    if not lc_view or lc_view.total_problems == 0 then return end
+    if not lc_view then return end
     
     lc_view.loading_msg = "Picking a random problem"
     lc_view.state = "loading"
     core.redraw = true
     
-    local function pick_random()
-      local idx = math.random(1, lc_view.total_problems)
+    local function pick_random(total)
+      local idx = math.random(1, total)
       api_call({
         cmd = "problem_list",
         skip = idx - 1,
@@ -889,7 +891,7 @@ command.add(nil, {
           if p.paid then
              lc_view.random_retries = (lc_view.random_retries or 0) + 1
              if lc_view.random_retries < 15 then
-               pick_random()
+               pick_random(total)
                return
              end
           end
@@ -919,7 +921,21 @@ command.add(nil, {
     end
     
     lc_view.random_retries = 0
-    pick_random()
+    api_call({
+      cmd = "problem_list",
+      skip = 0,
+      limit = 1,
+      difficulty = lc_view.difficulty == "ALL" and "" or lc_view.difficulty,
+      search = lc_view.search_input,
+    }, function(resp)
+      if resp.ok and resp.data and resp.data.total > 0 then
+        pick_random(resp.data.total)
+      else
+        lc_view.state = "list"
+        core.log("[LeetCode] Failed to fetch problem count for random")
+        core.redraw = true
+      end
+    end)
   end,
   ["leetcode:close"] = function()
     local lc_is_active = (core.active_view and core.active_view:is(LeetCodeView))
@@ -1350,10 +1366,26 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
       end
     end
     
+    -- 2.4 Check Mock Interview button
+    if self.mock_btn_rect then
+      local r = self.mock_btn_rect
+      if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
+        self.is_blind_mode = true
+        self.mock_timer_end = os.time() + 45 * 60
+        self.curveball_triggered = false
+        self.active_curveball = nil
+        self.difficulty = "MEDIUM"
+        command.perform("leetcode:random")
+        return true
+      end
+    end
+    
     -- 2.5 Check Pick One button
     if self.random_btn_rect then
       local r = self.random_btn_rect
       if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
+        self.is_blind_mode = false
+        self.mock_timer_end = nil
         command.perform("leetcode:random")
         return true
       end
@@ -1403,6 +1435,8 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
       local idx = math.floor((mouse_y - list_y + self.list_scroll_y) / (24*SCALE)) + 1
       if idx >= 1 and idx <= #self.problems then
         self.selected_idx = idx
+        self.is_blind_mode = false
+        self.mock_timer_end = nil
         command.perform("leetcode:open-problem")
       end
       return true
@@ -1637,15 +1671,29 @@ function LeetCodeView:draw()
     self.search_y_start = search_y
     -- Pick One button width (hide if panel is too narrow)
     local pick_btn_w = (cw > 280*SCALE) and (style.font:get_width("Pick One") + 24*SCALE) or 0
-    local search_w = cw - search_lbl_w - (pick_btn_w > 0 and pick_btn_w + 10*SCALE or 0)
+    local mock_btn_w = (cw > 380*SCALE) and (style.font:get_width("Mock Interview") + 24*SCALE) or 0
+    local search_w = cw - search_lbl_w - (pick_btn_w > 0 and pick_btn_w + 10*SCALE or 0) - (mock_btn_w > 0 and mock_btn_w + 10*SCALE or 0)
     local search_h = 24*SCALE
 
     local border_color = self.search_focus and style.accent or style.dim
     renderer.draw_rect(search_x, search_y + search_h, search_w, 2*SCALE, border_color)
     renderer.draw_text(style.font, self.search_input, search_x + 5*SCALE, search_y + 2*SCALE, style.text)
 
+    if mock_btn_w > 0 then
+      local m_x = search_x + search_w + 10*SCALE
+      local m_y = search_y
+      local m_h = 24*SCALE
+      self.mock_btn_rect = {x = m_x, y = m_y, w = mock_btn_w, h = m_h}
+      renderer.draw_rect(m_x, m_y, mock_btn_w, m_h, style.background2)
+      renderer.draw_rect(m_x, m_y, mock_btn_w, 1*SCALE, LC_COLORS.hard)
+      renderer.draw_rect(m_x, m_y + m_h - 1*SCALE, mock_btn_w, 1*SCALE, LC_COLORS.hard)
+      renderer.draw_text(style.font, "Mock Interview", m_x + 8*SCALE, m_y + 4*SCALE, LC_COLORS.hard)
+    else
+      self.mock_btn_rect = nil
+    end
+
     if pick_btn_w > 0 then
-      local r_x = search_x + search_w + 10*SCALE
+      local r_x = search_x + search_w + 10*SCALE + (mock_btn_w > 0 and mock_btn_w + 10*SCALE or 0)
       local r_y = search_y
       local r_h = 24*SCALE
       self.random_btn_rect = {x = r_x, y = r_y, w = pick_btn_w, h = r_h}
@@ -1816,6 +1864,43 @@ function LeetCodeView:draw()
     local dc = LC_COLORS[diff_lower] or style.text
 
     -- ── Header Bar ───────────────────────────────────────────────────────────
+    if self.mock_timer_end then
+      local remaining = self.mock_timer_end - os.time()
+      
+      -- 🌪️ CURVEBALL ENGINE
+      -- Triggers 15 minutes into the 45 minute interview
+      if not self.curveball_triggered and remaining < (45 * 60) - (15 * 60) then 
+        self.curveball_triggered = true
+        local curveballs = {
+          "INTERVIEWER: 'Actually, we just realized the dataset won't fit in memory. How does this change your space complexity?'",
+          "INTERVIEWER: 'Our PM just changed the requirements. What if the input array contains negative numbers?'",
+          "INTERVIEWER: 'This looks good, but can you optimize this to run in O(1) space?'",
+          "INTERVIEWER: 'How would you adapt this if the function was being called concurrently by 10,000 threads?'"
+        }
+        self.active_curveball = curveballs[math.random(#curveballs)]
+      end
+
+      local timer_col = remaining > 300 and LC_COLORS.accepted or LC_COLORS.hard
+      local timer_str = "TIME'S UP!"
+      if remaining > 0 then
+        timer_str = string.format("Mock Interview Time: %02d:%02d", math.floor(remaining / 60), remaining % 60)
+      end
+      local tw = style.font:get_width(timer_str)
+      renderer.draw_text(style.font, timer_str, cx + cw/2 - tw/2, cy, timer_col)
+      cy = cy + style.font:get_height() + 8*SCALE
+      
+      if self.active_curveball then
+        local cw_w = style.font:get_width(self.active_curveball) + 20*SCALE
+        renderer.draw_rect(cx + cw/2 - cw_w/2, cy, cw_w, 30*SCALE, {LC_COLORS.hard[1], LC_COLORS.hard[2], LC_COLORS.hard[3], 40})
+        renderer.draw_rect(cx + cw/2 - cw_w/2, cy, 4*SCALE, 30*SCALE, LC_COLORS.hard)
+        renderer.draw_text(style.font, self.active_curveball, cx + cw/2 - cw_w/2 + 12*SCALE, cy + 6*SCALE, style.text)
+        cy = cy + 30*SCALE + 8*SCALE
+      end
+      
+      -- Keep the panel updating every frame so the timer ticks!
+      core.redraw = true
+    end
+
     -- Back button
     local back_label = "<  Back"
     local back_w = style.font:get_width(back_label) + 16 * SCALE
@@ -1825,13 +1910,23 @@ function LeetCodeView:draw()
     self.back_btn_rect = {x=cx, y=cy, w=back_w, h=back_h}
 
     -- Difficulty badge (right-aligned)
-    local diff_badge_x = cx + cw - style.font:get_width(p.difficulty) - 16*SCALE
-    local badge_w = style.font:get_width(p.difficulty) + 16*SCALE
-    local badge_h = back_h
-    renderer.draw_rect(diff_badge_x, cy, badge_w, badge_h, {dc[1], dc[2], dc[3], 35})
-    renderer.draw_rect(diff_badge_x, cy, badge_w, 1*SCALE, dc)
-    renderer.draw_rect(diff_badge_x, cy + badge_h - SCALE, badge_w, 1*SCALE, dc)
-    renderer.draw_text(style.font, p.difficulty, diff_badge_x + 8*SCALE, cy + 4*SCALE, dc)
+    if not self.is_blind_mode then
+      local diff_badge_x = cx + cw - style.font:get_width(p.difficulty) - 16*SCALE
+      local badge_w = style.font:get_width(p.difficulty) + 16*SCALE
+      local badge_h = back_h
+      renderer.draw_rect(diff_badge_x, cy, badge_w, badge_h, {dc[1], dc[2], dc[3], 35})
+      renderer.draw_rect(diff_badge_x, cy, badge_w, 1*SCALE, dc)
+      renderer.draw_rect(diff_badge_x, cy + badge_h - SCALE, badge_w, 1*SCALE, dc)
+      renderer.draw_text(style.font, p.difficulty, diff_badge_x + 8*SCALE, cy + 4*SCALE, dc)
+    else
+      local diff_badge_x = cx + cw - style.font:get_width("Hidden") - 16*SCALE
+      local badge_w = style.font:get_width("Hidden") + 16*SCALE
+      local badge_h = back_h
+      renderer.draw_rect(diff_badge_x, cy, badge_w, badge_h, {style.dim[1], style.dim[2], style.dim[3], 35})
+      renderer.draw_rect(diff_badge_x, cy, badge_w, 1*SCALE, style.dim)
+      renderer.draw_rect(diff_badge_x, cy + badge_h - SCALE, badge_w, 1*SCALE, style.dim)
+      renderer.draw_text(style.font, "Hidden", diff_badge_x + 8*SCALE, cy + 4*SCALE, style.dim)
+    end
 
     cy = cy + back_h + 8*SCALE
 
@@ -1877,7 +1972,7 @@ function LeetCodeView:draw()
     if p.question_id or p.id then
       draw_chip("#" .. (p.question_id or p.id), {common.color("#888888")})
     end
-    if p.topics and #p.topics > 0 then
+    if p.topics and #p.topics > 0 and not self.is_blind_mode then
       for _, t in ipairs(p.topics) do
         draw_chip(t, {common.color("#75BFFF")})
       end
@@ -1894,7 +1989,7 @@ function LeetCodeView:draw()
     cy = chip_y + chip_h + 10*SCALE
 
     -- Company row
-    if p.companies and #p.companies > 0 then
+    if p.companies and #p.companies > 0 and not self.is_blind_mode then
       local comp_x = cx
       local comp_y = cy
       renderer.draw_text(style.font, "Asked by:", comp_x, comp_y + 2*SCALE, style.dim)
@@ -1994,7 +2089,7 @@ function LeetCodeView:draw()
 
     -- ── Similar questions ────────────────────────────────────────────────
     self.similar_buttons = {}
-    if p.similar_questions and #p.similar_questions > 0 then
+    if p.similar_questions and #p.similar_questions > 0 and not self.is_blind_mode then
       lang_cy = lang_cy + 8*SCALE
       renderer.draw_text(style.font, "Similar Problems", cx, lang_cy, style.dim)
       lang_cy = lang_cy + style.font:get_height() + 10*SCALE
@@ -2139,6 +2234,28 @@ function DocView:draw(...)
     renderer.draw_rect(cx, cy, self.editor_copy_btn.w, self.editor_copy_btn.h, style.background2)
     renderer.draw_rect(cx, cy, self.editor_copy_btn.w, 1*SCALE, LC_COLORS.accepted)
     renderer.draw_text(style.font, "Copy Code", cx + 12*SCALE, cy + 6*SCALE, style.text)
+    
+    -- Live Complexity Thermometer
+    local text = self.doc:get_text(1, 1, math.huge, math.huge)
+    local lang = self.doc.syntax and self.doc.syntax.name and self.doc.syntax.name:lower() or "python"
+    
+    local ok, complexity = pcall(require, "plugins.complexity")
+    if ok and complexity.analyze_code then
+      local tc, sc, tpow, spow = complexity.analyze_code(text, lang)
+      
+      local th_w = 200 * SCALE
+      local th_h = 28 * SCALE
+      local th_x = cx - th_w - 10 * SCALE
+      local th_y = cy
+      
+      local tc_col = LC_COLORS.accepted
+      if tpow == 2 then tc_col = {255, 165, 0, 255} end -- Orange for O(N^2)
+      if tpow > 2 or tc:match("2%^N") then tc_col = LC_COLORS.hard end -- Red for worse
+      
+      renderer.draw_rect(th_x, th_y, th_w, th_h, style.background2)
+      renderer.draw_rect(th_x, th_y, 4*SCALE, th_h, tc_col)
+      renderer.draw_text(style.font, "Live Est: " .. tc .. " | " .. sc, th_x + 10*SCALE, th_y + 6*SCALE, tc_col)
+    end
   else
     self.editor_copy_btn = nil
   end
