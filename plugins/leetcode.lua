@@ -1944,9 +1944,10 @@ function LeetCodeView:draw()
     self.back_btn_rect = {x=cx, y=cy, w=back_w, h=back_h}
 
     -- Difficulty badge (right-aligned)
+    local badge_w = 0  -- defined here so it's in scope after the if/else block
     if not self.is_blind_mode then
       local diff_badge_x = cx + cw - style.font:get_width(p.difficulty) - 16*SCALE
-      local badge_w = style.font:get_width(p.difficulty) + 16*SCALE
+      badge_w = style.font:get_width(p.difficulty) + 16*SCALE
       local badge_h = back_h
       renderer.draw_rect(diff_badge_x, cy, badge_w, badge_h, {dc[1], dc[2], dc[3], 35})
       renderer.draw_rect(diff_badge_x, cy, badge_w, 1*SCALE, dc)
@@ -1954,7 +1955,7 @@ function LeetCodeView:draw()
       renderer.draw_text(style.font, p.difficulty, diff_badge_x + 8*SCALE, cy + 4*SCALE, dc)
     else
       local diff_badge_x = cx + cw - style.font:get_width("Hidden") - 16*SCALE
-      local badge_w = style.font:get_width("Hidden") + 16*SCALE
+      badge_w = style.font:get_width("Hidden") + 16*SCALE
       local badge_h = back_h
       renderer.draw_rect(diff_badge_x, cy, badge_w, badge_h, {style.dim[1], style.dim[2], style.dim[3], 35})
       renderer.draw_rect(diff_badge_x, cy, badge_w, 1*SCALE, style.dim)
