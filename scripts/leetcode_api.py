@@ -29,19 +29,27 @@ _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 
-def http_request(url, data=None, method="POST", referer="https://leetcode.com/"): 
+# Build a proxy-free opener so local intercepting proxies (ZScaler, VPNs,
+# Fiddler, etc.) never touch LeetCode traffic. This permanently prevents the
+# "HTTP 502: Too many open files" error caused by proxy file-descriptor exhaustion.
+_no_proxy = urllib.request.ProxyHandler({})           # empty dict = no proxy
+_https_handler = urllib.request.HTTPSHandler(context=_ctx)
+_opener = urllib.request.build_opener(_no_proxy, _https_handler)
+
+def http_request(url, data=None, method="POST", referer="https://leetcode.com/"):
     session, csrf, raw = load_session()
     headers = {
         "Content-Type":   "application/json",
-        "Referer": referer,
+        "Referer":        referer,
         "User-Agent":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "x-csrftoken":    csrf,
         "Cookie":         raw if raw else f"LEETCODE_SESSION={session}; csrftoken={csrf}",
+        "Connection":     "keep-alive",
     }
     body = json.dumps(data).encode() if data else None
     req  = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, context=_ctx, timeout=15) as r:
+        with _opener.open(req, timeout=15) as r:
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode('utf-8', errors='ignore')
@@ -51,12 +59,20 @@ def http_request(url, data=None, method="POST", referer="https://leetcode.com/")
             raise Exception("Error 499: LeetCode dropped the request. Try again.")
         elif e.code == 403:
             raise Exception("403 Forbidden: Your session might be expired. Try re-authenticating.")
+        elif e.code == 502:
+            # 502 can also come from LeetCode's own infra – give a cleaner message
+            raise Exception("HTTP 502: LeetCode server is temporarily unavailable. Retrying...")
         else:
             raise Exception(f"HTTP {e.code}: {e.reason or 'Unknown'}. {body_text[:200]}")
+    except Exception as e:
+        # Re-raise connection errors so the retry logic in the Lua layer catches them
+        raise
 
 def graphql(query_str, variables=None):
     return http_request("https://leetcode.com/graphql",
                         {"query": query_str, "variables": variables or {}})
+
+
 
 def poll(url, interval=1.5, timeout=45):
     """Poll a LeetCode check endpoint until state is SUCCESS."""
@@ -202,11 +218,16 @@ def cmd_problem_list(params):
             keywords.append(word)
 
     local_db = {}
+    tags_db = {}
     try:
         db_path = os.path.join(USERDIR, "plugins", "company_tags.json")
         if os.path.exists(db_path):
             with open(db_path, "r", encoding="utf-8") as f:
                 local_db = json.load(f)
+        tags_path = os.path.join(USERDIR, "plugins", "problem_tags.json")
+        if os.path.exists(tags_path):
+            with open(tags_path, "r", encoding="utf-8") as f:
+                tags_db = json.load(f)
     except Exception:
         pass
 
@@ -216,6 +237,15 @@ def cmd_problem_list(params):
             tags_lower = [t.lower().replace(" ", "-") for t in tags]
             if all(c in tags_lower for c in companies):
                 if all(kw in slug for kw in keywords):
+                    if topic_tags or difficulty in ("EASY", "MEDIUM", "HARD"):
+                        prob_meta = tags_db.get(slug)
+                        if prob_meta:
+                            if difficulty in ("EASY", "MEDIUM", "HARD") and prob_meta.get("difficulty") != difficulty:
+                                continue
+                            if topic_tags:
+                                p_topics = prob_meta.get("topics", [])
+                                if not all(t in p_topics for t in topic_tags):
+                                    continue
                     matching_slugs.append(slug)
         
         total = len(matching_slugs)
