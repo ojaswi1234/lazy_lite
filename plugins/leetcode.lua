@@ -813,12 +813,14 @@ command.add(nil, {
         lc_view.total_problems = resp.data.total
         lc_view.selected_idx   = 1
         lc_view.list_scroll_y  = 0
+        lc_view.last_error     = nil
       else
         if resp.error and resp.error:match("Not logged in") then
           lc_view.state = "auth"
           lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
         else
-          core.log("[LeetCode] " .. (resp.error or "Unknown error"))
+          lc_view.last_error = resp.error or "Unknown error"
+          core.log("[LeetCode] " .. lc_view.last_error)
         end
       end
       core.redraw = true
@@ -1728,6 +1730,18 @@ function LeetCodeView:draw()
       local msg = "Fetching problems" .. dots
       local tw = style.font:get_width(msg)
       renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + list_h/2, style.accent)
+    elseif self.last_error then
+      local msg = "Error: " .. self.last_error
+      local tw = style.font:get_width(msg)
+      renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + list_h/2, LC_COLORS.hard)
+      
+      local hint = "(Check your network connection, proxy, or VPN)"
+      local hw = style.font:get_width(hint)
+      renderer.draw_text(style.font, hint, cx + cw/2 - hw/2, cy + list_h/2 + 20*SCALE, style.dim)
+    elseif not self.problems or #self.problems == 0 then
+      local msg = "No problems found for the current filters."
+      local tw = style.font:get_width(msg)
+      renderer.draw_text(style.font, msg, cx + cw/2 - tw/2, cy + list_h/2, style.dim)
     else
       local max_scroll = math.max(0, #self.problems * 24*SCALE - list_h)
       self.list_scroll_y = math.min(math.max(0, self.list_scroll_y or 0), max_scroll)
