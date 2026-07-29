@@ -1072,6 +1072,22 @@ end
 
 -- ── AI actions ────────────────────────────────────────────────────────────────
 
+function AIPluginGen:get_local_context()
+  local ctx_files = {}
+  local function scan_lua(dir, prefix)
+    pcall(function()
+      for _, f in ipairs(system.list_dir(dir)) do
+        if f:match("%.lua$") then table.insert(ctx_files, prefix .. f) end
+      end
+    end)
+  end
+  scan_lua(USERDIR .. "/plugins", "user-plugin:")
+  scan_lua(DATADIR .. "/plugins", "sys-plugin:")
+  scan_lua(USERDIR .. "/scripts", "script:")
+  if #ctx_files == 0 then return "" end
+  return "LOCAL ENVIRONMENT CONTEXT (Existing Files):\n" .. table.concat(ctx_files, ", ") .. "\nCRITICAL: If the requested feature logically belongs to an existing plugin from the list above (e.g. port forwarding belongs in a port manager plugin), you MUST plan to modify the EXISTING plugin rather than creating a new independent one. Ensure [OUTPUT_FILES] reflects the existing plugin name!\n\n"
+end
+
 function AIPluginGen:do_generate_plan()
   self.state = STATE.LOADING
   self.loading_start = system.get_time()
@@ -1091,9 +1107,11 @@ function AIPluginGen:do_generate_plan()
   for stroke, _ in pairs(keymap.map) do table.insert(used_keys, stroke) end
   local key_note = "CRITICAL: Do NOT suggest any of these already-used shortcuts: " .. table.concat(used_keys, ", ") .. "\n"
 
+  local ctx_note = self:get_local_context()
+
   local prompt = ([[
 You are creating a plugin development plan for the Lite XL text editor.
-User request: "%s"
+%sUser request: "%s"
 %s%s
 Respond with ONLY the exact structured format. No preamble, no extra text.
 
@@ -1144,7 +1162,7 @@ core.DocView, core.command, style, core.keymap
 [OUTPUT_FILES]
 plugins/plugin_name.lua
 [/OUTPUT_FILES]
-]]):format(user_input, rejected_note, key_note)
+]]):format(ctx_note, user_input, rejected_note, key_note)
 
   run_agy(prompt, self.agy_conv_id, function(out, err)
     if err or not out or #out < 30 then
@@ -1188,11 +1206,24 @@ function AIPluginGen:do_build()
     sc_hints = sc_hints .. ('  keymap.add({ ["%s"] = "%s:toggle" })\n'):format(sc.key, plan.name)
   end
 
+  local existing_code = ""
+  if plan.out_files then
+    for _, fname in ipairs(plan.out_files) do
+      local path = USERDIR .. "/" .. fname
+      local f = io.open(path, "r")
+      if f then
+        existing_code = existing_code .. "\n=== EXISTING " .. fname .. " ===\n" .. f:read("*a") .. "\n"
+        f:close()
+      end
+    end
+  end
+  local existing_note = existing_code ~= "" and ("\nExisting code to modify:\n" .. existing_code) or ""
+
   local prompt = ([[
 Write a COMPLETE, WORKING Lite XL plugin in Lua based on the following approved plan:
 
 %s
-
+%s
 Rules:
 1. First line MUST be: -- mod-version:3
 2. Add a descriptive header comment
@@ -1200,6 +1231,7 @@ Rules:
 4. Wrap risky code in pcall
 5. Register commands and keyboard shortcuts
 6. Plugin must work immediately after being placed in plugins/ dir
+7. If existing code was provided, you MUST modify it to include the new features without breaking existing functionality. Output the ENTIRE modified file.
 
 Shortcut hints:
 %s
@@ -1209,7 +1241,7 @@ Output the COMPLETE Lua source between [PLUGIN_CODE] and [/PLUGIN_CODE] tags ONL
 [PLUGIN_CODE]
 -- write complete plugin code here
 [/PLUGIN_CODE]
-]]):format(plan.raw, sc_hints)
+]]):format(plan.raw, existing_note, sc_hints)
 
   self.build_step = 1
 
@@ -1323,13 +1355,14 @@ core.log("[AI Plugin Gen] Loaded — use 'ai-plugin-gen:toggle' or Activity Bar 
 command.add(
   function()
     return (type(core.active_view) == "table" and core.active_view.name == "AI Plugins")
-        or (type(core.active_view) == "table" and core.active_view.doc == _G.ai_plugin_gen_last_doc)
+        or (type(core.active_view) == "table" and core.active_view.doc == rawget(_G, "ai_plugin_gen_last_doc"))
   end,
   {
     ["ai-plugin-gen:paste"] = function()
       local text = system.get_clipboard()
-      if text and _G.ai_plugin_gen_last_doc then
-        _G.ai_plugin_gen_last_doc:text_input(text)
+      local last_doc = rawget(_G, "ai_plugin_gen_last_doc")
+      if text and last_doc then
+        last_doc:text_input(text)
       end
     end
   }
