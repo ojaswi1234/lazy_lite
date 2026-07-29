@@ -871,7 +871,9 @@ function TermView:draw()
   
   local available_w = w - right_w
   local col_w = math.floor(available_w / #self.split_indices)
-  local lh = style.code_font:get_height() + 2 * SCALE
+  
+  -- Generous, VS Code-like line spacing
+  local lh = math.floor(style.code_font:get_height() * 1.3)
   local char_w = style.code_font:get_width("W")
   local max_cols = math.max(20, math.floor((col_w - 20 * SCALE) / char_w))
 
@@ -903,8 +905,40 @@ function TermView:draw()
           local row = s.term:get_absolute_line(r)
           if row then
             local current_str_parts = {}
-            local current_color = nil
+            local cur_fg = nil
+            local cur_bg = nil
+            local cur_bold = false
             local str_start_x = cx
+            
+            -- Premium VS Code terminal color palette
+            local ansi = {
+              [0] = {common.color("#000000")}, [1] = {common.color("#cd3131")},
+              [2] = {common.color("#0dbc79")}, [3] = {common.color("#e5e510")},
+              [4] = {common.color("#2472c8")}, [5] = {common.color("#bc3fbc")},
+              [6] = {common.color("#11a8cd")}, [7] = {common.color("#e5e5e5")},
+            }
+            local ansi_bright = {
+              [0] = {common.color("#666666")}, [1] = {common.color("#f14c4c")},
+              [2] = {common.color("#23d18b")}, [3] = {common.color("#f5f543")},
+              [4] = {common.color("#3b8eea")}, [5] = {common.color("#d670d6")},
+              [6] = {common.color("#29b8db")}, [7] = {common.color("#ffffff")},
+            }
+            
+            local function flush_chunk()
+              if #current_str_parts > 0 and cur_fg ~= nil then
+                local str = table.concat(current_str_parts)
+                local str_w = style.code_font:get_width(str)
+                if cur_bg then
+                  renderer.draw_rect(str_start_x, cy, str_w, lh, cur_bg)
+                end
+                renderer.draw_text(style.code_font, str, str_start_x, cy, cur_fg)
+                if cur_bold then
+                  -- Simulate bold font weight by drawing with a tiny horizontal offset
+                  renderer.draw_text(style.code_font, str, str_start_x + math.max(1, math.ceil(0.5 * SCALE)), cy, cur_fg)
+                end
+              end
+            end
+
             for c = 1, s.term.cols do
               local cell = row[c]
               
@@ -921,33 +955,32 @@ function TermView:draw()
                 end
               end
               
-              local cell_color = fg
-              if cell and cell.attr.fg == 1 then cell_color = col_err end
               if cell then
-                if current_color == nil then
-                  current_color = cell_color
+                local cell_bold = cell.attr.bold
+                local pal = cell_bold and ansi_bright or ansi
+                local cell_fg = (cell.attr.fg == 7 and not cell_bold) and fg or (pal[cell.attr.fg] or fg)
+                local cell_bg = (cell.attr.bg ~= 0) and ansi[cell.attr.bg] or nil
+                
+                if cur_fg == nil then
+                  cur_fg, cur_bg, cur_bold = cell_fg, cell_bg, cell_bold
                   table.insert(current_str_parts, cell.char)
-                elseif current_color == cell_color then
+                elseif cur_fg == cell_fg and cur_bg == cell_bg and cur_bold == cell_bold then
                   table.insert(current_str_parts, cell.char)
                 else
-                  renderer.draw_text(style.code_font, table.concat(current_str_parts), str_start_x, cy, current_color)
+                  flush_chunk()
                   str_start_x = cx
-                  current_color = cell_color
+                  cur_fg, cur_bg, cur_bold = cell_fg, cell_bg, cell_bold
                   current_str_parts = { cell.char }
                 end
               else
-                if #current_str_parts > 0 then
-                  renderer.draw_text(style.code_font, table.concat(current_str_parts), str_start_x, cy, current_color)
-                  current_str_parts = {}
-                  current_color = nil
-                end
+                flush_chunk()
+                current_str_parts = {}
+                cur_fg, cur_bg, cur_bold = nil, nil, false
                 str_start_x = cx + cw
               end
               cx = cx + cw
             end
-            if #current_str_parts > 0 and current_color ~= nil then
-              renderer.draw_text(style.code_font, table.concat(current_str_parts), str_start_x, cy, current_color)
-            end
+            flush_chunk()
           end
         end
         cx = text_x
