@@ -166,7 +166,7 @@ end
 
 local function fetch_actions()
   if gh_state.actions_loading then return end
-  if os.time() - gh_state.last_actions_refresh < 3 then return end
+  if os.time() - gh_state.last_actions_refresh < 30 then return end  -- refresh at most every 30s
   gh_state.last_actions_refresh = os.time()
   gh_state.actions_loading = true
   gh_state.actions_error   = nil
@@ -194,7 +194,7 @@ end
 
 local function fetch_insights()
   if gh_state.insights_loading then return end
-  if os.time() - gh_state.last_insights_refresh < 5 then return end
+  if os.time() - gh_state.last_insights_refresh < 120 then return end  -- refresh at most every 2 min
   gh_state.last_insights_refresh = os.time()
   gh_state.insights_loading = true
   gh_state.insights_error   = nil
@@ -270,12 +270,12 @@ end
 local function status_icon(conclusion, status)
   status     = (status or ""):lower()
   conclusion = (conclusion or ""):lower()
-  if status == "in_progress" then return "⟳" end
-  if status == "queued"      then return "…" end
-  if conclusion == "success"   then return "✓" end
-  if conclusion == "failure"   then return "✗" end
-  if conclusion == "cancelled" then return "⊘" end
-  return "○"
+  if status == "in_progress" then return "[~]" end
+  if status == "queued"      then return "[.]" end
+  if conclusion == "success"   then return "[+]" end
+  if conclusion == "failure"   then return "[x]" end
+  if conclusion == "cancelled" then return "[-]" end
+  return "[o]"
 end
 
 local function fmt_date(iso)
@@ -320,8 +320,8 @@ local function draw_run_details(x, y, w, h)
     
     local c = style.text
     if line:match("^#") then c = style.accent end
-    if line:match("✗") or line:match("Failed") then c = {220, 80, 80, 255} end
-    if line:match("✓") then c = {80, 200, 120, 255} end
+    if line:match("%[x%]") or line:match("Failed") then c = {220, 80, 80, 255} end
+    if line:match("%[%+%]") then c = {80, 200, 120, 255} end
     
     renderer.draw_text(sf, line, x + pad, ry, c)
     ::skip::
@@ -853,7 +853,7 @@ core.add_thread(function()
                   for line in jobs_out:gmatch("[^\r\n]+") do
                     local t, name, concl, started, completed = line:match("^(%w+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
                     if t then
-                      local icon = concl == "success" and "✓" or concl == "failure" and "✗" or "○"
+                      local icon = concl == "success" and "[+]" or concl == "failure" and "[x]" or "[o]"
                       local dstr = format_dur(parse_iso(completed) - parse_iso(started))
                       if dstr ~= "" then dstr = " *(" .. dstr .. ")*" end
                       if t == "JOB" then

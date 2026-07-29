@@ -365,7 +365,7 @@ function TermView:refresh_ports(s)
           elseif system.get_time() > deadline then
             break
           else
-            coroutine.yield(0.01)
+            coroutine.yield(0.05)
           end
         end
         for line in (out .. "\n"):gmatch("[^\n]+") do
@@ -393,7 +393,7 @@ function TermView:refresh_ports(s)
           elseif system.get_time() > deadline then
             break
           else
-            coroutine.yield(0.01)
+            coroutine.yield(0.05)
           end
         end
         for line in (out .. "\n"):gmatch("[^\n]+") do
@@ -420,7 +420,7 @@ function TermView:refresh_ports(s)
           if chunk and #chunk > 0 then out = out .. chunk
           elseif not p1:running() then break
           elseif system.get_time() > deadline then break
-          else coroutine.yield(0.01) end
+          else coroutine.yield(0.05) end
         end
         for line in (out .. "\n"):gmatch("[^\n]+") do
           local pid, name = line:match("^%s*(%d+)%s+(.+)$")
@@ -437,7 +437,7 @@ function TermView:refresh_ports(s)
           if chunk and #chunk > 0 then out = out .. chunk
           elseif not p2:running() then break
           elseif system.get_time() > deadline then break
-          else coroutine.yield(0.01) end
+          else coroutine.yield(0.05) end
         end
         for line in (out .. "\n"):gmatch("[^\n]+") do
           local state, recv, send, local_addr, peer_addr, users = line:match("^LISTEN%s+%S+%s+%S+%s+(%S+)%s+%S+%s+(.+)$")

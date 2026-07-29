@@ -10,7 +10,7 @@ local system = require "system"
 config.resource_monitor = {
   width = 60,
   history = 30,
-  poll_rate = 2,
+  poll_rate = 5,
 }
 
 local cpu_history = {}
@@ -130,7 +130,7 @@ core.add_thread(function()
         start_monitor()
       end
     end
-    coroutine.yield(0.1)
+    coroutine.yield(0.5)
   end
 end)
 

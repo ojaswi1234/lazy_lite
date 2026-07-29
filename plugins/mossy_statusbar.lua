@@ -77,7 +77,7 @@ end
 -- ── 2. Git Branch Indicator ───────────────────────────────────────────────────
 local current_branch = nil
 local last_check     = 0
-local check_interval = 5 -- seconds (was 2, increased to reduce process spawns)
+local check_interval = 10 -- seconds: git branch check (low-priority background task)
 local git_checking   = false
 
 local function check_git_branch()
@@ -104,7 +104,7 @@ local function check_git_branch()
     if chunk and #chunk > 0 then
       output = output .. chunk
     end
-    coroutine.yield(0.1)
+    coroutine.yield(0.3)
   end
   
   -- Drain remaining output

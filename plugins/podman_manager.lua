@@ -75,7 +75,7 @@ local function async_exec(cmd_args, on_result)
             if not p:running() then
               break
             else
-              coroutine.yield(0.01)
+              coroutine.yield(0.05)
             end
           end
         end

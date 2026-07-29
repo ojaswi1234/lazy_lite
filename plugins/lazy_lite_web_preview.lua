@@ -90,7 +90,7 @@ local function get_all_listening_ports()
         elseif system.get_time() > deadline then
           break
         else
-          coroutine.yield(0.01)
+          coroutine.yield(0.05)
         end
       end
       for line in (out .. "\n"):gmatch("[^\n]+") do
@@ -120,7 +120,7 @@ local function get_all_listening_ports()
     elseif system.get_time() > deadline then
       break
     else
-      coroutine.yield(0.01)
+      coroutine.yield(0.05)
     end
   end
 

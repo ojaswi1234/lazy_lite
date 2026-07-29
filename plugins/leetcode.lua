@@ -118,7 +118,7 @@ local function ensure_api()
         end
       end
       if chunk == "" then
-        coroutine.yield(0.01)
+        coroutine.yield(0.05)
       end
     end
   end)

@@ -149,7 +149,7 @@ local function run_gh_async(args, on_complete)
         if on_complete then on_complete(false, "gh command timed out after " .. GH_ASYNC_TIMEOUT .. "s") end
         return
       end
-      coroutine.yield(0.01)
+      coroutine.yield(0.05)
     end
     local chunk = p:read_stdout(65536)
     if chunk and #chunk > 0 then out_t[#out_t + 1] = chunk end

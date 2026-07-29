@@ -104,7 +104,7 @@ local function run_ssh_command(cs_name, shell_cmd, timeout)
     out = out .. (p:read_stdout(16384) or "")
     out = out .. (p:read_stderr(16384)  or "")
     if in_coro then
-      coroutine.yield(0.01) -- 10ms yield for smooth 60fps UI
+      coroutine.yield(0.05) -- 50ms yield (20fps is sufficient for FS ops)
     end
   end
   -- Drain remaining output

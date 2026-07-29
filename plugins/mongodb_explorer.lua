@@ -107,7 +107,7 @@ local function send_request(req, callback)
         result = result .. chunk
         if chunk:match("\n$") then break end
       else
-        coroutine.yield(0.01)
+        coroutine.yield(0.05)
       end
     end
     
