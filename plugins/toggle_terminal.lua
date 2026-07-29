@@ -749,21 +749,35 @@ function TermView:update()
             s.proc = nil
             return
           end
-          local old_shell = s.shell
           
           local idx = 1
           for i, sess in ipairs(self.sessions) do
             if sess == s then idx = i; break end
           end
           
+          -- Remove from splits
+          for i, sess_idx in ipairs(self.split_indices) do
+            if sess_idx == idx then table.remove(self.split_indices, i) break end
+          end
+          
+          -- Remove the session
           table.remove(self.sessions, idx)
-          self:add_session(old_shell)
           
-          local new_s = table.remove(self.sessions) 
-          table.insert(self.sessions, idx, new_s)
+          -- Shift remaining split indices down
+          for i, sess_idx in ipairs(self.split_indices) do
+            if sess_idx > idx then self.split_indices[i] = sess_idx - 1 end
+          end
           
-          if self.active_idx == #self.sessions + 1 or self.active_idx == #self.sessions then 
-            self.active_idx = idx 
+          -- Auto-close terminal or switch focus if no splits remain
+          if #self.split_indices == 0 then
+            if #self.sessions > 0 then 
+              self.split_indices = {1} 
+              self.active_idx = 1
+            else 
+              if self.visible then command.perform("terminal:toggle") end
+            end
+          else 
+            self.active_idx = self.split_indices[#self.split_indices] 
           end
           
           core.redraw = true
