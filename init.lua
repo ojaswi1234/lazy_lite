@@ -425,15 +425,19 @@ if settings_module and PLATFORM == "Windows" then
   local function get_font_options()
     if font_options then return font_options end
     font_options = { {"Default / Fira Code", ""} }
-    local files = system.list_dir(fonts_dir)
-    if files then
-      for _, f in ipairs(files) do
+    
+    -- system.list_dir fails on Windows Fonts folder because it's a shell extension, so we use dir
+    local p = io.popen('dir /b "' .. fonts_dir .. '\\*.ttf" "' .. fonts_dir .. '\\*.ttc" 2>nul')
+    if p then
+      for f in p:lines() do
         if f:match("%.ttf$") or f:match("%.ttc$") then
           local name = f:gsub("%.ttf$", ""):gsub("%.ttc$", "")
           table.insert(font_options, {name, fonts_dir .. "\\" .. f})
         end
       end
+      p:close()
     end
+    
     table.sort(font_options, function(a, b) return a[1]:lower() < b[1]:lower() end)
     return font_options
   end
