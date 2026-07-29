@@ -67,15 +67,19 @@ EmptyView.draw = function(self)
   local lf  = style.font                      -- proportional for hints
   local dim = style.dim
 
-  -- Derive a bright foreground from style.accent (or fallback to a nice blue-white)
+  local bg = style.background
+  local is_light = (bg[1] * 0.299 + bg[2] * 0.587 + bg[3] * 0.114) > 128
+
+  -- Derive a bold/bright foreground from style.accent
   local acc = style.accent or { 120, 200, 255, 255 }
-  local bright = { acc[1], acc[2], acc[3], 220 }
+  local bright = { acc[1], acc[2], acc[3], 240 }
 
-  -- Shadow color: very dark, semi-transparent
-  local shadow = { 0, 0, 0, 100 }
+  -- Shadow color: softer on light themes, deeper on dark themes
+  local shadow = is_light and { 0, 0, 0, 50 } or { 0, 0, 0, 150 }
 
-  -- Shadow offset in pixels
+  -- Shadow offset and bold thickness
   local sh = math.ceil(2 * SCALE)
+  local bold_off = math.max(1, math.ceil(1 * SCALE))
 
   local art_lines = split_lines(SPLASH_ART)
 
@@ -104,13 +108,15 @@ EmptyView.draw = function(self)
   end
   local art_x = self.position.x + math.max(style.padding.x, (self.size.x - max_art_w) / 2)
 
-  -- Draw ASCII logo — shadow pass first, then bright text on top
+  -- Draw ASCII logo — shadow pass first, then bright text on top, drawn twice to simulate bold weight
   local cy = start_y
   for _, l in ipairs(art_lines) do
-    -- Shadow (offset down-right)
+    -- Shadow (offset down-right, doubled for bold)
     renderer.draw_text(sf, l, art_x + sh, cy + sh, shadow)
-    -- Bright foreground
+    renderer.draw_text(sf, l, art_x + sh + bold_off, cy + sh, shadow)
+    -- Bright foreground (doubled for bold)
     renderer.draw_text(sf, l, art_x, cy, bright)
+    renderer.draw_text(sf, l, art_x + bold_off, cy, bright)
     cy = cy + fh
   end
 

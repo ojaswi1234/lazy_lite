@@ -138,15 +138,19 @@ EmptyView.draw = function(self)
   local lf  = style.font                      -- proportional for hints
   local dim = style.dim
 
+  local bg = style.background
+  local is_light = (bg[1] * 0.299 + bg[2] * 0.587 + bg[3] * 0.114) > 128
+
   -- Bright foreground derived from theme accent
   local acc    = style.accent or { 120, 200, 255, 255 }
-  local bright = { acc[1], acc[2], acc[3], 220 }
+  local bright = { acc[1], acc[2], acc[3], 240 }
 
-  -- Drop-shadow: dark, semi-transparent
-  local shadow = { 0, 0, 0, 100 }
+  -- Drop-shadow: adaptive based on background
+  local shadow = is_light and { 0, 0, 0, 50 } or { 0, 0, 0, 150 }
 
-  -- Shadow offset (scales with DPI)
+  -- Shadow offset and bold thickness (scales with DPI)
   local sh = math.ceil(2 * SCALE)
+  local bold_off = math.max(1, math.ceil(1 * SCALE))
 
   local art_lines = split_lines(SPLASH_ART)
 
@@ -175,11 +179,13 @@ EmptyView.draw = function(self)
   end
   local art_x = self.position.x + math.max(style.padding.x, (self.size.x - max_art_w) / 2)
 
-  -- Two-pass draw: shadow behind, bright text in front
+  -- Two-pass draw: shadow behind, bright text in front, drawn twice to simulate bold
   local cy = start_y
   for _, l in ipairs(art_lines) do
     renderer.draw_text(sf, l, art_x + sh, cy + sh, shadow)  -- shadow
+    renderer.draw_text(sf, l, art_x + sh + bold_off, cy + sh, shadow) -- shadow bold
     renderer.draw_text(sf, l, art_x,      cy,      bright)  -- bright
+    renderer.draw_text(sf, l, art_x + bold_off, cy, bright) -- bright bold
     cy = cy + fh
   end
 
