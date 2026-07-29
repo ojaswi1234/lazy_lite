@@ -52,17 +52,50 @@ end
 
 function Terminal:resize(cols, rows)
   if self.cols == cols and self.rows == rows then return end
-  
-  if rows > self.rows then
-    for y = self.rows + 1, rows do
-      self.grid[y] = self:empty_line_for_cols(cols)
+    if rows < self.rows then
+      local diff = self.rows - rows
+      local bottom_empty = self.rows - self.cursor_y
+      local remove_bottom = math.min(diff, math.max(0, bottom_empty))
+      local remove_top = diff - remove_bottom
+      
+      for i = 1, remove_bottom do
+        self.grid[#self.grid] = nil
+      end
+      
+      for i = 1, remove_top do
+        local top_line = table.remove(self.grid, 1)
+        table.insert(self.scrollback, top_line)
+        if #self.scrollback > self.max_scrollback + 1000 then
+          local new_scrollback = {}
+          for j = 1001, #self.scrollback do
+            new_scrollback[#new_scrollback + 1] = self.scrollback[j]
+          end
+          self.scrollback = new_scrollback
+        end
+      end
+      
+      self.cursor_y = self.cursor_y - remove_top
+      if self.cursor_y < 1 then self.cursor_y = 1 end
+
+    elseif rows > self.rows then
+      local diff = rows - self.rows
+      local pull_count = 0
+      if self.cursor_y >= self.rows then
+        pull_count = math.min(diff, #self.scrollback)
+      end
+      
+      for i = 1, pull_count do
+        local line = table.remove(self.scrollback)
+        table.insert(self.grid, 1, line)
+      end
+      
+      self.cursor_y = self.cursor_y + pull_count
+      
+      local pad_count = diff - pull_count
+      for i = 1, pad_count do
+        table.insert(self.grid, self:empty_line_for_cols(cols))
+      end
     end
-  elseif rows < self.rows then
-    for y = rows + 1, self.rows do
-      self.grid[y] = nil
-    end
-    if self.cursor_y > rows then self.cursor_y = rows end
-  end
   
   for y = 1, rows do
     local row = self.grid[y]
@@ -167,8 +200,12 @@ function Terminal:line_feed()
     -- Scroll up
     local top_line = table.remove(self.grid, 1)
     table.insert(self.scrollback, top_line)
-    if #self.scrollback > self.max_scrollback then
-      table.remove(self.scrollback, 1)
+    if #self.scrollback > self.max_scrollback + 1000 then
+      local new_scrollback = {}
+      for i = 1001, #self.scrollback do
+        new_scrollback[#new_scrollback + 1] = self.scrollback[i]
+      end
+      self.scrollback = new_scrollback
     end
     table.insert(self.grid, self:empty_line())
   end
@@ -224,6 +261,9 @@ function Terminal:dispatch_csi(action)
       for y = 1, self.rows do
         for x = 1, self.cols do self:clear_cell(x, y) end
       end
+    elseif n == 3 then
+      -- Clear scrollback
+      self.scrollback = {}
     end
     
   elseif char == 'K' then -- EL (Erase in Line)
