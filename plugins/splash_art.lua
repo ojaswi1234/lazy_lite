@@ -9,20 +9,14 @@ local keymap = require "core.keymap"
 -- ── Art ───────────────────────────────────────────────────────────────────────
 
 local SPLASH_ART = [==[
-  .-------------------------------------------------------------------.
-  |                                                                   |
-  |  '##:::::::'####:'########:'########:::::::'##::::'##:'##:::::::  |
-  |   ##:::::::. ##::... ##..:: ##.....::::::::. ##::'##:: ##:::::::  |
-  |   ##:::::::: ##::::: ##:::: ##::::::::::::::. ##'##::: ##:::::::  |
-  |   ##:::::::: ##::::: ##:::: ######:::::::::::. ###:::: ##:::::::  |
-  |   ##:::::::: ##::::: ##:::: ##...:::::::::::: ## ##::: ##:::::::  |
-  |   ##:::::::: ##::::: ##:::: ##:::::::::::::: ##:. ##:: ##:::::::  |
-  |   ########:'####:::: ##:::: ########::::::: ##:::. ##: ########:  |
-  |  ........::....:::::..:::::........::::::::..:::::..::........::  |
-  |                                                                   |
-  '-------------------------------------------------------------------'
-
-                       The Lightweight Text Editor
+'##:::::::'####:'########:'########:::::::'##::::'##:'##:::::::
+ ##:::::::. ##::... ##..:: ##.....::::::::. ##::'##:: ##:::::::
+ ##:::::::: ##::::: ##:::: ##::::::::::::::. ##'##::: ##:::::::
+ ##:::::::: ##::::: ##:::: ######:::::::::::. ###:::: ##:::::::
+ ##:::::::: ##::::: ##:::: ##...:::::::::::: ## ##::: ##:::::::
+ ##:::::::: ##::::: ##:::: ##:::::::::::::: ##:. ##:: ##:::::::
+ ########:'####:::: ##:::: ########::::::: ##:::. ##: ########:
+........::....:::::..:::::........::::::::..:::::..::........::
 ]==]
 
 local TERMINAL_BANNER = [==[
@@ -70,14 +64,14 @@ EmptyView.draw = function(self)
   local bg = style.background
   local is_light = (bg[1] * 0.299 + bg[2] * 0.587 + bg[3] * 0.114) > 128
 
-  -- Derive a bold/bright foreground from style.accent
-  local acc = style.accent or { 120, 200, 255, 255 }
+  -- Bright foreground derived from theme accent
+  local acc    = style.accent or { 120, 200, 255, 255 }
   local bright = { acc[1], acc[2], acc[3], 240 }
 
-  -- Shadow color: softer on light themes, deeper on dark themes
+  -- Drop-shadow: adaptive based on background
   local shadow = is_light and { 0, 0, 0, 50 } or { 0, 0, 0, 150 }
 
-  -- Shadow offset and bold thickness
+  -- Shadow offset and bold thickness (scales with DPI)
   local sh = math.ceil(2 * SCALE)
   local bold_off = math.max(1, math.ceil(1 * SCALE))
 
@@ -108,20 +102,38 @@ EmptyView.draw = function(self)
   end
   local art_x = self.position.x + math.max(style.padding.x, (self.size.x - max_art_w) / 2)
 
-  -- Draw ASCII logo — shadow pass first, then bright text on top, drawn twice to simulate bold weight
+  -- Two-pass draw: shadow behind, bright text in front, drawn twice to simulate bold
   local cy = start_y
   for _, l in ipairs(art_lines) do
-    -- Shadow (offset down-right, doubled for bold)
-    renderer.draw_text(sf, l, art_x + sh, cy + sh, shadow)
-    renderer.draw_text(sf, l, art_x + sh + bold_off, cy + sh, shadow)
-    -- Bright foreground (doubled for bold)
-    renderer.draw_text(sf, l, art_x, cy, bright)
-    renderer.draw_text(sf, l, art_x + bold_off, cy, bright)
+    renderer.draw_text(sf, l, art_x + sh, cy + sh, shadow)  -- shadow
+    renderer.draw_text(sf, l, art_x + sh + bold_off, cy + sh, shadow) -- shadow bold
+    renderer.draw_text(sf, l, art_x,      cy,      bright)  -- bright
+    renderer.draw_text(sf, l, art_x + bold_off, cy, bright) -- bright bold
     cy = cy + fh
   end
 
+  -- Draw a clean 1px UI box around the logo
+  local pad = math.ceil(16 * SCALE)
+  local bx = art_x - pad
+  local by = start_y - pad
+  local bw = max_art_w + pad * 2
+  local bh = art_h + pad * 2
+  local bcol = { dim[1], dim[2], dim[3], 50 }
+  
+  -- Top, Bottom, Left, Right
+  renderer.draw_rect(bx, by, bw, math.ceil(SCALE), bcol)
+  renderer.draw_rect(bx, by + bh, bw, math.ceil(SCALE), bcol)
+  renderer.draw_rect(bx, by, math.ceil(SCALE), bh, bcol)
+  renderer.draw_rect(bx + bw, by, math.ceil(SCALE), bh, bcol)
 
-  cy = cy + 12
+  cy = by + bh + math.ceil(16 * SCALE)
+  
+  -- Draw tagline
+  local tagline = "The Lightweight Text Editor"
+  local tw = lf:get_width(tagline)
+  renderer.draw_text(lf, tagline, self.position.x + (self.size.x - tw) / 2, cy, dim)
+  
+  cy = cy + lf:get_height() + 12
 
   -- Thin divider
   local div_alpha = { dim[1], dim[2], dim[3], 30 }

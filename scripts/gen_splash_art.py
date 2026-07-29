@@ -34,28 +34,11 @@ def make_splash():
     """
     Compact rich logo for the empty editor view.
     Uses banner3-D (8 lines) — same dot-grid style, perfectly sized.
-    Wrapped in a light ASCII frame for a premium look.
+    Returns just the raw letters; the Lua plugin will draw a real 
+    pixel-perfect 1px UI border around it instead of an ASCII frame.
     """
     lines = art("Lite  XL", "banner3-D")
-    width = max(len(l) for l in lines)
-
-    # Box frame
-    top  = "  ." + "-" * (width + 4) + "."
-    bot  = "  '" + "-" * (width + 4) + "'"
-    sep  = "  |" + " " * (width + 4) + "|"
-
-    framed = [top, sep]
-    for l in lines:
-        framed.append("  |  " + l.ljust(width) + "  |")
-    framed.append(sep)
-    framed.append(bot)
-
-    # Tagline beneath the box
-    tagline  = "The Lightweight Text Editor"
-    tag_pad  = (width + 6 - len(tagline)) // 2
-    framed.append("")
-    framed.append(" " * (tag_pad + 2) + tagline)
-    return "\n".join(framed)
+    return "\n".join(lines)
 
 
 def make_terminal_banner():
@@ -189,7 +172,28 @@ EmptyView.draw = function(self)
     cy = cy + fh
   end
 
-  cy = cy + 12
+  -- Draw a clean 1px UI box around the logo
+  local pad = math.ceil(16 * SCALE)
+  local bx = art_x - pad
+  local by = start_y - pad
+  local bw = max_art_w + pad * 2
+  local bh = art_h + pad * 2
+  local bcol = { dim[1], dim[2], dim[3], 50 }
+  
+  -- Top, Bottom, Left, Right
+  renderer.draw_rect(bx, by, bw, math.ceil(SCALE), bcol)
+  renderer.draw_rect(bx, by + bh, bw, math.ceil(SCALE), bcol)
+  renderer.draw_rect(bx, by, math.ceil(SCALE), bh, bcol)
+  renderer.draw_rect(bx + bw, by, math.ceil(SCALE), bh, bcol)
+
+  cy = by + bh + math.ceil(16 * SCALE)
+  
+  -- Draw tagline
+  local tagline = "The Lightweight Text Editor"
+  local tw = lf:get_width(tagline)
+  renderer.draw_text(lf, tagline, self.position.x + (self.size.x - tw) / 2, cy, dim)
+  
+  cy = cy + lf:get_height() + 12
 
   -- Thin divider
   local div_alpha = { dim[1], dim[2], dim[3], 30 }
