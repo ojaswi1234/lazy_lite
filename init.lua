@@ -415,3 +415,60 @@ core.add_thread(function()
     end
   end
 end)
+
+-- 14. Native OS Fonts Selector UI
+if settings_module and PLATFORM == "Windows" then
+  local windir = os.getenv("WINDIR") or "C:\\Windows"
+  local fonts_dir = windir .. "\\Fonts"
+  local font_options = nil
+
+  local function get_font_options()
+    if font_options then return font_options end
+    font_options = { {"Default / Fira Code", ""} }
+    local files = system.list_dir(fonts_dir)
+    if files then
+      for _, f in ipairs(files) do
+        if f:match("%.ttf$") or f:match("%.ttc$") then
+          local name = f:gsub("%.ttf$", ""):gsub("%.ttc$", "")
+          table.insert(font_options, {name, fonts_dir .. "\\" .. f})
+        end
+      end
+    end
+    table.sort(font_options, function(a, b) return a[1]:lower() < b[1]:lower() end)
+    return font_options
+  end
+
+  settings_module.add("Appearance", {
+    {
+      label = "Native Editor Font",
+      description = "Select a local Windows font to use across the editor and terminal.",
+      path = "native_code_font",
+      type = settings_module.type.SELECTION,
+      default = "",
+      values = get_font_options(),
+      on_apply = function(value)
+        if value and value ~= "" then
+          local ok, f = pcall(renderer.font.load, value, 15 * SCALE)
+          if ok and f then
+            style.code_font = f
+            style.font = f
+            core.redraw = true
+          end
+        else
+          style.code_font = base_font
+          style.font = base_font
+          core.redraw = true
+        end
+      end
+    }
+  })
+
+  -- Apply user saved font on startup
+  if config.native_code_font and config.native_code_font ~= "" then
+    local ok, f = pcall(renderer.font.load, config.native_code_font, 15 * SCALE)
+    if ok and f then
+      style.code_font = f
+      style.font = f
+    end
+  end
+end
