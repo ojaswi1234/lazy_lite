@@ -34,11 +34,28 @@ def make_splash():
     """
     Compact rich logo for the empty editor view.
     Uses banner3-D (8 lines) — same dot-grid style, perfectly sized.
-    Returns just the raw letters; the Lua plugin will draw a real 
-    pixel-perfect 1px UI border around it instead of an ASCII frame.
+    Wrapped in a light ASCII frame for a premium look.
     """
     lines = art("Lite  XL", "banner3-D")
-    return "\n".join(lines)
+    width = max(len(l) for l in lines)
+
+    # Box frame
+    top  = "  ." + "-" * (width + 4) + "."
+    bot  = "  '" + "-" * (width + 4) + "'"
+    sep  = "  |" + " " * (width + 4) + "|"
+
+    framed = [top, sep]
+    for l in lines:
+        framed.append("  |  " + l.ljust(width) + "  |")
+    framed.append(sep)
+    framed.append(bot)
+
+    # Tagline beneath the box
+    tagline  = "The Lightweight Text Editor"
+    tag_pad  = (width + 6 - len(tagline)) // 2
+    framed.append("")
+    framed.append(" " * (tag_pad + 2) + tagline)
+    return "\n".join(framed)
 
 
 def make_terminal_banner():
@@ -165,35 +182,23 @@ EmptyView.draw = function(self)
   -- Two-pass draw: shadow behind, bright text in front, drawn twice to simulate bold
   local cy = start_y
   for _, l in ipairs(art_lines) do
-    renderer.draw_text(sf, l, art_x + sh, cy + sh, shadow)  -- shadow
-    renderer.draw_text(sf, l, art_x + sh + bold_off, cy + sh, shadow) -- shadow bold
-    renderer.draw_text(sf, l, art_x,      cy,      bright)  -- bright
-    renderer.draw_text(sf, l, art_x + bold_off, cy, bright) -- bright bold
+    -- Create a version of the line for the bold pass that strips out dots, colons, quotes, and frame characters
+    -- Since sf is monospace, replacing them with spaces perfectly aligns the remaining '#' characters.
+    local bold_line = l:gsub("[%.:'|%-]", " ")
+    
+    renderer.draw_text(sf, l, art_x + sh, cy + sh, shadow)  -- shadow normal
+    if bold_line:match("[^ ]") then
+      renderer.draw_text(sf, bold_line, art_x + sh + bold_off, cy + sh, shadow) -- shadow bold
+    end
+    
+    renderer.draw_text(sf, l, art_x, cy, bright)  -- bright normal
+    if bold_line:match("[^ ]") then
+      renderer.draw_text(sf, bold_line, art_x + bold_off, cy, bright) -- bright bold
+    end
     cy = cy + fh
   end
 
-  -- Draw a clean 1px UI box around the logo
-  local pad = math.ceil(16 * SCALE)
-  local bx = art_x - pad
-  local by = start_y - pad
-  local bw = max_art_w + pad * 2
-  local bh = art_h + pad * 2
-  local bcol = { dim[1], dim[2], dim[3], 50 }
-  
-  -- Top, Bottom, Left, Right
-  renderer.draw_rect(bx, by, bw, math.ceil(SCALE), bcol)
-  renderer.draw_rect(bx, by + bh, bw, math.ceil(SCALE), bcol)
-  renderer.draw_rect(bx, by, math.ceil(SCALE), bh, bcol)
-  renderer.draw_rect(bx + bw, by, math.ceil(SCALE), bh, bcol)
-
-  cy = by + bh + math.ceil(16 * SCALE)
-  
-  -- Draw tagline
-  local tagline = "The Lightweight Text Editor"
-  local tw = lf:get_width(tagline)
-  renderer.draw_text(lf, tagline, self.position.x + (self.size.x - tw) / 2, cy, dim)
-  
-  cy = cy + lf:get_height() + 12
+  cy = cy + 12
 
   -- Thin divider
   local div_alpha = { dim[1], dim[2], dim[3], 30 }
