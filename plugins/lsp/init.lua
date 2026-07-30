@@ -1441,10 +1441,12 @@ function lsp.request_completion(doc, line, col, forced)
 
           if trigger_char and complete_result then
             lsp.in_trigger = true
+            core.log("[LSP-DEBUG] Pyright returned %d completions (Trigger)", #symbols.items)
             autocomplete.complete(symbols, function()
               lsp.in_trigger = false
             end)
           else
+            core.log("[LSP-DEBUG] Pyright returned %d completions (Normal)", #symbols.items)
             autocomplete.complete(symbols)
           end
         end

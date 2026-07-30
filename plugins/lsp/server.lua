@@ -1012,7 +1012,6 @@ function Server:process_raw()
     sent = true
     break
   end
-  if sent then collectgarbage("collect") end
 end
 
 ---Help controls the amount of requests sent to the lsp server per second
@@ -1300,7 +1299,7 @@ function Server:read_responses(timeout)
         local headers = util.split(headers_data, "\r\n")
         for _, header in ipairs(headers) do
           -- We only care for Content-Length for now
-          local length = header:match("^Content%-Length: (%d+)$")
+          local length = header:match("^[cC]ontent%-[lL]ength:%s*(%d+)")
           if length then
             content_length = tonumber(length)
             break
@@ -1317,7 +1316,7 @@ function Server:read_responses(timeout)
         while content_read_length < content_length do
           coroutine.yield(#buf > 0)
           buf = proc:read_stdout(Server.BUFFER_SIZE)
-          if not buf then
+          if not buf or (not proc:running() and buf == "") then
             return error(string.format("Can't continue reading stdout. Stopped at %d/%d.\n%s",
                                        content_read_length, content_length, table.concat(content_data_t)))
           end
