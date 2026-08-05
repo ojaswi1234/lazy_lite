@@ -3246,11 +3246,11 @@ end
 
 function LeetCodeView:draw_pattern_modal(x, y, w, h)
   -- 1. Dark Backdrop
-  renderer.draw_rect(x, y, w, h, {0, 0, 0, 185})
+  renderer.draw_rect(x, y, w, h, {0, 0, 0, 195})
 
-  -- 2. Modal Dialog Window
-  local mw = math.min(w - 32*SCALE, 640 * SCALE)
-  local mh = math.min(h - 36*SCALE, 490 * SCALE)
+  -- 2. Modal Dialog Window - Spacious and Responsive
+  local mw = math.min(w - 24*SCALE, 720 * SCALE)
+  local mh = math.min(h - 24*SCALE, 530 * SCALE)
   local mx = x + math.floor((w - mw) / 2)
   local my = y + math.floor((h - mh) / 2)
 
@@ -3266,17 +3266,23 @@ function LeetCodeView:draw_pattern_modal(x, y, w, h)
   -- Header
   local hx = mx + 16*SCALE
   local hy = my + 14*SCALE
-  renderer.draw_text(style.big_font or style.font, "Select DSA Pattern (50 Essential Patterns)", hx, hy, style.accent)
+  local sw = mw - 32*SCALE
 
   -- Close Button [ X ]
   local close_lbl = "[ X ]"
-  local clw = style.font:get_width(close_lbl) + 8*SCALE
+  local clw = style.font:get_width(close_lbl) + 10*SCALE
   self.pattern_modal_close_rect = {x = mx + mw - clw - 14*SCALE, y = hy, w = clw, h = 22*SCALE}
   renderer.draw_rect(self.pattern_modal_close_rect.x, hy, clw, 22*SCALE, style.background2)
-  renderer.draw_text(style.font, close_lbl, self.pattern_modal_close_rect.x + 4*SCALE, hy + 3*SCALE, style.dim)
+  renderer.draw_text(style.font, close_lbl, self.pattern_modal_close_rect.x + 5*SCALE, hy + 3*SCALE, style.accent)
+
+  core.push_clip_rect(hx, hy, self.pattern_modal_close_rect.x - hx - 8*SCALE, 24*SCALE)
+  renderer.draw_text(style.big_font or style.font, "Select DSA Pattern (50 Essential Patterns)", hx, hy, style.accent)
+  core.pop_clip_rect()
 
   hy = hy + (style.big_font or style.font):get_height() + 4*SCALE
-  renderer.draw_text(style.font, "Master canonical interview patterns (Sliding Window, Two Pointers, DP, Graphs, Trees, etc.)", hx, hy, style.dim)
+  core.push_clip_rect(hx, hy, sw, 18*SCALE)
+  renderer.draw_text(style.font, "Master canonical patterns (Sliding Window, Two Pointers, Trees, Graphs, DP, etc.)", hx, hy, style.dim)
+  core.pop_clip_rect()
   hy = hy + style.font:get_height() + 8*SCALE
 
   -- Tier Filter Chips: All (50) | Core (1-31) | Advanced (32-50)
@@ -3307,7 +3313,6 @@ function LeetCodeView:draw_pattern_modal(x, y, w, h)
   hy = hy + chip_h + 8*SCALE
 
   -- Search Input Bar
-  local sw = mw - 32*SCALE
   local sh = 26*SCALE
   self.pattern_modal_search_rect = {x = hx, y = hy, w = sw, h = sh}
   renderer.draw_rect(hx, hy, sw, sh, style.background2)
@@ -3322,7 +3327,7 @@ function LeetCodeView:draw_pattern_modal(x, y, w, h)
     renderer.draw_text(style.font, self.pattern_search_input .. cursor, sx, hy + 5*SCALE, style.text)
   else
     local cursor = (math.floor(system.get_time() * 2) % 2 == 0) and "|" or ""
-    renderer.draw_text(style.font, "Search pattern name, category, or keyword (e.g. Sliding Window, BFS, DP, Trie)..." .. cursor, sx, hy + 5*SCALE, style.dim)
+    renderer.draw_text(style.font, "Search pattern name, category, or keyword (e.g. Sliding Window, BFS, DP)..." .. cursor, sx, hy + 5*SCALE, style.dim)
   end
 
   hy = hy + sh + 10*SCALE
@@ -3353,17 +3358,20 @@ function LeetCodeView:draw_pattern_modal(x, y, w, h)
   self.pattern_matching_count = #matching
   self.first_matching_pattern = matching[1]
 
-  -- Paginate: 8 items per page (2 columns x 4 rows)
-  local limit = self.pattern_page_limit or 8
+  -- Dynamic Grid: 2 columns if width >= 540, otherwise 1 column
+  local cols = (mw >= 540*SCALE) and 2 or 1
+  local limit = (cols == 2) and 6 or 5
+  self.pattern_page_limit = limit
+
   local skip = self.pattern_page_skip or 0
   if skip >= #matching and #matching > 0 then
     self.pattern_page_skip = 0
     skip = 0
   end
 
-  local cols = 2
-  local card_w = math.floor((sw - 8*SCALE) / 2)
-  local card_h = 52*SCALE
+  local gap_x = 10*SCALE
+  local card_w = (cols == 2) and math.floor((sw - gap_x) / 2) or sw
+  local card_h = 66*SCALE
   self.pattern_modal_item_rects = {}
 
   local grid_y = hy
@@ -3376,8 +3384,8 @@ function LeetCodeView:draw_pattern_modal(x, y, w, h)
       local pat = matching[idx]
       local col = (i - 1) % cols
       local row = math.floor((i - 1) / cols)
-      local cx = hx + col * (card_w + 8*SCALE)
-      local cy = grid_y + row * (card_h + 6*SCALE)
+      local cx = hx + col * (card_w + gap_x)
+      local cy = grid_y + row * (card_h + 8*SCALE)
 
       local is_cur = (assessment.selected_pattern == pat.id)
       local bg = is_cur and style.background3 or style.background2
@@ -3390,21 +3398,37 @@ function LeetCodeView:draw_pattern_modal(x, y, w, h)
       renderer.draw_rect(cx + card_w - 1*SCALE, cy, 1*SCALE, card_h, border_c)
 
       if is_cur then
-        renderer.draw_rect(cx, cy, 3*SCALE, card_h, style.accent)
+        renderer.draw_rect(cx, cy, 4*SCALE, card_h, style.accent)
       end
 
-      core.push_clip_rect(cx + 6*SCALE, cy, card_w - 12*SCALE, card_h)
-      -- Line 1: #<idx> <Name>
+      -- Top line: Tier Badge (Right)
+      local tier_badge = pat.tier or "Core"
+      local badge_w = style.font:get_width(tier_badge) + 12*SCALE
+      local badge_h = 18*SCALE
+      local badge_x = cx + card_w - badge_w - 8*SCALE
+      local is_core = (pat.tier == "Core")
+      local badge_col = is_core and LC_COLORS.easy or LC_COLORS.hard
+      local badge_bg = {badge_col[1], badge_col[2], badge_col[3], 35}
+      renderer.draw_rect(badge_x, cy + 6*SCALE, badge_w, badge_h, badge_bg)
+      renderer.draw_text(style.font, tier_badge, badge_x + 6*SCALE, cy + 7*SCALE, badge_col)
+
+      -- Top line: Pattern Title (Left) - with clear clipping before the badge
       local title_str = string.format("#%d. %s", pat.idx, pat.name)
-      renderer.draw_text(style.font, title_str, cx + 8*SCALE, cy + 5*SCALE, is_cur and style.accent or style.text)
+      local title_max_w = card_w - badge_w - 24*SCALE
+      core.push_clip_rect(cx + 8*SCALE, cy + 4*SCALE, title_max_w, 20*SCALE)
+      renderer.draw_text(style.font, title_str, cx + 8*SCALE, cy + 6*SCALE, is_cur and style.accent or style.text)
+      core.pop_clip_rect()
 
-      -- Tier / Category Pill on right
-      local cat_str = pat.category .. " | " .. pat.tier
-      local cat_w = style.font:get_width(cat_str) + 6*SCALE
-      renderer.draw_text(style.font, cat_str, cx + card_w - cat_w - 8*SCALE, cy + 5*SCALE, pat.tier == "Core" and LC_COLORS.easy or LC_COLORS.hard)
+      -- Line 2: Category
+      local cat_str = "Category: " .. (pat.category or "General")
+      core.push_clip_rect(cx + 8*SCALE, cy + 26*SCALE, card_w - 16*SCALE, 18*SCALE)
+      renderer.draw_text(style.font, cat_str, cx + 8*SCALE, cy + 26*SCALE, style.accent)
+      core.pop_clip_rect()
 
-      -- Line 2: Key Idea preview
-      renderer.draw_text(style.font, pat.key_idea or "", cx + 8*SCALE, cy + 28*SCALE, style.dim)
+      -- Line 3: Key Idea Summary
+      local idea_str = pat.key_idea or ""
+      core.push_clip_rect(cx + 8*SCALE, cy + 44*SCALE, card_w - 16*SCALE, 18*SCALE)
+      renderer.draw_text(style.font, idea_str, cx + 8*SCALE, cy + 44*SCALE, style.dim)
       core.pop_clip_rect()
 
       table.insert(self.pattern_modal_item_rects, {
@@ -3418,17 +3442,17 @@ function LeetCodeView:draw_pattern_modal(x, y, w, h)
   local bot_y = my + mh - 36*SCALE
   renderer.draw_rect(hx, bot_y - 6*SCALE, sw, 1*SCALE, style.dim)
 
-  local prev_lbl = "< Prev (8)"
-  local pw = style.font:get_width(prev_lbl) + 14*SCALE
+  local prev_lbl = "< Prev"
+  local pw = style.font:get_width(prev_lbl) + 16*SCALE
   self.pattern_modal_prev_rect = {x = hx, y = bot_y, w = pw, h = 24*SCALE}
   renderer.draw_rect(hx, bot_y, pw, 24*SCALE, style.background2)
-  renderer.draw_text(style.font, prev_lbl, hx + 7*SCALE, bot_y + 4*SCALE, skip > 0 and style.text or style.dim)
+  renderer.draw_text(style.font, prev_lbl, hx + 8*SCALE, bot_y + 4*SCALE, skip > 0 and style.text or style.dim)
 
-  local next_lbl = "Next (8) >"
-  local nw = style.font:get_width(next_lbl) + 14*SCALE
+  local next_lbl = "Next >"
+  local nw = style.font:get_width(next_lbl) + 16*SCALE
   self.pattern_modal_next_rect = {x = hx + pw + 8*SCALE, y = bot_y, w = nw, h = 24*SCALE}
   renderer.draw_rect(hx + pw + 8*SCALE, bot_y, nw, 24*SCALE, style.background2)
-  renderer.draw_text(style.font, next_lbl, hx + pw + 15*SCALE, bot_y + 4*SCALE, (skip + limit < #matching) and style.text or style.dim)
+  renderer.draw_text(style.font, next_lbl, hx + pw + 16*SCALE, bot_y + 4*SCALE, (skip + limit < #matching) and style.text or style.dim)
 
   local cur_page = math.floor(skip / limit) + 1
   local total_pages = math.max(1, math.ceil(#matching / limit))
@@ -3542,7 +3566,11 @@ function LeetCodeView:draw()
       if i == 4 then
         local chg_lbl = "[ Change Company ]"
         local chg_w = style.font:get_width(chg_lbl) + 8*SCALE
-        renderer.draw_text(style.font, "Real questions asked by " .. format_company_name(self.selected_company or "Google"), tx + 10*SCALE, ty + 48*SCALE, style.text)
+        local desc_text = "Questions asked by " .. format_company_name(self.selected_company or "Google")
+        local desc_max_w = card_w - chg_w - 24*SCALE
+        core.push_clip_rect(tx + 10*SCALE, ty + 48*SCALE, desc_max_w, 20*SCALE)
+        renderer.draw_text(style.font, desc_text, tx + 10*SCALE, ty + 48*SCALE, style.text)
+        core.pop_clip_rect()
         self.change_company_btn_rect = {x = tx + card_w - chg_w - 10*SCALE, y = ty + 46*SCALE, w = chg_w, h = 20*SCALE}
         renderer.draw_rect(self.change_company_btn_rect.x, self.change_company_btn_rect.y, chg_w, 20*SCALE, style.background)
         renderer.draw_text(style.font, chg_lbl, self.change_company_btn_rect.x + 4*SCALE, self.change_company_btn_rect.y + 2*SCALE, style.accent)
@@ -3551,12 +3579,18 @@ function LeetCodeView:draw()
         local pat_name = cur_pat and cur_pat.name or "Sliding Window"
         local chg_lbl = "[ Change Pattern ]"
         local chg_w = style.font:get_width(chg_lbl) + 8*SCALE
-        renderer.draw_text(style.font, "Targeted drill on " .. pat_name, tx + 10*SCALE, ty + 48*SCALE, style.text)
+        local desc_text = "Targeted: " .. pat_name
+        local desc_max_w = card_w - chg_w - 24*SCALE
+        core.push_clip_rect(tx + 10*SCALE, ty + 48*SCALE, desc_max_w, 20*SCALE)
+        renderer.draw_text(style.font, desc_text, tx + 10*SCALE, ty + 48*SCALE, style.text)
+        core.pop_clip_rect()
         self.change_pattern_btn_rect = {x = tx + card_w - chg_w - 10*SCALE, y = ty + 46*SCALE, w = chg_w, h = 20*SCALE}
         renderer.draw_rect(self.change_pattern_btn_rect.x, self.change_pattern_btn_rect.y, chg_w, 20*SCALE, style.background)
         renderer.draw_text(style.font, chg_lbl, self.change_pattern_btn_rect.x + 4*SCALE, self.change_pattern_btn_rect.y + 2*SCALE, style.accent)
       else
+        core.push_clip_rect(tx + 10*SCALE, ty + 48*SCALE, card_w - 20*SCALE, 20*SCALE)
         renderer.draw_text(style.font, tr.desc, tx + 10*SCALE, ty + 48*SCALE, style.text)
+        core.pop_clip_rect()
       end
       core.pop_clip_rect()
 
