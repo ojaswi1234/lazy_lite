@@ -104,10 +104,14 @@ local req_counter = 0
 
 local function ensure_api()
   if api_proc and api_proc:returncode() == nil then return true end
-  local script = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "leetcode_api.py"
+  local clean_userdir = common.normalize_path(USERDIR)
+  if PLATFORM == "Windows" then
+    clean_userdir = clean_userdir:gsub("/", "\\")
+  end
+  local script = clean_userdir .. PATHSEP .. "scripts" .. PATHSEP .. "leetcode_api.py"
   local python_cmd = PLATFORM == "Windows" and "python" or "python3"
   api_proc = process.start(
-    {python_cmd, script, USERDIR},
+    {python_cmd, script, clean_userdir},
     { stdin  = process.REDIRECT_PIPE,
       stdout = process.REDIRECT_PIPE,
       stderr = process.REDIRECT_DISCARD }
@@ -447,10 +451,13 @@ local function open_result_tab(result, result_type, prob_title)
 end
 
 
+local lc_view = nil
+
 local LeetCodeView = View:extend()
 
 function LeetCodeView:new()
   LeetCodeView.super.new(self)
+  lc_view = self
   self.scrollable = true
   self.target_size   = 800 * SCALE
   self.state         = "auth"
@@ -502,6 +509,90 @@ function LeetCodeView:new()
   self.show_trend_panel = false
   self.trend_tab        = "patterns" -- "patterns" or "topics"
   self.db_last_modified = nil
+end
+
+function LeetCodeView:auto_detect()
+  lc_view = self
+  self.state = "auth"
+  self.auth_status = "Detecting login cookies from browsers (Firefox, Chrome, Edge)..."
+  core.redraw = true
+
+  api_call({ cmd = "auth_auto" }, function(res)
+    if not res then
+      self.auth_status = "Failed to communicate with LeetCode API"
+      core.redraw = true
+      return
+    end
+    if res.ok then
+      self.auth_status = "Found active session! Loading problem list..."
+      self.user_stats = res.data and res.data.stats
+      core.redraw = true
+      core.add_thread(function()
+        local start = system.get_time()
+        while system.get_time() - start < 0.25 do coroutine.yield(0.05) end
+        if self.state == "auth" then
+          self.state = "list"
+          self.search_focus = true
+          if #self.problems == 0 then
+            command.perform("leetcode:fetch-list")
+          end
+          core.redraw = true
+        end
+      end)
+    else
+      self.state = "auth"
+      self.auth_status = res.error or "No browser session found. Log in via browser first."
+      core.redraw = true
+    end
+  end)
+end
+
+function LeetCodeView:connect_cookies()
+  lc_view = self
+  self.auth_status = "Connecting to LeetCode with provided credentials..."
+  core.redraw = true
+
+  local sess_match = self.cookie_input:match("LEETCODE_SESSION=([^;%s]+)")
+  local csrf_match = self.cookie_input:match("csrftoken=([^;%s]+)")
+
+  if not sess_match and not csrf_match and #self.cookie_input < 10 then
+    self.auth_status = "Invalid cookie format. Paste LEETCODE_SESSION and csrftoken."
+    core.redraw = true
+    return
+  end
+
+  api_call({
+    cmd     = "auth_set",
+    session = sess_match or "",
+    csrf    = csrf_match or "",
+    raw     = self.cookie_input
+  }, function(resp)
+    if not resp then
+      self.auth_status = "Failed to communicate with LeetCode API"
+      core.redraw = true
+      return
+    end
+    if resp.ok then
+      self.auth_status = "Connected successfully! Loading problem list..."
+      self.user_stats = resp.data and resp.data.stats
+      core.redraw = true
+      core.add_thread(function()
+        local start = system.get_time()
+        while system.get_time() - start < 0.25 do coroutine.yield(0.05) end
+        if self.state == "auth" then
+          self.state = "list"
+          self.search_focus = true
+          if #self.problems == 0 then
+            command.perform("leetcode:fetch-list")
+          end
+          core.redraw = true
+        end
+      end)
+    else
+      self.auth_status = resp.error or "Session verification failed. Check cookies."
+      core.redraw = true
+    end
+  end)
 end
 
 function LeetCodeView:get_name()
@@ -669,7 +760,6 @@ function LeetCodeView:set_target_size(axis, value)
   end
 end
 
-local lc_view = nil
 local last_run_time = 0
 local last_submit_time = 0
 local last_fetch_time = 0
@@ -1293,31 +1383,10 @@ end
 
 command.add(nil, {
   ["leetcode:auto-detect"] = function()
-    if not lc_view then return end
-    lc_view.state = "auth"
-    lc_view.auth_status = "checking for old creds..... "
-    core.redraw = true
-    api_call({ cmd = "auth_auto" }, function(res)
-      if not lc_view then return end
-      if res.ok then
-        lc_view.auth_status = "checking for old creds..... Found !! ....... "
-        lc_view.user_stats = res.data and res.data.stats
-        core.redraw = true
-        core.add_thread(function()
-          local start = system.get_time()
-          while system.get_time() - start < 0.15 do coroutine.yield(0.05) end
-          if lc_view and lc_view.state == "auth" then
-            lc_view.state = "list"; lc_view.search_focus = true
-            command.perform("leetcode:fetch-list")
-            core.redraw = true
-          end
-        end)
-      else
-        lc_view.state = "auth"
-        lc_view.auth_status = res.error or "creds expired...... Paste/Auto fetch new cookies"
-        core.redraw = true
-      end
-    end)
+    local v = lc_view or (core.active_view and core.active_view:is(LeetCodeView) and core.active_view)
+    if v then
+      v:auto_detect()
+    end
   end,
   ["leetcode:toggle"] = function()
     local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
@@ -1365,44 +1434,10 @@ command.add(nil, {
     core.redraw = true
   end,
   ["leetcode:connect"] = function()
-    if not lc_view then return end
-    lc_view.auth_status = "checking for old creds..... "
-    core.redraw = true
-    
-    local sess_match = lc_view.cookie_input:match("LEETCODE_SESSION=([^;%s]+)")
-    local csrf_match = lc_view.cookie_input:match("csrftoken=([^;%s]+)")
-    
-    if not sess_match and not csrf_match and #lc_view.cookie_input < 10 then
-      lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
-      core.redraw = true
-      return
+    local v = lc_view or (core.active_view and core.active_view:is(LeetCodeView) and core.active_view)
+    if v then
+      v:connect_cookies()
     end
-    
-    api_call({
-      cmd     = "auth_set",
-      session = sess_match or "",
-      csrf    = csrf_match or "",
-      raw     = lc_view.cookie_input
-    }, function(resp)
-      if not lc_view then return end
-      if resp.ok then
-        lc_view.auth_status = "checking for old creds..... Found !! ....... "
-        lc_view.user_stats = resp.data and resp.data.stats
-        core.redraw = true
-        core.add_thread(function()
-          local start = system.get_time()
-          while system.get_time() - start < 0.15 do coroutine.yield(0.05) end
-          if lc_view and lc_view.state == "auth" then
-            lc_view.state = "list"; lc_view.search_focus = true
-            command.perform("leetcode:fetch-list")
-            core.redraw = true
-          end
-        end)
-      else
-        lc_view.auth_status = resp.error or "creds expired...... Paste/Auto fetch new cookies"
-      end
-      core.redraw = true
-    end)
   end,
   ["leetcode:fetch-list"] = function()
     if not lc_view then return end
@@ -2616,10 +2651,11 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
 
   -- 4. Authentication State
   if self.state == "auth" then
+    lc_view = self
     if self.auth_auto_btn_rect then
       local r = self.auth_auto_btn_rect
       if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
-        command.perform("leetcode:auto-detect")
+        self:auto_detect()
         return true
       end
     end
@@ -2636,7 +2672,7 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
     if self.auth_connect_btn_rect then
       local r = self.auth_connect_btn_rect
       if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
-        command.perform("leetcode:connect")
+        self:connect_cookies()
         return true
       end
     end
