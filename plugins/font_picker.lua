@@ -118,7 +118,7 @@ core.add_thread(function()
 
   font_catalogue = build_catalogue(raw)
   catalogue_ready = true
-  core.log(string.format("[font_picker] Found %d system fonts.", #font_catalogue))
+  core.log_quiet(string.format("[font_picker] Found %d system fonts.", #font_catalogue))
 
   if PLATFORM == "Windows" then
     os.remove(USERDIR .. "\\font_picker_scan.bat")
@@ -244,7 +244,7 @@ core.add_thread(function()
   if config.native_code_font and config.native_code_font ~= "" then
     local size = config.native_code_font_size or 15
     if apply_font(config.native_code_font, size) then
-      core.log("[font_picker] Restored: " .. (config.native_code_font_name or "?"))
+      core.log_quiet("[font_picker] Restored: " .. (config.native_code_font_name or "?"))
     end
   end
 end)
