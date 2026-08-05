@@ -2987,6 +2987,17 @@ function LeetCodeView:on_mouse_wheel(delta)
     return true
   end
 
+  if self.show_trend_panel and self.trend_panel_rect then
+    local mx = core.root_view and core.root_view.mouse and core.root_view.mouse.x or 0
+    local my = core.root_view and core.root_view.mouse and core.root_view.mouse.y or 0
+    local r = self.trend_panel_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      self.trend_scroll_y = math.max(0, math.min(self.trend_max_scroll or 0, (self.trend_scroll_y or 0) - delta * 40))
+      core.redraw = true
+      return true
+    end
+  end
+
   if self.state == "problem" or self.state == "assessment_session" then
     self.scroll_y = math.max(0, math.min(self.max_scroll or 0, self.scroll_y - delta * 40))
     core.redraw = true
@@ -4460,37 +4471,42 @@ function LeetCodeView:draw()
   -- OVERLAY: TREND ANALYSIS PANEL (RIGHT SIDE)
   -- =========================================================================
   if self.show_trend_panel and self.state == "problem" then
-    local panel_w = math.min(310*SCALE, math.max(240*SCALE, cw * 0.48))
+    local panel_w = math.min(420 * SCALE, math.max(340 * SCALE, w * 0.38))
     local panel_x = x + w - panel_w
     local panel_y = y
     local panel_h = h
     self.trend_panel_rect = {x=panel_x, y=panel_y, w=panel_w, h=panel_h}
 
     -- backdrop
-    renderer.draw_rect(panel_x, panel_y, panel_w, panel_h, {22, 24, 32, 248})
+    renderer.draw_rect(panel_x, panel_y, panel_w, panel_h, {20, 22, 30, 252})
     renderer.draw_rect(panel_x, panel_y, 1*SCALE, panel_h, style.accent)
 
-    local px = panel_x + 12*SCALE
-    local pw = panel_w - 24*SCALE
-    local py = panel_y + 12*SCALE
+    local px = panel_x + 14*SCALE
+    local pw = panel_w - 28*SCALE
+    local py = panel_y + 14*SCALE
 
     -- Close Button [X] in top-right corner
-    local close_sz = 20 * SCALE
-    self.trend_close_rect = {x=panel_x + panel_w - close_sz - 10*SCALE, y=py - 2*SCALE, w=close_sz, h=close_sz}
+    local close_sz = 22 * SCALE
+    self.trend_close_rect = {x=panel_x + panel_w - close_sz - 12*SCALE, y=py - 2*SCALE, w=close_sz, h=close_sz}
     renderer.draw_rect(self.trend_close_rect.x, self.trend_close_rect.y, close_sz, close_sz, style.background2)
-    renderer.draw_text(style.font, "x", self.trend_close_rect.x + 6*SCALE, self.trend_close_rect.y + 2*SCALE, style.dim)
+    renderer.draw_text(style.font, "x", self.trend_close_rect.x + 7*SCALE, self.trend_close_rect.y + 3*SCALE, style.dim)
 
+    -- Header
+    core.push_clip_rect(px, py, pw - close_sz - 8*SCALE, style.font:get_height() + 4*SCALE)
     renderer.draw_text(style.font, "Interview Trends & Patterns", px, py, style.accent)
+    core.pop_clip_rect()
     py = py + style.font:get_height() + 6*SCALE
 
     local company = self.selected_company or "?"
     local co_lbl = "Target Company: " .. format_company_name(company)
+    core.push_clip_rect(px, py, pw - 8*SCALE, style.font:get_height() + 4*SCALE)
     renderer.draw_text(style.font, co_lbl, px, py, style.dim)
+    core.pop_clip_rect()
     py = py + style.font:get_height() + 8*SCALE
 
     -- Tab Switcher: [ Patterns ] [ Topics ]
-    local tab_w = math.floor((pw - 6*SCALE) / 2)
-    local tab_h = 22*SCALE
+    local tab_w = math.floor((pw - 8*SCALE) / 2)
+    local tab_h = 24*SCALE
     local cur_tab = self.trend_tab or "patterns"
 
     self.trend_patterns_tab_rect = {x = px, y = py, w = tab_w, h = tab_h}
@@ -4498,15 +4514,15 @@ function LeetCodeView:draw()
     renderer.draw_rect(px, py, tab_w, tab_h, is_pat_tab and {style.accent[1], style.accent[2], style.accent[3], 45} or style.background2)
     renderer.draw_rect(px, py, tab_w, 1*SCALE, is_pat_tab and style.accent or style.dim)
     renderer.draw_rect(px, py + tab_h - 1*SCALE, tab_w, 1*SCALE, is_pat_tab and style.accent or style.dim)
-    renderer.draw_text(style.font, "DSA Patterns", px + 8*SCALE, py + 3*SCALE, is_pat_tab and style.accent or style.dim)
+    renderer.draw_text(style.font, "DSA Patterns", px + 14*SCALE, py + 4*SCALE, is_pat_tab and style.accent or style.dim)
 
-    local top_tab_x = px + tab_w + 6*SCALE
+    local top_tab_x = px + tab_w + 8*SCALE
     self.trend_topics_tab_rect = {x = top_tab_x, y = py, w = tab_w, h = tab_h}
     local is_top_tab = (cur_tab == "topics")
     renderer.draw_rect(top_tab_x, py, tab_w, tab_h, is_top_tab and {style.accent[1], style.accent[2], style.accent[3], 45} or style.background2)
     renderer.draw_rect(top_tab_x, py, tab_w, 1*SCALE, is_top_tab and style.accent or style.dim)
     renderer.draw_rect(top_tab_x, py + tab_h - 1*SCALE, tab_w, 1*SCALE, is_top_tab and style.accent or style.dim)
-    renderer.draw_text(style.font, "Topic Tags", top_tab_x + 14*SCALE, py + 3*SCALE, is_top_tab and style.accent or style.dim)
+    renderer.draw_text(style.font, "Topic Tags", top_tab_x + 20*SCALE, py + 4*SCALE, is_top_tab and style.accent or style.dim)
 
     py = py + tab_h + 10*SCALE
 
@@ -4520,45 +4536,59 @@ function LeetCodeView:draw()
         px, py, style.dim)
       py = py + style.font:get_height() + 6*SCALE
       renderer.draw_rect(px, py, pw, 1*SCALE, style.dim)
-      py = py + 6*SCALE
+      py = py + 8*SCALE
+
+      local list_clip_y = py
+      local list_clip_h = panel_y + panel_h - list_clip_y - 10*SCALE
+      core.push_clip_rect(panel_x, list_clip_y, panel_w, list_clip_h)
+
+      local start_py = py - (self.trend_scroll_y or 0)
+      local cur_y = start_py
 
       if cur_tab == "patterns" then
         local patterns = self.trend_data.patterns or {}
         if #patterns == 0 then
-          renderer.draw_text(style.font, "No patterns indexed. Run ⟳ Update DB.", px, py + 10*SCALE, style.dim)
+          renderer.draw_text(style.font, "No patterns indexed. Run ⟳ Update DB.", px, cur_y + 10*SCALE, style.dim)
+          cur_y = cur_y + 30*SCALE
         else
           local max_score = (patterns[1] and patterns[1].score) or 1
+          local item_x = px + 24*SCALE
+          local item_w = pw - 24*SCALE
           for i, item in ipairs(patterns) do
-            if py + 40*SCALE > panel_y + panel_h - 10*SCALE then break end
             local name = item.name or item.id or ""
             local score = item.score or 0
             local cat = item.category or (item.tier or "")
+            local score_str = string.format("%.0f", score)
+            local score_w = style.font:get_width(score_str) + 6*SCALE
+
             -- rank number
-            renderer.draw_text(style.font, tostring(i) .. ".", px, py, style.dim)
-            -- pattern name
-            core.push_clip_rect(px + 20*SCALE, py, pw - 20*SCALE, style.font:get_height())
-            renderer.draw_text(style.font, name, px + 20*SCALE, py,
+            renderer.draw_text(style.font, tostring(i) .. ".", px, cur_y, style.dim)
+
+            -- pattern name (clipped cleanly to avoid overflow)
+            core.push_clip_rect(item_x, cur_y, item_w, style.font:get_height() + 2*SCALE)
+            renderer.draw_text(style.font, name, item_x, cur_y,
               i == 1 and (LC_COLORS.accepted or style.accent) or (i <= 3 and LC_COLORS.easy or style.text))
             core.pop_clip_rect()
-            py = py + style.font:get_height() + 1*SCALE
+            cur_y = cur_y + style.font:get_height() + 2*SCALE
 
             -- mini subline: category / tier + count
             local sub = string.format("%s • %d probs (%.0f%%)", cat, item.count or 0, item.pct or 0)
-            renderer.draw_text(style.font, sub, px + 20*SCALE, py, style.dim)
-            py = py + style.font:get_height() + 2*SCALE
+            core.push_clip_rect(item_x, cur_y, item_w, style.font:get_height() + 2*SCALE)
+            renderer.draw_text(style.font, sub, item_x, cur_y, style.dim)
+            core.pop_clip_rect()
+            cur_y = cur_y + style.font:get_height() + 3*SCALE
 
-            -- mini progress bar
-            local bw = pw - 34*SCALE
-            local bh = 4*SCALE
-            renderer.draw_rect(px + 20*SCALE, py, bw, bh, style.background2)
-            local fill = bw * math.min(1, score / math.max(1, max_score))
+            -- mini progress bar and score badge
+            local bar_w = item_w - score_w - 12*SCALE
+            local bh = 5*SCALE
+            renderer.draw_rect(item_x, cur_y + 3*SCALE, bar_w, bh, style.background2)
+            local fill = bar_w * math.min(1, score / math.max(1, max_score))
             local bar_col = i == 1 and (LC_COLORS.accepted or style.accent)
                          or (i <= 3 and (LC_COLORS.medium or style.text) or style.dim)
-            renderer.draw_rect(px + 20*SCALE, py, fill, bh, bar_col)
-            -- score badge
-            renderer.draw_text(style.font, string.format("%.0f", score),
-              px + 20*SCALE + bw + 6*SCALE, py - 3*SCALE, style.dim)
-            py = py + bh + 8*SCALE
+            renderer.draw_rect(item_x, cur_y + 3*SCALE, fill, bh, bar_col)
+            -- score badge placed cleanly after progress bar within panel width
+            renderer.draw_text(style.font, score_str, item_x + bar_w + 8*SCALE, cur_y - 2*SCALE, style.dim)
+            cur_y = cur_y + bh + 10*SCALE
           end
         end
 
@@ -4566,34 +4596,46 @@ function LeetCodeView:draw()
         -- Topic tags tab
         local trends = self.trend_data.trends or {}
         if #trends == 0 then
-          renderer.draw_text(style.font, "No topic tags found.", px, py + 10*SCALE, style.dim)
+          renderer.draw_text(style.font, "No topic tags found.", px, cur_y + 10*SCALE, style.dim)
+          cur_y = cur_y + 30*SCALE
         else
           local max_score = (trends[1] and trends[1].score) or 1
+          local item_x = px + 24*SCALE
+          local item_w = pw - 24*SCALE
           for i, item in ipairs(trends) do
-            if py + 30*SCALE > panel_y + panel_h - 10*SCALE then break end
             local tag = item.tag or ""
             local score = item.score or 0
+            local score_str = string.format("%.0f", score)
+            local score_w = style.font:get_width(score_str) + 6*SCALE
+
             -- rank number
-            renderer.draw_text(style.font, tostring(i) .. ".", px, py, style.dim)
-            -- tag name
-            renderer.draw_text(style.font, tag, px + 22*SCALE, py,
+            renderer.draw_text(style.font, tostring(i) .. ".", px, cur_y, style.dim)
+
+            -- tag name (clipped cleanly)
+            core.push_clip_rect(item_x, cur_y, item_w, style.font:get_height() + 2*SCALE)
+            renderer.draw_text(style.font, tag, item_x, cur_y,
               i == 1 and (LC_COLORS.accepted or style.accent) or style.text)
-            py = py + style.font:get_height() + 2*SCALE
-            -- mini progress bar
-            local bw = pw - 34*SCALE
-            local bh = 4*SCALE
-            renderer.draw_rect(px + 2*SCALE, py, bw, bh, style.background2)
-            local fill = bw * math.min(1, score / math.max(1, max_score))
+            core.pop_clip_rect()
+            cur_y = cur_y + style.font:get_height() + 3*SCALE
+
+            -- mini progress bar and score badge
+            local bar_w = item_w - score_w - 12*SCALE
+            local bh = 5*SCALE
+            renderer.draw_rect(item_x, cur_y + 3*SCALE, bar_w, bh, style.background2)
+            local fill = bar_w * math.min(1, score / math.max(1, max_score))
             local bar_col = i == 1 and (LC_COLORS.accepted or style.accent)
                          or (i <= 3 and (LC_COLORS.medium or style.text) or style.dim)
-            renderer.draw_rect(px + 2*SCALE, py, fill, bh, bar_col)
+            renderer.draw_rect(item_x, cur_y + 3*SCALE, fill, bh, bar_col)
             -- score
-            renderer.draw_text(style.font, string.format("%.0f", score),
-              px + bw + 6*SCALE, py - 1*SCALE, style.dim)
-            py = py + bh + 6*SCALE
+            renderer.draw_text(style.font, score_str, item_x + bar_w + 8*SCALE, cur_y - 2*SCALE, style.dim)
+            cur_y = cur_y + bh + 8*SCALE
           end
         end
       end
+
+      local total_h = cur_y - start_py
+      self.trend_max_scroll = math.max(0, total_h - list_clip_h)
+      core.pop_clip_rect()
     end
   end
 
