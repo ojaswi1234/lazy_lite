@@ -511,25 +511,56 @@ function LeetCodeView:new()
   self.db_last_modified = nil
 end
 
-function LeetCodeView:auto_detect()
+function LeetCodeView:auto_authenticate(force_auto_fetch, on_complete)
   lc_view = self
   self.state = "auth"
-  self.auth_status = "Detecting login cookies from browsers (Firefox, Chrome, Edge)..."
+
+  if force_auto_fetch then
+    self.auth_status = "Scanning installed browsers for LeetCode login (Firefox, Chrome, Edge, Brave)..."
+    core.redraw = true
+    api_call({ cmd = "auth_auto" }, function(res)
+      if not lc_view then return end
+      if res and res.ok then
+        self.auth_status = "Browser session detected and saved! Loading problem list..."
+        self.user_stats = res.data and res.data.stats
+        core.redraw = true
+        core.add_thread(function()
+          local start = system.get_time()
+          while system.get_time() - start < 0.2 do coroutine.yield(0.05) end
+          if self.state == "auth" then
+            self.state = "list"
+            self.search_focus = true
+            if #self.problems == 0 then
+              command.perform("leetcode:fetch-list")
+            end
+            core.redraw = true
+          end
+          if on_complete then on_complete(true) end
+        end)
+      else
+        self.state = "auth"
+        self.auth_status = (res and res.error) or "No active browser session found. Paste cookies or log in via browser."
+        core.redraw = true
+        if on_complete then on_complete(false) end
+      end
+    end)
+    return
+  end
+
+  -- Step 1: Check existing saved credentials (from past auto-fetch or manual paste)
+  self.auth_status = "Checking saved LeetCode credentials..."
   core.redraw = true
 
-  api_call({ cmd = "auth_auto" }, function(res)
-    if not res then
-      self.auth_status = "Failed to communicate with LeetCode API"
-      core.redraw = true
-      return
-    end
-    if res.ok then
-      self.auth_status = "Found active session! Loading problem list..."
-      self.user_stats = res.data and res.data.stats
+  api_call({ cmd = "auth_check" }, function(resp)
+    if not lc_view then return end
+    if resp and resp.ok then
+      -- Saved credentials are still valid!
+      self.auth_status = "Found saved session! Loading problem list..."
+      self.user_stats = resp.data and resp.data.stats
       core.redraw = true
       core.add_thread(function()
         local start = system.get_time()
-        while system.get_time() - start < 0.25 do coroutine.yield(0.05) end
+        while system.get_time() - start < 0.15 do coroutine.yield(0.05) end
         if self.state == "auth" then
           self.state = "list"
           self.search_focus = true
@@ -538,13 +569,45 @@ function LeetCodeView:auto_detect()
           end
           core.redraw = true
         end
+        if on_complete then on_complete(true) end
       end)
     else
-      self.state = "auth"
-      self.auth_status = res.error or "No browser session found. Log in via browser first."
+      -- Step 2: No saved credentials or expired -> AUTOMATICALLY scan browsers!
+      self.auth_status = "Saved credentials missing/expired. Auto-fetching from browser..."
       core.redraw = true
+      api_call({ cmd = "auth_auto" }, function(auto_res)
+        if not lc_view then return end
+        if auto_res and auto_res.ok then
+          self.auth_status = "Browser session detected and saved! Loading problem list..."
+          self.user_stats = auto_res.data and auto_res.data.stats
+          core.redraw = true
+          core.add_thread(function()
+            local start = system.get_time()
+            while system.get_time() - start < 0.2 do coroutine.yield(0.05) end
+            if self.state == "auth" then
+              self.state = "list"
+              self.search_focus = true
+              if #self.problems == 0 then
+                command.perform("leetcode:fetch-list")
+              end
+              core.redraw = true
+            end
+            if on_complete then on_complete(true) end
+          end)
+        else
+          -- Step 3: Both saved creds and browser auto-fetch failed -> present manual UI
+          self.state = "auth"
+          self.auth_status = "Login required: log in on browser & click Auto-Detect, or paste cookies"
+          core.redraw = true
+          if on_complete then on_complete(false) end
+        end
+      end)
     end
   end)
+end
+
+function LeetCodeView:auto_detect()
+  self:auto_authenticate(true)
 end
 
 function LeetCodeView:connect_cookies()
@@ -567,13 +630,14 @@ function LeetCodeView:connect_cookies()
     csrf    = csrf_match or "",
     raw     = self.cookie_input
   }, function(resp)
+    if not lc_view then return end
     if not resp then
       self.auth_status = "Failed to communicate with LeetCode API"
       core.redraw = true
       return
     end
     if resp.ok then
-      self.auth_status = "Connected successfully! Loading problem list..."
+      self.auth_status = "Connected and saved! Loading problem list..."
       self.user_stats = resp.data and resp.data.stats
       core.redraw = true
       core.add_thread(function()
@@ -1404,31 +1468,7 @@ command.add(nil, {
       node:add_view(lc_view)
       if sidebar then node:set_active_view(lc_view) end
       if lc_view.state == "auth" then
-        lc_view.auth_status = "checking for old creds..... "
-        api_call({cmd = "auth_check"}, function(resp)
-          if not lc_view then return end
-          if resp.ok then
-            lc_view.auth_status = "checking for old creds..... Found !! ....... "
-            lc_view.user_stats = resp.data and resp.data.stats
-            core.redraw = true
-            core.add_thread(function()
-              local start = system.get_time()
-              while system.get_time() - start < 0.15 do coroutine.yield(0.05) end
-              if lc_view and lc_view.state == "auth" then
-                lc_view.state = "list"; lc_view.search_focus = true
-                if #lc_view.problems == 0 then command.perform("leetcode:fetch-list") end
-                core.redraw = true
-              end
-            end)
-          else
-            if resp.error == "Not logged in" or resp.error == "No saved credentials found" then
-              lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
-            else
-              lc_view.auth_status = resp.error or "creds expired...... Paste/Auto fetch new cookies"
-            end
-          end
-          core.redraw = true
-        end)
+        lc_view:auto_authenticate(false)
       end
     end
     core.redraw = true
@@ -1467,9 +1507,8 @@ command.add(nil, {
         lc_view.list_scroll_y  = 0
         lc_view.last_error     = nil
       else
-        if resp.error and resp.error:match("Not logged in") then
-          lc_view.state = "auth"
-          lc_view.auth_status = "creds expired...... Paste/Auto fetch new cookies"
+        if resp.error and (resp.error:match("Not logged in") or resp.error:match("expired") or resp.error:match("403")) then
+          lc_view:auto_authenticate(false)
         else
           lc_view.last_error = resp.error or "Unknown error"
           core.log("[LeetCode] " .. lc_view.last_error)

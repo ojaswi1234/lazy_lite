@@ -1828,8 +1828,12 @@ def cmd_auth_auto(params):
     if browser == "missing_lib":
         return {"ok": False, "error": "browser_cookie3 is not installed. Run: pip install browser-cookie3"}
     if session and csrf:
-        save_session(session, csrf)
-        return cmd_auth_check({})
+        save_session(session, csrf, "")
+        res = cmd_auth_check({})
+        if not res.get("ok"):
+            save_session("", "", "")
+            return {"ok": False, "error": "Extracted browser cookies were rejected by LeetCode: " + res.get("error", "")}
+        return res
     return {"ok": False, "error": "No browser session found (make sure you are logged in to LeetCode in Chrome/Edge/Firefox)"}
 
 def cmd_auth_check(params):
