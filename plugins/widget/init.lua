@@ -875,7 +875,7 @@ function Widget:on_mouse_pressed(button, x, y, clicks)
     if self.draggable and not self.child_active then
       self.position.dx = x - self.position.x
       self.position.dy = y - self.position.y
-      system.set_cursor("hand")
+      core.request_cursor("hand")
     end
   else
     self:swap_active_child()
@@ -952,7 +952,7 @@ function Widget:on_mouse_released(button, x, y)
       self.parent.mouse_is_pressed = false
     end
     if self.draggable then
-      system.set_cursor("arrow")
+      core.request_cursor("arrow")
     end
   end
 
@@ -1022,7 +1022,7 @@ function Widget:on_mouse_moved(x, y, dx, dy)
         end
         child.mouse_is_hovering = false
         child:on_mouse_leave(x, y, dx, dy)
-        system.set_cursor("arrow")
+        core.request_cursor("arrow")
       end
     end
 
@@ -1051,7 +1051,7 @@ function Widget:on_mouse_moved(x, y, dx, dy)
 
   if self:mouse_on_top(x, y) then
     if not self.mouse_is_hovering  then
-      system.set_cursor("arrow")
+      core.request_cursor("arrow")
       self.mouse_is_hovering = true
       if #self.tooltip > 0 then
         widget_showing_tooltip = true
@@ -1067,7 +1067,7 @@ function Widget:on_mouse_moved(x, y, dx, dy)
   end
 
   if not self.child_active and self.mouse_is_pressed and self.draggable then
-    system.set_cursor("hand")
+    core.request_cursor("hand")
     self:drag(x, y)
     self.dragged = true
     return true

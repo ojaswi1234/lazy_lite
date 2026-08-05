@@ -352,10 +352,10 @@ function TermView:refresh_ports(s)
   core.add_thread(function()
     local p_names = {}
     if PLATFORM == "Windows" then
-      local p1 = process.start({"powershell", "-NoProfile", "-Command", "Get-Process | Select-Object Id, ProcessName | ConvertTo-Csv -NoTypeInformation"}, { stdout = process.REDIRECT_PIPE })
+      local p1 = process.start({"tasklist", "/FO", "CSV", "/NH"}, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_DISCARD })
       if p1 then
         local out = ""
-        local deadline = system.get_time() + 4
+        local deadline = system.get_time() + 3
         while true do
           local chunk = p1:read_stdout(4096)
           if chunk and #chunk > 0 then
@@ -363,17 +363,17 @@ function TermView:refresh_ports(s)
           elseif not p1:running() then
             break
           elseif system.get_time() > deadline then
+            p1:kill()
             break
           else
-            coroutine.yield(0.05)
+            coroutine.yield(0.02)
           end
         end
-        for line in (out .. "\n"):gmatch("[^\n]+") do
-          local pid, name = line:match('^"([^"]+)","([^"]+)"')
+        for line in (out .. "\n"):gmatch("[^\r\n]+") do
+          local name, pid = line:match('^"([^"]+)","([^"]+)"')
           if pid and name then
             local pid_num = tonumber(pid)
             if pid_num then
-              if not name:lower():match("%.exe$") then name = name .. ".exe" end
               p_names[tostring(pid_num)] = name
             end
           end
@@ -1432,7 +1432,9 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           for pid, sel in pairs(s.selected_ports or {}) do
             if sel then
               core.log("Killing process %s...", pid)
-              if PLATFORM == "Windows" then os.execute("taskkill /F /T /PID " .. pid) end
+              if PLATFORM == "Windows" then
+                process.start({"taskkill", "/F", "/T", "/PID", tostring(pid)}, { stdin = process.REDIRECT_DISCARD, stdout = process.REDIRECT_DISCARD, stderr = process.REDIRECT_DISCARD })
+              end
             end
           end
           self:refresh_ports(s)
@@ -1476,7 +1478,7 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
             core.log("Killing process %s on port %s...", btn.pid, btn.port)
             if PLATFORM == "Windows" then
-              os.execute("taskkill /F /T /PID " .. btn.pid)
+              process.start({"taskkill", "/F", "/T", "/PID", tostring(btn.pid)}, { stdin = process.REDIRECT_DISCARD, stdout = process.REDIRECT_DISCARD, stderr = process.REDIRECT_DISCARD })
             end
             self:refresh_ports(s)
             return true
@@ -1727,9 +1729,11 @@ function TermView:on_mouse_moved(x, y, dx, dy)
   
         local url = self:get_url_at(x, y)
         if url then
-          system.set_cursor("hand")
+          self.cursor = "hand"
+          core.request_cursor("hand")
         else
-          system.set_cursor("ibeam")
+          self.cursor = "ibeam"
+          core.request_cursor("ibeam")
         end
         return false
       end

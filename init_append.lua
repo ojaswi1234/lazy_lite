@@ -4,27 +4,59 @@ local core    = require "core"
 local config  = require "core.config"
 local style   = require "core.style"
 local keymap  = require "core.keymap"
+local common  = require "core.common"
+
+-- ── 0. Global Process Spawn Protection ───────────────────────────────────────
+local process = require "process"
+local orig_process_start = process.start
+function process.start(...)
+  local ok, a, b, c = pcall(orig_process_start, ...)
+  if ok then return a, b, c else return nil, a end
+end
 
 -- ── 1. Color scheme ───────────────────────────────────────────────────────────
 core.reload_module("colors.everforest_lite_xl")
 
--- ── 2. Font ───────────────────────────────────────────────────────────────────
+-- ── 2. Font — Auto-Native OS Fonts & Fallbacks ────────────────────────────────
 local function try_load_font(path, size, opts)
   local ok, f = pcall(renderer.font.load, path, size, opts or {})
   return ok and f or nil
 end
 
-local FONT_PATH = USERDIR .. "/fonts/FiraCode-iScript.ttf"
-local NERD_PATH = USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf"
+local os_fonts = {
+  USERDIR .. "/fonts/FiraCode-iScript.ttf",
+  USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf",
+}
 
-local base_font = try_load_font(FONT_PATH, 15 * SCALE)
-              or try_load_font(NERD_PATH,  15 * SCALE)
-              or nil
+if PLATFORM == "Windows" then
+  local windir = os.getenv("WINDIR") or "C:\\Windows"
+  table.insert(os_fonts, windir .. "\\Fonts\\consola.ttf")
+  table.insert(os_fonts, windir .. "\\Fonts\\lucon.ttf")
+elseif PLATFORM == "Mac OS X" then
+  table.insert(os_fonts, "/System/Library/Fonts/Menlo.ttc")
+  table.insert(os_fonts, "/System/Library/Fonts/Monaco.ttf")
+else
+  table.insert(os_fonts, "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+  table.insert(os_fonts, "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf")
+  table.insert(os_fonts, "/usr/share/fonts/dejavu/DejaVuSansMono.ttf")
+end
+
+local base_font = nil
+local font_path_used = nil
+for _, path in ipairs(os_fonts) do
+  base_font = try_load_font(path, 15 * SCALE)
+  if base_font then 
+    font_path_used = path
+    break 
+  end
+end
 
 if base_font then
   style.font          = base_font
-  style.big_font      = try_load_font(FONT_PATH, 20 * SCALE) or base_font
+  style.big_font      = try_load_font(font_path_used, 20 * SCALE) or base_font
   style.code_font     = base_font
+  
+  local NERD_PATH = USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf"
   style.icon_font     = try_load_font(NERD_PATH, 14 * SCALE) or base_font
   style.icon_big_font = try_load_font(NERD_PATH, 28 * SCALE) or base_font
 end
@@ -39,9 +71,13 @@ config.blink_period           = 0.5
 config.draw_whitespace        = false
 config.max_undos              = 10000
 config.file_size_limit        = 10
-config.max_project_files      = 100000
+config.max_project_files      = 50000
 config.ignore_files           = {
-  "^node_modules", "^__pycache__", "^%.DS_Store",
+  "^%.git$", "^node_modules$", "^__pycache__$", "^%.DS_Store$",
+  "^venv$", "^%.venv$", "^build$", "^dist$", "^%.next$", "^vendor$",
+  "^%.gemini$", "^AppData$", "^%.config$", "^%.cache$", "^%.vscode$",
+  "^%.npm$", "^%.rustup$", "^%.cargo$", "^%.antigravity$", "^tempfiles$",
+  "^NTUSER%.DAT", "^ntuser%.dat", "%.tmp$", "%.log$", "%.cache$"
 }
 
 -- ── 4. Built-in plugins ───────────────────────────────────────────────────────
@@ -54,7 +90,47 @@ config.plugins.drawwhitespace = false
 config.plugins.lineguide      = false
 config.plugins.wordcount      = false
 
--- ── 5. Custom plugins ─────────────────────────────────────────────────────────
+-- ── 5. Hybrid Theme Universal Patches ──────────────────────────────────────────
+local Node = require "core.node"
+local old_node_draw_tabs = Node.draw_tabs
+function Node:draw_tabs(...)
+  local old_text = style.text
+  local old_dim = style.dim
+  local old_bg2 = style.background2
+  if style.mossy then
+    style.background2 = style.tab_bar_background or style.mossy.activity_bg or style.background2
+    style.text = style.syntax.normal or style.text
+    style.dim = style.mossy.sidebar_text or style.dim
+  end
+  old_node_draw_tabs(self, ...)
+  style.text = old_text
+  style.dim = old_dim
+  style.background2 = old_bg2
+end
+
+local TreeView_ok, TreeView = pcall(require, "plugins.treeview")
+if TreeView_ok then
+  local old_tv_draw = TreeView.draw
+  function TreeView:draw(...)
+    local old_bg2 = style.background2
+    local old_bg3 = style.background3
+    local old_text = style.text
+    local old_dim = style.dim
+    if style.mossy then
+      style.background2 = style.mossy.sidebar_bg or style.background2
+      style.background3 = style.mossy.activity_bg or style.background3
+      style.text = style.mossy.sidebar_text or style.text
+      style.dim = style.mossy.sidebar_muted or style.dim
+    end
+    old_tv_draw(self, ...)
+    style.background2 = old_bg2
+    style.background3 = old_bg3
+    style.text = old_text
+    style.dim = old_dim
+  end
+end
+
+-- ── 6. Custom plugins ─────────────────────────────────────────────────────────
 local function safe_require(mod)
   local ok, err = pcall(require, mod)
   if not ok then
@@ -70,12 +146,18 @@ end
 safe_require "plugins.mossy_icons"
 safe_require "plugins.mossy_treeview"
 safe_require "plugins.toggle_terminal"
+safe_require "plugins.git_timeline"
+safe_require "plugins.github_actions"
 safe_require "plugins.antigravity_sidebar"
 safe_require "plugins.auto_healer"
 safe_require "plugins.mossy_statusbar"
+safe_require "plugins.loader_games"
+safe_require "plugins.virtual_codespace_fs"
+safe_require "plugins.github_codespaces"
+safe_require "plugins.font_picker"
 safe_require "plugins.resource_monitor"
 
--- ── 6. Keybindings ────────────────────────────────────────────────────────────
+-- ── 7. Keybindings ────────────────────────────────────────────────────────────
 keymap.add {
   ["ctrl+`"]        = "terminal:toggle",
   ["ctrl+shift+a"]  = "antigravity:toggle",
@@ -93,11 +175,18 @@ keymap.add {
   ["alt+up"]        = "doc:move-lines-up",
   ["alt+down"]      = "doc:move-lines-down",
   ["ctrl+shift+r"]  = "core:restart",
+  ["ctrl+shift+g"]  = "git-timeline:toggle",
+  ["alt+p"]         = "pdf:open-file",
+  ["ctrl+alt+p"]    = "pdf:open-file",
+  ["shift+alt+f"]   = "lsp:format-document",
+  ["alt+shift+f"]   = "lsp:format-document",
+  ["ctrl+alt+l"]    = "lsp:toggle-servers",
+  ["alt+l"]         = "lsp:toggle-servers",
 }
 
 config.borderless = true
 
--- ── 7. Open CWD when launched without arguments from a project folder ─────────
+-- ── 8. Open CWD when launched without arguments from a project folder ─────────
 local function is_generic_dir(path)
   local p = path:lower():gsub("\\", "/")
   local userprofile = (os.getenv("USERPROFILE") or ""):lower():gsub("\\", "/")
@@ -121,42 +210,77 @@ local STARTUP_CWD = system.absolute_path(".")
 
 local original_add_project_directory = core.add_project_directory
 function core.add_project_directory(path)
-  if not core._cwd_handled then
+  if #ARGS <= 1 and not core._cwd_handled then
     core._cwd_handled = true
-    -- If a generic dir (like Desktop) was passed via hardcoded shortcut ARGS,
-    -- but our inherited process CWD is a valid project, prefer the CWD to fix reload bugs!
     if STARTUP_CWD and STARTUP_CWD ~= path and not is_generic_dir(STARTUP_CWD) then
-      if #ARGS <= 1 or is_generic_dir(path) then
-        path = STARTUP_CWD
-        core.set_project_dir(STARTUP_CWD)
-        
-        -- Update recent projects so restarts (Ctrl+Shift+R) remember this directory
-        local recents = core.recent_projects
-        local dirname = common.normalize_volume(STARTUP_CWD)
-        if recents and dirname then
-          for i, v in ipairs(recents) do
-            if v == dirname then
-              table.remove(recents, i)
-              break
-            end
+      path = STARTUP_CWD
+      core.set_project_dir(STARTUP_CWD)
+      
+      local recents = core.recent_projects
+      local dirname = common.normalize_volume(STARTUP_CWD)
+      if recents and dirname then
+        for i, v in ipairs(recents) do
+          if v == dirname then
+            table.remove(recents, i)
+            break
           end
-          table.insert(recents, 1, dirname)
         end
+        table.insert(recents, 1, dirname)
       end
     end
   end
   return original_add_project_directory(path)
 end
 
--- Patch to prevent statusview crash when project_files is nil
-local orig_statusview_update = core.statusview.update
-function core.statusview:update(...)
-  if core.project_files == nil then
-    core.project_files = {}
+-- ── 9. Statusview & Theme Cleanup ─────────────────────────────────────────────
+local old_reload = core.reload_module
+function core.reload_module(name)
+  if type(name) == "string" and name:match("^colors%.") then
+    style.mossy = nil
   end
-  if orig_statusview_update then
-    return orig_statusview_update(self, ...)
-  end
+  return old_reload(name)
 end
+
+-- ── 10. Auto-Close Editor Splits on Startup ───────────────────────────────────
+core.add_thread(function()
+  coroutine.yield()
+  local max_iters = 20
+  for iter = 1, max_iters do
+    local editor_nodes = {}
+    local function collect(node)
+      if node.type == "leaf" then
+        if not node.locked then table.insert(editor_nodes, node) end
+      elseif node.type ~= "leaf" then
+        collect(node.a)
+        collect(node.b)
+      end
+    end
+    collect(core.root_view.root_node)
+    
+    if #editor_nodes <= 1 then break end
+    
+    local source = editor_nodes[2]
+    local view = source.views[1]
+    
+    if view then
+      source:remove_view(core.root_view.root_node, view)
+      local surviving_nodes = {}
+      local function collect_survivors(node)
+        if node.type == "leaf" then
+          if not node.locked then table.insert(surviving_nodes, node) end
+        elseif node.type ~= "leaf" then
+          collect_survivors(node.a)
+          collect_survivors(node.b)
+        end
+      end
+      collect_survivors(core.root_view.root_node)
+      if #surviving_nodes > 0 then
+        surviving_nodes[1]:add_view(view)
+      end
+    else
+      break
+    end
+  end
+end)
 
 -- [[ End LazyLite Configuration ]]

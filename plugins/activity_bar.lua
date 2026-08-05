@@ -172,14 +172,36 @@ function ActivityBar:draw()
   end
 end
 
+local function get_activity_bar_hover_slot(bar, y)
+  if not y then return nil end
+  local cell = 48 * SCALE
+  local auth_y = bar.position.y + bar.size.y - cell
+  if y >= auth_y and y < bar.position.y + bar.size.y then
+    return "auth"
+  end
+  local rel_y = y - bar.position.y
+  local idx = math.floor(rel_y / cell) + 1
+  if bar.items and bar.items[idx] then
+    return idx
+  end
+  return nil
+end
+
 function ActivityBar:on_mouse_moved(x, y)
+  local old_slot = get_activity_bar_hover_slot(self, self.mouse_y)
+  local new_slot = get_activity_bar_hover_slot(self, y)
   self.mouse_y = y
-  core.redraw = true
+  if old_slot ~= new_slot then
+    core.redraw = true
+  end
 end
 
 function ActivityBar:on_mouse_left()
+  local old_slot = get_activity_bar_hover_slot(self, self.mouse_y)
   self.mouse_y = nil
-  core.redraw = true
+  if old_slot ~= nil then
+    core.redraw = true
+  end
 end
 
 function ActivityBar:on_mouse_pressed(button, x, y, clicks)

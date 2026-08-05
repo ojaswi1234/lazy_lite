@@ -100,6 +100,7 @@ local function save_view(view)
         type = "view",
         active = (core.active_view == view),
         module = name,
+        filename = view.filename or (view.doc and view.doc.filename),
         scroll = { x = view.scroll.to.x, y = view.scroll.to.y, to = { x = view.scroll.to.x, y = view.scroll.to.y } },
       }
     end
@@ -132,7 +133,16 @@ local function load_view(t)
     end
     return dv
   end
-  return require(t.module)()
+  local ok, mod = pcall(require, t.module)
+  if ok and (type(mod) == "table" or type(mod) == "function") then
+    if t.filename and t.filename ~= "" then
+      local ok2, v = pcall(mod, t.filename)
+      if ok2 and v then return v end
+    end
+    local ok2, v = pcall(mod)
+    if ok2 and v then return v end
+  end
+  return nil
 end
 
 

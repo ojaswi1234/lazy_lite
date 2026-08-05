@@ -1,16 +1,10 @@
 $configDir = "$env:USERPROFILE\.config\lite-xl"
 $srcDir = $PSScriptRoot
 
-Write-Host @"
-    __                      __    _ __     
-   / /   ____ _____  __  __/ /   (_) /____ 
-  / /   / __ `/_  / / / / / /   / / __/ _ \
- / /___/ /_/ / / /_/ /_/ / /___/ / /_/  __/
-/_____/\__,_/ /___/\__, /_____/_/\__/\___/ 
-                  /____/                   
-
-"@ -ForegroundColor Green
-
+Write-Host "==========================================" -ForegroundColor Green
+Write-Host "   LazyLite Configuration Installer       " -ForegroundColor Green
+Write-Host "==========================================" -ForegroundColor Green
+Write-Host ""
 Write-Host "[*] Welcome to the LazyLite Installer! [*]" -ForegroundColor DarkGreen
 Write-Host "[+] Transforming your Lite-XL into a modern powerhouse... [+]" -ForegroundColor Gray
 Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
@@ -20,13 +14,13 @@ Write-Host ""
 
 function Animate-Progress {
     param([string]$Msg)
-    Write-Host "➤ $Msg" -ForegroundColor Cyan
+    Write-Host ">> $Msg" -ForegroundColor Cyan
     Write-Host "  [" -NoNewline -ForegroundColor Green
     for ($i=0; $i -lt 30; $i++) {
-        Write-Host "█" -NoNewline -ForegroundColor DarkGreen
-        Start-Sleep -Milliseconds 30
+        Write-Host "=" -NoNewline -ForegroundColor DarkGreen
+        Start-Sleep -Milliseconds 20
     }
-    Write-Host "] ✔" -ForegroundColor Green
+    Write-Host "] OK" -ForegroundColor Green
 }
 
 # 1. Check Lite-XL
@@ -35,7 +29,7 @@ if (-not $liteXlInstalled) {
     $installLite = Read-Host "Lite-XL is not installed. Do you want to install it automatically? (Y/N)"
     if ($installLite -match "^[yY]") {
         Write-Host "Installing Lite-XL..."
-        $installer = "LiteXL-setup.exe"
+        $installer = "$env:TEMP\LiteXL-setup.exe"
         irm https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe -OutFile $installer
         Start-Process -FilePath $installer -Wait
     } else {
@@ -57,15 +51,13 @@ $fontDir = "$configDir\fonts"
 New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
 irm "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf" -OutFile "$fontDir\FiraCodeNerdFont-Regular.ttf"
 
-# 1.8. Emoji font — Windows has Segoe UI Emoji built-in (C:\Windows\Fonts\seguiemj.ttf).
-#      The AI sidebar auto-detects it. We download NotoColorEmoji as a supplementary fallback
-#      in case the font picker needs a wider emoji range.
+# 1.8. Emoji font check and download
 $segoeEmoji = "$env:WINDIR\Fonts\seguiemj.ttf"
 $notoEmoji   = "$fontDir\NotoColorEmoji.ttf"
 if (Test-Path $segoeEmoji) {
-    Write-Host "Segoe UI Emoji found at $segoeEmoji — primary emoji font ready."
+    Write-Host "Segoe UI Emoji found at $segoeEmoji -- primary emoji font ready."
 } else {
-    Write-Host "WARNING: seguiemj.ttf not found — downloading NotoColorEmoji as fallback..."
+    Write-Host "WARNING: seguiemj.ttf not found -- downloading NotoColorEmoji as fallback..."
     irm "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf" -OutFile $notoEmoji
     Write-Host "NotoColorEmoji downloaded to $notoEmoji"
 }
@@ -96,12 +88,14 @@ if (-not $agyInstalled) {
         Write-Host "If you change your mind, you can run this script again later to add it."
         Write-Host ""
         $installAgySidebar = $false
+    }
+}
 
 # 3. Optional Features Setup
 $installPodman = Read-Host "Do you want to setup Podman support in the editor? (Y/N)"
 $setupPodman = ($installPodman -match "^[yY]")
 
-$installLeetcode = Read-Host "Do you want to setup LeetCode plugin? (Y/N)"
+$installLeetcode = Read-Host "Do you want to setup LeetCode plugin & assessment suite? (Y/N)"
 $setupLeetcode = ($installLeetcode -match "^[yY]")
 
 $installMongo = Read-Host "Do you want to setup MongoDB Explorer? (Y/N)"
@@ -115,13 +109,22 @@ if ($setupPodman) {
     }
 }
 
+$pythonCheck = Get-Command "python" -ErrorAction SilentlyContinue
+if ($setupLeetcode) {
+    if ($pythonCheck) {
+        Write-Host "Installing required Python dependencies for LeetCode API & ML engine..."
+        python -m pip install requests --quiet
+    } else {
+        Write-Host "WARNING: Python is recommended for full LeetCode features."
+    }
+}
+
 if ($setupMongo) {
     $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
     if (-not $mongoshCheck) {
         Write-Host "Installing MongoDB Shell (mongosh)..."
         winget install -e --id MongoDB.mongosh --accept-source-agreements --accept-package-agreements
     }
-    $pythonCheck = Get-Command "python" -ErrorAction SilentlyContinue
     if ($pythonCheck) {
         python -m pip install pymongo --quiet
     } else {
@@ -137,14 +140,18 @@ New-Item -ItemType Directory -Force -Path "$configDir\colors"  | Out-Null
 New-Item -ItemType Directory -Force -Path "$configDir\fonts"   | Out-Null
 New-Item -ItemType Directory -Force -Path "$configDir\scripts" | Out-Null
 
-# Copy all .lua plugin files (skip AI sidebar if agy not installed)
-Get-ChildItem -Path "$srcDir\plugins\*.lua" | ForEach-Object {
-    if ($_.Name -eq "antigravity_sidebar.lua" -and -not $installAgySidebar) {
+# Copy all plugins (lua, json, py)
+Get-ChildItem -Path "$srcDir\plugins\*" | ForEach-Object {
+    if ($_.PSIsContainer) {
+        # Subdirectories handled below
+    } elseif ($_.Name -eq "antigravity_sidebar.lua" -and -not $installAgySidebar) {
         Write-Host "Skipping antigravity_sidebar.lua..."
+    } elseif ($_.Name -eq "agy_pty_bridge.py" -and -not $installAgySidebar) {
+        Write-Host "Skipping agy_pty_bridge.py..."
     } elseif ($_.Name -eq "podman_manager.lua" -and -not $setupPodman) {
         Write-Host "Skipping podman_manager.lua..."
-    } elseif ($_.Name -eq "leetcode.lua" -and -not $setupLeetcode) {
-        Write-Host "Skipping leetcode.lua..."
+    } elseif (($_.Name -eq "leetcode.lua" -or $_.Name -eq "leetcode_assessment.lua" -or $_.Name -eq "company_tags.json" -or $_.Name -eq "problem_tags.json" -or $_.Name -eq "company_scores.json") -and -not $setupLeetcode) {
+        Write-Host "Skipping $($_.Name)..."
     } elseif ($_.Name -eq "mongodb_explorer.lua" -and -not $setupMongo) {
         Write-Host "Skipping mongodb_explorer.lua..."
     } else {
@@ -155,12 +162,12 @@ Get-ChildItem -Path "$srcDir\plugins\*.lua" | ForEach-Object {
 # Copy color schemes
 Copy-Item -Path "$srcDir\colors\*.lua" -Destination "$configDir\colors\" -Force
 
-# Copy bundled fonts (if any are in the repo)
+# Copy bundled fonts
 if (Test-Path "$srcDir\fonts\*.ttf") {
     Copy-Item -Path "$srcDir\fonts\*.ttf" -Destination "$configDir\fonts\" -Force
 }
 
-# Copy scripts (remote LSP proxy for Codespaces)
+# Copy scripts
 if (Test-Path "$srcDir\scripts") {
     Get-ChildItem -Path "$srcDir\scripts\*" | ForEach-Object {
         if ($_.Name -eq "leetcode_api.py" -and -not $setupLeetcode) {
@@ -174,26 +181,11 @@ if (Test-Path "$srcDir\scripts") {
 }
 
 # Copy sub-directories (third-party and custom plugins)
-if (Test-Path "$srcDir\plugins\lsp") {
-    Copy-Item -Path "$srcDir\plugins\lsp" -Destination "$configDir\plugins\lsp" -Recurse -Force
-}
-if (Test-Path "$srcDir\plugins\widget") {
-    Copy-Item -Path "$srcDir\plugins\widget" -Destination "$configDir\plugins\widget" -Recurse -Force
-}
-if (Test-Path "$srcDir\plugins\lintplus") {
-    Copy-Item -Path "$srcDir\plugins\lintplus" -Destination "$configDir\plugins\lintplus" -Recurse -Force
-}
-if (Test-Path "$srcDir\plugins\loader_games") {
-    Copy-Item -Path "$srcDir\plugins\loader_games" -Destination "$configDir\plugins\loader_games" -Recurse -Force
-}
-if (Test-Path "$srcDir\plugins\toggle_terminal") {
-    Copy-Item -Path "$srcDir\plugins\toggle_terminal" -Destination "$configDir\plugins\toggle_terminal" -Recurse -Force
-}
-if (Test-Path "$srcDir\plugins\tunnel_monitor") {
-    Copy-Item -Path "$srcDir\plugins\tunnel_monitor" -Destination "$configDir\plugins\tunnel_monitor" -Recurse -Force
-}
-if (Test-Path "$srcDir\plugins\python_runtime") {
-    Copy-Item -Path "$srcDir\plugins\python_runtime" -Destination "$configDir\plugins\python_runtime" -Recurse -Force
+$subDirs = @("lsp", "widget", "lintplus", "loader_games", "toggle_terminal", "tunnel_monitor", "python_runtime")
+foreach ($sub in $subDirs) {
+    if (Test-Path "$srcDir\plugins\$sub") {
+        Copy-Item -Path "$srcDir\plugins\$sub" -Destination "$configDir\plugins\$sub" -Recurse -Force
+    }
 }
 Write-Host "Copied plugins, scripts, fonts, and color scheme."
 
@@ -215,7 +207,7 @@ if (Test-Path $initFile) {
 
 if (-not $initContent.Contains($marker)) {
     $append = Get-Content "$srcDir\init_append.lua" -Raw
-    Add-Content -Path $initFile -Value "`r`n$append"
+    Add-Content -Path $initFile -Value ([Environment]::NewLine + $append)
     Write-Host "Appended LazyLite configuration to init.lua"
 } else {
     Write-Host "Configuration already present in init.lua"
@@ -224,7 +216,7 @@ if (-not $initContent.Contains($marker)) {
 Write-Host ""
 Write-Host "Installation complete! Restart Lite-XL."
 Write-Host ""
-Write-Host "💡 Tip: LazyLite is fully yours to shape! Feel free to explore your new .config\lite-xl folder and tweak the configs, plugins, and colors to make it uniquely yours." -ForegroundColor Cyan
+Write-Host "Tip: LazyLite is fully yours to shape! Feel free to explore your new .config\lite-xl folder and tweak the configs, plugins, and colors to make it uniquely yours." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "NEXT STEP: Run 'agy install' once in a terminal to configure the AI backend."
 Read-Host "Press Enter to exit"

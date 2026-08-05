@@ -81,13 +81,24 @@ local check_interval = 10 -- seconds: git branch check (low-priority background 
 local git_checking   = false
 
 local function check_git_branch()
+  if not core.project_dir then
+    current_branch = nil
+    return
+  end
+
+  -- Fast-path check: Only spawn git if .git directory/file exists in the project
+  local git_info = system.get_file_info(core.project_dir .. PATHSEP .. ".git")
+  if not git_info then
+    current_branch = nil
+    return
+  end
+
   git_checking = true
   local p = process.start(
-    PLATFORM == "Windows" 
-      and { "cmd.exe", "/c", "git branch --show-current 2>nul" }
-      or  { "sh", "-c", "git branch --show-current 2>/dev/null" }, 
+    { "git", "branch", "--show-current" }, 
     {
       stdout = process.REDIRECT_PIPE,
+      stderr = process.REDIRECT_DISCARD,
       cwd    = core.project_dir
     }
   )
@@ -99,12 +110,17 @@ local function check_git_branch()
   end
 
   local output = ""
+  local start_time = system.get_time()
   while p:running() do
+    if system.get_time() - start_time > 3 then
+      p:kill()
+      break
+    end
     local chunk = p:read_stdout()
     if chunk and #chunk > 0 then
       output = output .. chunk
     end
-    coroutine.yield(0.3)
+    coroutine.yield(0.2)
   end
   
   -- Drain remaining output

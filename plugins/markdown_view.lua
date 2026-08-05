@@ -467,6 +467,9 @@ function MarkdownView:update()
   
   if hovering_link then
     self.cursor = "hand"
+    core.request_cursor("hand")
+  else
+    self.cursor = "arrow"
   end
 end
 

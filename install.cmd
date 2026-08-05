@@ -15,8 +15,8 @@ if %errorlevel% neq 0 (
     set /p "install_lite=Lite-XL is not installed. Do you want to install it automatically? (y/n): "
     if /i "!install_lite!"=="y" (
         echo Installing Lite-XL...
-        curl -L -o LiteXL-setup.exe https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
-        LiteXL-setup.exe
+        curl -L -o "%TEMP%\LiteXL-setup.exe" https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
+        "%TEMP%\LiteXL-setup.exe"
     ) else (
         echo Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting.
         exit /b 1
@@ -36,8 +36,6 @@ if not exist "%CONFIG_DIR%\fonts" mkdir "%CONFIG_DIR%\fonts"
 curl -L -o "%CONFIG_DIR%\fonts\FiraCodeNerdFont-Regular.ttf" "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf"
 
 :: 1.8. Emoji font check and fallback download
-:: Windows ships with Segoe UI Emoji (seguiemj.ttf) — the AI sidebar uses it automatically.
-:: If for some reason it's missing, we download NotoColorEmoji instead.
 if exist "%WINDIR%\Fonts\seguiemj.ttf" (
     echo Segoe UI Emoji found ^(seguiemj.ttf^) -- emoji rendering ready.
 ) else (
@@ -58,7 +56,7 @@ if %errorlevel% neq 0 (
     set /p "install_agy=Antigravity CLI (agy) is not installed. Do you want to install it automatically using the official installer? (y/n): "
     if /i "!install_agy!"=="y" (
         echo Installing Antigravity CLI...
-        curl -fsSL https://antigravity.google/cli/install.cmd -o install_agy.cmd && install_agy.cmd && del install_agy.cmd
+        curl -fsSL https://antigravity.google/cli/install.cmd -o "%TEMP%\install_agy.cmd" && "%TEMP%\install_agy.cmd" && del "%TEMP%\install_agy.cmd"
     ) else (
         echo.
         echo Note: You have chosen not to install the Antigravity CLI. The AI sidebar will not be added to your Lite-XL setup,
@@ -69,6 +67,13 @@ if %errorlevel% neq 0 (
     )
 )
 
+:: 3. Python Dependencies
+where python >nul 2>nul
+if %errorlevel% equ 0 (
+    echo Installing Python dependencies for LeetCode API...
+    python -m pip install requests --quiet >nul 2>nul
+)
+
 echo Installing Lite-XL Mossy Configuration...
 
 if not exist "%CONFIG_DIR%\plugins" mkdir "%CONFIG_DIR%\plugins"
@@ -76,13 +81,19 @@ if not exist "%CONFIG_DIR%\colors"  mkdir "%CONFIG_DIR%\colors"
 if not exist "%CONFIG_DIR%\fonts"   mkdir "%CONFIG_DIR%\fonts"
 if not exist "%CONFIG_DIR%\scripts" mkdir "%CONFIG_DIR%\scripts"
 
-:: Copy all .lua plugin files (skip AI sidebar if agy not installed)
-for %%f in ("%SRC_DIR%plugins\*.lua") do (
+:: Copy all plugin files (.lua, .json, .py)
+for %%f in ("%SRC_DIR%plugins\*.lua" "%SRC_DIR%plugins\*.json" "%SRC_DIR%plugins\*.py") do (
     if "%%~nxf"=="antigravity_sidebar.lua" (
         if "!INSTALL_AGY_SIDEBAR!"=="true" (
             copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
         ) else (
             echo Skipping antigravity_sidebar.lua...
+        )
+    ) else if "%%~nxf"=="agy_pty_bridge.py" (
+        if "!INSTALL_AGY_SIDEBAR!"=="true" (
+            copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
+        ) else (
+            echo Skipping agy_pty_bridge.py...
         )
     ) else (
         copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
@@ -95,7 +106,7 @@ copy /y "%SRC_DIR%colors\*.lua" "%CONFIG_DIR%\colors\" >nul 2>nul
 :: Copy bundled fonts (if any are in the repo)
 copy /y "%SRC_DIR%fonts\*.ttf" "%CONFIG_DIR%\fonts\" >nul 2>nul
 
-:: Copy scripts (remote LSP proxy for Codespaces)
+:: Copy scripts
 if exist "%SRC_DIR%scripts" (
     xcopy /y "%SRC_DIR%scripts\*" "%CONFIG_DIR%\scripts\" >nul
 )

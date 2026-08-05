@@ -91,7 +91,8 @@ config.plugins.lsp = common.merge({
   log_server_stderr = false,
   force_verbosity_off = false,
   more_yielding = false,
-  autostart_server = true,
+  autostart_server = false,
+  is_enabled = false,
   -- The config specification used by the settings gui
   config_spec = {
     name = "Language Server Protocol",
@@ -1304,8 +1305,14 @@ function lsp.request_completion(doc, line, col, forced)
         trigger_char = true;
       end
 
+      local line1, col1 = translate.start_of_word(doc, line, col)
+      local current_word = doc:get_text(line1, col1, line, col)
+      local min_len = config.plugins.autocomplete.min_len or 1
+
       if
         not trigger_char
+        and
+        #current_word < min_len
         and
         not autocomplete.can_complete()
         and
@@ -1441,12 +1448,10 @@ function lsp.request_completion(doc, line, col, forced)
 
           if trigger_char and complete_result then
             lsp.in_trigger = true
-            core.log("[LSP-DEBUG] Pyright returned %d completions (Trigger)", #symbols.items)
             autocomplete.complete(symbols, function()
               lsp.in_trigger = false
             end)
           else
-            core.log("[LSP-DEBUG] Pyright returned %d completions (Normal)", #symbols.items)
             autocomplete.complete(symbols)
           end
         end
@@ -1462,6 +1467,7 @@ function lsp.request_signature(doc, line, col, forced, fallback)
 
   local char = doc:get_char(line, col-1)
   local prev_char = doc:get_char(line, col-2) -- to support ', '
+  local servers_found = false
   for _, name in pairs(lsp.get_active_servers(doc.filename, true)) do
     local server = lsp.servers_running[name]
     if
@@ -1488,6 +1494,7 @@ function lsp.request_signature(doc, line, col, forced, fallback)
         )
       )
     then
+      servers_found = true
       server:push_request('textDocument/signatureHelp', {
         params = get_buffer_position_params(doc, line, col),
         overwrite = true,
@@ -1513,10 +1520,12 @@ function lsp.request_signature(doc, line, col, forced, fallback)
           end
         end
       })
-      break
-    elseif fallback then
-      fallback(doc, line, col)
     end
+  end
+
+  if not servers_found then
+    -- Silenced to prevent UI stutter during typing
+    if fallback then fallback(doc, line, col) end
   end
 end
 
@@ -1550,9 +1559,11 @@ local help_bottom_node = nil
 function lsp.request_hover(doc, line, col, in_tab)
   if not doc.lsp_open then return end
 
+  local servers_found = false
   for _, name in pairs(lsp.get_active_servers(doc.filename, true)) do
     local server = lsp.servers_running[name]
     if server.capabilities.hoverProvider then
+      servers_found = true
       server:push_request('textDocument/hover', {
         params = get_buffer_position_params(doc, line, col),
         callback = function(server, response)
@@ -1630,8 +1641,11 @@ function lsp.request_hover(doc, line, col, in_tab)
           end
         end
       })
-      break
     end
+  end
+
+  if not servers_found then
+    core.log("[LSP] Hover not supported by any active server.")
   end
 end
 
@@ -1639,9 +1653,11 @@ end
 function lsp.request_references(doc, line, col)
   if not doc.lsp_open then return end
 
+  local servers_found = false
   for _, name in pairs(lsp.get_active_servers(doc.filename, true)) do
+    servers_found = true
     local server = lsp.servers_running[name]
-    if server.capabilities.hoverProvider then
+    if server.capabilities.referencesProvider then
       local request_params = get_buffer_position_params(doc, line, col)
       request_params.context = {includeDeclaration = true}
       server:push_request('textDocument/references', {
@@ -1674,9 +1690,14 @@ function lsp.request_references(doc, line, col)
           end
         end
       })
-      break
+      return
     end
-    break
+  end
+
+  if not servers_found then
+    core.log("[LSP] No server running")
+  else
+    core.log("[LSP] References not supported by any active server.")
   end
 end
 
@@ -1749,7 +1770,9 @@ end
 function lsp.request_workspace_symbol(doc, symbol)
   if not doc.lsp_open then return end
 
+  local servers_found = false
   for _, name in pairs(lsp.get_active_servers(doc.filename, true)) do
+    servers_found = true
     local server = lsp.servers_running[name]
     if server.capabilities.workspaceSymbolProvider then
       local rs = SymbolResults(symbol)
@@ -1776,9 +1799,14 @@ function lsp.request_workspace_symbol(doc, symbol)
           rs:stop_searching()
         end
       })
-      break
+      return
     end
-    break
+  end
+
+  if not servers_found then
+    core.log("[LSP] No server running")
+  else
+    core.log("[LSP] Workspace symbol search not supported by any active server.")
   end
 end
 
@@ -2005,10 +2033,12 @@ end
 function lsp.goto_symbol(doc, line, col, implementation)
   if not doc.lsp_open then return end
 
+  local servers_found = false
   for _, name in pairs(lsp.get_active_servers(doc.filename, true)) do
     local server = lsp.servers_running[name]
 
     local method = ""
+    local supported = true
     if not implementation then
       if server.capabilities.definitionProvider then
         method = method .. "definition"
@@ -2017,17 +2047,18 @@ function lsp.goto_symbol(doc, line, col, implementation)
       elseif server.capabilities.typeDefinitionProvider then
         method = method .. "typeDefinition"
       else
-        log(server, "Goto definition not supported")
-        return
+        supported = false
       end
     else
       if server.capabilities.implementationProvider then
         method = method .. "implementation"
       else
-        log(server, "Goto implementation not supported")
-        return
+        supported = false
       end
     end
+
+    if supported then
+      servers_found = true
 
     -- Send document updates first
     lsp.update_document(doc)
@@ -2063,6 +2094,16 @@ function lsp.goto_symbol(doc, line, col, implementation)
         end
       end
     })
+    return
+    end
+  end
+
+  if not servers_found then
+    if not implementation then
+      core.log("[LSP] Goto definition not supported by any active server.")
+    else
+      core.log("[LSP] Goto implementation not supported by any active server.")
+    end
   end
 end
 
@@ -2136,8 +2177,8 @@ local root_view_on_mouse_moved = RootView.on_mouse_moved
 
 function Doc:load(...)
   local res = doc_load(self, ...)
-  -- skip new files
-  if self.filename and config.plugins.lsp.autostart_server then
+  -- skip new files or if LSP is disabled
+  if self.filename and config.plugins.lsp.is_enabled and config.plugins.lsp.autostart_server then
     diagnostics.lintplus_init_doc(self)
     core.add_thread(function()
       lsp.start_server(self.filename, core.project_dir)

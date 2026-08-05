@@ -68,14 +68,16 @@ local function start_monitor()
   else
     local script = string.format([[
       $ErrorActionPreference = 'SilentlyContinue'
+      $cpuCounter = New-Object System.Diagnostics.PerformanceCounter('Processor', '%% Processor Time', '_Total')
+      $null = $cpuCounter.NextValue()
       while ($true) {
-        $c = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+        Start-Sleep -Seconds %d
+        $c = [math]::Round($cpuCounter.NextValue())
         $o = Get-CimInstance Win32_OperatingSystem
         if ($o) {
           $m = [math]::Round(($o.TotalVisibleMemorySize - $o.FreePhysicalMemory) / $o.TotalVisibleMemorySize * 100)
           Write-Output "$c,$m"
         }
-        Start-Sleep -Seconds %d
       }
     ]], config.resource_monitor.poll_rate)
 

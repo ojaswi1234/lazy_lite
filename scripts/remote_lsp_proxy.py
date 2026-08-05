@@ -36,14 +36,26 @@ _local_base = os.path.join(_userdir, "codespaces", codespace_name)
 _local_path_fwd = _local_base.replace("\\", "/")
 
 if platform.system() == "Windows" and len(_local_path_fwd) > 2 and _local_path_fwd[1] == ":":
-    drive = _local_path_fwd[0].lower()
-    local_uri = "file:///" + drive + _local_path_fwd[1:]
+    d_u = _local_path_fwd[0].upper()
+    d_l = _local_path_fwd[0].lower()
+    rest = _local_path_fwd[2:]
+    
+    local_uris = [
+        f"file:///{d_u}:{rest}",
+        f"file:///{d_l}:{rest}",
+        f"file:///{d_u}%3A{rest}",
+        f"file:///{d_l}%3A{rest}",
+        f"file:///{d_u}%3a{rest}",
+        f"file:///{d_l}%3a{rest}",
+    ]
+    default_local_uri = f"file:///{d_u}:{rest}"
 else:
-    local_uri = "file://" + _local_path_fwd
+    local_uris = ["file://" + _local_path_fwd]
+    default_local_uri = "file://" + _local_path_fwd
+
+local_uris_encoded = [urllib.parse.quote(u, safe=":/?#[]@!$&'()*+,;=") for u in local_uris]
 
 remote_uri = f"file:///workspaces/{repo_name}"
-
-local_uri_encoded  = urllib.parse.quote(local_uri,  safe=":/?#[]@!$&'()*+,;=")
 remote_uri_encoded = urllib.parse.quote(remote_uri, safe=":/?#[]@!$&'()*+,;=")
 
 gh_env = os.environ.copy()
@@ -58,7 +70,10 @@ def cleanup():
     _stop_event.set()
     try:
         if gh_proc and gh_proc.poll() is None:
-            gh_proc.kill()
+            if platform.system() == "Windows":
+                subprocess.call(["taskkill", "/F", "/T", "/PID", str(gh_proc.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                gh_proc.kill()
     except Exception:
         pass
 
@@ -74,15 +89,16 @@ def exact_read(stream, n):
     return buf
 
 def translate_body(body_bytes):
-    body_bytes = body_bytes.replace(local_uri.encode("utf-8"), remote_uri.encode("utf-8"))
-    if local_uri_encoded != local_uri:
-        body_bytes = body_bytes.replace(local_uri_encoded.encode("utf-8"), remote_uri_encoded.encode("utf-8"))
+    for u in local_uris:
+        body_bytes = body_bytes.replace(u.encode("utf-8"), remote_uri.encode("utf-8"))
+    for u in local_uris_encoded:
+        body_bytes = body_bytes.replace(u.encode("utf-8"), remote_uri_encoded.encode("utf-8"))
     return body_bytes
 
 def translate_body_reverse(body_bytes):
-    body_bytes = body_bytes.replace(remote_uri.encode("utf-8"), local_uri.encode("utf-8"))
-    if remote_uri_encoded != remote_uri:
-        body_bytes = body_bytes.replace(remote_uri_encoded.encode("utf-8"), local_uri_encoded.encode("utf-8"))
+    default_local_uri_encoded = urllib.parse.quote(default_local_uri, safe=":/?#[]@!$&'()*+,;=")
+    body_bytes = body_bytes.replace(remote_uri.encode("utf-8"), default_local_uri.encode("utf-8"))
+    body_bytes = body_bytes.replace(remote_uri_encoded.encode("utf-8"), default_local_uri_encoded.encode("utf-8"))
     return body_bytes
 
 def update_content_length(headers, new_len):
@@ -125,19 +141,32 @@ def patch_initialize_params(body_bytes):
             return body_bytes
         params = msg.get("params", {})
         changed = False
-        if params.get("rootUri", "").startswith(local_uri):
-            params["rootUri"] = params["rootUri"].replace(local_uri, remote_uri)
-            changed = True
+        
+        for u in local_uris:
+            if params.get("rootUri", "").startswith(u):
+                params["rootUri"] = params["rootUri"].replace(u, remote_uri)
+                changed = True
+                break
+                
         if params.get("rootPath", ""):
-            local_path = _local_base.replace("\\", "/")
+            local_path_u = _local_base.replace("\\", "/")
+            local_path_l = local_path_u[0].lower() + local_path_u[1:] if len(local_path_u) > 1 and local_path_u[1] == ":" else local_path_u
+            
             remote_path = f"/workspaces/{repo_name}"
-            if local_path in params["rootPath"]:
-                params["rootPath"] = params["rootPath"].replace(local_path, remote_path)
+            if local_path_u in params["rootPath"]:
+                params["rootPath"] = params["rootPath"].replace(local_path_u, remote_path)
                 changed = True
+            elif local_path_l in params["rootPath"]:
+                params["rootPath"] = params["rootPath"].replace(local_path_l, remote_path)
+                changed = True
+                
         for folder in params.get("workspaceFolders", []):
-            if folder.get("uri", "").startswith(local_uri):
-                folder["uri"] = folder["uri"].replace(local_uri, remote_uri)
-                changed = True
+            for u in local_uris:
+                if folder.get("uri", "").startswith(u):
+                    folder["uri"] = folder["uri"].replace(u, remote_uri)
+                    changed = True
+                    break
+                    
         if changed:
             return json.dumps(msg).encode("utf-8")
     except Exception:

@@ -12,8 +12,36 @@ local pairs_map = {
   ["`"] = "`"
 }
 
+local CommandView_ok, CommandView = pcall(require, "core.commandview")
+
+local function is_editor_docview(view)
+  if not view then return false end
+  if core.command_view and (core.active_view == core.command_view or view == core.command_view) then
+    return false
+  end
+  if CommandView_ok and (core.active_view:is(CommandView) or view:is(CommandView)) then
+    return false
+  end
+  if core.command_view and view.doc and view.doc == core.command_view.doc then
+    return false
+  end
+  if not (view:is(DocView) or view:extends(DocView)) then
+    return false
+  end
+  local doc = view.doc
+  if not doc then return false end
+  for _, d in ipairs(core.docs or {}) do
+    if d == doc then return true end
+  end
+  return doc.filename ~= nil
+end
+
 local old_on_text_input = DocView.on_text_input
 function DocView:on_text_input(text)
+  if not is_editor_docview(self) then
+    return old_on_text_input(self, text)
+  end
+
   local doc = self.doc
   local closing = pairs_map[text]
   
@@ -79,8 +107,16 @@ function Doc:delete_to_cursor(idx, ...)
   local args = {...}
   local offset = args[1]
   
+  local is_editor = false
+  if not (core.command_view and self == core.command_view.doc) then
+    for _, d in ipairs(core.docs or {}) do
+      if d == self then is_editor = true break end
+    end
+    if self.filename ~= nil then is_editor = true end
+  end
+
   -- -1 offset usually means backspace
-  if offset == -1 then
+  if is_editor and offset == -1 then
     for sidx, l1, c1, l2, c2 in self:get_selections(true, idx) do
       if l1 == l2 and c1 == c2 then
         local before = self:get_text(l1, c1 - 1, l1, c1)

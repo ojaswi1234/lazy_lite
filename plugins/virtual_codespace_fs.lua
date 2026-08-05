@@ -105,6 +105,8 @@ local function run_ssh_command(cs_name, shell_cmd, timeout)
     out = out .. (p:read_stderr(16384)  or "")
     if in_coro then
       coroutine.yield(0.05) -- 50ms yield (20fps is sufficient for FS ops)
+    else
+      system.sleep(0.01)
     end
   end
   -- Drain remaining output
@@ -126,11 +128,15 @@ function VFS.read_file(local_path)
   -- Deduplicate in-flight requests for the same file
   local queue_key = "read:" .. local_path
   if VFS.request_queue[queue_key] then
-    -- Another coroutine is already fetching; spin-wait for it
+    -- Another coroutine is already fetching; wait for it
     local waited = 0
+    local co, is_main = coroutine.running()
+    local in_coro = co ~= nil and not is_main
     while VFS.request_queue[queue_key] and waited < 30 do
-      if coroutine.running() then
+      if in_coro then
         coroutine.yield(0.1)
+      else
+        system.sleep(0.02)
       end
       waited = waited + 0.1
     end

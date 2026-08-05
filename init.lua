@@ -72,7 +72,7 @@ end
 -- ── 3. Editor behaviour (VS Code defaults) ────────────────────────────────────
 config.tab_type               = "soft"
 config.indent_size            = 4
-config.max_project_files      = 25000
+config.max_project_files      = 50000
 config.line_limit             = 120
 config.highlight_current_line = true
 config.mouse_wheel_scroll     = 50 * SCALE
@@ -81,8 +81,11 @@ config.draw_whitespace        = false
 config.max_undos              = 10000
 config.file_size_limit        = 10
 config.ignore_files           = {
-  "^%.git$", "^node_modules", "^__pycache__", "^%.DS_Store",
-  "^venv$", "^%.venv$", "^build$", "^dist$", "^%.next$", "^vendor$"
+  "^%.git$", "^node_modules$", "^__pycache__$", "^%.DS_Store$",
+  "^venv$", "^%.venv$", "^build$", "^dist$", "^%.next$", "^vendor$",
+  "^%.gemini$", "^AppData$", "^%.config$", "^%.cache$", "^%.vscode$",
+  "^%.npm$", "^%.rustup$", "^%.cargo$", "^%.antigravity$", "^tempfiles$",
+  "^NTUSER%.DAT", "^ntuser%.dat", "%.tmp$", "%.log$", "%.cache$"
 }
 
 -- ── 4. Built-in plugin config ─────────────────────────────────────────────────
@@ -226,6 +229,12 @@ keymap.add {
   ["alt+down"]      = "doc:move-lines-down",
   ["ctrl+shift+r"]  = "core:restart",
   ["ctrl+shift+g"]  = "git-timeline:toggle",
+  ["alt+p"]         = "pdf:open-file",
+  ["ctrl+alt+p"]    = "pdf:open-file",
+  ["shift+alt+f"]   = "lsp:format-document",
+  ["alt+shift+f"]   = "lsp:format-document",
+  ["ctrl+alt+l"]    = "lsp:toggle-servers",
+  ["alt+l"]         = "lsp:toggle-servers",
 }
 
 -- ── 7. Open CWD when launched without arguments from a project folder ─────────
@@ -274,18 +283,8 @@ function core.add_project_directory(path)
   return original_add_project_directory(path)
 end
 
--- ── 8. Fix Aggressive Filesystem Indexing Timeout ──────────────────────────────
--- Extends the ~333ms scan limit to ~3.3 seconds to allow full indexing on Windows
-local dirwatch = require "core.dirwatch"
-local orig_get_directory_files = dirwatch.get_directory_files
-function dirwatch.get_directory_files(dir, root, path, entries_count, recurse_pred)
-  local new_pred = function(d, filename, count, t_elapsed)
-    -- Divide elapsed time by 10 to simulate running 10x faster
-    -- This pushes the 0.33s timeout to ~3.33s
-    return recurse_pred(d, filename, count, t_elapsed / 10)
-  end
-  return orig_get_directory_files(dir, root, path, entries_count, new_pred)
-end
+-- ── 8. Responsive Filesystem Indexing ──────────────────────────────────────────
+-- Keep UI silky smooth (60 FPS) while project files are indexed progressively
 config.max_project_files = 10000
 
 config.borderless = true

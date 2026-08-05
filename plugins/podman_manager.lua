@@ -618,20 +618,41 @@ function PodmanView:draw()
 end
 
 function PodmanView:on_mouse_moved(x, y, dx, dy)
+  local old_btn = self.hovered_btn
   self.mouse_x = x
   self.mouse_y = y
-  core.redraw = true
+  
+  local hovered = nil
+  if self.buttons then
+    for i = #self.buttons, 1, -1 do
+      local r = self.buttons[i]
+      if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then
+        hovered = r
+        break
+      end
+    end
+  end
+  self.hovered_btn = hovered
+
   if self.hovered_btn then
-    system.set_cursor("hand")
+    self.cursor = "hand"
+    core.request_cursor("hand")
   else
-    system.set_cursor("arrow")
+    self.cursor = "arrow"
+    core.request_cursor("arrow")
+  end
+
+  if old_btn ~= self.hovered_btn then
+    core.redraw = true
   end
 end
 
 function PodmanView:on_mouse_left()
   self.mouse_x = nil
   self.mouse_y = nil
-  system.set_cursor("arrow")
+  self.hovered_btn = nil
+  self.cursor = "arrow"
+  core.request_cursor("arrow")
   core.redraw = true
 end
 

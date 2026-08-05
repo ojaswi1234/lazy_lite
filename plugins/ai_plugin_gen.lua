@@ -97,9 +97,7 @@ end
 
 local function ensure_tempdir()
   if not system.get_file_info(TEMP_DIR) then
-    os.execute(PLATFORM == "Windows"
-      and ('mkdir "' .. TEMP_DIR:gsub("/","\\") .. '"')
-      or  ('mkdir -p "' .. TEMP_DIR .. '"'))
+    system.mkdir(TEMP_DIR)
   end
 end
 

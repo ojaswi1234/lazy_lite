@@ -17,8 +17,8 @@ if cfg.spa_fallback == nil then cfg.spa_fallback = false end
 if cfg.live_reload == nil then cfg.live_reload = true end
 cfg.ignore_dirs = cfg.ignore_dirs or { ".git", "node_modules" }
 cfg.bind_host = cfg.bind_host or "127.0.0.1"
-cfg.keybind_start = cfg.keybind_start or "ctrl+alt+p"
-cfg.keybind_stop = cfg.keybind_stop or "ctrl+alt+shift+p"
+cfg.keybind_start = cfg.keybind_start or "alt+w"
+cfg.keybind_stop = cfg.keybind_stop or "alt+shift+w"
 
 
 -- State
@@ -406,6 +406,7 @@ command.add(nil, {
         
         local start_time = system.get_time()
         local out = ""
+        local bound = false
         while preview_proc and preview_proc:running() do
           local chunk = preview_proc:read_stdout(4096)
           local err_chunk = preview_proc:read_stderr(4096)
@@ -416,6 +417,7 @@ command.add(nil, {
             
             local p_str = out:match("PORT_BOUND:(%d+)")
             if p_str then
+              bound = true
               active_port = tonumber(p_str)
               active_url = "http://" .. (cfg.bind_host or "127.0.0.1") .. ":" .. active_port
               core.log("Web Preview: Serving on %s", active_url)
@@ -424,12 +426,19 @@ command.add(nil, {
             end
           end
           
-          if system.get_time() - start_time > 15 then
-            core.error("Web Preview: Timeout waiting for PORT_BOUND from server.")
-            command.perform("web-preview:stop")
+          if system.get_time() - start_time > 8 then
+            -- Fallback gracefully to configured port without raising fatal error dialog
+            active_port = cfg.port or 8080
+            active_url = "http://" .. (cfg.bind_host or "127.0.0.1") .. ":" .. active_port
+            core.warn("Web Preview: PORT_BOUND not received within 8s; assuming %s", active_url)
+            open_browser(active_url)
+            bound = true
             break
           end
           coroutine.yield(0.1)
+        end
+        if not bound and (not preview_proc or not preview_proc:running()) then
+          core.warn("Web Preview: Server process terminated or failed to bind. Output: %s", out ~= "" and out or "none")
         end
       end)
     end,

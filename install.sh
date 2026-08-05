@@ -36,27 +36,25 @@ if ! command -v lite-xl &> /dev/null; then
     read -p "Lite-XL is not installed. Do you want to install it automatically? (y/n): " install_lite
     if [[ "$install_lite" =~ ^[Yy]$ ]]; then
         echo "Installing Lite-XL..."
-        if command -v apk &> /dev/null; then
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y lite-xl || {
+                echo "Adding Lite-XL PPA..."
+                sudo add-apt-repository -y ppa:lite-xl/lite-xl-stable
+                sudo apt-get update
+                sudo apt-get install -y lite-xl
+            }
+        elif command -v apk &> /dev/null; then
             sudo apk add lite-xl
         elif command -v dnf &> /dev/null; then
             sudo dnf install -y lite-xl
         elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm lite-xl
+            sudo pacman -Sy --noconfirm lite-xl
+        elif command -v brew &> /dev/null; then
+            brew install --cask lite-xl
         else
-            mkdir -p ~/.local/bin
-            curl -L -o ~/.local/bin/lite-xl https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64.AppImage
-            chmod +x ~/.local/bin/lite-xl
-            mkdir -p ~/.local/share/applications
-            cat <<EOF > ~/.local/share/applications/lite-xl.desktop
-[Desktop Entry]
-Name=Lite-XL
-Exec=$HOME/.local/bin/lite-xl %F
-Terminal=false
-Type=Application
-Categories=TextEditor;Development;
-EOF
-            echo "Lite-XL AppImage installed to ~/.local/bin/lite-xl"
-            echo "Please ensure ~/.local/bin is in your PATH."
+            echo "ERROR: Unsupported package manager. Please install Lite-XL manually."
+            exit 1
         fi
     else
         echo "Lite-XL installation skipped. Cannot proceed without Lite-XL. Exiting."
@@ -66,16 +64,18 @@ fi
 
 # 1.5. Check GitHub CLI (gh)
 if ! command -v gh &> /dev/null; then
-    echo "Installing GitHub CLI..."
+    echo "GitHub CLI (gh) not found. Installing..."
     if command -v apt-get &> /dev/null; then
-        type -p curl >/dev/null || (sudo apt-get update && sudo apt-get install curl -y)
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-        && sudo apt-get update \
-        && sudo apt-get install gh -y
+        sudo mkdir -p -m 755 /etc/apt/keyrings
+        wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+        sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        sudo apt-get update
+        sudo apt-get install -y gh
     elif command -v apk &> /dev/null; then
         sudo apk add github-cli
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -Sy --noconfirm github-cli
     elif command -v dnf &> /dev/null; then
         sudo dnf install -y gh
     else
@@ -83,17 +83,17 @@ if ! command -v gh &> /dev/null; then
     fi
 fi
 
-# 1.6. Check Python (required for MongoDB Explorer plugin)
+# 1.6. Check Python
 if command -v python3 &> /dev/null; then
     echo "Python3 found."
 else
-    echo "python3 not found. Installing Python 3 (required for MongoDB)..."
+    echo "python3 not found. Installing Python 3..."
     if command -v apt-get &> /dev/null; then sudo apt-get update && sudo apt-get install -y python3 python3-pip python3-venv
     elif command -v apk &> /dev/null; then sudo apk add python3 py3-pip
     elif command -v dnf &> /dev/null; then sudo dnf install -y python3 python3-pip
     elif command -v pacman &> /dev/null; then sudo pacman -Sy --noconfirm python python-pip
     else 
-        echo "ERROR: Could not automatically install Python 3. Please install it manually, as it is required."
+        echo "ERROR: Could not automatically install Python 3. Please install it manually."
         exit 1
     fi
 fi
@@ -103,7 +103,7 @@ echo "Downloading FiraCode Nerd Font..."
 mkdir -p "$CONFIG_DIR/fonts"
 curl -L -o "$CONFIG_DIR/fonts/FiraCodeNerdFont-Regular.ttf" "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/FiraCode/Regular/FiraCodeNerdFont-Regular.ttf"
 
-# 1.8. Emoji font fallback (NotoColorEmoji) — ensures emoji render correctly in the AI sidebar
+# 1.8. Emoji font fallback (NotoColorEmoji)
 EMOJI_FONT="$CONFIG_DIR/fonts/NotoColorEmoji.ttf"
 SYSTEM_EMOJI_PATHS=(
   "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
@@ -164,9 +164,14 @@ else
 fi
 
 INSTALL_LEETCODE=true
-read -p "Do you want to setup LeetCode plugin? (y/n): " prompt_leetcode
+read -p "Do you want to setup LeetCode plugin & assessment suite? (y/n): " prompt_leetcode
 if [[ "$prompt_leetcode" =~ ^[Nn]$ ]]; then
     INSTALL_LEETCODE=false
+else
+    if command -v python3 &> /dev/null; then
+        echo "Installing Python dependencies for LeetCode API & ML engine..."
+        python3 -m pip install requests --break-system-packages --quiet 2>/dev/null || python3 -m pip install requests --quiet || true
+    fi
 fi
 
 INSTALL_MONGO=true
@@ -185,7 +190,7 @@ if [[ "$prompt_mongo" =~ ^[Yy]$ ]]; then
         fi
     fi
     if command -v python3 &> /dev/null; then
-        python3 -m pip install pymongo --break-system-packages --quiet || true
+        python3 -m pip install pymongo --break-system-packages --quiet 2>/dev/null || python3 -m pip install pymongo --quiet || true
     fi
 else
     INSTALL_MONGO=false
@@ -196,19 +201,24 @@ animate_progress "Installing Lite-XL Mossy Configuration..."
 # Create target directories
 mkdir -p "$CONFIG_DIR/plugins" "$CONFIG_DIR/colors" "$CONFIG_DIR/scripts" "$CONFIG_DIR/fonts"
 
-# Copy main plugins
-for plugin in "$SRC_DIR"/plugins/*.lua; do
+# Copy main plugins (.lua, .json, .py)
+for plugin in "$SRC_DIR"/plugins/*; do
+    [ -f "$plugin" ] || continue
     plugin_name=$(basename "$plugin")
     if [ "$plugin_name" = "antigravity_sidebar.lua" ] && [ "$INSTALL_AGY_SIDEBAR" = false ]; then
         echo "Skipping antigravity_sidebar.lua..."
+        continue
+    fi
+    if [ "$plugin_name" = "agy_pty_bridge.py" ] && [ "$INSTALL_AGY_SIDEBAR" = false ]; then
+        echo "Skipping agy_pty_bridge.py..."
         continue
     fi
     if [ "$plugin_name" = "podman_manager.lua" ] && [ "$INSTALL_PODMAN" = false ]; then
         echo "Skipping podman_manager.lua..."
         continue
     fi
-    if [ "$plugin_name" = "leetcode.lua" ] && [ "$INSTALL_LEETCODE" = false ]; then
-        echo "Skipping leetcode.lua..."
+    if { [ "$plugin_name" = "leetcode.lua" ] || [ "$plugin_name" = "leetcode_assessment.lua" ] || [ "$plugin_name" = "company_tags.json" ] || [ "$plugin_name" = "problem_tags.json" ] || [ "$plugin_name" = "company_scores.json" ]; } && [ "$INSTALL_LEETCODE" = false ]; then
+        echo "Skipping $plugin_name..."
         continue
     fi
     if [ "$plugin_name" = "mongodb_explorer.lua" ] && [ "$INSTALL_MONGO" = false ]; then
@@ -224,9 +234,10 @@ cp -f "$SRC_DIR"/colors/*.lua "$CONFIG_DIR/colors/"
 # Copy bundled fonts (if any are in the repo)
 cp -f "$SRC_DIR"/fonts/*.ttf "$CONFIG_DIR/fonts/" 2>/dev/null || true
 
-# Copy scripts (remote LSP proxy for Codespaces)
+# Copy scripts
 if [ -d "$SRC_DIR/scripts" ]; then
     for script in "$SRC_DIR"/scripts/*; do
+        [ -f "$script" ] || continue
         script_name=$(basename "$script")
         if [ "$script_name" = "leetcode_api.py" ] && [ "$INSTALL_LEETCODE" = false ]; then
             echo "Skipping leetcode_api.py..."
