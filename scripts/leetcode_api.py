@@ -1840,7 +1840,7 @@ def cmd_auth_check(params):
     session, csrf, raw = load_session()
     # Fast exit if no credentials exist at all
     if not session and not csrf and not raw:
-        return {"ok": False, "error": "No saved credentials found"}
+        return {"ok": False, "error": "No saved credentials found", "error_code": "CREDS_NOT_FOUND"}
 
     try:
         res = graphql("query { userStatus { isSignedIn username avatar } }")
@@ -1864,9 +1864,9 @@ def cmd_auth_check(params):
                 pass
                 
             return {"ok": True, "data": {"username": username, "avatar": avatar, "stats": stats}}
-        return {"ok": False, "error": "Session expired or not signed in"}
+        return {"ok": False, "error": "Saved credentials expired (session invalidated)", "error_code": "CREDS_EXPIRED"}
     except Exception as e:
-        return {"ok": False, "error": f"Network Error: {str(e)}"}
+        return {"ok": False, "error": f"Network Error: {str(e)}", "error_code": "NETWORK_ERROR"}
 
 _local_db_cache = None
 _local_db_mtime = 0

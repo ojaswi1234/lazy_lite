@@ -572,9 +572,20 @@ function LeetCodeView:auto_authenticate(force_auto_fetch, on_complete)
         if on_complete then on_complete(true) end
       end)
     else
-      -- Step 2: No saved credentials or expired -> AUTOMATICALLY scan browsers!
-      self.auth_status = "Saved credentials missing/expired. Auto-fetching from browser..."
+      local check_err_code = (resp and resp.error_code) or ""
+      local is_expired = check_err_code == "CREDS_EXPIRED" or (resp and resp.error and resp.error:lower():find("expired", 1, true))
+      local is_not_found = check_err_code == "CREDS_NOT_FOUND" or (resp and resp.error and resp.error:lower():find("not found", 1, true))
+
+      -- Step 2: Auto-fetch from browser in background
+      if is_expired then
+        self.auth_status = "Saved credentials expired. Auto-fetching fresh login from browser..."
+      elseif is_not_found then
+        self.auth_status = "No saved credentials found. Auto-detecting login from browser..."
+      else
+        self.auth_status = (resp and resp.error) or "Auto-detecting login from browser..."
+      end
       core.redraw = true
+
       api_call({ cmd = "auth_auto" }, function(auto_res)
         if not lc_view then return end
         if auto_res and auto_res.ok then
@@ -595,9 +606,15 @@ function LeetCodeView:auto_authenticate(force_auto_fetch, on_complete)
             if on_complete then on_complete(true) end
           end)
         else
-          -- Step 3: Both saved creds and browser auto-fetch failed -> present manual UI
+          -- Step 3: Both saved creds and browser auto-fetch failed -> present specific warning
           self.state = "auth"
-          self.auth_status = "Login required: log in on browser & click Auto-Detect, or paste cookies"
+          if is_expired then
+            self.auth_status = "Saved credentials expired! Log in via browser & click Auto-Detect, or paste new cookies."
+          elseif is_not_found then
+            self.auth_status = "No saved credentials found. Log in via browser & click Auto-Detect, or paste cookies."
+          else
+            self.auth_status = (auto_res and auto_res.error) or "Login required: log in on browser & click Auto-Detect, or paste cookies."
+          end
           core.redraw = true
           if on_complete then on_complete(false) end
         end
