@@ -1,11 +1,11 @@
 -- mod-version:3
 --[[
-  MongoDB Explorer for Lite XL (Adaptable & Flexible Theming Edition)
-  A full-featured MongoDB cluster and collection manager for Lite XL.
+  MongoDB Explorer for Lite XL (High Performance & Resilient Edition)
+  A production-grade, asynchronous MongoDB cluster and collection manager for Lite XL.
   Supports multiple connections (standard URI & SRV), sidebar treeview inspection
   of databases, collections, and indexes, interactive document viewing/inline editing,
-  aggregation/query scratchpad execution, live search filtering, and responsive,
-  theme-adaptive UI styling for both light and dark themes.
+  aggregation/query scratchpad execution, live search filtering, responsive
+  theme-adaptive UI styling, and crash-resilient process management.
 ]]
 
 local core = require "core"
@@ -14,6 +14,7 @@ local command = require "core.command"
 local config = require "core.config"
 local keymap = require "core.keymap"
 local style = require "core.style"
+local process = require "process"
 local Doc = require "core.doc"
 local DocView = require "core.docview"
 local View = require "core.view"
@@ -26,6 +27,8 @@ config.plugins.mongodb_explorer = common.merge({
   fallback_mongo_path = "mongo",
   page_size = 20,                   -- Default document pagination limit
   connect_timeout = 10,             -- Connect timeout in seconds
+  query_timeout = 30,               -- Query execution timeout in seconds
+  max_output_bytes = 8 * 1024 * 1024, -- 8MB output buffer cap
   view_width = 280,                 -- Default sidebar width in pixels
   save_path = USERDIR .. "/mongodb_connections.json",
   show_doc_counts = true,           -- Show collection document count badges
@@ -68,7 +71,7 @@ config.plugins.mongodb_explorer = common.merge({
 }, config.plugins.mongodb_explorer)
 
 -- ============================================================================
--- Theme & Color System (Adaptive to Light, Dark, and Custom Themes)
+-- Theme & Color System (Adaptive & Nil-Safe for Light & Dark Themes)
 -- ============================================================================
 local function get_luminance(col)
   if type(col) ~= "table" then return 128 end
@@ -77,7 +80,8 @@ local function get_luminance(col)
 end
 
 local function blend_color(c1, c2, t)
-  if type(c1) ~= "table" or type(c2) ~= "table" then return c1 end
+  if type(c1) ~= "table" then return c2 or { 128, 128, 128, 255 } end
+  if type(c2) ~= "table" then return c1 end
   return {
     math.floor((c1[1] or 0) * (1 - t) + (c2[1] or 0) * t),
     math.floor((c1[2] or 0) * (1 - t) + (c2[2] or 0) * t),
@@ -87,8 +91,8 @@ local function blend_color(c1, c2, t)
 end
 
 local function with_alpha(col, alpha)
-  if type(col) ~= "table" then return { 128, 128, 128, alpha } end
-  return { col[1] or 0, col[2] or 0, col[3] or 0, alpha }
+  if type(col) ~= "table" then return { 128, 128, 128, alpha or 255 } end
+  return { col[1] or 0, col[2] or 0, col[3] or 0, alpha or 255 }
 end
 
 local function get_theme_palette()
@@ -131,7 +135,7 @@ local function get_theme_palette()
   local badge_text = is_light and blend_color(accent, { 0, 0, 0, 255 }, 0.25) or blend_color(accent, { 255, 255, 255, 255 }, 0.4)
   local badge_border = with_alpha(accent, is_light and 45 or 55)
 
-  -- Status Colors (contrast-tuned for both light and dark backgrounds)
+  -- Status Colors
   local status_connected = is_light and { 35, 140, 75, 255 } or { 70, 215, 120, 255 }
   local status_connecting = is_light and { 190, 120, 10, 255 } or { 245, 185, 45, 255 }
   local status_error = is_light and { 205, 45, 45, 255 } or { 245, 85, 85, 255 }
@@ -220,7 +224,6 @@ local function draw_pill_badge(font, text, x, y, bg_col, text_col, border_col)
   local badge_w = txt_w + pad_x * 2
   local badge_h = font:get_height() + pad_y * 2
 
-  -- Pill background
   renderer.draw_rect(x, y, badge_w, badge_h, bg_col)
   if border_col then
     renderer.draw_rect(x, y, badge_w, 1 * SCALE, border_col)
@@ -242,7 +245,7 @@ local function draw_indent_guides(x, y, h, depth, step, color)
 end
 
 -- ============================================================================
--- Pure Lua JSON Parser and Pretty Formatter
+-- Pure Lua JSON Parser and Pretty Formatter with MongoDB EJSON Support
 -- ============================================================================
 local json = {}
 
@@ -256,17 +259,18 @@ local function kind_of(obj)
 end
 
 local function escape_str(s)
-  local in_char  = {'\\', '"', '/', '\b', '\f', '\n', '\r', '\t'}
-  local out_char = {'\\\\', '\\"', '\\/', '\\b', '\\f', '\\n', '\\r', '\\t'}
+  local in_char  = {'\\', '"', '\b', '\f', '\n', '\r', '\t'}
+  local out_char = {'\\\\', '\\"', '\\b', '\\f', '\\n', '\\r', '\\t'}
   for i, c in ipairs(in_char) do
     s = s:gsub(c, out_char[i])
   end
   return s
 end
 
-function json.stringify(val, pretty, indent_level)
+function json.stringify(val, pretty, indent_level, seen)
   pretty = pretty or false
   indent_level = indent_level or 0
+  seen = seen or {}
   local indent = pretty and string.rep("  ", indent_level) or ""
   local next_indent = pretty and string.rep("  ", indent_level + 1) or ""
   local newline = pretty and "\n" or ""
@@ -278,29 +282,45 @@ function json.stringify(val, pretty, indent_level)
   elseif val_type == "boolean" then
     return tostring(val)
   elseif val_type == "number" then
+    if val ~= val or val == math.huge or val == -math.huge then
+      return "null"
+    end
     return tostring(val)
   elseif val_type == "string" then
     return '"' .. escape_str(val) .. '"'
   elseif val_type == "table" then
+    if seen[val] or indent_level > 64 then
+      return '"[Circular/MaxDepth]"'
+    end
+    seen[val] = true
+
     local k = kind_of(val)
     if k == "array" then
-      if #val == 0 then return "[]" end
+      if #val == 0 then
+        seen[val] = nil
+        return "[]"
+      end
       local items = {}
       for _, item in ipairs(val) do
-        table.insert(items, next_indent .. json.stringify(item, pretty, indent_level + 1))
+        table.insert(items, next_indent .. json.stringify(item, pretty, indent_level + 1, seen))
       end
+      seen[val] = nil
       return "[" .. newline .. table.concat(items, "," .. newline) .. newline .. indent .. "]"
     else
       local keys = {}
       for key in pairs(val) do table.insert(keys, key) end
       table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
-      if #keys == 0 then return "{}" end
+      if #keys == 0 then
+        seen[val] = nil
+        return "{}"
+      end
       local entries = {}
       for _, key in ipairs(keys) do
         local k_str = '"' .. escape_str(tostring(key)) .. '"'
-        local v_str = json.stringify(val[key], pretty, indent_level + 1)
+        local v_str = json.stringify(val[key], pretty, indent_level + 1, seen)
         table.insert(entries, next_indent .. k_str .. ":" .. space .. v_str)
       end
+      seen[val] = nil
       return "{" .. newline .. table.concat(entries, "," .. newline) .. newline .. indent .. "}"
     end
   end
@@ -309,8 +329,17 @@ end
 
 function json.parse(str)
   if not str or str == "" then return nil, "empty string" end
+
+  -- Try native/lsp json parser first if available
+  local ok_lsp, lsp_json = pcall(require, "plugins.lsp.json")
+  if ok_lsp and lsp_json and lsp_json.decode then
+    local ok, res = pcall(lsp_json.decode, str)
+    if ok and res ~= nil then return res end
+  end
+
   local pos = 1
   local len = #str
+  local depth = 0
 
   local function skip_whitespace()
     while pos <= len do
@@ -319,6 +348,12 @@ function json.parse(str)
         pos = pos + 1
       elseif c == '/' and str:sub(pos+1, pos+1) == '/' then
         while pos <= len and str:sub(pos, pos) ~= '\n' do pos = pos + 1 end
+      elseif c == '/' and str:sub(pos+1, pos+1) == '*' then
+        pos = pos + 2
+        while pos < len and not (str:sub(pos, pos) == '*' and str:sub(pos+1, pos+1) == '/') do
+          pos = pos + 1
+        end
+        pos = pos + 2
       else
         break
       end
@@ -366,7 +401,7 @@ function json.parse(str)
 
   local function parse_number()
     local start_pos = pos
-    if str:sub(pos, pos) == '-' then pos = pos + 1 end
+    if str:sub(pos, pos) == '-' or str:sub(pos, pos) == '+' then pos = pos + 1 end
     while pos <= len and str:sub(pos, pos):match("[0-9]") do pos = pos + 1 end
     if pos <= len and str:sub(pos, pos) == '.' then
       pos = pos + 1
@@ -382,11 +417,14 @@ function json.parse(str)
   end
 
   local function parse_array()
+    if depth > 128 then return {} end
+    depth = depth + 1
     pos = pos + 1
     local arr = {}
     skip_whitespace()
     if pos <= len and str:sub(pos, pos) == ']' then
       pos = pos + 1
+      depth = depth - 1
       return arr
     end
     while pos <= len do
@@ -396,6 +434,7 @@ function json.parse(str)
       local c = str:sub(pos, pos)
       if c == ']' then
         pos = pos + 1
+        depth = depth - 1
         return arr
       elseif c == ',' then
         pos = pos + 1
@@ -404,37 +443,48 @@ function json.parse(str)
         pos = pos + 1
       end
     end
+    depth = depth - 1
     return arr
   end
 
   local function parse_object()
+    if depth > 128 then return {} end
+    depth = depth + 1
     pos = pos + 1
     local obj = {}
     skip_whitespace()
     if pos <= len and str:sub(pos, pos) == '}' then
       pos = pos + 1
+      depth = depth - 1
       return obj
     end
     while pos <= len do
       skip_whitespace()
-      local key
+      local key = nil
       local c = str:sub(pos, pos)
       if c == '"' then
         key = parse_string()
+      elseif c == '}' then
+        pos = pos + 1
+        depth = depth - 1
+        return obj
       else
         local start_k = pos
-        while pos <= len and str:sub(pos, pos):match("[%w_]") do pos = pos + 1 end
+        while pos <= len and str:sub(pos, pos):match("[%w_$%-]") do pos = pos + 1 end
         key = str:sub(start_k, pos - 1)
       end
       skip_whitespace()
       if str:sub(pos, pos) == ':' then pos = pos + 1 end
       skip_whitespace()
       local val = parse_value()
-      obj[key] = val
+      if key and key ~= "" then
+        obj[key] = val
+      end
       skip_whitespace()
       c = str:sub(pos, pos)
       if c == '}' then
         pos = pos + 1
+        depth = depth - 1
         return obj
       elseif c == ',' then
         pos = pos + 1
@@ -443,6 +493,7 @@ function json.parse(str)
         pos = pos + 1
       end
     end
+    depth = depth - 1
     return obj
   end
 
@@ -456,7 +507,7 @@ function json.parse(str)
       return parse_object()
     elseif c == '[' then
       return parse_array()
-    elseif c == '-' or c:match("[0-9]") then
+    elseif c == '-' or c == '+' or c:match("[0-9]") then
       return parse_number()
     elseif str:sub(pos, pos + 3) == "true" then
       pos = pos + 4
@@ -467,19 +518,40 @@ function json.parse(str)
     elseif str:sub(pos, pos + 3) == "null" then
       pos = pos + 4
       return nil
-    elseif c:match("[%a_]") then
+    elseif str:sub(pos, pos + 8) == "undefined" then
+      pos = pos + 9
+      return nil
+    elseif c:match("[%a_$]") then
       local start_id = pos
-      while pos <= len and str:sub(pos, pos) ~= '(' and str:sub(pos, pos):match("[%w_]") do
+      while pos <= len and str:sub(pos, pos) ~= '(' and str:sub(pos, pos):match("[%w_$]") do
         pos = pos + 1
       end
       local fn_name = str:sub(start_id, pos - 1)
       skip_whitespace()
       if str:sub(pos, pos) == '(' then
         pos = pos + 1
-        local arg = parse_value()
+        local args = {}
         skip_whitespace()
+        if str:sub(pos, pos) ~= ')' then
+          while pos <= len do
+            table.insert(args, parse_value())
+            skip_whitespace()
+            if str:sub(pos, pos) == ',' then
+              pos = pos + 1
+              skip_whitespace()
+            elseif str:sub(pos, pos) == ')' then
+              break
+            else
+              pos = pos + 1
+            end
+          end
+        end
         if str:sub(pos, pos) == ')' then pos = pos + 1 end
-        return { ["$" .. fn_name] = arg }
+        if #args == 1 then
+          return { ["$" .. fn_name] = args[1] }
+        else
+          return { ["$" .. fn_name] = args }
+        end
       end
       return fn_name
     else
@@ -489,7 +561,7 @@ function json.parse(str)
   end
 
   local ok, res = pcall(parse_value)
-  if ok then return res else return nil, res end
+  if ok then return res else return nil, tostring(res) end
 end
 
 -- ============================================================================
@@ -508,8 +580,10 @@ local function parse_uri_alias(uri)
 end
 
 -- ============================================================================
--- Async CLI Process Runner (mongosh / mongo / npx fallback)
+-- Non-Blocking Async CLI Process Runner (Guaranteed Zero-Freeze)
 -- ============================================================================
+local _query_counter = 0
+
 local function get_mongo_command_candidates(uri, script_path)
   local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
   local custom_bin = config.plugins.mongodb_explorer.mongosh_path
@@ -569,20 +643,33 @@ end
 
 local function run_mongo_cli(uri, eval_js, callback)
   core.add_thread(function()
-    local temp_js_path = USERDIR .. "/temp_mongo_query_" .. tostring(system.get_time()):gsub("%.", "") .. ".js"
+    _query_counter = _query_counter + 1
+    local temp_js_path = USERDIR .. "/temp_mongo_query_" .. tostring(system.get_time()):gsub("%.", "") .. "_" .. tostring(_query_counter) .. ".js"
+
+    local function cleanup()
+      pcall(os.remove, temp_js_path)
+    end
+
     local f, err = io.open(temp_js_path, "w")
     if not f then
-      if callback then callback(nil, "Failed to create temp query file: " .. tostring(err)) end
+      if callback then callback(nil, "Failed to create temporary query file: " .. tostring(err)) end
       return
     end
 
     local wrapped_js = string.format([[
 try {
-  const result = (function() {
+  let result = (function() {
     %s
   })();
+  if (result && typeof result.toArray === 'function') {
+    result = result.toArray();
+  }
   if (typeof result !== 'undefined') {
-    print("___JSON_START___" + EJSON.stringify(result, { relaxed: true }) + "___JSON_END___");
+    if (typeof EJSON !== 'undefined' && EJSON.stringify) {
+      print("___JSON_START___" + EJSON.stringify(result, { relaxed: true }) + "___JSON_END___");
+    } else {
+      print("___JSON_START___" + JSON.stringify(result) + "___JSON_END___");
+    }
   } else {
     print("___JSON_START___null___JSON_END___");
   }
@@ -599,70 +686,75 @@ try {
 
     if process and process.start then
       for _, cmd_args in ipairs(candidate_cmds) do
-        proc, start_err = process.start(cmd_args)
-        if proc then break end
+        local ok, p = pcall(process.start, cmd_args)
+        if ok and p then
+          proc = p
+          break
+        else
+          start_err = p
+        end
       end
     end
 
     if not proc then
-      local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
-      local popen_cmd = string.format('cmd.exe /c npx.cmd -y mongosh --quiet --norc "%s" --file "%s"', uri, temp_js_path)
-      if not is_windows then
-        popen_cmd = string.format('npx -y mongosh --quiet --norc "%s" --file "%s"', uri, temp_js_path)
+      cleanup()
+      if callback then
+        callback(nil, "Failed to start MongoDB Shell (mongosh). Please install mongosh or npm globally: " .. tostring(start_err))
       end
-
-      local pipe = io.popen(popen_cmd, "r")
-      if pipe then
-        local out = pipe:read("*a")
-        pipe:close()
-        os.remove(temp_js_path)
-        local json_data = out:match("___JSON_START___(.-)___JSON_END___")
-        local err_data = out:match("___ERR_START___(.-)___ERR_END___")
-        if err_data then
-          if callback then callback(nil, err_data) end
-        elseif json_data then
-          local parsed = json.parse(json_data)
-          if callback then callback(parsed, nil) end
-        else
-          if callback then callback(out, nil) end
-        end
-        return
-      else
-        os.remove(temp_js_path)
-        if callback then callback(nil, "Failed to start mongosh (no compatible executable found). Please install mongosh or ensure Node/npx is in PATH: " .. tostring(start_err)) end
-        return
-      end
+      return
     end
 
     local stdout_chunks = {}
     local stderr_chunks = {}
+    local total_bytes = 0
+    local max_bytes = config.plugins.mongodb_explorer.max_output_bytes or (8 * 1024 * 1024)
     local start_time = system.get_time()
+    local timeout = config.plugins.mongodb_explorer.query_timeout or 30
 
     while true do
-      local r_out = proc:read_stdout()
-      if r_out and #r_out > 0 then table.insert(stdout_chunks, r_out) end
+      local r_out = nil
+      pcall(function() r_out = proc:read_stdout() end)
+      if r_out and #r_out > 0 then
+        total_bytes = total_bytes + #r_out
+        if total_bytes <= max_bytes then
+          table.insert(stdout_chunks, r_out)
+        end
+      end
 
-      local r_err = proc:read_stderr()
-      if r_err and #r_err > 0 then table.insert(stderr_chunks, r_err) end
+      local r_err = nil
+      pcall(function() r_err = proc:read_stderr() end)
+      if r_err and #r_err > 0 then
+        table.insert(stderr_chunks, r_err)
+      end
 
-      if not proc:running() then break end
+      local is_running = false
+      pcall(function() is_running = proc:running() end)
+      if not is_running then break end
 
-      if system.get_time() - start_time > 30 then
+      if system.get_time() - start_time > timeout then
         pcall(function() proc:terminate() end)
-        os.remove(temp_js_path)
-        if callback then callback(nil, "Query timed out after 30 seconds") end
+        cleanup()
+        if callback then callback(nil, "Query timed out after " .. tostring(timeout) .. " seconds.") end
         return
       end
 
       coroutine.yield(0.05)
     end
 
-    local last_out = proc:read_stdout()
-    if last_out and #last_out > 0 then table.insert(stdout_chunks, last_out) end
-    local last_err = proc:read_stderr()
-    if last_err and #last_err > 0 then table.insert(stderr_chunks, last_err) end
+    -- Flush remaining stream
+    local last_out = nil
+    pcall(function() last_out = proc:read_stdout() end)
+    if last_out and #last_out > 0 and total_bytes <= max_bytes then
+      table.insert(stdout_chunks, last_out)
+    end
 
-    os.remove(temp_js_path)
+    local last_err = nil
+    pcall(function() last_err = proc:read_stderr() end)
+    if last_err and #last_err > 0 then
+      table.insert(stderr_chunks, last_err)
+    end
+
+    cleanup()
 
     local full_stdout = table.concat(stdout_chunks)
     local full_stderr = table.concat(stderr_chunks)
@@ -761,6 +853,7 @@ function store.load()
 end
 
 function store.find_connection(id)
+  if not id then return nil end
   for _, c in ipairs(store.connections) do
     if c.id == id then return c end
   end
@@ -768,6 +861,7 @@ function store.find_connection(id)
 end
 
 function store.connect(conn, on_complete)
+  if not conn then return end
   conn.status = "connecting"
   conn.error = nil
   core.log("[MongoDB] Connecting to %s (%s)...", conn.name, mask_uri(conn.uri))
@@ -794,6 +888,7 @@ function store.connect(conn, on_complete)
       conn.error = err
       core.error("[MongoDB] Connection error on %s: %s", conn.name, err)
       if on_complete then on_complete(false, err) end
+      core.redraw = true
       return
     end
 
@@ -814,21 +909,25 @@ function store.connect(conn, on_complete)
     conn.expanded = true
     core.log("[MongoDB] Connected to %s (v%s)", conn.name, conn.version)
     if on_complete then on_complete(true, nil) end
+    core.redraw = true
   end)
 end
 
 function store.disconnect(conn)
+  if not conn then return end
   conn.status = "disconnected"
   conn.databases = {}
   conn.expanded = false
   conn.version = ""
   conn.error = nil
   core.log("[MongoDB] Disconnected from %s", conn.name)
+  core.redraw = true
 end
 
 function store.load_collections(conn, db_node, on_complete)
+  if not conn or not db_node then return end
   local fetch_colls_js = string.format([[
-    const targetDb = db.getSiblingDB('%s');
+    const targetDb = db.getSiblingDB(%s);
     const collNames = targetDb.getCollectionNames();
     const result = [];
     for (const name of collNames) {
@@ -855,12 +954,13 @@ function store.load_collections(conn, db_node, on_complete)
       });
     }
     return result;
-  ]], db_node.name)
+  ]], json.stringify(db_node.name))
 
   run_mongo_cli(conn.uri, fetch_colls_js, function(data, err)
     if err then
       core.error("[MongoDB] Error listing collections for %s: %s", db_node.name, err)
       if on_complete then on_complete(false, err) end
+      core.redraw = true
       return
     end
 
@@ -879,6 +979,7 @@ function store.load_collections(conn, db_node, on_complete)
     db_node.loaded = true
     db_node.expanded = true
     if on_complete then on_complete(true, nil) end
+    core.redraw = true
   end)
 end
 
@@ -915,8 +1016,10 @@ end
 
 function MongoDBExplorerView:set_target_size(axis, value)
   if axis == "x" then
-    self.target_size = math.max(260 * SCALE, value)
+    self.target_size = math.max(240 * SCALE, value)
     self.target_width = self.target_size
+    return true
+  elseif axis == "y" then
     return true
   end
   return false
@@ -925,7 +1028,11 @@ end
 function MongoDBExplorerView:update()
   MongoDBExplorerView.super.update(self)
   self.target_size = self.target_size or (config.plugins.mongodb_explorer.view_width * SCALE)
-  self:move_towards(self.size, "x", self.target_size)
+  if math.abs(self.size.x - self.target_size) > 0.5 then
+    self:move_towards(self.size, "x", self.target_size)
+  else
+    self.size.x = self.target_size
+  end
 end
 
 function MongoDBExplorerView:get_item_height()
@@ -1159,6 +1266,7 @@ function MongoDBExplorerView:on_mouse_pressed(button, px, py, clicks)
           command.perform("mongodb_explorer:open-document-editor")
         end
       end
+      core.redraw = true
       return true
     end
   end
@@ -1233,7 +1341,7 @@ function MongoDBExplorerView:draw()
     action = function() command.perform("mongodb_explorer:refresh") end
   })
 
-  -- Filter / Search Input Box (Modern styled pill)
+  -- Filter / Search Input Box
   local search_box_y = y + title_h + math.floor(2 * SCALE)
   local search_box_w = w - pad * 2
   local search_box_h = font:get_height() + math.floor(6 * SCALE)
@@ -1436,7 +1544,6 @@ function MongoDBExplorerView:draw()
   for _, act in ipairs(action_buttons) do
     local bw = font:get_width(act.label) + math.floor(12 * SCALE)
 
-    -- Check if we need to wrap to next row in narrow viewports
     if cur_x + bw > x + w - pad and cur_x > x + pad then
       cur_row = cur_row + 1
       cur_x = x + pad
@@ -1464,24 +1571,23 @@ function MongoDBExplorerView:draw()
 
   if self.footer_rows ~= cur_row then
     self.footer_rows = cur_row
-    core.redraw = true
   end
 
   self:draw_scrollbar()
 end
 
 -- ============================================================================
--- Document Virtual Doc & Scratchpad Helpers
+-- Document Virtual Doc & Scratchpad Helpers (High Performance & Memory Safe)
 -- ============================================================================
 local function open_virtual_doc(title, content, syntax_filename, metadata)
   local doc = Doc()
   if syntax_filename then
-    doc:set_filename(syntax_filename)
+    pcall(function() doc:set_filename(syntax_filename) end)
   end
-  doc.clean_change_id = doc:get_change_id()
   doc:reset()
-  doc:text_input(content)
+  pcall(function() doc:raw_insert(1, 1, content or "") end)
   doc:clean()
+  doc.clean_change_id = doc:get_change_id()
 
   if metadata then
     for k, v in pairs(metadata) do
@@ -1546,9 +1652,13 @@ command.add(nil, {
       end
     else
       explorer_view = MongoDBExplorerView()
-      local node = sidebar or core.root_view:get_active_node_default()
-      node:add_view(explorer_view)
-      if sidebar then
+      local node = sidebar
+      if not node then
+        local editor_node = core.root_view:get_active_node_default()
+        node = editor_node:split("right", explorer_view, { locked = true })
+        rawset(_G, "_ag_sidebar_node", node)
+      else
+        node:add_view(explorer_view)
         node:set_active_view(explorer_view)
       end
       core.set_active_view(explorer_view)
@@ -1661,9 +1771,12 @@ db.%s.find({}).limit(20);
     core.log("[MongoDB] Running scratchpad on %s / %s...", conn.name, target_db)
 
     local eval_script = string.format([[
-      const db = db.getSiblingDB('%s');
-      %s
-    ]], target_db, code)
+      (function() {
+        const __targetDb = %s;
+        const db = globalThis.db.getSiblingDB(__targetDb);
+        %s
+      })()
+    ]], json.stringify(target_db), code)
 
     run_mongo_cli(conn.uri, eval_script, function(result, err)
       if err then
@@ -1688,11 +1801,11 @@ db.%s.find({}).limit(20);
 
     local limit = config.plugins.mongodb_explorer.page_size or 20
     local find_js = string.format([[
-      const targetDb = db.getSiblingDB('%s');
-      const docs = targetDb.getCollection('%s').find({}).limit(%d).toArray();
-      const total = targetDb.getCollection('%s').estimatedDocumentCount();
+      const targetDb = db.getSiblingDB(%s);
+      const docs = targetDb.getCollection(%s).find({}).limit(%d).toArray();
+      const total = targetDb.getCollection(%s).estimatedDocumentCount();
       return { total: total, limit: %d, docs: docs };
-    ]], db, col, limit, col, limit)
+    ]], json.stringify(db), json.stringify(col), limit, json.stringify(col), limit)
 
     core.log("[MongoDB] Fetching documents from %s.%s...", db, col)
     run_mongo_cli(conn.uri, find_js, function(data, err)
@@ -1754,10 +1867,12 @@ db.%s.find({}).limit(20);
       if not conn then return end
 
       local insert_js = string.format([[
-        const targetDb = db.getSiblingDB('%s');
-        const res = targetDb.getCollection('%s').insertOne(%s);
+        const targetDb = db.getSiblingDB(%s);
+        const rawDoc = %s;
+        const doc = (typeof EJSON !== 'undefined' && EJSON.deserialize) ? EJSON.deserialize(rawDoc) : rawDoc;
+        const res = targetDb.getCollection(%s).insertOne(doc);
         return res;
-      ]], doc.mongo_db, doc.mongo_col, json.stringify(parsed))
+      ]], json.stringify(doc.mongo_db), json.stringify(parsed), json.stringify(doc.mongo_col))
 
       run_mongo_cli(conn.uri, insert_js, function(res, err)
         if err then
@@ -1779,11 +1894,12 @@ db.%s.find({}).limit(20);
       if not conn then return end
 
       local replace_js = string.format([[
-        const targetDb = db.getSiblingDB('%s');
-        const doc = %s;
-        const res = targetDb.getCollection('%s').replaceOne({ _id: doc._id }, doc, { upsert: true });
+        const targetDb = db.getSiblingDB(%s);
+        const rawDoc = %s;
+        const doc = (typeof EJSON !== 'undefined' && EJSON.deserialize) ? EJSON.deserialize(rawDoc) : rawDoc;
+        const res = targetDb.getCollection(%s).replaceOne({ _id: doc._id }, doc, { upsert: true });
         return res;
-      ]], doc.mongo_db, json.stringify(parsed), doc.mongo_col)
+      ]], json.stringify(doc.mongo_db), json.stringify(parsed), json.stringify(doc.mongo_col))
 
       run_mongo_cli(conn.uri, replace_js, function(res, err)
         if err then
@@ -1832,10 +1948,10 @@ db.%s.find({}).limit(20);
       submit = function(col_name)
         if col_name == "" then return end
         local create_js = string.format([[
-          const targetDb = db.getSiblingDB('%s');
-          targetDb.createCollection('%s');
+          const targetDb = db.getSiblingDB(%s);
+          targetDb.createCollection(%s);
           return { ok: 1 };
-        ]], db, col_name)
+        ]], json.stringify(db), json.stringify(col_name))
 
         run_mongo_cli(conn.uri, create_js, function(res, err)
           if err then
@@ -1864,9 +1980,9 @@ db.%s.find({}).limit(20);
         end
 
         local drop_js = string.format([[
-          const targetDb = db.getSiblingDB('%s');
-          return targetDb.getCollection('%s').drop();
-        ]], db, col)
+          const targetDb = db.getSiblingDB(%s);
+          return targetDb.getCollection(%s).drop();
+        ]], json.stringify(db), json.stringify(col))
 
         run_mongo_cli(conn.uri, drop_js, function(res, err)
           if err then
