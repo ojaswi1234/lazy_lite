@@ -95,6 +95,17 @@ local function with_alpha(col, alpha)
   return { col[1] or 0, col[2] or 0, col[3] or 0, alpha or 255 }
 end
 
+local function format_number(n)
+  if type(n) ~= "number" then return tostring(n or 0) end
+  local str = string.format("%.0f", n)
+  local k
+  while true do
+    str, k = string.gsub(str, "^(-?%d+)(%d%d%d)", '%1,%2')
+    if k == 0 then break end
+  end
+  return str
+end
+
 local function get_theme_palette()
   local bg = style.background or { 30, 30, 30, 255 }
   local lum = get_luminance(bg)
@@ -1488,7 +1499,7 @@ function MongoDBExplorerView:draw()
         local count_w = 0
         local count_str = ""
         if config.plugins.mongodb_explorer.show_doc_counts and row.count ~= nil then
-          count_str = string.format("%s docs", common.number_to_string(row.count) or tostring(row.count))
+          count_str = string.format("%s docs", format_number(row.count))
           count_w = font:get_width(count_str) + math.floor(12 * SCALE)
         end
 
@@ -1655,7 +1666,7 @@ command.add(nil, {
       local node = sidebar
       if not node then
         local editor_node = core.root_view:get_active_node_default()
-        node = editor_node:split("right", explorer_view, { locked = true })
+        node = editor_node:split("right", explorer_view, { x = true }, true)
         rawset(_G, "_ag_sidebar_node", node)
       else
         node:add_view(explorer_view)
