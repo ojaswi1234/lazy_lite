@@ -181,13 +181,65 @@ if ($setupLeetcode) {
 }
 
 if ($setupMongo) {
-    if ($wingetAvailable) {
-        $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
-        if (-not $mongoshCheck) {
-            Write-Host "Installing MongoDB Shell (mongosh)..."
-            try { winget install -e --id MongoDB.mongosh --accept-source-agreements --accept-package-agreements --silent } catch {}
+    $mongoshInstalled = $false
+    $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
+    if ($mongoshCheck) {
+        Write-Host "MongoDB Shell (mongosh) is already installed." -ForegroundColor Green
+        $mongoshInstalled = $true
+    }
+
+    if (-not $mongoshInstalled) {
+        # 1. Primary: Try installing globally via npm
+        $npmCheck = Get-Command "npm" -ErrorAction SilentlyContinue
+        if ($npmCheck) {
+            Write-Host "Installing MongoDB Shell (mongosh) globally via npm..." -ForegroundColor Cyan
+            try {
+                & npm install -g mongosh --silent 2>$null
+                $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
+                if ($mongoshCheck -or (Test-Path "$env:APPDATA\npm\mongosh.cmd")) {
+                    Write-Host "[+] mongosh installed successfully via npm." -ForegroundColor Green
+                    $mongoshInstalled = $true
+                }
+            } catch {}
         }
     }
+
+    if (-not $mongoshInstalled -and $wingetAvailable) {
+        # 2. Secondary fallback: Try official mongosh via winget
+        Write-Host "Installing official MongoDB Shell (mongosh) via winget..." -ForegroundColor Cyan
+        try {
+            winget install -e --id MongoDB.mongosh --accept-source-agreements --accept-package-agreements --silent
+            $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
+            if ($mongoshCheck) {
+                Write-Host "[+] mongosh installed successfully via winget." -ForegroundColor Green
+                $mongoshInstalled = $true
+            }
+        } catch {}
+    }
+
+    if (-not $mongoshInstalled) {
+        # 3. Tertiary fallback: Download official standalone mongosh archive
+        Write-Host "Downloading standalone official MongoDB Shell (mongosh)..." -ForegroundColor Cyan
+        try {
+            $mongoZipUrl = "https://downloads.mongodb.com/compass/mongosh-2.4.0-win32-x64.zip"
+            $tempZip = "$env:TEMP\mongosh.zip"
+            $destDir = "$env:LOCALAPPDATA\Programs\mongosh"
+            Invoke-WebRequest -Uri $mongoZipUrl -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
+            if (Test-Path $tempZip) {
+                Expand-Archive -Path $tempZip -DestinationPath "$env:TEMP\mongosh_extracted" -Force
+                $extractedFolder = Get-ChildItem "$env:TEMP\mongosh_extracted" | Select-Object -First 1
+                if ($extractedFolder) {
+                    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                    Copy-Item -Path "$($extractedFolder.FullName)\*" -Destination $destDir -Recurse -Force
+                    Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
+                    Remove-Item -Path "$env:TEMP\mongosh_extracted" -Recurse -Force -ErrorAction SilentlyContinue
+                    Write-Host "[+] Standalone official mongosh installed to $destDir" -ForegroundColor Green
+                    $mongoshInstalled = $true
+                }
+            }
+        } catch {}
+    }
+
     if ($realPython) {
         try { & python -m pip install pymongo --quiet 2>$null } catch {}
     }

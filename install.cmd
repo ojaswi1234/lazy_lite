@@ -89,12 +89,38 @@ set "SETUP_LEETCODE=y"
 set /p "setup_lc=Do you want to setup LeetCode plugin & assessment suite? (y/n) [default: y]: "
 if /i "!setup_lc!"=="n" set "SETUP_LEETCODE=n"
 
+set "SETUP_MONGO=y"
+set /p "setup_mg=Do you want to setup MongoDB Explorer plugin? (y/n) [default: y]: "
+if /i "!setup_mg!"=="n" set "SETUP_MONGO=n"
+
 :: Check real Python 3 runtime
 python -c "import sys; sys.exit(0 if sys.version_info[0]==3 else 1)" >nul 2>nul
 if %errorlevel% equ 0 (
     if /i "!SETUP_LEETCODE!"=="y" (
         echo Installing Python dependencies for LeetCode API...
         python -m pip install requests --quiet >nul 2>nul
+    )
+    if /i "!SETUP_MONGO!"=="y" (
+        python -m pip install pymongo --quiet >nul 2>nul
+    )
+)
+
+if /i "!SETUP_MONGO!"=="y" (
+    where mongosh >nul 2>nul
+    if !errorlevel! neq 0 (
+        where npm >nul 2>nul
+        if !errorlevel! equ 0 (
+            echo Installing MongoDB Shell (mongosh) globally via npm...
+            call npm install -g mongosh --silent >nul 2>nul
+        )
+        where mongosh >nul 2>nul
+        if !errorlevel! neq 0 (
+            where winget >nul 2>nul
+            if !errorlevel! equ 0 (
+                echo Installing official MongoDB Shell via winget...
+                winget install -e --id MongoDB.mongosh --accept-source-agreements --accept-package-agreements --silent >nul 2>nul
+            )
+        )
     )
 )
 
@@ -116,6 +142,8 @@ for %%f in ("%SRC_DIR%plugins\*.lua" "%SRC_DIR%plugins\*.json" "%SRC_DIR%plugins
             if /i "!SETUP_LEETCODE!"=="y" copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
         ) else if "%%~nxf"=="leetcode_assessment.lua" (
             if /i "!SETUP_LEETCODE!"=="y" copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
+        ) else if "%%~nxf"=="mongodb_explorer.lua" (
+            if /i "!SETUP_MONGO!"=="y" copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
         ) else (
             copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
         )

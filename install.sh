@@ -170,6 +170,46 @@ else
     fi
 fi
 
+INSTALL_MONGO=true
+read -p "Do you want to setup MongoDB Explorer plugin? (y/n) [default: y]: " prompt_mongo || prompt_mongo="y"
+if [[ "$prompt_mongo" =~ ^[Nn]$ ]]; then
+    INSTALL_MONGO=false
+else
+    if ! command -v mongosh &> /dev/null; then
+        MONGOSH_INSTALLED=false
+        # 1. Primary: Try installing mongosh via npm
+        if command -v npm &> /dev/null; then
+            echo "Installing MongoDB Shell (mongosh) globally via npm..."
+            $SUDO npm install -g mongosh --silent 2>/dev/null || npm install -g mongosh --silent 2>/dev/null || true
+            if command -v mongosh &> /dev/null; then
+                MONGOSH_INSTALLED=true
+                echo "[+] mongosh installed successfully via npm."
+            fi
+        fi
+
+        # 2. Secondary fallback: Package manager installation
+        if [ "$MONGOSH_INSTALLED" = false ]; then
+            if command -v brew &> /dev/null; then
+                echo "Installing official mongosh via Homebrew..."
+                brew install mongosh >/dev/null 2>&1 || true
+            elif command -v apt-get &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
+                echo "Installing official mongosh via apt..."
+                $SUDO apt-get update >/dev/null 2>&1 && $SUDO apt-get install -y mongodb-mongosh >/dev/null 2>&1 || true
+            elif command -v pacman &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
+                $SUDO pacman -S --noconfirm mongosh >/dev/null 2>&1 || true
+            elif command -v dnf &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
+                $SUDO dnf install -y mongodb-mongosh >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
+
+    if command -v python3 &> /dev/null; then
+        python3 -m pip install pymongo --break-system-packages --quiet 2>/dev/null || \
+        python3 -m pip install pymongo --user --quiet 2>/dev/null || \
+        python3 -m pip install pymongo --quiet 2>/dev/null || true
+    fi
+fi
+
 animate_progress "Installing Lite-XL Mossy Configuration..."
 
 # Create target directories
@@ -188,6 +228,9 @@ for plugin in "$SRC_DIR"/plugins/*; do
     if { [ "$plugin_name" = "leetcode.lua" ] || [ "$plugin_name" = "leetcode_assessment.lua" ] || [ "$plugin_name" = "company_tags.json" ] || [ "$plugin_name" = "problem_tags.json" ] || [ "$plugin_name" = "company_scores.json" ]; } && [ "$INSTALL_LEETCODE" = false ]; then
         continue
     fi
+    if [ "$plugin_name" = "mongodb_explorer.lua" ] && [ "$INSTALL_MONGO" = false ]; then
+        continue
+    fi
     cp -f "$plugin" "$CONFIG_DIR/plugins/"
 done
 
@@ -203,6 +246,9 @@ if [ -d "$SRC_DIR/scripts" ]; then
         [ -f "$script" ] || continue
         script_name=$(basename "$script")
         if [ "$script_name" = "leetcode_api.py" ] && [ "$INSTALL_LEETCODE" = false ]; then
+            continue
+        fi
+        if [ "$script_name" = "mongodb_bridge.py" ] && [ "$INSTALL_MONGO" = false ]; then
             continue
         fi
         cp -f "$script" "$CONFIG_DIR/scripts/"
