@@ -1200,8 +1200,8 @@ function AGView:submit(prompt)
 
   -- Expand any @pasted_text tokens into absolute file paths before sending to AI
   local tmp_dir = USERDIR .. "/tempfiles"
-  local expanded_prompt = prompt_text:gsub("@(pasted_text_[a-zA-Z0-9_]+%.txt)", function(f)
-    local fp = tmp_dir .. "/" .. f
+  local expanded_prompt = prompt_text:gsub("@(pasted_text[%w_%-%.]+%.txt)", function(f)
+    local fp = (tmp_dir .. "/" .. f):gsub("\\", "/")
     return string.format(" [Read this pasted text from file: %s] ", fp)
   end)
 
@@ -1211,7 +1211,7 @@ function AGView:submit(prompt)
 
   local full_prompt = expanded_prompt
   if fname then
-    full_prompt = string.format("Regarding the active file %s: %s", fname, prompt_text)
+    full_prompt = string.format("Regarding the active file %s: %s", fname, expanded_prompt)
   end
   
   if core.active_codespace and not self:state().cid then
@@ -1856,7 +1856,27 @@ function AGView:draw()
     for l_idx, line_info in ipairs(visual_lines) do
       local line_y = inp_y + 8 * SCALE + (l_idx - 1) * lh - input_scroll_offset
       if line_y + lh >= inp_y and line_y <= inp_y + input_h then
-        renderer.draw_text(font, line_info.text, inp_x + 8 * SCALE, line_y, P.fg)
+        local l_str = line_info.text or ""
+        if l_str:find("@") then
+          local cur_x = inp_x + 8 * SCALE
+          local last_pos = 1
+          for at_start, token, at_end in l_str:gmatch("()(@[%w_%-%.]+)()") do
+            if at_start > last_pos then
+              local pre = l_str:sub(last_pos, at_start - 1)
+              renderer.draw_text(font, pre, cur_x, line_y, P.fg)
+              cur_x = cur_x + font:get_width(pre)
+            end
+            renderer.draw_text(font, token, cur_x, line_y, P.fg_accent)
+            cur_x = cur_x + font:get_width(token)
+            last_pos = at_end
+          end
+          if last_pos <= #l_str then
+            local rest = l_str:sub(last_pos)
+            renderer.draw_text(font, rest, cur_x, line_y, P.fg)
+          end
+        else
+          renderer.draw_text(font, l_str, inp_x + 8 * SCALE, line_y, P.fg)
+        end
       end
     end
     if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
@@ -2251,33 +2271,41 @@ end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
 function AGView:on_text_input(text)
+  if not text or text == "" then return end
+  local clean = text:gsub("\r\n", "\n"):gsub("\r", "\n")
+  if #clean > 200 or clean:find("\n") then
+    self:on_paste(clean)
+    return
+  end
   delete_selection(self:state())
   local c = self:state().cursor or #self:state().input
   local before = self:state().input:sub(1, c)
   local after = self:state().input:sub(c + 1)
-  self:state().input = before .. text .. after
-  self:state().cursor = c + #text
+  self:state().input = before .. clean .. after
+  self:state().cursor = c + #clean
   self:state().select_anchor = nil
   self:_update_mentions()
   core.redraw = true
 end
 
 function AGView:on_paste(text)
-  if not text then return end
+  if not text or text == "" then return end
   delete_selection(self:state())
-  local is_long = #text > 1000 or select(2, text:gsub("\n", "")) > 10
-  local paste_txt = text
+  local clean = text:gsub("\r\n", "\n"):gsub("\r", "\n")
+  local is_long = #clean > 200 or select(2, clean:gsub("\n", "")) >= 2
+  local paste_txt = clean
   if is_long then
     local tmp_dir = USERDIR .. "/tempfiles"
     pcall(system.mkdir, tmp_dir)
+    os.execute('mkdir "' .. tmp_dir:gsub("/", "\\") .. '" 2>nul')
     local filename = os.date("pasted_text_%Y%m%d_%H%M%S.txt")
     local filepath = tmp_dir .. "/" .. filename
-    local f = io.open(filepath, "w")
+    local f = io.open(filepath, "wb")
     if f then
-      f:write(text)
+      f:write(clean)
       f:close()
       table.insert(self.temp_files, filepath)
-      core.log("Saved long paste to %s", filename)
+      core.log("Saved pasted text to %s", filename)
       paste_txt = " @" .. filename .. " "
     end
   end
@@ -2370,6 +2398,15 @@ function AGView:on_key_pressed(key, ...)
       delete_selection(self:state())
       self:_update_mentions()
       core.redraw = true
+    end
+    return true
+  end
+
+  -- Paste: Ctrl+V / Cmd+V
+  if key == "ctrl+v" or key == "cmd+v" or (key == "v" and is_ctrl) then
+    local clip = system.get_clipboard()
+    if clip and #clip > 0 then
+      self:on_paste(clip)
     end
     return true
   end
