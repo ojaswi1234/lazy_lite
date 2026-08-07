@@ -169,6 +169,205 @@ local function utf8_next(text, i)
   return i
 end
 
+local function wrap_input_lines(text, font, max_w)
+  text = text or ""
+  if #text == 0 then
+    return {
+      { text = "", start_byte = 1, end_byte = 1, has_nl = false }
+    }
+  end
+
+  local paragraphs = {}
+  local pos = 1
+  while pos <= #text do
+    local nl_pos = text:find("\n", pos, true)
+    if nl_pos then
+      table.insert(paragraphs, {
+        text = text:sub(pos, nl_pos - 1),
+        start_byte = pos,
+        end_byte = nl_pos,
+        has_nl = true
+      })
+      pos = nl_pos + 1
+    else
+      table.insert(paragraphs, {
+        text = text:sub(pos),
+        start_byte = pos,
+        end_byte = #text + 1,
+        has_nl = false
+      })
+      break
+    end
+  end
+  if #text > 0 and text:sub(-1) == "\n" then
+    table.insert(paragraphs, {
+      text = "",
+      start_byte = #text + 1,
+      end_byte = #text + 1,
+      has_nl = false
+    })
+  end
+
+  local visual_lines = {}
+  for _, p in ipairs(paragraphs) do
+    local p_text = p.text
+    local p_start = p.start_byte
+    local p_end = p.end_byte
+    local p_nl = p.has_nl
+
+    if #p_text == 0 then
+      table.insert(visual_lines, {
+        text = "",
+        start_byte = p_start,
+        end_byte = p_end,
+        has_nl = p_nl
+      })
+    else
+      local p_idx = 1
+      while p_idx <= #p_text do
+        local rem = p_text:sub(p_idx)
+        if font:get_width(rem) <= max_w then
+          table.insert(visual_lines, {
+            text = rem,
+            start_byte = p_start + p_idx - 1,
+            end_byte = p_end,
+            has_nl = p_nl
+          })
+          break
+        end
+
+        local fit_end = p_idx
+        local last_space = nil
+        local i = p_idx
+        while i <= #p_text do
+          local next_i = utf8_next(p_text, i)
+          local sub = p_text:sub(p_idx, next_i)
+          if font:get_width(sub) > max_w then
+            break
+          end
+          local b = p_text:byte(i)
+          if b == 32 or b == 9 then
+            last_space = i
+          end
+          fit_end = next_i
+          i = next_i + 1
+        end
+
+        if last_space and last_space >= p_idx then
+          local line_str = p_text:sub(p_idx, last_space - 1)
+          table.insert(visual_lines, {
+            text = line_str,
+            start_byte = p_start + p_idx - 1,
+            end_byte = p_start + last_space - 1,
+            has_nl = false
+          })
+          p_idx = last_space + 1
+        else
+          if fit_end < p_idx then
+            fit_end = utf8_next(p_text, p_idx)
+          end
+          local line_str = p_text:sub(p_idx, fit_end)
+          table.insert(visual_lines, {
+            text = line_str,
+            start_byte = p_start + p_idx - 1,
+            end_byte = p_start + fit_end,
+            has_nl = false
+          })
+          p_idx = fit_end + 1
+        end
+      end
+    end
+  end
+
+  if #visual_lines == 0 then
+    visual_lines = {
+      { text = "", start_byte = 1, end_byte = 1, has_nl = false }
+    }
+  end
+
+  return visual_lines
+end
+
+local function get_cursor_visual_line_col(visual_lines, raw_text, cursor_idx)
+  cursor_idx = math.max(0, math.min(#raw_text, cursor_idx or #raw_text))
+  local cur_1based = cursor_idx + 1
+
+  for l_idx, line in ipairs(visual_lines) do
+    if cur_1based <= line.end_byte or l_idx == #visual_lines then
+      local col_byte = math.max(0, math.min(#line.text, cur_1based - line.start_byte))
+      return l_idx, col_byte, visual_lines
+    end
+  end
+  return 1, 0, visual_lines
+end
+
+local function get_cursor_byte_from_visual(visual_lines, target_line, target_col)
+  target_line = math.max(1, math.min(#visual_lines, target_line))
+  local line = visual_lines[target_line] or visual_lines[#visual_lines]
+  target_col = math.max(0, math.min(#(line.text or ""), target_col or 0))
+  local byte_idx = line.start_byte - 1 + target_col
+  return byte_idx
+end
+
+local function get_selection_range(state)
+  local cur = state.cursor or 0
+  local anc = state.select_anchor
+  if not anc or anc == cur then
+    return nil, nil
+  end
+  local sel_from = math.min(anc, cur)
+  local sel_to   = math.max(anc, cur)
+  return sel_from, sel_to
+end
+
+local function delete_selection(state)
+  local sel_from, sel_to = get_selection_range(state)
+  if not sel_from then return false end
+  local inp = state.input or ""
+  local before = inp:sub(1, sel_from)
+  local after  = inp:sub(sel_to + 1)
+  state.input = before .. after
+  state.cursor = sel_from
+  state.select_anchor = nil
+  return true
+end
+
+local function find_word_boundaries(text, pos)
+  text = text or ""
+  pos = math.max(0, math.min(#text, pos or 0))
+  if #text == 0 then return 0, 0 end
+  local p = math.max(1, pos)
+  if p > #text then p = #text end
+
+  local function is_word_char(b)
+    if not b then return false end
+    return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 95
+  end
+
+  local b = text:byte(p)
+  local target_word = is_word_char(b)
+
+  local left = p
+  while left > 1 do
+    local prev_b = text:byte(left - 1)
+    if is_word_char(prev_b) ~= target_word or prev_b == 32 or prev_b == 10 then
+      break
+    end
+    left = left - 1
+  end
+
+  local right = p
+  while right <= #text do
+    local next_b = text:byte(right)
+    if is_word_char(next_b) ~= target_word or next_b == 32 or next_b == 10 then
+      break
+    end
+    right = right + 1
+  end
+
+  return left - 1, right - 1
+end
+
 local function contrast_bg(base, pct)
   pct = pct or 0.08
   if type(base) ~= "table" then return base end
@@ -1580,10 +1779,23 @@ function AGView:draw()
   cur_y = cur_y + 8 * SCALE
 
   -- ═══════════════════════════════════════════════════════════════════
-  -- INPUT AREA (at bottom, fixed)
+  -- INPUT AREA (at bottom, auto-expanding with visual line wrapping)
   -- ═══════════════════════════════════════════════════════════════════
   local send_h   = 30 * SCALE
-  local input_h  = 56 * SCALE
+  local font     = style.font
+  local lh       = font:get_height() + 3 * SCALE
+  local min_input_h = 42 * SCALE
+  local max_input_h = 160 * SCALE
+
+  local raw_input = self:state().input or ""
+  local inp_w = w - 2 * pad
+  local max_text_w = inp_w - 16 * SCALE
+  local visual_lines = wrap_input_lines(raw_input, font, max_text_w)
+  local cur_line, cur_col = get_cursor_visual_line_col(visual_lines, raw_input, self:state().cursor)
+  local num_lines = #visual_lines
+
+  local desired_h = math.max(1, num_lines) * lh + 16 * SCALE
+  local input_h = math.max(min_input_h, math.min(max_input_h, desired_h))
   local bottom_h = input_h + send_h + 3 * pad
   local chat_bot = y + h - bottom_h
 
@@ -1593,39 +1805,77 @@ function AGView:draw()
   -- Input box
   local inp_x = x + pad
   local inp_y = chat_bot + pad
-  local inp_w = w - 2 * pad
   renderer.draw_rect(inp_x, inp_y, inp_w, input_h, P.bg_input)
   draw_rect_outline(inp_x, inp_y, inp_w, input_h,
     core.active_view == self and P.border_input or P.border)
 
-  -- Placeholder / typed text
-  local display    = #self:state().input > 0 and self:state().input or "Ask anything about your code."
-  local fg_inp     = #self:state().input > 0 and P.fg or P.fg_muted
+  self._visual_lines = visual_lines
+  self._input_rect = { x = inp_x, y = inp_y, w = inp_w, h = input_h, lh = lh }
 
-  local max_text_w = inp_w - 16 * SCALE
-  local cursor_idx = self:state().cursor or #self:state().input
-  local cursor_x   = style.font:get_width(self:state().input:sub(1, cursor_idx))
-  local tx         = inp_x + 8 * SCALE
-  if core.active_view == self and cursor_x > max_text_w then
-    tx = tx - (cursor_x - max_text_w)
+  -- Multiline auto-scroll offset if lines exceed max_input_h
+  local max_visible_lines = math.max(1, math.floor((input_h - 16 * SCALE) / lh))
+  local input_scroll_offset = 0
+  if cur_line > max_visible_lines then
+    input_scroll_offset = (cur_line - max_visible_lines) * lh
   end
+  self._input_scroll_offset = input_scroll_offset
 
   core.push_clip_rect(inp_x, inp_y, inp_w, input_h)
-  renderer.draw_text(style.font, display, tx, inp_y + 8 * SCALE, fg_inp)
+  local sel_from, sel_to = get_selection_range(self:state())
+  if #raw_input == 0 then
+    local placeholder = "Ask anything about your code..."
+    renderer.draw_text(font, placeholder, inp_x + 8 * SCALE, inp_y + 8 * SCALE, P.fg_muted)
+    if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
+      renderer.draw_rect(inp_x + 8 * SCALE, inp_y + 8 * SCALE, 2 * SCALE, font:get_height(), P.fg_accent)
+    end
+  else
+    -- Draw selection highlight
+    if sel_from and sel_to and sel_from < sel_to then
+      local sel_color = style.selection or { 60, 110, 180, 90 }
+      for l_idx, line_info in ipairs(visual_lines) do
+        local l_start = line_info.start_byte - 1
+        local l_end   = line_info.end_byte - 1
+        if sel_to > l_start and sel_from < l_end then
+          local col_start = math.max(0, sel_from - l_start)
+          local col_end   = math.min(#(line_info.text or ""), sel_to - l_start)
+          local text_before = (line_info.text or ""):sub(1, col_start)
+          local text_selected = (line_info.text or ""):sub(col_start + 1, col_end)
+          local x1 = inp_x + 8 * SCALE + font:get_width(text_before)
+          local sel_w = font:get_width(text_selected)
+          if sel_w <= 0 and sel_to > l_end then
+            sel_w = font:get_width(" ")
+          end
+          local line_y = inp_y + 8 * SCALE + (l_idx - 1) * lh - input_scroll_offset
+          if line_y + lh >= inp_y and line_y <= inp_y + input_h then
+            renderer.draw_rect(x1, line_y, math.max(2 * SCALE, sel_w), lh, sel_color)
+          end
+        end
+      end
+    end
 
-  -- Blink cursor
-  if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
-    local cw = #self:state().input > 0 and cursor_x or style.font:get_width(display)
-    if #self:state().input == 0 then cw = 0 end
-    renderer.draw_rect(tx + cw, inp_y + 8 * SCALE, 2 * SCALE, style.font:get_height(), P.fg_accent)
+    for l_idx, line_info in ipairs(visual_lines) do
+      local line_y = inp_y + 8 * SCALE + (l_idx - 1) * lh - input_scroll_offset
+      if line_y + lh >= inp_y and line_y <= inp_y + input_h then
+        renderer.draw_text(font, line_info.text, inp_x + 8 * SCALE, line_y, P.fg)
+      end
+    end
+    if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
+      local cur_line_info = visual_lines[cur_line] or visual_lines[1]
+      local text_before_cursor = (cur_line_info.text or ""):sub(1, cur_col)
+      local cursor_x = inp_x + 8 * SCALE + font:get_width(text_before_cursor)
+      local cursor_y = inp_y + 8 * SCALE + (cur_line - 1) * lh - input_scroll_offset
+      if cursor_y >= inp_y - 2 * SCALE and cursor_y + font:get_height() <= inp_y + input_h + 4 * SCALE then
+        renderer.draw_rect(cursor_x, cursor_y, 2 * SCALE, font:get_height(), P.fg_accent)
+      end
+    end
   end
   core.pop_clip_rect()
 
   -- Hint text bottom-right of input
-  local hint = "Enter ↵"
-  renderer.draw_text(style.font, hint,
-    inp_x + inp_w - style.font:get_width(hint) - 6 * SCALE,
-    inp_y + input_h - style.font:get_height() - 5 * SCALE,
+  local hint = num_lines > 1 and "Shift+↵ Line" or "Enter ↵"
+  renderer.draw_text(font, hint,
+    inp_x + inp_w - font:get_width(hint) - 6 * SCALE,
+    inp_y + input_h - font:get_height() - 4 * SCALE,
     P.fg_muted)
 
   -- Send/Stop button and Attachment button
@@ -2001,17 +2251,20 @@ end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
 function AGView:on_text_input(text)
+  delete_selection(self:state())
   local c = self:state().cursor or #self:state().input
   local before = self:state().input:sub(1, c)
   local after = self:state().input:sub(c + 1)
   self:state().input = before .. text .. after
   self:state().cursor = c + #text
+  self:state().select_anchor = nil
   self:_update_mentions()
   core.redraw = true
 end
 
 function AGView:on_paste(text)
   if not text then return end
+  delete_selection(self:state())
   local is_long = #text > 1000 or select(2, text:gsub("\n", "")) > 10
   local paste_txt = text
   if is_long then
@@ -2033,6 +2286,7 @@ function AGView:on_paste(text)
   local after = self:state().input:sub(c + 1)
   self:state().input = before .. paste_txt .. after
   self:state().cursor = c + #paste_txt
+  self:state().select_anchor = nil
   self:_update_mentions()
   core.redraw = true
 end
@@ -2057,6 +2311,7 @@ function AGView:on_key_pressed(key, ...)
         self:state().input = self:state().input:gsub("@[^%s]*$", "@" .. path .. " ")
         self:state().mention_suggestions = nil
       end
+      self:state().select_anchor = nil
       core.redraw = true
       return true
     elseif key == "escape" then
@@ -2079,22 +2334,76 @@ function AGView:on_key_pressed(key, ...)
       core.redraw = true
       return true
     end
+    if self:state().select_anchor then
+      self:state().select_anchor = nil
+      core.redraw = true
+      return true
+    end
   end
 
   local mods = keymap.modkeys or {}
+  local is_shift = (mods["shift"] == true) or (keymap.modkeys and keymap.modkeys["shift"] == true) or (key:find("^shift%+") ~= nil)
+  local is_ctrl = (mods["ctrl"] == true) or (keymap.modkeys and keymap.modkeys["ctrl"] == true) or (key:find("^ctrl%+") ~= nil) or (key:find("^cmd%+") ~= nil)
 
-  if key == "return" and not mods["ctrl"] then
-    local q = self:state().input:match("^%s*(.-)%s*$")
-    if q and #q > 0 then self:submit(q) end
-    self:state().input = ""
+  -- Select All: Ctrl+A / Cmd+A
+  if key == "ctrl+a" or key == "cmd+a" or (key == "a" and is_ctrl) then
+    self:state().select_anchor = 0
+    self:state().cursor = #(self:state().input or "")
     core.redraw = true
     return true
   end
 
-  if key == "return" and mods["ctrl"] then
+  -- Copy: Ctrl+C / Cmd+C
+  if key == "ctrl+c" or key == "cmd+c" or (key == "c" and is_ctrl) then
+    local sel_from, sel_to = get_selection_range(self:state())
+    if sel_from and sel_to and sel_from < sel_to then
+      system.set_clipboard((self:state().input or ""):sub(sel_from + 1, sel_to))
+    end
+    return true
+  end
+
+  -- Cut: Ctrl+X / Cmd+X
+  if key == "ctrl+x" or key == "cmd+x" or (key == "x" and is_ctrl) then
+    local sel_from, sel_to = get_selection_range(self:state())
+    if sel_from and sel_to and sel_from < sel_to then
+      system.set_clipboard((self:state().input or ""):sub(sel_from + 1, sel_to))
+      delete_selection(self:state())
+      self:_update_mentions()
+      core.redraw = true
+    end
+    return true
+  end
+
+  if (key == "return" or key == "enter" or key == "shift+return" or key == "shift+enter") and is_shift and not is_ctrl then
+    -- Shift+Enter: Insert line break
+    delete_selection(self:state())
+    local c = self:state().cursor or #self:state().input
+    local before = self:state().input:sub(1, c)
+    local after = self:state().input:sub(c + 1)
+    self:state().input = before .. "\n" .. after
+    self:state().cursor = c + 1
+    self:state().select_anchor = nil
+    self:_update_mentions()
+    core.redraw = true
+    return true
+  end
+
+  if (key == "return" or key == "enter") and not is_ctrl and not is_shift then
+    local q = self:state().input:match("^%s*(.-)%s*$")
+    if q and #q > 0 then self:submit(q) end
+    self:state().input = ""
+    self:state().cursor = 0
+    self:state().select_anchor = nil
+    core.redraw = true
+    return true
+  end
+
+  if (key == "return" or key == "enter" or key == "ctrl+return" or key == "ctrl+enter") and is_ctrl then
     -- Ctrl+Enter: clear chat
     self:state().sessions = {}
     self:state().input    = ""
+    self:state().cursor   = 0
+    self:state().select_anchor = nil
     self:state().status   = "idle"
     self:state().has_session = false
     if self:state().process then pcall(function() graceful_kill(self:state().process) end) end
@@ -2104,6 +2413,11 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "backspace" then
+    if delete_selection(self:state()) then
+      self:_update_mentions()
+      core.redraw = true
+      return true
+    end
     local c = self:state().cursor or #self:state().input
     if c > 0 then
       local prev_c = utf8_prev(self:state().input, c)
@@ -2111,6 +2425,7 @@ function AGView:on_key_pressed(key, ...)
       local after = self:state().input:sub(c + 1)
       self:state().input = before .. after
       self:state().cursor = prev_c
+      self:state().select_anchor = nil
       self:_update_mentions()
       core.redraw = true
     end
@@ -2118,45 +2433,203 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "delete" then
+    if delete_selection(self:state()) then
+      self:_update_mentions()
+      core.redraw = true
+      return true
+    end
     local c = self:state().cursor or #self:state().input
     if c < #self:state().input then
       local next_c = utf8_next(self:state().input, c)
       local before = self:state().input:sub(1, c)
       local after = self:state().input:sub(next_c + 1)
       self:state().input = before .. after
+      self:state().select_anchor = nil
       self:_update_mentions()
       core.redraw = true
     end
     return true
   end
 
-  if key == "left" then
-    self:state().cursor = utf8_prev(self:state().input, self:state().cursor or #self:state().input)
+  local base_key = key:gsub("^shift%+", ""):gsub("^ctrl%+", ""):gsub("^cmd%+", "")
+
+  if base_key == "left" then
+    if is_shift then
+      if not self:state().select_anchor then
+        self:state().select_anchor = self:state().cursor or #(self:state().input or "")
+      end
+      self:state().cursor = utf8_prev(self:state().input or "", self:state().cursor or #(self:state().input or ""))
+    else
+      local sel_from, _ = get_selection_range(self:state())
+      if sel_from then
+        self:state().cursor = sel_from
+        self:state().select_anchor = nil
+      else
+        self:state().cursor = utf8_prev(self:state().input or "", self:state().cursor or #(self:state().input or ""))
+        self:state().select_anchor = nil
+      end
+    end
     core.redraw = true
     return true
-  elseif key == "right" then
-    self:state().cursor = utf8_next(self:state().input, self:state().cursor or #self:state().input)
+  elseif base_key == "right" then
+    if is_shift then
+      if not self:state().select_anchor then
+        self:state().select_anchor = self:state().cursor or 0
+      end
+      self:state().cursor = utf8_next(self:state().input or "", self:state().cursor or 0)
+    else
+      local _, sel_to = get_selection_range(self:state())
+      if sel_to then
+        self:state().cursor = sel_to
+        self:state().select_anchor = nil
+      else
+        self:state().cursor = utf8_next(self:state().input or "", self:state().cursor or 0)
+        self:state().select_anchor = nil
+      end
+    end
     core.redraw = true
     return true
-  elseif key == "home" then
-    self:state().cursor = 0
+  elseif base_key == "home" then
+    local raw_input = self:state().input or ""
+    local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, (self.size.x - 20 * SCALE) - 16 * SCALE)
+    local cur_line = get_cursor_visual_line_col(visual_lines, raw_input, self:state().cursor)
+    local target_byte = get_cursor_byte_from_visual(visual_lines, cur_line, 0)
+    if is_shift then
+      if not self:state().select_anchor then
+        self:state().select_anchor = self:state().cursor or 0
+      end
+      self:state().cursor = target_byte
+    else
+      local sel_from, _ = get_selection_range(self:state())
+      if sel_from then
+        self:state().cursor = sel_from
+        self:state().select_anchor = nil
+      else
+        self:state().cursor = target_byte
+        self:state().select_anchor = nil
+      end
+    end
     core.redraw = true
     return true
-  elseif key == "end" then
-    self:state().cursor = #self:state().input
+  elseif base_key == "end" then
+    local raw_input = self:state().input or ""
+    local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, (self.size.x - 20 * SCALE) - 16 * SCALE)
+    local cur_line = get_cursor_visual_line_col(visual_lines, raw_input, self:state().cursor)
+    local line_info = visual_lines[cur_line] or visual_lines[#visual_lines]
+    local target_byte = get_cursor_byte_from_visual(visual_lines, cur_line, #(line_info.text or ""))
+    if is_shift then
+      if not self:state().select_anchor then
+        self:state().select_anchor = self:state().cursor or 0
+      end
+      self:state().cursor = target_byte
+    else
+      local _, sel_to = get_selection_range(self:state())
+      if sel_to then
+        self:state().cursor = sel_to
+        self:state().select_anchor = nil
+      else
+        self:state().cursor = target_byte
+        self:state().select_anchor = nil
+      end
+    end
     core.redraw = true
     return true
   end
 
-  if key == "up" then
-    self:state().scroll_y = math.max(0, self:state().scroll_y - (style.font:get_height() + 2 * SCALE) * 3)
-    core.redraw = true
-    return true
+  if base_key == "up" then
+    local raw_input = self:state().input or ""
+    local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, (self.size.x - 20 * SCALE) - 16 * SCALE)
+    local cur_line, cur_col = get_cursor_visual_line_col(visual_lines, raw_input, self:state().cursor)
+    if cur_line > 1 then
+      local prev_line = visual_lines[cur_line - 1]
+      local cur_line_info = visual_lines[cur_line]
+      local target_x = style.font:get_width((cur_line_info.text or ""):sub(1, cur_col))
+      local best_col = 0
+      local min_dist = math.abs(target_x)
+      local i = 0
+      local prev_text = prev_line.text or ""
+      while i < #prev_text do
+        local next_i = utf8_next(prev_text, i)
+        local dist = math.abs(style.font:get_width(prev_text:sub(1, next_i)) - target_x)
+        if dist < min_dist then
+          min_dist = dist
+          best_col = next_i
+        end
+        i = next_i
+      end
+      local target_byte = get_cursor_byte_from_visual(visual_lines, cur_line - 1, best_col)
+      if is_shift then
+        if not self:state().select_anchor then
+          self:state().select_anchor = self:state().cursor or 0
+        end
+        self:state().cursor = target_byte
+      else
+        local sel_from, _ = get_selection_range(self:state())
+        if sel_from then
+          self:state().cursor = sel_from
+          self:state().select_anchor = nil
+        else
+          self:state().cursor = target_byte
+          self:state().select_anchor = nil
+        end
+      end
+      core.redraw = true
+      return true
+    else
+      if not is_shift then
+        self:state().scroll_y = math.max(0, self:state().scroll_y - (style.font:get_height() + 2 * SCALE) * 3)
+      end
+      core.redraw = true
+      return true
+    end
   end
-  if key == "down" then
-    self:state().scroll_y = math.min(self:state().max_scroll, self:state().scroll_y + (style.font:get_height() + 2 * SCALE) * 3)
-    core.redraw = true
-    return true
+
+  if base_key == "down" then
+    local raw_input = self:state().input or ""
+    local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, (self.size.x - 20 * SCALE) - 16 * SCALE)
+    local cur_line, cur_col = get_cursor_visual_line_col(visual_lines, raw_input, self:state().cursor)
+    if cur_line < #visual_lines then
+      local next_line = visual_lines[cur_line + 1]
+      local cur_line_info = visual_lines[cur_line]
+      local target_x = style.font:get_width((cur_line_info.text or ""):sub(1, cur_col))
+      local best_col = 0
+      local min_dist = math.abs(target_x)
+      local i = 0
+      local next_text = next_line.text or ""
+      while i < #next_text do
+        local next_i = utf8_next(next_text, i)
+        local dist = math.abs(style.font:get_width(next_text:sub(1, next_i)) - target_x)
+        if dist < min_dist then
+          min_dist = dist
+          best_col = next_i
+        end
+        i = next_i
+      end
+      local target_byte = get_cursor_byte_from_visual(visual_lines, cur_line + 1, best_col)
+      if is_shift then
+        if not self:state().select_anchor then
+          self:state().select_anchor = self:state().cursor or 0
+        end
+        self:state().cursor = target_byte
+      else
+        local _, sel_to = get_selection_range(self:state())
+        if sel_to then
+          self:state().cursor = sel_to
+          self:state().select_anchor = nil
+        else
+          self:state().cursor = target_byte
+          self:state().select_anchor = nil
+        end
+      end
+      core.redraw = true
+      return true
+    else
+      if not is_shift then
+        self:state().scroll_y = math.min(self:state().max_scroll, self:state().scroll_y + (style.font:get_height() + 2 * SCALE) * 3)
+      end
+      core.redraw = true
+      return true
+    end
   end
   return false
 end
@@ -2167,6 +2640,36 @@ function AGView:on_mouse_moved(mx, my, ...)
   self.hover_btn  = nil
   self.hover_send = false
   self.hover_attach = false
+
+  -- Mouse drag selection in input
+  if self._dragging_input and self._input_rect then
+    local r = self._input_rect
+    local raw_input = self:state().input or ""
+    local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, r.w - 16 * SCALE)
+    local lh = r.lh or (style.font:get_height() + 3 * SCALE)
+    local scroll_offset = self._input_scroll_offset or 0
+    local line_idx = math.floor((my - (r.y + 8 * SCALE) + scroll_offset) / lh) + 1
+    line_idx = math.max(1, math.min(#visual_lines, line_idx))
+
+    local target_line_info = visual_lines[line_idx]
+    local target_line_str = target_line_info and target_line_info.text or ""
+    local click_x = mx - (r.x + 8 * SCALE)
+    local best_col = 0
+    local min_dist = math.abs(click_x)
+    local i = 0
+    while i < #target_line_str do
+      local next_i = utf8_next(target_line_str, i)
+      local char_w = style.font:get_width(target_line_str:sub(1, next_i))
+      local dist = math.abs(char_w - click_x)
+      if dist < min_dist then
+        min_dist = dist
+        best_col = next_i
+      end
+      i = next_i
+    end
+    self:state().cursor = get_cursor_byte_from_visual(visual_lines, line_idx, best_col)
+    core.redraw = true
+  end
 
   local x     = self.position.x
   local w     = self.size.x
@@ -2251,37 +2754,55 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   end
 
   -- Check if clicked inside input
-  local pad = 16 * SCALE
-  local chat_bot = self.size.y - (style.font:get_height() + 16 * SCALE) - 10 * SCALE - pad
-  local inp_y = chat_bot + pad
-  local input_h = style.font:get_height() + 16 * SCALE
-  if my >= inp_y and my <= inp_y + input_h then
-    local inp_x = self.position.x + pad
-    local inp_w = self.size.x - 2 * pad
-    local tx = inp_x + 8 * SCALE
-    if core.active_view == self then
-      local max_text_w = inp_w - 16 * SCALE
-      local cursor_idx = self:state().cursor or #self:state().input
-      local cursor_x = style.font:get_width(self:state().input:sub(1, cursor_idx))
-      if cursor_x > max_text_w then tx = tx - (cursor_x - max_text_w) end
-    end
-    local click_x = mx - tx
-    local best_cursor = 0
-    local min_dist = math.abs(click_x)
-    local i = 0
-    while i < #self:state().input do
-      local next_i = utf8_next(self:state().input, i)
-      local char_w = style.font:get_width(self:state().input:sub(1, next_i))
-      local dist = math.abs(char_w - click_x)
-      if dist < min_dist then
-        min_dist = dist
-        best_cursor = next_i
+  if self._input_rect then
+    local r = self._input_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      local raw_input = self:state().input or ""
+      local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, r.w - 16 * SCALE)
+      local lh = r.lh or (style.font:get_height() + 3 * SCALE)
+      local scroll_offset = self._input_scroll_offset or 0
+      local line_idx = math.floor((my - (r.y + 8 * SCALE) + scroll_offset) / lh) + 1
+      line_idx = math.max(1, math.min(#visual_lines, line_idx))
+
+      local target_line_info = visual_lines[line_idx]
+      local target_line_str = target_line_info and target_line_info.text or ""
+      local click_x = mx - (r.x + 8 * SCALE)
+      local best_col = 0
+      local min_dist = math.abs(click_x)
+      local i = 0
+      while i < #target_line_str do
+        local next_i = utf8_next(target_line_str, i)
+        local char_w = style.font:get_width(target_line_str:sub(1, next_i))
+        local dist = math.abs(char_w - click_x)
+        if dist < min_dist then
+          min_dist = dist
+          best_col = next_i
+        end
+        i = next_i
       end
-      i = next_i
+      local clicked_byte = get_cursor_byte_from_visual(visual_lines, line_idx, best_col)
+
+      if clicks == 2 then
+        -- Double click: select word
+        local w_from, w_to = find_word_boundaries(raw_input, clicked_byte)
+        self:state().select_anchor = w_from
+        self:state().cursor = w_to
+        self._dragging_input = false
+      elseif clicks == 3 then
+        -- Triple click: select all
+        self:state().select_anchor = 0
+        self:state().cursor = #raw_input
+        self._dragging_input = false
+      else
+        -- Single click
+        self:state().cursor = clicked_byte
+        self:state().select_anchor = clicked_byte
+        self._dragging_input = true
+      end
+
+      core.redraw = true
+      return true
     end
-    self:state().cursor = best_cursor
-    core.redraw = true
-    return true
   end
   if self.close_btn_rect then
     local r = self.close_btn_rect
@@ -2393,6 +2914,17 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   end
 
   return false
+end
+
+function AGView:on_mouse_released(button, mx, my)
+  AGView.super.on_mouse_released(self, button, mx, my)
+  if button == "left" then
+    self._dragging_input = false
+    if self:state().select_anchor == self:state().cursor then
+      self:state().select_anchor = nil
+    end
+    core.redraw = true
+  end
 end
 
 function AGView:on_mouse_wheel(dy)
@@ -2607,34 +3139,62 @@ end
 command.add(
   function() return core.active_view == instance end,
   {
-    ["antigravity:return"]    = function() instance:on_key_pressed("return") end,
-    ["antigravity:backspace"] = function() instance:on_key_pressed("backspace") end,
-    ["antigravity:scroll-up"] = function() instance:on_key_pressed("up") end,
+    ["antigravity:return"]      = function() instance:on_key_pressed("return") end,
+    ["antigravity:newline"]     = function() instance:on_key_pressed("shift+return") end,
+    ["antigravity:ctrl-return"] = function() instance:on_key_pressed("ctrl+return") end,
+    ["antigravity:backspace"]   = function() instance:on_key_pressed("backspace") end,
+    ["antigravity:scroll-up"]   = function() instance:on_key_pressed("up") end,
     ["antigravity:scroll-down"] = function() instance:on_key_pressed("down") end,
-    ["antigravity:escape"]    = function() instance:on_key_pressed("escape") end,
-    ["antigravity:paste"]     = function() instance:on_paste(system.get_clipboard()) end,
-    ["antigravity:delete"]    = function() instance:on_key_pressed("delete") end,
+    ["antigravity:escape"]      = function() instance:on_key_pressed("escape") end,
+    ["antigravity:paste"]       = function() instance:on_paste(system.get_clipboard()) end,
+    ["antigravity:copy"]        = function() instance:on_key_pressed("ctrl+c") end,
+    ["antigravity:cut"]         = function() instance:on_key_pressed("ctrl+x") end,
+    ["antigravity:select-all"]  = function() instance:on_key_pressed("ctrl+a") end,
+    ["antigravity:delete"]      = function() instance:on_key_pressed("delete") end,
     ["antigravity:cursor-left"]  = function() instance:on_key_pressed("left") end,
     ["antigravity:cursor-right"] = function() instance:on_key_pressed("right") end,
     ["antigravity:cursor-home"]  = function() instance:on_key_pressed("home") end,
     ["antigravity:cursor-end"]   = function() instance:on_key_pressed("end") end,
+    ["antigravity:select-left"]  = function() instance:on_key_pressed("shift+left") end,
+    ["antigravity:select-right"] = function() instance:on_key_pressed("shift+right") end,
+    ["antigravity:select-up"]    = function() instance:on_key_pressed("shift+up") end,
+    ["antigravity:select-down"]  = function() instance:on_key_pressed("shift+down") end,
+    ["antigravity:select-home"]  = function() instance:on_key_pressed("shift+home") end,
+    ["antigravity:select-end"]   = function() instance:on_key_pressed("shift+end") end,
   }
 )
 
 local keymap = require "core.keymap"
 keymap.add {
-  ["return"]    = "antigravity:return",
-  ["backspace"] = "antigravity:backspace",
-  ["up"]        = "antigravity:scroll-up",
-  ["down"]      = "antigravity:scroll-down",
-  ["escape"]    = "antigravity:escape",
-  ["ctrl+v"]    = "antigravity:paste",
-  ["cmd+v"]     = "antigravity:paste",
-  ["delete"]    = "antigravity:delete",
-  ["left"]      = "antigravity:cursor-left",
-  ["right"]     = "antigravity:cursor-right",
-  ["home"]      = "antigravity:cursor-home",
-  ["end"]       = "antigravity:cursor-end",
+  ["return"]       = "antigravity:return",
+  ["enter"]        = "antigravity:return",
+  ["shift+return"] = "antigravity:newline",
+  ["shift+enter"]  = "antigravity:newline",
+  ["ctrl+return"]  = "antigravity:ctrl-return",
+  ["ctrl+enter"]   = "antigravity:ctrl-return",
+  ["backspace"]    = "antigravity:backspace",
+  ["up"]           = "antigravity:scroll-up",
+  ["down"]         = "antigravity:scroll-down",
+  ["escape"]       = "antigravity:escape",
+  ["ctrl+a"]       = "antigravity:select-all",
+  ["cmd+a"]        = "antigravity:select-all",
+  ["ctrl+c"]       = "antigravity:copy",
+  ["cmd+c"]        = "antigravity:copy",
+  ["ctrl+x"]       = "antigravity:cut",
+  ["cmd+x"]        = "antigravity:cut",
+  ["ctrl+v"]       = "antigravity:paste",
+  ["cmd+v"]        = "antigravity:paste",
+  ["delete"]       = "antigravity:delete",
+  ["left"]         = "antigravity:cursor-left",
+  ["right"]        = "antigravity:cursor-right",
+  ["home"]         = "antigravity:cursor-home",
+  ["end"]          = "antigravity:cursor-end",
+  ["shift+left"]   = "antigravity:select-left",
+  ["shift+right"]  = "antigravity:select-right",
+  ["shift+up"]     = "antigravity:select-up",
+  ["shift+down"]   = "antigravity:select-down",
+  ["shift+home"]   = "antigravity:select-home",
+  ["shift+end"]    = "antigravity:select-end",
 }
 
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
