@@ -551,7 +551,7 @@ end
 
 local function get_mention_suggestions(query)
   local results = {}
-  local q = query:gsub("\\", "/")
+  local q = (query or ""):gsub("\\", "/")
   
   -- Split query into folder and search term
   local target_dir = ""
@@ -575,22 +575,24 @@ local function get_mention_suggestions(query)
   -- If we are inside a subfolder, add a ".." option
   if target_dir ~= "" then
     local parent = target_dir:match("^(.*[/])[^/]+[/]$") or ""
-    table.insert(folders, { type = "dir", full_path = parent, display = "📁 .." })
+    table.insert(folders, { type = "dir", full_path = parent, name = "..", badge = "[DIR]", display = "[DIR]  .." })
   end
   
   for _, f in ipairs(files) do
     if f:lower():find(search_term, 1, true) then
       local info = system.get_file_info(abs_dir .. f)
       if info and info.type == "dir" then
-        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", display = "📁 " .. f .. "/" })
+        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", name = f .. "/", badge = "[DIR]", display = "[DIR]  " .. f .. "/" })
       else
-        table.insert(raw_files, { type = "file", full_path = target_dir .. f, display = "📄 " .. f })
+        local ext = f:match("%.([%w_]+)$")
+        local badge = ext and ("[" .. ext:lower():sub(1, 4) .. "]") or "[FILE]"
+        table.insert(raw_files, { type = "file", full_path = target_dir .. f, name = f, badge = badge, display = badge .. "  " .. f })
       end
     end
   end
   
-  table.sort(folders, function(a,b) return a.display < b.display end)
-  table.sort(raw_files, function(a,b) return a.display < b.display end)
+  table.sort(folders, function(a,b) return a.name < b.name end)
+  table.sort(raw_files, function(a,b) return a.name < b.name end)
   
   for _, f in ipairs(folders) do
     table.insert(results, f)
@@ -1158,7 +1160,7 @@ function AGView:show_resume_picker()
         if not is_auto_healer then
           local is_pinned = pinned[cid]
           if is_pinned then
-            title = "📌 " .. title
+            title = "[PIN] " .. title
           end
           
           table.insert(results, { text = title, info = info_str, cid = cid, time = ts or 0, pinned = is_pinned })
@@ -1545,7 +1547,7 @@ function AGView:update()
           tab.process = nil
           tab.status  = "error"
           local fix_msg = table.concat({
-            "⏱ Request timed out after 5 minutes with no response.",
+            "[TIMEOUT] Request timed out after 5 minutes with no response.",
             "",
             "Most likely causes:",
             "  1. The AI model is taking too long to generate a response.",
@@ -1961,7 +1963,7 @@ function AGView:draw()
   core.pop_clip_rect()
 
   -- Hint text bottom-right of input
-  local hint = num_lines > 1 and "Shift+↵ Line" or "Enter ↵"
+  local hint = num_lines > 1 and "Shift+Enter Line" or "Enter Send"
   renderer.draw_text(font, hint,
     inp_x + inp_w - font:get_width(hint) - 6 * SCALE,
     inp_y + input_h - font:get_height() - 4 * SCALE,
@@ -2236,7 +2238,7 @@ function AGView:draw()
     if self:state().status == "running" and not is_user
        and sess == self:state().sessions[#self:state().sessions]
        and sess.text == "" then
-      local dots = string.rep("•", (math.floor(self.tick / 20) % 4))
+      local dots = string.rep(".", (math.floor(self.tick / 20) % 4))
       renderer.draw_text(style.font, dots,
         x + pad + msg_pad, ty + msg_pad, P.fg_muted)
     end
@@ -2279,12 +2281,26 @@ function AGView:draw()
     renderer.draw_rect(pop_x, pop_y, pop_w, pop_h, P.bg_darker)
     draw_rect_outline(pop_x, pop_y, pop_w, pop_h, P.border)
     
-    for i, file in ipairs(self:state().mention_suggestions) do
+    for i, item in ipairs(self:state().mention_suggestions) do
       local iy = pop_y + (i - 1) * item_h
-      if i == self:state().mention_idx then
+      local is_sel = (i == self:state().mention_idx)
+      if is_sel then
         renderer.draw_rect(pop_x, iy, pop_w, item_h, P.bg_btn_hl)
       end
-      renderer.draw_text(style.font, type(file) == "table" and file.display or file, pop_x + 8 * SCALE, iy + 4 * SCALE, P.fg)
+
+      local item_type = type(item) == "table" and item.type or "file"
+      local item_name = type(item) == "table" and (item.name or item.full_path) or tostring(item)
+      local badge     = type(item) == "table" and (item.badge or (item_type == "dir" and "[DIR]" or "[FILE]")) or "[FILE]"
+
+      local badge_color = (item_type == "dir") and P.fg_accent or P.fg_muted
+      local text_color  = is_sel and P.fg_accent or P.fg
+
+      -- Draw badge
+      renderer.draw_text(style.font, badge, pop_x + 8 * SCALE, iy + 4 * SCALE, badge_color)
+      local badge_w = style.font:get_width(badge .. "  ")
+
+      -- Draw file / folder name
+      renderer.draw_text(style.font, item_name, pop_x + 8 * SCALE + badge_w, iy + 4 * SCALE, text_color)
     end
   end
 
