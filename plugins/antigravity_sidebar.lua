@@ -2839,6 +2839,55 @@ end
 
 function AGView:on_mouse_pressed(button, mx, my, clicks)
   AGView.super.on_mouse_pressed(self, button, mx, my, clicks)
+  core.set_active_view(self)
+
+  -- Right-click: Linux shell style instant paste into input box
+  if button == "right" then
+    if self._input_rect then
+      local r = self._input_rect
+      local inside_input = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+      local in_bottom_area = (mx >= self.position.x and mx <= self.position.x + self.size.x and my >= r.y - 12 * SCALE)
+
+      if inside_input or in_bottom_area then
+        if inside_input then
+          local raw_input = self:state().input or ""
+          local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, r.w - 16 * SCALE)
+          local lh = r.lh or (style.font:get_height() + 3 * SCALE)
+          local scroll_offset = self._input_scroll_offset or 0
+          local line_idx = math.floor((my - (r.y + 8 * SCALE) + scroll_offset) / lh) + 1
+          line_idx = math.max(1, math.min(#visual_lines, line_idx))
+
+          local target_line_info = visual_lines[line_idx]
+          local target_line_str = target_line_info and target_line_info.text or ""
+          local click_x = mx - (r.x + 8 * SCALE)
+          local best_col = 0
+          local min_dist = math.abs(click_x)
+          local i = 0
+          while i < #target_line_str do
+            local next_i = utf8_next(target_line_str, i)
+            local char_w = style.font:get_width(target_line_str:sub(1, next_i))
+            local dist = math.abs(char_w - click_x)
+            if dist < min_dist then
+              min_dist = dist
+              best_col = next_i
+            end
+            i = next_i
+          end
+          self:state().cursor = get_cursor_byte_from_visual(visual_lines, line_idx, best_col)
+          self:state().select_anchor = nil
+        end
+
+        local clip = system.get_clipboard()
+        if clip and #clip > 0 then
+          self:on_paste(clip)
+        end
+        core.redraw = true
+        return true
+      end
+    end
+    return false
+  end
+
   if button ~= "left" then return false end
 
   -- Model picker button
