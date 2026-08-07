@@ -891,9 +891,12 @@ function store.start_server(callback)
         local f = io.open(mp, "r")
         if f or mp == "mongod.exe" then
           if f then f:close() end
-          process.start({ "cmd.exe", "/c", "start", "/b", '""', mp, "--dbpath", data_dir, "--bind_ip", "127.0.0.1", "--port", "27017" })
-          started = true
-          break
+          local ok, p = pcall(process.start, { mp, "--dbpath", data_dir, "--bind_ip", "127.0.0.1", "--port", "27017" })
+          if ok and p then
+            store.mongod_proc = p
+            started = true
+            break
+          end
         end
       end
 
@@ -913,8 +916,8 @@ function store.start_server(callback)
         end
       end
     else
-      process.start({ "sudo", "systemctl", "start", "mongod" })
-      started = true
+      local ok, p = pcall(process.start, { "sudo", "systemctl", "start", "mongod" })
+      if ok and p then started = true end
     end
 
     coroutine.yield(2.0)
@@ -937,6 +940,11 @@ function store.stop_server(callback)
   core.redraw = true
 
   core.add_thread(function()
+    if store.mongod_proc then
+      pcall(function() store.mongod_proc:terminate() end)
+      store.mongod_proc = nil
+    end
+
     local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
     if is_windows then
       local shut_js = "db.getSiblingDB('admin').shutdownServer({ force: true })"
