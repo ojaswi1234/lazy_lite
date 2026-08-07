@@ -1886,10 +1886,32 @@ db.%s.find({}).limit(20);
       end
 
       local formatted = json.stringify(result, true)
-      open_virtual_doc("results.mongodb.json", formatted, "results.json", {
-        is_mongo_results = true,
-      })
-      core.log("[MongoDB] Scratchpad query executed successfully.")
+      
+      -- Stream result directly to bottom terminal
+      local ok_tt, toggle_term = pcall(require, "plugins.toggle_terminal")
+      local term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
+      if not term then
+        command.perform("terminal:toggle")
+        term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
+      end
+      if term and not term.visible then command.perform("terminal:toggle") end
+      if term then
+        core.set_active_view(term)
+        if term.add_session then
+          term:add_session({ name = string.format("Query: %s", target_db), prompt_prefix = "" })
+        end
+        if term._push then
+          term:_push("cmd", string.format("// Database: %s | %s", target_db, os.date("%H:%M:%S")))
+          for line in formatted:gmatch("[^\r\n]+") do
+            term:_push("out", line)
+          end
+        end
+      else
+        open_virtual_doc("results.mongodb.json", formatted, "results.json", {
+          is_mongo_results = true,
+        })
+      end
+      core.log("[MongoDB] Scratchpad query executed successfully -> Output in bottom terminal.")
     end)
   end,
 
