@@ -218,20 +218,7 @@ if ($setupMongo) {
         $mongoshInstalled = $true
     }
 
-    if (-not $mongoshInstalled) {
-        $npmCheck = Get-Command "npm" -ErrorAction SilentlyContinue
-        if ($npmCheck) {
-            Write-Host "Installing MongoDB Shell (mongosh) globally via npm..." -ForegroundColor Cyan
-            try {
-                & npm install -g mongosh --silent 2>$null
-                $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
-                if ($mongoshCheck -or (Test-Path "$env:APPDATA\npm\mongosh.cmd")) {
-                    $mongoshInstalled = $true
-                }
-            } catch {}
-        }
-    }
-
+    # 1. Prefer official standalone winget package
     if (-not $mongoshInstalled -and $wingetAvailable) {
         Write-Host "Installing official MongoDB Shell (mongosh) via winget..." -ForegroundColor Cyan
         try {
@@ -239,6 +226,26 @@ if ($setupMongo) {
             $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
             if ($mongoshCheck) { $mongoshInstalled = $true }
         } catch {}
+    }
+
+    # 2. Standalone binary check in LOCALAPPDATA
+    if (-not $mongoshInstalled -and (Test-Path "$env:LOCALAPPDATA\Programs\mongosh\mongosh.exe")) {
+        $mongoshInstalled = $true
+    }
+
+    # 3. NPM fallback only if native installer is unavailable
+    if (-not $mongoshInstalled) {
+        $npmCheck = Get-Command "npm" -ErrorAction SilentlyContinue
+        if ($npmCheck) {
+            Write-Host "Installing MongoDB Shell (mongosh) via npm fallback..." -ForegroundColor Cyan
+            try {
+                & npm install -g mongosh --silent 2>$null
+                $mongoshCheck = Get-Command "mongosh" -ErrorAction SilentlyContinue
+                if ($mongoshCheck) {
+                    $mongoshInstalled = $true
+                }
+            } catch {}
+        }
     }
 
     if ($realPython) {

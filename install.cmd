@@ -139,17 +139,21 @@ if %errorlevel% equ 0 (
 if /i "!SETUP_MONGO!"=="y" (
     where mongosh >nul 2>nul
     if !errorlevel! neq 0 (
-        where npm >nul 2>nul
+        where winget >nul 2>nul
         if !errorlevel! equ 0 (
-            echo Installing MongoDB Shell (mongosh) globally via npm...
-            call npm install -g mongosh --silent >nul 2>nul
+            echo Installing official MongoDB Shell via winget...
+            winget install -e --id MongoDB.mongosh --accept-source-agreements --accept-package-agreements --silent >nul 2>nul
         )
         where mongosh >nul 2>nul
         if !errorlevel! neq 0 (
-            where winget >nul 2>nul
-            if !errorlevel! equ 0 (
-                echo Installing official MongoDB Shell via winget...
-                winget install -e --id MongoDB.mongosh --accept-source-agreements --accept-package-agreements --silent >nul 2>nul
+            if exist "%LOCALAPPDATA%\Programs\mongosh\mongosh.exe" (
+                echo Found standalone mongosh in %LOCALAPPDATA%\Programs\mongosh.
+            ) else (
+                where npm >nul 2>nul
+                if !errorlevel! equ 0 (
+                    echo Installing MongoDB Shell (mongosh) via npm...
+                    call npm install -g mongosh --silent >nul 2>nul
+                )
             )
         )
     )
