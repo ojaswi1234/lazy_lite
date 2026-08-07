@@ -828,7 +828,7 @@ function store.check_server_status(callback)
     local is_running = false
     local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
     if is_windows then
-      local proc = process.start({ "cmd.exe", "/c", "powershell -Command \"(Get-Service MongoDB -ErrorAction SilentlyContinue).Status\"" })
+      local proc = process.start({ "cmd.exe", "/c", "tasklist /FI \"IMAGENAME eq mongod.exe\" /NH" })
       if proc then
         local out = ""
         local t0 = system.get_time()
@@ -839,7 +839,7 @@ function store.check_server_status(callback)
         end
         local r = proc:read_stdout()
         if r then out = out .. r end
-        if out:find("Running") or out:find("running") then
+        if out:find("mongod.exe") then
           is_running = true
         end
       end
@@ -875,42 +875,40 @@ function store.start_server(callback)
     local started = false
 
     if is_windows then
-      local proc = process.start({ "cmd.exe", "/c", "net start MongoDB" })
-      if proc then
-        local out = ""
-        local t0 = system.get_time()
-        while proc:running() and system.get_time() - t0 < 6 do
-          local r = proc:read_stdout()
-          if r then out = out .. r end
-          coroutine.yield(0.05)
-        end
-        local r = proc:read_stdout()
-        if r then out = out .. r end
-        if out:find("started successfully") or out:find("already been started") then
+      local localappdata = os.getenv("LOCALAPPDATA") or "C:\\Users\\Default\\AppData\\Local"
+      local userprofile = os.getenv("USERPROFILE") or "C:\\Users\\Default"
+      local data_dir = userprofile .. "\\mongodb_data"
+      pcall(function() os.execute('mkdir "' .. data_dir .. '" 2>nul') end)
+
+      local mongod_paths = {
+        localappdata .. "\\Programs\\MongoDB-7.0\\bin\\mongod.exe",
+        "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongod.exe",
+        "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongod.exe",
+        "mongod.exe",
+      }
+
+      for _, mp in ipairs(mongod_paths) do
+        local f = io.open(mp, "r")
+        if f or mp == "mongod.exe" then
+          if f then f:close() end
+          process.start({ "cmd.exe", "/c", "start", "/b", '""', mp, "--dbpath", data_dir, "--bind_ip", "127.0.0.1", "--port", "27017" })
           started = true
-        else
-          -- If elevation needed, run via PowerShell RunAs
-          process.start({ "powershell", "-Command", "Start-Process cmd -ArgumentList '/c net start MongoDB' -Verb RunAs -WindowStyle Hidden" })
+          break
         end
       end
 
       if not started then
-        local mongod_paths = {
-          "C:\\Program Files\\MongoDB\\Server\\8.0\\bin\\mongod.exe",
-          "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongod.exe",
-          "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongod.exe",
-          "mongod.exe",
-        }
-        for _, mp in ipairs(mongod_paths) do
-          local f = io.open(mp, "r")
-          if f or mp == "mongod.exe" then
-            if f then f:close() end
-            local userprofile = os.getenv("USERPROFILE") or "C:\\Users\\Default"
-            local data_dir = userprofile .. "\\mongodb_data"
-            pcall(function() os.execute('mkdir "' .. data_dir .. '" 2>nul') end)
-            process.start({ "cmd.exe", "/c", "start", "/b", mp, "--dbpath", data_dir })
+        local proc = process.start({ "cmd.exe", "/c", "net start MongoDB" })
+        if proc then
+          local out = ""
+          local t0 = system.get_time()
+          while proc:running() and system.get_time() - t0 < 4 do
+            local r = proc:read_stdout()
+            if r then out = out .. r end
+            coroutine.yield(0.05)
+          end
+          if out:find("started successfully") or out:find("already been started") then
             started = true
-            break
           end
         end
       end
@@ -921,7 +919,7 @@ function store.start_server(callback)
 
     coroutine.yield(2.0)
     store.server_status = "running"
-    core.log("[MongoDB] MongoDB Server is running.")
+    core.log("[MongoDB] MongoDB Server is running at 127.0.0.1:27017.")
     
     local local_conn = store.find_connection("conn_local") or store.connections[1]
     if local_conn and local_conn.uri:find("127.0.0.1") then
@@ -944,13 +942,8 @@ function store.stop_server(callback)
       local shut_js = "db.getSiblingDB('admin').shutdownServer({ force: true })"
       run_mongo_cli("mongodb://127.0.0.1:27017", shut_js, function() end)
 
-      local proc = process.start({ "cmd.exe", "/c", "net stop MongoDB" })
-      if proc then
-        local t0 = system.get_time()
-        while proc:running() and system.get_time() - t0 < 6 do
-          coroutine.yield(0.05)
-        end
-      end
+      pcall(function() os.execute("taskkill /F /IM mongod.exe >nul 2>&1") end)
+      pcall(function() os.execute("net stop MongoDB >nul 2>&1") end)
     else
       process.start({ "sudo", "systemctl", "stop", "mongod" })
     end
