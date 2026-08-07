@@ -897,7 +897,11 @@ function store.connect(conn, on_complete)
     if err then
       conn.status = "error"
       conn.error = err
-      core.error("[MongoDB] Connection error on %s: %s", conn.name, err)
+      if err and (err:find("ECONNREFUSED") or err:find("MongoNetworkError") or err:find("connection refused")) then
+        core.warn("[MongoDB] Connection refused at 127.0.0.1:27017. Is your local MongoDB server/service or Docker container running? You can also connect to MongoDB Atlas Cloud by clicking '+ Add Connection'.")
+      else
+        core.error("[MongoDB] Connection error on %s: %s", conn.name, err)
+      end
       if on_complete then on_complete(false, err) end
       core.redraw = true
       return
@@ -1540,6 +1544,7 @@ function MongoDBExplorerView:draw()
   renderer.draw_rect(x, footer_y, w, 1 * SCALE, pal.divider)
 
   local action_buttons = {
+    { label = "mongosh Shell", cmd = "mongodb_explorer:open-terminal" },
     { label = "View Docs", cmd = "mongodb_explorer:view-documents" },
     { label = "Scratchpad", cmd = "mongodb_explorer:new-scratchpad" },
     { label = "Insert", cmd = "mongodb_explorer:insert-document" },
@@ -1636,6 +1641,57 @@ end
 -- ============================================================================
 -- Plugin Commands & Keymaps
 -- ============================================================================
+
+local function open_mongosh_terminal(conn, db)
+  if not conn then
+    conn = store.connections[1]
+  end
+  if not conn then
+    core.warn("[MongoDB] No connection available to open mongosh terminal.")
+    return
+  end
+
+  local ok, toggle_term = pcall(require, "plugins.toggle_terminal")
+  if not ok or not toggle_term then
+    ok, toggle_term = pcall(require, "plugins.toggle_terminal.init")
+  end
+
+  local term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
+  if not term then
+    command.perform("terminal:toggle")
+    term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
+  end
+
+  if term and not term.visible then
+    command.perform("terminal:toggle")
+  end
+
+  if term then
+    core.set_active_view(term)
+    local tab_name = db and ("mongosh (" .. db .. ")") or ("mongosh (" .. conn.name .. ")")
+    if term.add_session then
+      term:add_session({ name = tab_name, prompt_prefix = "" })
+    end
+
+    local connect_target = conn.uri
+    if db and db ~= "" and not conn.uri:find("mongodb%+?s?r?v?://[^/]+/[^?]+") then
+      if conn.uri:find("%?") then
+        connect_target = conn.uri:gsub("%?", "/" .. db .. "?", 1)
+      else
+        connect_target = conn.uri:gsub("/?$", "/" .. db)
+      end
+    end
+
+    local cmd = "mongosh \"" .. connect_target .. "\""
+    if term.run then
+      term:run(cmd)
+    end
+    core.log("[MongoDB] Launched mongosh shell in bottom terminal (%s)", conn.name)
+  else
+    core.warn("[MongoDB] Bottom terminal plugin not found. Please ensure toggle_terminal is enabled.")
+  end
+end
+
 local explorer_view = nil
 
 local function get_or_create_explorer()
@@ -1646,6 +1702,16 @@ local function get_or_create_explorer()
 end
 
 command.add(nil, {
+  ["mongodb_explorer:open-terminal"] = function()
+    local conn, db, _ = get_selected_context()
+    open_mongosh_terminal(conn, db)
+  end,
+
+  ["mongodb_explorer:open-mongosh-terminal"] = function()
+    local conn, db, _ = get_selected_context()
+    open_mongosh_terminal(conn, db)
+  end,
+
   ["mongodb:activity-bar"] = function()
     command.perform("mongodb_explorer:toggle")
   end,
