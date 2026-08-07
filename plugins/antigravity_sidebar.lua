@@ -944,9 +944,78 @@ function AGView:_add_chat()
     mention_suggestions = nil,
     mention_idx = 1,
     scroll_to_bottom = true,
+    history = { { input = "", cursor = 0 } },
+    history_idx = 1,
   }
   table.insert(self.chats, c)
   self.active_idx = #self.chats
+end
+
+function AGView:_push_history(new_input, new_cursor)
+  local st = self:state()
+  new_input = new_input or ""
+  new_cursor = new_cursor or #new_input
+
+  if not st.history or #st.history == 0 then
+    st.history = { { input = "", cursor = 0 } }
+    st.history_idx = 1
+  end
+
+  local cur_entry = st.history[st.history_idx]
+  if cur_entry and cur_entry.input == new_input and cur_entry.cursor == new_cursor then
+    st.input = new_input
+    st.cursor = new_cursor
+    return
+  end
+
+  -- Truncate redo stack beyond current index
+  while #st.history > st.history_idx do
+    table.remove(st.history)
+  end
+
+  table.insert(st.history, { input = new_input, cursor = new_cursor })
+  if #st.history > 200 then
+    table.remove(st.history, 1)
+  end
+  st.history_idx = #st.history
+
+  st.input = new_input
+  st.cursor = new_cursor
+  st.select_anchor = nil
+  self:_update_mentions()
+  core.redraw = true
+end
+
+function AGView:undo()
+  local st = self:state()
+  if not st.history or st.history_idx <= 1 then return false end
+  st.history_idx = st.history_idx - 1
+  local entry = st.history[st.history_idx]
+  if entry then
+    st.input = entry.input or ""
+    st.cursor = math.min(#st.input, entry.cursor or #st.input)
+    st.select_anchor = nil
+    self:_update_mentions()
+    core.redraw = true
+    return true
+  end
+  return false
+end
+
+function AGView:redo()
+  local st = self:state()
+  if not st.history or st.history_idx >= #st.history then return false end
+  st.history_idx = st.history_idx + 1
+  local entry = st.history[st.history_idx]
+  if entry then
+    st.input = entry.input or ""
+    st.cursor = math.min(#st.input, entry.cursor or #st.input)
+    st.select_anchor = nil
+    self:_update_mentions()
+    core.redraw = true
+    return true
+  end
+  return false
 end
 
 
@@ -2278,14 +2347,11 @@ function AGView:on_text_input(text)
     return
   end
   delete_selection(self:state())
-  local c = self:state().cursor or #self:state().input
-  local before = self:state().input:sub(1, c)
-  local after = self:state().input:sub(c + 1)
-  self:state().input = before .. clean .. after
-  self:state().cursor = c + #clean
-  self:state().select_anchor = nil
-  self:_update_mentions()
-  core.redraw = true
+  local c = self:state().cursor or #(self:state().input or "")
+  local inp = self:state().input or ""
+  local before = inp:sub(1, c)
+  local after = inp:sub(c + 1)
+  self:_push_history(before .. clean .. after, c + #clean)
 end
 
 function AGView:on_paste(text)
@@ -2309,14 +2375,11 @@ function AGView:on_paste(text)
       paste_txt = " @" .. filename .. " "
     end
   end
-  local c = self:state().cursor or #self:state().input
-  local before = self:state().input:sub(1, c)
-  local after = self:state().input:sub(c + 1)
-  self:state().input = before .. paste_txt .. after
-  self:state().cursor = c + #paste_txt
-  self:state().select_anchor = nil
-  self:_update_mentions()
-  core.redraw = true
+  local c = self:state().cursor or #(self:state().input or "")
+  local inp = self:state().input or ""
+  local before = inp:sub(1, c)
+  local after = inp:sub(c + 1)
+  self:_push_history(before .. paste_txt .. after, c + #paste_txt)
 end
 
 function AGView:on_key_pressed(key, ...)
@@ -2373,6 +2436,19 @@ function AGView:on_key_pressed(key, ...)
   local is_shift = (mods["shift"] == true) or (keymap.modkeys and keymap.modkeys["shift"] == true) or (key:find("^shift%+") ~= nil)
   local is_ctrl = (mods["ctrl"] == true) or (keymap.modkeys and keymap.modkeys["ctrl"] == true) or (key:find("^ctrl%+") ~= nil) or (key:find("^cmd%+") ~= nil)
 
+  -- Undo: Ctrl+Z / Cmd+Z
+  if key == "ctrl+z" or key == "cmd+z" or (key == "z" and is_ctrl and not is_shift) then
+    self:undo()
+    return true
+  end
+
+  -- Redo: Ctrl+Y / Cmd+Y / Ctrl+Shift+Z / Cmd+Shift+Z
+  if key == "ctrl+y" or key == "cmd+y" or key == "ctrl+shift+z" or key == "cmd+shift+z"
+     or (key == "y" and is_ctrl) or (key == "z" and is_ctrl and is_shift) then
+    self:redo()
+    return true
+  end
+
   -- Select All: Ctrl+A / Cmd+A
   if key == "ctrl+a" or key == "cmd+a" or (key == "a" and is_ctrl) then
     self:state().select_anchor = 0
@@ -2395,9 +2471,8 @@ function AGView:on_key_pressed(key, ...)
     local sel_from, sel_to = get_selection_range(self:state())
     if sel_from and sel_to and sel_from < sel_to then
       system.set_clipboard((self:state().input or ""):sub(sel_from + 1, sel_to))
-      delete_selection(self:state())
-      self:_update_mentions()
-      core.redraw = true
+      local inp = self:state().input or ""
+      self:_push_history(inp:sub(1, sel_from) .. inp:sub(sel_to + 1), sel_from)
     end
     return true
   end
@@ -2414,23 +2489,22 @@ function AGView:on_key_pressed(key, ...)
   if (key == "return" or key == "enter" or key == "shift+return" or key == "shift+enter") and is_shift and not is_ctrl then
     -- Shift+Enter: Insert line break
     delete_selection(self:state())
-    local c = self:state().cursor or #self:state().input
-    local before = self:state().input:sub(1, c)
-    local after = self:state().input:sub(c + 1)
-    self:state().input = before .. "\n" .. after
-    self:state().cursor = c + 1
-    self:state().select_anchor = nil
-    self:_update_mentions()
-    core.redraw = true
+    local c = self:state().cursor or #(self:state().input or "")
+    local inp = self:state().input or ""
+    local before = inp:sub(1, c)
+    local after = inp:sub(c + 1)
+    self:_push_history(before .. "\n" .. after, c + 1)
     return true
   end
 
   if (key == "return" or key == "enter") and not is_ctrl and not is_shift then
-    local q = self:state().input:match("^%s*(.-)%s*$")
+    local q = (self:state().input or ""):match("^%s*(.-)%s*$")
     if q and #q > 0 then self:submit(q) end
     self:state().input = ""
     self:state().cursor = 0
     self:state().select_anchor = nil
+    self:state().history = { { input = "", cursor = 0 } }
+    self:state().history_idx = 1
     core.redraw = true
     return true
   end
@@ -2443,6 +2517,8 @@ function AGView:on_key_pressed(key, ...)
     self:state().select_anchor = nil
     self:state().status   = "idle"
     self:state().has_session = false
+    self:state().history = { { input = "", cursor = 0 } }
+    self:state().history_idx = 1
     if self:state().process then pcall(function() graceful_kill(self:state().process) end) end
     self:state().process  = nil
     core.redraw = true
@@ -2450,40 +2526,37 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "backspace" then
-    if delete_selection(self:state()) then
-      self:_update_mentions()
-      core.redraw = true
+    local sel_from, sel_to = get_selection_range(self:state())
+    if sel_from and sel_to and sel_from < sel_to then
+      local inp = self:state().input or ""
+      self:_push_history(inp:sub(1, sel_from) .. inp:sub(sel_to + 1), sel_from)
       return true
     end
-    local c = self:state().cursor or #self:state().input
+    local c = self:state().cursor or #(self:state().input or "")
     if c > 0 then
-      local prev_c = utf8_prev(self:state().input, c)
-      local before = self:state().input:sub(1, prev_c)
-      local after = self:state().input:sub(c + 1)
-      self:state().input = before .. after
-      self:state().cursor = prev_c
-      self:state().select_anchor = nil
-      self:_update_mentions()
-      core.redraw = true
+      local inp = self:state().input or ""
+      local prev_c = utf8_prev(inp, c)
+      local before = inp:sub(1, prev_c)
+      local after = inp:sub(c + 1)
+      self:_push_history(before .. after, prev_c)
     end
     return true
   end
 
   if key == "delete" then
-    if delete_selection(self:state()) then
-      self:_update_mentions()
-      core.redraw = true
+    local sel_from, sel_to = get_selection_range(self:state())
+    if sel_from and sel_to and sel_from < sel_to then
+      local inp = self:state().input or ""
+      self:_push_history(inp:sub(1, sel_from) .. inp:sub(sel_to + 1), sel_from)
       return true
     end
-    local c = self:state().cursor or #self:state().input
-    if c < #self:state().input then
-      local next_c = utf8_next(self:state().input, c)
-      local before = self:state().input:sub(1, c)
-      local after = self:state().input:sub(next_c + 1)
-      self:state().input = before .. after
-      self:state().select_anchor = nil
-      self:_update_mentions()
-      core.redraw = true
+    local c = self:state().cursor or #(self:state().input or "")
+    local inp = self:state().input or ""
+    if c < #inp then
+      local next_c = utf8_next(inp, c)
+      local before = inp:sub(1, c)
+      local after = inp:sub(next_c + 1)
+      self:_push_history(before .. after, c)
     end
     return true
   end
@@ -3172,32 +3245,55 @@ function StatusView:draw(...)
   style.accent = old_accent
 end
 
+local function is_sidebar_active()
+  local v = core.active_view
+  if not v then return false end
+  return v == instance
+      or v == rawget(_G, "_ag_instance")
+      or (v.is and v:is(AGView))
+      or v.class_name == "AGView"
+end
+
+local function get_active_sidebar()
+  local v = core.active_view
+  if is_sidebar_active() then return v end
+  return instance or rawget(_G, "_ag_instance")
+end
+
 -- Bind local commands that only activate when AI Sidebar is focused
 command.add(
-  function() return core.active_view == instance end,
+  is_sidebar_active,
   {
-    ["antigravity:return"]      = function() instance:on_key_pressed("return") end,
-    ["antigravity:newline"]     = function() instance:on_key_pressed("shift+return") end,
-    ["antigravity:ctrl-return"] = function() instance:on_key_pressed("ctrl+return") end,
-    ["antigravity:backspace"]   = function() instance:on_key_pressed("backspace") end,
-    ["antigravity:scroll-up"]   = function() instance:on_key_pressed("up") end,
-    ["antigravity:scroll-down"] = function() instance:on_key_pressed("down") end,
-    ["antigravity:escape"]      = function() instance:on_key_pressed("escape") end,
-    ["antigravity:paste"]       = function() instance:on_paste(system.get_clipboard()) end,
-    ["antigravity:copy"]        = function() instance:on_key_pressed("ctrl+c") end,
-    ["antigravity:cut"]         = function() instance:on_key_pressed("ctrl+x") end,
-    ["antigravity:select-all"]  = function() instance:on_key_pressed("ctrl+a") end,
-    ["antigravity:delete"]      = function() instance:on_key_pressed("delete") end,
-    ["antigravity:cursor-left"]  = function() instance:on_key_pressed("left") end,
-    ["antigravity:cursor-right"] = function() instance:on_key_pressed("right") end,
-    ["antigravity:cursor-home"]  = function() instance:on_key_pressed("home") end,
-    ["antigravity:cursor-end"]   = function() instance:on_key_pressed("end") end,
-    ["antigravity:select-left"]  = function() instance:on_key_pressed("shift+left") end,
-    ["antigravity:select-right"] = function() instance:on_key_pressed("shift+right") end,
-    ["antigravity:select-up"]    = function() instance:on_key_pressed("shift+up") end,
-    ["antigravity:select-down"]  = function() instance:on_key_pressed("shift+down") end,
-    ["antigravity:select-home"]  = function() instance:on_key_pressed("shift+home") end,
-    ["antigravity:select-end"]   = function() instance:on_key_pressed("shift+end") end,
+    ["antigravity:return"]      = function() local s = get_active_sidebar(); if s then s:on_key_pressed("return") end end,
+    ["antigravity:newline"]     = function() local s = get_active_sidebar(); if s then s:on_key_pressed("shift+return") end end,
+    ["antigravity:ctrl-return"] = function() local s = get_active_sidebar(); if s then s:on_key_pressed("ctrl+return") end end,
+    ["antigravity:backspace"]   = function() local s = get_active_sidebar(); if s then s:on_key_pressed("backspace") end end,
+    ["antigravity:scroll-up"]   = function() local s = get_active_sidebar(); if s then s:on_key_pressed("up") end end,
+    ["antigravity:scroll-down"] = function() local s = get_active_sidebar(); if s then s:on_key_pressed("down") end end,
+    ["antigravity:escape"]      = function() local s = get_active_sidebar(); if s then s:on_key_pressed("escape") end end,
+    ["antigravity:paste"]       = function()
+      local s = get_active_sidebar()
+      if s then
+        local clip = system.get_clipboard()
+        if clip and #clip > 0 then s:on_paste(clip) end
+      end
+    end,
+    ["antigravity:undo"]        = function() local s = get_active_sidebar(); if s then s:undo() end end,
+    ["antigravity:redo"]        = function() local s = get_active_sidebar(); if s then s:redo() end end,
+    ["antigravity:copy"]        = function() local s = get_active_sidebar(); if s then s:on_key_pressed("ctrl+c") end end,
+    ["antigravity:cut"]         = function() local s = get_active_sidebar(); if s then s:on_key_pressed("ctrl+x") end end,
+    ["antigravity:select-all"]  = function() local s = get_active_sidebar(); if s then s:on_key_pressed("ctrl+a") end end,
+    ["antigravity:delete"]      = function() local s = get_active_sidebar(); if s then s:on_key_pressed("delete") end end,
+    ["antigravity:cursor-left"]  = function() local s = get_active_sidebar(); if s then s:on_key_pressed("left") end end,
+    ["antigravity:cursor-right"] = function() local s = get_active_sidebar(); if s then s:on_key_pressed("right") end end,
+    ["antigravity:cursor-home"]  = function() local s = get_active_sidebar(); if s then s:on_key_pressed("home") end end,
+    ["antigravity:cursor-end"]   = function() local s = get_active_sidebar(); if s then s:on_key_pressed("end") end end,
+    ["antigravity:select-left"]  = function() local s = get_active_sidebar(); if s then s:on_key_pressed("shift+left") end end,
+    ["antigravity:select-right"] = function() local s = get_active_sidebar(); if s then s:on_key_pressed("shift+right") end end,
+    ["antigravity:select-up"]    = function() local s = get_active_sidebar(); if s then s:on_key_pressed("shift+up") end end,
+    ["antigravity:select-down"]  = function() local s = get_active_sidebar(); if s then s:on_key_pressed("shift+down") end end,
+    ["antigravity:select-home"]  = function() local s = get_active_sidebar(); if s then s:on_key_pressed("shift+home") end end,
+    ["antigravity:select-end"]   = function() local s = get_active_sidebar(); if s then s:on_key_pressed("shift+end") end end,
   }
 )
 
@@ -3213,6 +3309,12 @@ keymap.add {
   ["up"]           = "antigravity:scroll-up",
   ["down"]         = "antigravity:scroll-down",
   ["escape"]       = "antigravity:escape",
+  ["ctrl+z"]       = "antigravity:undo",
+  ["cmd+z"]        = "antigravity:undo",
+  ["ctrl+y"]       = "antigravity:redo",
+  ["cmd+y"]        = "antigravity:redo",
+  ["ctrl+shift+z"] = "antigravity:redo",
+  ["cmd+shift+z"]  = "antigravity:redo",
   ["ctrl+a"]       = "antigravity:select-all",
   ["cmd+a"]        = "antigravity:select-all",
   ["ctrl+c"]       = "antigravity:copy",
