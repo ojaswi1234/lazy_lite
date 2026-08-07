@@ -1765,6 +1765,49 @@ end
 -- Document Virtual Doc & Scratchpad Helpers (High Performance & Memory Safe)
 -- ============================================================================
 local function open_virtual_doc(title, content, syntax_filename, metadata)
+  -- Search if a document of this type/scope is already open to reuse it
+  local existing_doc = nil
+  for _, d in ipairs(core.docs) do
+    if metadata and metadata.is_mongo_scratchpad and d.is_mongo_scratchpad and d.mongo_db == metadata.mongo_db then
+      existing_doc = d
+      break
+    elseif metadata and metadata.is_mongo_results and d.is_mongo_results then
+      existing_doc = d
+      break
+    elseif metadata and metadata.is_mongo_doc_viewer and d.is_mongo_doc_viewer and d.mongo_db == metadata.mongo_db and d.mongo_col == metadata.mongo_col then
+      existing_doc = d
+      break
+    elseif d.filename and syntax_filename and d.filename == syntax_filename then
+      existing_doc = d
+      break
+    end
+  end
+
+  if existing_doc then
+    -- Reuse existing open tab in-place
+    existing_doc:reset()
+    pcall(function() existing_doc:raw_insert(1, 1, content or "") end)
+    existing_doc:clean()
+    existing_doc.clean_change_id = existing_doc:get_change_id()
+    if metadata then
+      for k, v in pairs(metadata) do existing_doc[k] = v end
+    end
+    
+    -- Focus existing view
+    for _, node in ipairs(core.root_view.root_node:get_children()) do
+      if node.views then
+        for _, view in ipairs(node.views) do
+          if view.doc == existing_doc then
+            core.set_active_view(view)
+            return existing_doc, view
+          end
+        end
+      end
+    end
+    local doc_view = core.root_view:open_doc(existing_doc)
+    return existing_doc, doc_view
+  end
+
   local doc = Doc()
   if syntax_filename then
     pcall(function() doc:set_filename(syntax_filename) end)
@@ -2072,7 +2115,7 @@ db.%s.find({}).limit(20);
 
       local formatted = json.stringify(result, true)
       
-      -- Stream result directly to bottom terminal
+      -- Stream result directly to bottom terminal (reusing single query output session)
       local ok_tt, toggle_term = pcall(require, "plugins.toggle_terminal")
       local term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
       if not term then
@@ -2082,16 +2125,32 @@ db.%s.find({}).limit(20);
       if term and not term.visible then command.perform("terminal:toggle") end
       if term then
         core.set_active_view(term)
-        if term.add_session then
-          term:add_session({ name = string.format("Query: %s", target_db), prompt_prefix = "" })
+        -- Find existing "Query Output" session or create one
+        local target_session = nil
+        if term.sessions then
+          for _, s in ipairs(term.sessions) do
+            if s.name and (s.name == "MongoDB Output" or s.name:find("Query:")) then
+              target_session = s
+              break
+            end
+          end
+        end
+        if not target_session and term.add_session then
+          term:add_session({ name = "MongoDB Output", prompt_prefix = "" })
+          target_session = term.sessions and term.sessions[#term.sessions]
+        end
+        if target_session and term.select_session then
+          term:select_session(target_session)
         end
         if term._push then
-          term:_push("cmd", string.format("// Database: %s | %s", target_db, os.date("%H:%M:%S")))
+          term:_push("cmd", string.format("─── [MongoDB Output: %s | %s] ───", target_db, os.date("%H:%M:%S")))
           for line in formatted:gmatch("[^\r\n]+") do
             term:_push("out", line)
           end
+          term:_push("out", "")
         end
       else
+        -- Reuse existing single results.json tab without multiplying tabs
         open_virtual_doc("results.mongodb.json", formatted, "results.json", {
           is_mongo_results = true,
         })
