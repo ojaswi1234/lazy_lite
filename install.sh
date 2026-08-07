@@ -1,11 +1,53 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# LazyLite Configuration Installer (Linux & macOS)
-# Handles all edge cases: sudo/non-root containers, curl/wget fallbacks,
-# PEP 668 Python environments, multi-architecture lite-pty, and safe init.lua.
+# LazyLite Configuration & Auto-Setup Installer (Linux, macOS, GitHub Codespaces)
+# High-reliability bootstrap supporting unattended CI, Docker, Codespaces,
+# multi-architecture binaries, resilient fallbacks, and safe configuration.
 # ==============================================================================
 
 set -e
+
+# Parse Command-Line Flags
+UNATTENDED=false
+INSTALL_LITE=true
+INSTALL_AGY=true
+INSTALL_LEETCODE=true
+INSTALL_MONGO=true
+
+for arg in "$@"; do
+    case "$arg" in
+        -y|--yes|-u|--unattended|-s|--silent)
+            UNATTENDED=true
+            ;;
+        --skip-lite)
+            INSTALL_LITE=false
+            ;;
+        --skip-agy)
+            INSTALL_AGY=false
+            ;;
+        --skip-leetcode)
+            INSTALL_LEETCODE=false
+            ;;
+        --skip-mongo)
+            INSTALL_MONGO=false
+            ;;
+        -h|--help)
+            echo "Usage: ./install.sh [OPTIONS]"
+            echo "Options:"
+            echo "  -y, --yes, -u, --unattended   Run non-interactively with default selections"
+            echo "  --skip-lite                   Do not install Lite-XL binary"
+            echo "  --skip-agy                    Do not install Antigravity CLI"
+            echo "  --skip-leetcode               Skip LeetCode dependencies"
+            echo "  --skip-mongo                  Skip MongoDB explorer & mongosh"
+            exit 0
+            ;;
+    esac
+done
+
+# Auto-detect non-interactive environments (Codespaces, CI, Docker, piped curl)
+if [ ! -t 0 ] || [ "$CI" = "true" ] || [ -n "$CODESPACES" ] || [ -n "$REMOTE_CONTAINERS" ] || [ "$DEBIAN_FRONTEND" = "noninteractive" ]; then
+    UNATTENDED=true
+fi
 
 # Detect Config Directory (supports Linux ~/.config/lite-xl and macOS Application Support)
 CONFIG_DIR="$HOME/.config/lite-xl"
@@ -34,6 +76,9 @@ EOF
 echo -e "\033[0m"
 echo -e "🌿 \033[1;32mWelcome to the LazyLite Installer!\033[0m 🌿"
 echo -e "✨ \033[3;37mTransforming your Lite-XL into a modern powerhouse...\033[0m ✨"
+if [ "$UNATTENDED" = true ]; then
+    echo -e "⚡ \033[1;34mRunning in unattended auto-setup mode.\033[0m"
+fi
 echo "------------------------------------------------------------------"
 echo -e "⚠️  \033[1;33mDISCLAIMER:\033[0m For the Auto-Healer setup to work, the \033[1mAntigravity CLI (agy)\033[0m is required."
 echo "------------------------------------------------------------------"
@@ -42,12 +87,16 @@ echo ""
 animate_progress() {
     local msg="$1"
     echo -e "\033[1;36m➤ $msg\033[0m"
-    printf "  \033[1;32m["
-    for ((i=0; i<30; i++)); do
-        printf "\033[38;2;167;192;128m█"
-        sleep 0.01
-    done
-    printf "\033[1;32m]\033[0m \033[1;32m✔\033[0m\n"
+    if [ "$UNATTENDED" = true ]; then
+        echo -e "  \033[1;32m[==============================] ✔\033[0m"
+    else
+        printf "  \033[1;32m["
+        for ((i=0; i<30; i++)); do
+            printf "\033[38;2;167;192;128m█"
+            sleep 0.01
+        done
+        printf "\033[1;32m]\033[0m \033[1;32m✔\033[0m\n"
+    fi
 }
 
 # Download helper with curl and wget fallbacks
@@ -67,46 +116,68 @@ download_file() {
             return 0
         fi
     fi
-    echo "[-] Notice: Could not download $desc. Continuing with local fallback..."
+    echo "[-] Notice: Could not download $desc. Continuing with fallback..."
     return 1
 }
 
-# 1. Check Lite-XL
-if ! command -v lite-xl &> /dev/null; then
-    read -p "Lite-XL is not installed. Do you want to install it automatically? (y/n): " install_lite || install_lite="n"
-    if [[ "$install_lite" =~ ^[Yy]$ ]]; then
+# Handle piped in-memory execution (clone repo if running directly from curl)
+if [ ! -d "$SRC_DIR/plugins" ]; then
+    TEMP_CLONE_DIR="/tmp/lazylite-bootstrap-$$"
+    echo "[*] Fetching LazyLite setup bundle from GitHub..."
+    if command -v git &> /dev/null; then
+        git clone --depth 1 https://github.com/ojaswi1234/lazy_lite.git "$TEMP_CLONE_DIR" 2>/dev/null || true
+    fi
+    if [ -d "$TEMP_CLONE_DIR/plugins" ]; then
+        SRC_DIR="$TEMP_CLONE_DIR"
+    fi
+fi
+
+# 1. Check Lite-XL Installation
+if ! command -v lite-xl &> /dev/null && [ "$INSTALL_LITE" = true ]; then
+    do_install="y"
+    if [ "$UNATTENDED" = false ]; then
+        read -p "Lite-XL is not installed. Do you want to install it automatically? (y/n) [default: y]: " prompt_lite || prompt_lite="y"
+        if [[ "$prompt_lite" =~ ^[Nn]$ ]]; then do_install="n"; fi
+    fi
+    
+    if [[ "$do_install" =~ ^[Yy]$ ]]; then
         echo "Installing Lite-XL..."
         if command -v apt-get &> /dev/null; then
-            $SUDO apt-get update && $SUDO apt-get install -y lite-xl || {
-                echo "Adding Lite-XL PPA..."
+            $SUDO apt-get update -yq >/dev/null 2>&1 || true
+            $SUDO apt-get install -yq lite-xl >/dev/null 2>&1 || {
                 $SUDO add-apt-repository -y ppa:lite-xl/lite-xl-stable 2>/dev/null || true
-                $SUDO apt-get update && $SUDO apt-get install -y lite-xl || true
+                $SUDO apt-get update -yq >/dev/null 2>&1 || true
+                $SUDO apt-get install -yq lite-xl >/dev/null 2>&1 || true
             }
         elif command -v apk &> /dev/null; then
-            $SUDO apk add lite-xl || true
+            $SUDO apk add --no-cache lite-xl >/dev/null 2>&1 || true
         elif command -v dnf &> /dev/null; then
-            $SUDO dnf install -y lite-xl || true
+            $SUDO dnf install -y lite-xl >/dev/null 2>&1 || true
         elif command -v pacman &> /dev/null; then
-            $SUDO pacman -Sy --noconfirm lite-xl || true
+            $SUDO pacman -Sy --noconfirm lite-xl >/dev/null 2>&1 || true
         elif command -v brew &> /dev/null; then
-            brew install --cask lite-xl || true
+            brew install --cask lite-xl >/dev/null 2>&1 || true
         else
-            echo "WARNING: Unsupported package manager. Please install Lite-XL manually."
+            echo "Notice: Package manager not recognized for Lite-XL binary. Placing configuration in $CONFIG_DIR."
         fi
-    else
-        echo "Lite-XL installation skipped. Configuration will still be placed in $CONFIG_DIR."
     fi
 fi
 
 # 1.5. Check GitHub CLI (gh)
 if ! command -v gh &> /dev/null; then
+    echo "Installing GitHub CLI (gh)..."
     if command -v apt-get &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
-        echo "Installing GitHub CLI..."
         $SUDO mkdir -p -m 755 /etc/apt/keyrings 2>/dev/null || true
         download_file "https://cli.github.com/packages/githubcli-archive-keyring.gpg" "/tmp/githubcli.gpg" "GitHub CLI Key" && \
             $SUDO cp -f /tmp/githubcli.gpg /etc/apt/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
         echo "deb [arch=$(dpkg --print-architecture 2>/dev/null || echo amd64) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | $SUDO tee /etc/apt/sources.list.d/github-cli.list > /dev/null 2>&1 || true
-        $SUDO apt-get update >/dev/null 2>&1 && $SUDO apt-get install -y gh >/dev/null 2>&1 || true
+        $SUDO apt-get update -yq >/dev/null 2>&1 && $SUDO apt-get install -yq gh >/dev/null 2>&1 || true
+    elif command -v apk &> /dev/null; then
+        $SUDO apk add --no-cache github-cli >/dev/null 2>&1 || true
+    elif command -v dnf &> /dev/null; then
+        $SUDO dnf install -y gh >/dev/null 2>&1 || true
+    elif command -v pacman &> /dev/null; then
+        $SUDO pacman -Sy --noconfirm github-cli >/dev/null 2>&1 || true
     elif command -v brew &> /dev/null; then
         brew install gh >/dev/null 2>&1 || true
     fi
@@ -140,119 +211,110 @@ if [ "$SYSTEM_EMOJI_FOUND" = false ] && [ ! -f "$EMOJI_FONT" ]; then
 fi
 
 # 2. Check Antigravity CLI
-INSTALL_AGY_SIDEBAR=true
-if ! command -v agy &> /dev/null; then
-    read -p "Antigravity CLI (agy) is not installed. Do you want to install it automatically using the official installer? (y/n): " install_agy || install_agy="n"
-    if [[ "$install_agy" =~ ^[Yy]$ ]]; then
+if ! command -v agy &> /dev/null && [ "$INSTALL_AGY" = true ]; then
+    do_install_agy="y"
+    if [ "$UNATTENDED" = false ]; then
+        read -p "Antigravity CLI (agy) is not installed. Do you want to install it automatically? (y/n) [default: y]: " prompt_agy || prompt_agy="y"
+        if [[ "$prompt_agy" =~ ^[Nn]$ ]]; then do_install_agy="n"; fi
+    fi
+    if [[ "$do_install_agy" =~ ^[Yy]$ ]]; then
         echo "Installing Antigravity CLI..."
         if command -v curl &> /dev/null; then
-            curl -fsSL https://antigravity.google/cli/install.sh | bash || true
+            curl -fsSL https://antigravity.google/cli/install.sh | bash 2>/dev/null || true
         elif command -v wget &> /dev/null; then
-            wget -qO- https://antigravity.google/cli/install.sh | bash || true
+            wget -qO- https://antigravity.google/cli/install.sh | bash 2>/dev/null || true
         fi
     else
-        echo "Note: AI sidebar will be skipped until Antigravity CLI is installed."
-        INSTALL_AGY_SIDEBAR=false
+        INSTALL_AGY=false
     fi
 fi
 
-# 3. Optional Features Setup
-INSTALL_LEETCODE=true
-read -p "Do you want to setup LeetCode plugin & assessment suite? (y/n) [default: y]: " prompt_leetcode || prompt_leetcode="y"
-if [[ "$prompt_leetcode" =~ ^[Nn]$ ]]; then
-    INSTALL_LEETCODE=false
-else
-    if command -v python3 &> /dev/null; then
-        echo "Installing Python dependencies for LeetCode API..."
+# 3. LeetCode & Assessment Suite Dependencies
+if [ "$INSTALL_LEETCODE" = true ]; then
+    if [ "$UNATTENDED" = false ]; then
+        read -p "Do you want to setup LeetCode plugin & assessment suite? (y/n) [default: y]: " prompt_lc || prompt_lc="y"
+        if [[ "$prompt_lc" =~ ^[Nn]$ ]]; then INSTALL_LEETCODE=false; fi
+    fi
+    if [ "$INSTALL_LEETCODE" = true ] && command -v python3 &> /dev/null; then
+        echo "Installing Python dependencies for LeetCode API & ranking engine..."
         python3 -m pip install requests --break-system-packages --quiet 2>/dev/null || \
         python3 -m pip install requests --user --quiet 2>/dev/null || \
         python3 -m pip install requests --quiet 2>/dev/null || true
     fi
 fi
 
-INSTALL_MONGO=true
-read -p "Do you want to setup MongoDB Explorer plugin? (y/n) [default: y]: " prompt_mongo || prompt_mongo="y"
-if [[ "$prompt_mongo" =~ ^[Nn]$ ]]; then
-    INSTALL_MONGO=false
-else
-    if ! command -v mongosh &> /dev/null; then
-        MONGOSH_INSTALLED=false
-        # 1. Primary: Try installing mongosh via npm
-        if command -v npm &> /dev/null; then
-            echo "Installing MongoDB Shell (mongosh) globally via npm..."
-            $SUDO npm install -g mongosh --silent 2>/dev/null || npm install -g mongosh --silent 2>/dev/null || true
-            if command -v mongosh &> /dev/null; then
-                MONGOSH_INSTALLED=true
-                echo "[+] mongosh installed successfully via npm."
-            fi
-        fi
-
-        # 2. Secondary fallback: Package manager installation
-        if [ "$MONGOSH_INSTALLED" = false ]; then
-            if command -v brew &> /dev/null; then
-                echo "Installing official mongosh via Homebrew..."
-                brew install mongosh >/dev/null 2>&1 || true
-            elif command -v apt-get &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
-                echo "Installing official mongosh via apt..."
-                $SUDO apt-get update >/dev/null 2>&1 && $SUDO apt-get install -y mongodb-mongosh >/dev/null 2>&1 || true
-            elif command -v pacman &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
-                $SUDO pacman -S --noconfirm mongosh >/dev/null 2>&1 || true
-            elif command -v dnf &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
-                $SUDO dnf install -y mongodb-mongosh >/dev/null 2>&1 || true
-            fi
-        fi
+# 4. MongoDB Explorer & Shell
+if [ "$INSTALL_MONGO" = true ]; then
+    if [ "$UNATTENDED" = false ]; then
+        read -p "Do you want to setup MongoDB Explorer plugin? (y/n) [default: y]: " prompt_mg || prompt_mg="y"
+        if [[ "$prompt_mg" =~ ^[Nn]$ ]]; then INSTALL_MONGO=false; fi
     fi
-
-    if command -v python3 &> /dev/null; then
-        python3 -m pip install pymongo --break-system-packages --quiet 2>/dev/null || \
-        python3 -m pip install pymongo --user --quiet 2>/dev/null || \
-        python3 -m pip install pymongo --quiet 2>/dev/null || true
+    if [ "$INSTALL_MONGO" = true ]; then
+        if ! command -v mongosh &> /dev/null; then
+            MONGOSH_INSTALLED=false
+            if command -v npm &> /dev/null; then
+                echo "Installing MongoDB Shell (mongosh) globally via npm..."
+                $SUDO npm install -g mongosh --silent 2>/dev/null || npm install -g mongosh --silent 2>/dev/null || true
+                if command -v mongosh &> /dev/null; then MONGOSH_INSTALLED=true; fi
+            fi
+            if [ "$MONGOSH_INSTALLED" = false ]; then
+                if command -v brew &> /dev/null; then
+                    brew install mongosh >/dev/null 2>&1 || true
+                elif command -v apt-get &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
+                    $SUDO apt-get update >/dev/null 2>&1 && $SUDO apt-get install -y mongodb-mongosh >/dev/null 2>&1 || true
+                elif command -v pacman &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
+                    $SUDO pacman -S --noconfirm mongosh >/dev/null 2>&1 || true
+                elif command -v dnf &> /dev/null && [ -n "$SUDO" -o "$EUID" -eq 0 ]; then
+                    $SUDO dnf install -y mongodb-mongosh >/dev/null 2>&1 || true
+                fi
+            fi
+        fi
+        if command -v python3 &> /dev/null; then
+            python3 -m pip install pymongo --break-system-packages --quiet 2>/dev/null || \
+            python3 -m pip install pymongo --user --quiet 2>/dev/null || \
+            python3 -m pip install pymongo --quiet 2>/dev/null || true
+        fi
     fi
 fi
 
-animate_progress "Installing Lite-XL Mossy Configuration..."
+animate_progress "Installing Lite-XL Mossy Configuration & Plugins..."
 
 # Create target directories
 mkdir -p "$CONFIG_DIR/plugins" "$CONFIG_DIR/colors" "$CONFIG_DIR/scripts" "$CONFIG_DIR/fonts"
 
 # Copy main plugins (.lua, .json, .py, .exe)
-for plugin in "$SRC_DIR"/plugins/*; do
-    [ -f "$plugin" ] || continue
-    plugin_name=$(basename "$plugin")
-    if [ "$plugin_name" = "antigravity_sidebar.lua" ] && [ "$INSTALL_AGY_SIDEBAR" = false ]; then
-        continue
-    fi
-    if [ "$plugin_name" = "agy_pty_bridge.py" ] && [ "$INSTALL_AGY_SIDEBAR" = false ]; then
-        continue
-    fi
-    if { [ "$plugin_name" = "leetcode.lua" ] || [ "$plugin_name" = "leetcode_assessment.lua" ] || [ "$plugin_name" = "company_tags.json" ] || [ "$plugin_name" = "problem_tags.json" ] || [ "$plugin_name" = "company_scores.json" ]; } && [ "$INSTALL_LEETCODE" = false ]; then
-        continue
-    fi
-    if [ "$plugin_name" = "mongodb_explorer.lua" ] && [ "$INSTALL_MONGO" = false ]; then
-        continue
-    fi
-    cp -f "$plugin" "$CONFIG_DIR/plugins/"
-done
+if [ -d "$SRC_DIR/plugins" ]; then
+    for plugin in "$SRC_DIR"/plugins/*; do
+        [ -f "$plugin" ] || continue
+        plugin_name=$(basename "$plugin")
+        if [ "$plugin_name" = "antigravity_sidebar.lua" ] && [ "$INSTALL_AGY" = false ]; then continue; fi
+        if [ "$plugin_name" = "agy_pty_bridge.py" ] && [ "$INSTALL_AGY" = false ]; then continue; fi
+        if { [ "$plugin_name" = "leetcode.lua" ] || [ "$plugin_name" = "leetcode_assessment.lua" ] || [ "$plugin_name" = "company_tags.json" ] || [ "$plugin_name" = "problem_tags.json" ] || [ "$plugin_name" = "company_scores.json" ]; } && [ "$INSTALL_LEETCODE" = false ]; then continue; fi
+        if [ "$plugin_name" = "mongodb_explorer.lua" ] && [ "$INSTALL_MONGO" = false ]; then continue; fi
+        cp -f "$plugin" "$CONFIG_DIR/plugins/"
+    done
+fi
 
 # Copy color schemes
-cp -f "$SRC_DIR"/colors/*.lua "$CONFIG_DIR/colors/" 2>/dev/null || true
+if [ -d "$SRC_DIR/colors" ]; then
+    cp -f "$SRC_DIR"/colors/*.lua "$CONFIG_DIR/colors/" 2>/dev/null || true
+fi
 
 # Copy bundled fonts
-cp -f "$SRC_DIR"/fonts/*.ttf "$CONFIG_DIR/fonts/" 2>/dev/null || true
+if [ -d "$SRC_DIR/fonts" ]; then
+    cp -f "$SRC_DIR"/fonts/*.ttf "$CONFIG_DIR/fonts/" 2>/dev/null || true
+fi
 
 # Copy scripts
 if [ -d "$SRC_DIR/scripts" ]; then
     for script in "$SRC_DIR"/scripts/*; do
         [ -f "$script" ] || continue
         script_name=$(basename "$script")
-        if [ "$script_name" = "leetcode_api.py" ] && [ "$INSTALL_LEETCODE" = false ]; then
-            continue
-        fi
-        if [ "$script_name" = "mongodb_bridge.py" ] && [ "$INSTALL_MONGO" = false ]; then
-            continue
-        fi
+        if [ "$script_name" = "leetcode_api.py" ] && [ "$INSTALL_LEETCODE" = false ]; then continue; fi
+        if [ "$script_name" = "mongodb_bridge.py" ] && [ "$INSTALL_MONGO" = false ]; then continue; fi
         cp -f "$script" "$CONFIG_DIR/scripts/"
     done
+    chmod +x "$CONFIG_DIR"/scripts/*.py "$CONFIG_DIR"/scripts/*.js 2>/dev/null || true
 fi
 
 # Copy sub-directories (third-party and custom plugins)
@@ -278,6 +340,7 @@ if [ -d "$SRC_DIR/plugins/toggle_terminal" ]; then
     elif command -v go &> /dev/null; then
         echo "Compiling lite-pty natively..."
         (cd "$PTY_DIR" && go build -o lite-pty .) 2>/dev/null || true
+        chmod +x "$PTY_DIR/lite-pty" 2>/dev/null || true
     fi
 fi
 
@@ -285,14 +348,13 @@ if [ -d "$SRC_DIR/plugins/tunnel_monitor" ]; then
     cp -rf "$SRC_DIR/plugins/tunnel_monitor" "$CONFIG_DIR/plugins/"
     if command -v go &> /dev/null; then
         (cd "$CONFIG_DIR/plugins/tunnel_monitor" && go build -o proxy .) 2>/dev/null || true
+        chmod +x "$CONFIG_DIR/plugins/tunnel_monitor/proxy" 2>/dev/null || true
     fi
 fi
 
 if [ -d "$SRC_DIR/plugins/python_runtime" ]; then 
     cp -rf "$SRC_DIR/plugins/python_runtime" "$CONFIG_DIR/plugins/"
 fi
-
-echo "[+] Copied plugins, scripts, fonts, and color schemes."
 
 # Copy Antigravity custom skills
 GEMINI_CONFIG_DIR="$HOME/.gemini/config"
@@ -323,8 +385,8 @@ fi
 
 echo ""
 echo "=================================================================="
-echo "  Installation complete! Restart Lite-XL to enjoy LazyLite."
+echo -e "\033[1;32m  Installation complete! Restart Lite-XL to enjoy LazyLite.\033[0m"
 echo "=================================================================="
 echo ""
-echo "NEXT STEP: Run 'agy install' once in a terminal to configure the AI backend."
+echo "Tip: Run 'agy install' once in a terminal to configure the AI backend."
 echo ""

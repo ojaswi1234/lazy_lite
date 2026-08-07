@@ -126,9 +126,13 @@ assessment.TRACKS = {
 
 assessment.selected_company = "google"
 assessment.selected_company_display = "Google"
+assessment.selected_company_topic = nil
 assessment.selected_pattern = "sliding_window"
 assessment.selected_pattern_idx = 1
 assessment.selected_pattern_name = "Sliding Window"
+assessment.selected_topic = nil
+assessment.selected_topic_name = nil
+assessment.selected_mode = "pattern" -- "pattern" or "topic"
 
 function assessment.get_pattern(id_or_idx)
   if type(id_or_idx) == "number" then
@@ -150,11 +154,16 @@ function assessment.set_target_pattern(pat_id_or_idx)
   assessment.selected_pattern = p.id
   assessment.selected_pattern_idx = p.idx
   assessment.selected_pattern_name = p.name
+  assessment.selected_mode = "pattern"
+  assessment.selected_topic = nil
+  assessment.selected_topic_name = nil
 
   if assessment.TRACKS[5] then
+    assessment.TRACKS[5].mode = "pattern"
     assessment.TRACKS[5].pattern_id = p.id
     assessment.TRACKS[5].pattern_idx = p.idx
     assessment.TRACKS[5].pattern_name = p.name
+    assessment.TRACKS[5].topic = nil
     assessment.TRACKS[5].title = "Pattern #" .. tostring(p.idx) .. ": " .. p.name
     assessment.TRACKS[5].badge = "[PATTERN #" .. tostring(p.idx) .. "]"
     assessment.TRACKS[5].subtitle = p.category .. " (" .. p.tier .. ")"
@@ -162,21 +171,71 @@ function assessment.set_target_pattern(pat_id_or_idx)
   end
 end
 
-function assessment.set_target_company(company_name)
+function assessment.set_target_topic(topic_tag, topic_name)
+  if not topic_tag or topic_tag == "" then return end
+  local tag_clean = topic_tag:lower():gsub("^#", "")
+  local tag_disp = topic_name or tag_clean:gsub("^%l", string.upper):gsub("%-(%l)", function(s) return " " .. s:upper() end)
+
+  assessment.selected_topic = tag_clean
+  assessment.selected_topic_name = tag_disp
+  assessment.selected_mode = "topic"
+
+  if assessment.TRACKS[5] then
+    assessment.TRACKS[5].mode = "topic"
+    assessment.TRACKS[5].topic = tag_clean
+    assessment.TRACKS[5].pattern_id = nil
+    assessment.TRACKS[5].title = "Topic: #" .. tag_clean
+    assessment.TRACKS[5].badge = "[#" .. tag_clean:upper() .. "]"
+    assessment.TRACKS[5].subtitle = tag_disp .. " (Native LeetCode Topic)"
+    assessment.TRACKS[5].desc = "2 Problems | 60 Mins | Targeted problems from LeetCode's #" .. tag_clean .. " tag database."
+  end
+end
+
+assessment.selected_company_mode = "ml_auto" -- "ml_auto" (ML linear regression + clustering) or "topic_filter"
+
+function assessment.set_target_company(company_name, topic_filter, force_mode)
   local c_clean = (company_name or "google"):lower():gsub("%s+", "-")
   local c_display = c_clean:gsub("^%l", string.upper):gsub("%-(%l)", function(s) return " " .. s:upper() end)
+  local t_clean = (topic_filter and topic_filter ~= "" and topic_filter ~= "ALL") and topic_filter:lower():gsub("^#", "") or nil
   
   assessment.selected_company = c_clean
   assessment.selected_company_display = c_display
+  assessment.selected_company_topic = t_clean
+
+  if force_mode then
+    assessment.selected_company_mode = force_mode
+  elseif t_clean then
+    assessment.selected_company_mode = "topic_filter"
+  else
+    assessment.selected_company_mode = "ml_auto"
+  end
   
   if assessment.TRACKS[4] then
     assessment.TRACKS[4].company = c_clean
-    assessment.TRACKS[4].title = c_display .. " Assessment"
-    assessment.TRACKS[4].badge = "[" .. c_clean:upper() .. "]"
-    assessment.TRACKS[4].subtitle = c_display .. " Interview Simulation"
-    assessment.TRACKS[4].desc = "2 Problems | 60 Mins | Top real interview questions frequently asked by " .. c_display .. "."
+    assessment.TRACKS[4].topic = t_clean
+    assessment.TRACKS[4].mode = assessment.selected_company_mode
+    if assessment.selected_company_mode == "topic_filter" and t_clean then
+      assessment.TRACKS[4].title = c_display .. " OA [#" .. t_clean .. "]"
+      assessment.TRACKS[4].badge = "[" .. c_clean:upper() .. " #" .. t_clean:upper() .. "]"
+      assessment.TRACKS[4].subtitle = c_display .. " Filtered by #" .. t_clean
+      assessment.TRACKS[4].desc = "2 Problems | 60 Mins | Target " .. c_display .. " questions focusing on #" .. t_clean .. "."
+    else
+      assessment.TRACKS[4].title = c_display .. " Assessment (ML Predicted)"
+      assessment.TRACKS[4].badge = "[" .. c_clean:upper() .. " | ML OA]"
+      assessment.TRACKS[4].subtitle = c_display .. " ML Archetype & Trend Prediction"
+      assessment.TRACKS[4].desc = "2 Problems | 60 Mins | Auto-predicted by ML Linear Regression & K-Means clustering across " .. c_display .. " hiring trends."
+    end
   end
 end
+
+function assessment.set_target_company_topic(topic_filter)
+  if not topic_filter or topic_filter == "" or topic_filter == "ALL" then
+    assessment.set_target_company(assessment.selected_company, nil, "ml_auto")
+  else
+    assessment.set_target_company(assessment.selected_company, topic_filter, "topic_filter")
+  end
+end
+
 
 assessment.session = nil
 assessment.history = {}
@@ -199,6 +258,14 @@ function assessment.start_session(track_info, questions_data, lang, blind_mode, 
       slug = q.slug or q.titleSlug,
       title = q.title or q.slug,
       difficulty = q.difficulty or "Medium",
+      pattern_name = q.pattern_name,
+      pattern_id = q.pattern_id,
+      pattern_idx = q.pattern_idx,
+      topic = q.topic,
+      topics = q.topics,
+      cluster_name = q.cluster_name,
+      selection_reason = q.selection_reason,
+      trend_score = q.trend_score,
       problem_data = q,
       status = "unattempted", -- "unattempted", "in_progress", "accepted", "wrong", "tle", "error"
       submissions_count = 0,

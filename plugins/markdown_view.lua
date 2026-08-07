@@ -252,7 +252,7 @@ function MarkdownView:draw()
     if not in_code and img_url then
       local img_data = self:get_image_data(img_url)
       if type(img_data) == "string" and img_data == "loading" then
-        renderer.draw_text(self.fonts.normal, "🖼️ Loading image: " .. (img_alt or img_url), x_start, y, style.dim)
+        renderer.draw_text(self.fonts.normal, "[...] Loading image: " .. (img_alt or img_url), x_start, y, style.dim)
         y = y + self.fonts.normal:get_height()
       elseif type(img_data) == "table" and img_data.rects then
         local scale = self.image_scales[img_url] or 1.5
@@ -308,7 +308,7 @@ function MarkdownView:draw()
         end
         y = y + self.fonts.normal:get_height() + 10
       elseif type(img_data) == "table" and img_data.error then
-        renderer.draw_text(self.fonts.normal, "❌ Failed to load image: " .. (img_data.error), x_start, y, {255, 100, 100, 255})
+        renderer.draw_text(self.fonts.normal, "[!] Failed to load image: " .. (img_data.error), x_start, y, {255, 100, 100, 255})
         y = y + self.fonts.normal:get_height()
       end
       goto continue

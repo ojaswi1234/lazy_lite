@@ -301,7 +301,7 @@ function TunnelVisitorView:new(log_path)
   self.visitors = {}
   self.last_mtime = 0
 end
-function TunnelVisitorView:get_name() return "🕵️ Visitors" end
+function TunnelVisitorView:get_name() return "Tunnel Visitors" end
 
 function TunnelVisitorView:update()
   TunnelVisitorView.super.update(self)
@@ -517,7 +517,7 @@ function PortForwardView:draw()
     renderer.draw_rect(self.position.x, log_y - 10, self.size.x, 2, style.dim)
     renderer.draw_text(style.font, "Log: " .. selected_fw.name, x, log_y, style.accent)
     
-    local visit_btn_text = "🕵️ Monitor Visitors"
+    local visit_btn_text = "Monitor Visitors"
     self.visit_btn_rect = { x = x + 300, y = log_y - 10, w = style.font:get_width(visit_btn_text) + 20, h = lh * 1.5 }
     renderer.draw_rect(self.visit_btn_rect.x, self.visit_btn_rect.y, self.visit_btn_rect.w, self.visit_btn_rect.h, {60, 140, 200})
     renderer.draw_text(style.font, visit_btn_text, self.visit_btn_rect.x + 10, self.visit_btn_rect.y + math.floor((self.visit_btn_rect.h - style.font:get_height())/2), {255, 255, 255, 255})

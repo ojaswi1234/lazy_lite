@@ -2,18 +2,37 @@
 setlocal enabledelayedexpansion
 
 :: ==============================================================================
-:: LazyLite Configuration Installer (Windows Command Prompt / Batch)
-:: Fully space-resilient, non-blocking, and includes robust directory copying.
+:: LazyLite Configuration & Auto-Setup Installer (Windows Command Prompt / Batch)
+:: Space-resilient, non-blocking, unattended-capable batch installer.
 :: ==============================================================================
 
 set "CONFIG_DIR=%USERPROFILE%\.config\lite-xl"
 set "SRC_DIR=%~dp0"
+set "UNATTENDED=0"
+
+:: Check for unattended / quiet flags
+for %%a in (%*) do (
+    if /i "%%a"=="/y" set "UNATTENDED=1"
+    if /i "%%a"=="-y" set "UNATTENDED=1"
+    if /i "%%a"=="/yes" set "UNATTENDED=1"
+    if /i "%%a"=="--yes" set "UNATTENDED=1"
+    if /i "%%a"=="/q" set "UNATTENDED=1"
+    if /i "%%a"=="-q" set "UNATTENDED=1"
+    if /i "%%a"=="/silent" set "UNATTENDED=1"
+    if /i "%%a"=="--silent" set "UNATTENDED=1"
+    if /i "%%a"=="/unattended" set "UNATTENDED=1"
+    if /i "%%a"=="--unattended" set "UNATTENDED=1"
+)
+
+if "%CI%"=="true" set "UNATTENDED=1"
+if "%GITHUB_ACTIONS%"=="true" set "UNATTENDED=1"
 
 echo ==========================================
 echo    LazyLite Configuration Installer
 echo ==========================================
 echo [*] Welcome to the LazyLite Installer!
 echo [+] Transforming your Lite-XL into a modern powerhouse...
+if "%UNATTENDED%"=="1" echo [*] Running in unattended auto-setup mode.
 echo ------------------------------------------------------------------
 echo [!] DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required.
 echo ------------------------------------------------------------------
@@ -24,7 +43,11 @@ where lite-xl >nul 2>nul
 if %errorlevel% neq 0 (
     if not exist "%ProgramFiles%\Lite XL\lite-xl.exe" (
         if not exist "%ProgramFiles(x86)%\Lite XL\lite-xl.exe" (
-            set /p "install_lite=Lite-XL is not found. Do you want to download and install it automatically? (y/n): "
+            set "install_lite=y"
+            if "%UNATTENDED%"=="0" (
+                set /p "install_lite=Lite-XL is not found. Download and install it automatically? (y/n) [default: y]: "
+                if "!install_lite!"=="" set "install_lite=y"
+            )
             if /i "!install_lite!"=="y" (
                 echo Downloading Lite-XL setup...
                 curl -L --connect-timeout 15 -o "%TEMP%\LiteXL-setup.exe" https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
@@ -32,7 +55,7 @@ if %errorlevel% neq 0 (
                     echo Running Lite-XL installer...
                     start /wait "" "%TEMP%\LiteXL-setup.exe"
                 ) else (
-                    echo WARNING: Download failed. Please install Lite-XL manually.
+                    echo WARNING: Download failed. Placing configuration in %CONFIG_DIR%.
                 )
             )
         )
@@ -70,7 +93,11 @@ if exist "%WINDIR%\Fonts\seguiemj.ttf" (
 set "INSTALL_AGY_SIDEBAR=true"
 where agy >nul 2>nul
 if %errorlevel% neq 0 (
-    set /p "install_agy=Antigravity CLI (agy) is not installed. Do you want to install it automatically? (y/n): "
+    set "install_agy=y"
+    if "%UNATTENDED%"=="0" (
+        set /p "install_agy=Antigravity CLI (agy) is not installed. Do you want to install it automatically? (y/n) [default: y]: "
+        if "!install_agy!"=="" set "install_agy=y"
+    )
     if /i "!install_agy!"=="y" (
         echo Installing Antigravity CLI...
         curl -fsSL --connect-timeout 15 https://antigravity.google/cli/install.cmd -o "%TEMP%\install_agy.cmd" 2>nul
@@ -86,12 +113,16 @@ if %errorlevel% neq 0 (
 
 :: 3. Optional Features Setup
 set "SETUP_LEETCODE=y"
-set /p "setup_lc=Do you want to setup LeetCode plugin & assessment suite? (y/n) [default: y]: "
-if /i "!setup_lc!"=="n" set "SETUP_LEETCODE=n"
+if "%UNATTENDED%"=="0" (
+    set /p "setup_lc=Do you want to setup LeetCode plugin & assessment suite? (y/n) [default: y]: "
+    if /i "!setup_lc!"=="n" set "SETUP_LEETCODE=n"
+)
 
 set "SETUP_MONGO=y"
-set /p "setup_mg=Do you want to setup MongoDB Explorer plugin? (y/n) [default: y]: "
-if /i "!setup_mg!"=="n" set "SETUP_MONGO=n"
+if "%UNATTENDED%"=="0" (
+    set /p "setup_mg=Do you want to setup MongoDB Explorer plugin? (y/n) [default: y]: "
+    if /i "!setup_mg!"=="n" set "SETUP_MONGO=n"
+)
 
 :: Check real Python 3 runtime
 python -c "import sys; sys.exit(0 if sys.version_info[0]==3 else 1)" >nul 2>nul
@@ -206,6 +237,6 @@ echo ==================================================================
 echo   Installation complete! Restart Lite-XL to enjoy LazyLite.
 echo ==================================================================
 echo.
-echo NEXT STEP: Run "agy install" once in a terminal to configure the AI backend.
+echo Tip: Run 'agy install' once in a terminal to configure the AI backend.
 echo.
-pause
+if "%UNATTENDED%"=="0" pause

@@ -14,10 +14,10 @@ function ActivityBar:new()
   self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
-    { id = "ai_plugin",icon = "\u{f0e7}", command = "ai-plugin-gen:toggle", tooltip = "AI Plugins" },
     { id = "podman",   icon = "\u{f308}", command = "podman:toggle",    tooltip = "Podman" },
     { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle",   tooltip = "LeetCode" },
-    { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" }
+    { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" },
+    { id = "ai_plugin",icon = "\u{f0e7}", command = "ai-plugin-gen:toggle", tooltip = "AI Plugins" }
   }
   -- Bottom-anchored auth button
   self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "AGY Auth / Toggle AI" }
@@ -172,36 +172,14 @@ function ActivityBar:draw()
   end
 end
 
-local function get_activity_bar_hover_slot(bar, y)
-  if not y then return nil end
-  local cell = 48 * SCALE
-  local auth_y = bar.position.y + bar.size.y - cell
-  if y >= auth_y and y < bar.position.y + bar.size.y then
-    return "auth"
-  end
-  local rel_y = y - bar.position.y
-  local idx = math.floor(rel_y / cell) + 1
-  if bar.items and bar.items[idx] then
-    return idx
-  end
-  return nil
-end
-
 function ActivityBar:on_mouse_moved(x, y)
-  local old_slot = get_activity_bar_hover_slot(self, self.mouse_y)
-  local new_slot = get_activity_bar_hover_slot(self, y)
   self.mouse_y = y
-  if old_slot ~= new_slot then
-    core.redraw = true
-  end
+  core.redraw = true
 end
 
 function ActivityBar:on_mouse_left()
-  local old_slot = get_activity_bar_hover_slot(self, self.mouse_y)
   self.mouse_y = nil
-  if old_slot ~= nil then
-    core.redraw = true
-  end
+  core.redraw = true
 end
 
 function ActivityBar:on_mouse_pressed(button, x, y, clicks)
@@ -291,7 +269,7 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   -- Dynamically search for any existing custom sidebar in the tree
   local found_sidebar = nil
   for _, view in ipairs(core.root_view.root_node:get_children()) do
-    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity" or view.name == "AI Plugins") then
       found_sidebar = core.root_view.root_node:get_node_for_view(view)
       break
     end
@@ -314,7 +292,7 @@ local function init_activity_bar()
   
   -- Find any existing custom sidebar if it is already open
   for _, view in ipairs(core.root_view.root_node:get_children()) do
-    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity" or view.name == "AI Plugins") then
       target_node = core.root_view.root_node:get_node_for_view(view)
       break
     end
@@ -341,7 +319,7 @@ local function init_activity_bar()
   local is_sidebar = false
   if sibling_node and sibling_node.views then
     for _, view in ipairs(sibling_node.views) do
-      if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity") then
+      if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity" or view.name == "AI Plugins") then
         is_sidebar = true
         break
       end

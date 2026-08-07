@@ -591,13 +591,9 @@ local function draw_suggestions_box(av)
   )
 end
 
-local function is_leetcode_active()
-  local av = get_active_view()
-  if not av or not av.doc then return false end
-  local doc = av.doc
-  if doc.is_leetcode then return true end
-  local fn = (doc.filename or doc.abs_filename or ""):lower()
-  if fn:find("leetcode") or fn:find("interview_prep") then
+local function is_assessment_active()
+  local ok, assessment = pcall(require, "plugins.leetcode_assessment")
+  if ok and assessment and assessment.is_active and assessment.is_active() then
     return true
   end
   return false
@@ -605,7 +601,7 @@ end
 
 local function show_autocomplete()
   local av = get_active_view()
-  if av and av.doc and not is_command_view_active() and not is_leetcode_active() then
+  if av and av.doc and not is_command_view_active() and not is_assessment_active() then
     partial = get_partial_symbol()
     local min_len = config.plugins.autocomplete.min_len or 1
 

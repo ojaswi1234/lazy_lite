@@ -1,0 +1,87 @@
+name: LazyLite Setup & CI Verification
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test-linux:
+    name: Test Linux Auto-Setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run install.sh (Unattended)
+        run: |
+          chmod +x ./install.sh
+          ./install.sh -y --skip-lite --skip-agy
+
+      - name: Verify installed configuration
+        run: |
+          test -d "$HOME/.config/lite-xl/plugins"
+          test -d "$HOME/.config/lite-xl/scripts"
+          test -f "$HOME/.config/lite-xl/init.lua"
+          test -f "$HOME/.config/lite-xl/plugins/lsp_setup.lua"
+          echo "Linux setup verification passed!"
+
+  test-macos:
+    name: Test macOS Auto-Setup
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run install.sh (Unattended)
+        run: |
+          chmod +x ./install.sh
+          ./install.sh -y --skip-lite --skip-agy
+
+      - name: Verify installed configuration
+        run: |
+          test -d "$HOME/.config/lite-xl/plugins" || test -d "$HOME/Library/Application Support/lite-xl/plugins"
+          echo "macOS setup verification passed!"
+
+  test-windows:
+    name: Test Windows Auto-Setup
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run install.ps1 (Unattended)
+        shell: pwsh
+        run: |
+          .\install.ps1 -Unattended -SkipLiteXl -SkipAgy
+
+      - name: Verify installed configuration
+        shell: pwsh
+        run: |
+          $cfg = "$env:USERPROFILE\.config\lite-xl"
+          if (-not (Test-Path "$cfg\plugins") -or -not (Test-Path "$cfg\init.lua")) {
+            throw "Installation check failed!"
+          }
+          Write-Host "Windows setup verification passed!"

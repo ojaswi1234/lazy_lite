@@ -110,17 +110,36 @@ end
 
 local function wrap_text(font, text, max_w)
   local lines = {}
+  max_w = math.max(max_w or 100, 40)
   for raw in (text .. "\n"):gmatch("([^\n]*)\n") do
     if raw == "" then
       table.insert(lines, "")
     else
       local cur = ""
       for word in raw:gmatch("%S+") do
-        local test = cur == "" and word or (cur .. " " .. word)
-        if font:get_width(test) <= max_w then cur = test
+        if font:get_width(word) > max_w then
+          if cur ~= "" then
+            table.insert(lines, cur)
+            cur = ""
+          end
+          local chunk = ""
+          for char in word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+            if font:get_width(chunk .. char) > max_w then
+              if #chunk > 0 then table.insert(lines, chunk) end
+              chunk = char
+            else
+              chunk = chunk .. char
+            end
+          end
+          cur = chunk
         else
-          if cur ~= "" then table.insert(lines, cur) end
-          cur = word
+          local test = cur == "" and word or (cur .. " " .. word)
+          if font:get_width(test) <= max_w then
+            cur = test
+          else
+            if cur ~= "" then table.insert(lines, cur) end
+            cur = word
+          end
         end
       end
       if cur ~= "" then table.insert(lines, cur) end
@@ -386,12 +405,12 @@ function AIPluginGen:draw_describe()
       if hov_row then renderer.draw_rect(cx, cy, w-pad*2, rh, style.line_highlight or c(80,80,80,60)) end
 
       local exists = system.get_file_info(plug.file) ~= nil
-      renderer.draw_rect(cx, cy+rh/2-sp(4), sp(8), sp(8), exists and c(70,200,70) or c(200,70,70))
-      renderer.draw_text(font, plug.name or "?", cx+sp(16), cy+(rh-fh)/2, style.text)
-
       local dw,ow = sp(64), sp(64)
       local del_x = x + w - pad - dw
       local opn_x = del_x - ow - sp(4)
+      core.push_clip_rect(cx + sp(16), cy, math.max(sp(20), opn_x - cx - sp(20)), rh)
+      renderer.draw_text(font, plug.name or "?", cx+sp(16), cy+(rh-fh)/2, style.text)
+      core.pop_clip_rect()
       local hov_o = self.hovered == ("opn_"..i)
       local hov_d = self.hovered == ("del_"..i)
       draw_btn(opn_x, cy+sp(2), ow, rh-sp(4), "\u{f15b}", hov_o)
@@ -458,10 +477,12 @@ function AIPluginGen:draw_loading(mode)
     pct = math.min(0.99, n_done / #steps)
   end
   
-  local bar_w = inner_w
+  local pct_text = ("%.0f%%"):format(pct*100)
+  local pct_w = style.font:get_width(pct_text)
+  local bar_w = math.max(sp(60), inner_w - pct_w - sp(16))
   renderer.draw_rect(cx, cy, bar_w, sp(6), style.background3 or c(50,50,50))
   renderer.draw_rect(cx, cy, math.floor(bar_w*pct), sp(6), pc)
-  renderer.draw_text(style.font, ("%.0f%%"):format(pct*100), cx+bar_w+sp(6), cy-sp(2), pc)
+  renderer.draw_text(style.font, pct_text, cx + bar_w + sp(8), cy - sp(5), pc)
   cy = cy + sp(24)
 
   -- Checklist
@@ -646,7 +667,12 @@ function AIPluginGen:draw_plan()
       d_rect(m, sx, sy, cw_c, design_h, style.background3 or c(30,30,30))
       local dy = sy + sp(8)
       for _, ln in ipairs(design_lines) do
-        d_text(m, cf, ln, sx + sp(10), dy, style.accent); dy = dy + cfh + sp(2)
+        if not m then
+          core.push_clip_rect(sx + sp(10), dy, cw_c - sp(20), cfh + sp(2))
+          renderer.draw_text(cf, ln, sx + sp(10), dy, style.accent)
+          core.pop_clip_rect()
+        end
+        dy = dy + cfh + sp(2)
       end
       return sy + design_h
     end)
@@ -703,7 +729,11 @@ function AIPluginGen:draw_plan()
         local hw_capped = math.min(hw, cw_c)
         if hx + hw_capped > sx + cw_c then hx = sx; hy = hy + cfh + sp(8) end
         d_rect(m, hx, hy, hw_capped, cfh + sp(4), style.background3 or c(50,50,50))
-        d_text(m, cf, hook, hx + sp(6), hy + sp(2), style.accent)
+        if not m then
+          core.push_clip_rect(hx + sp(6), hy + sp(2), hw_capped - sp(12), cfh + sp(2))
+          renderer.draw_text(cf, hook, hx + sp(6), hy + sp(2), style.accent)
+          core.pop_clip_rect()
+        end
         hx = hx + hw_capped + sp(6)
       end
       sy = hy + cfh + sp(12)
@@ -1322,7 +1352,12 @@ command.add(nil, {
     if plugin_view and core.root_view.root_node:get_node_for_view(plugin_view) then
       local node = core.root_view.root_node:get_node_for_view(plugin_view)
       if sidebar and node == sidebar then
-        node:set_active_view(plugin_view)
+        if sidebar.active_view == plugin_view then
+          node:close_view(core.root_view.root_node, plugin_view)
+          plugin_view = nil
+        else
+          node:set_active_view(plugin_view)
+        end
       else
         node:close_view(core.root_view.root_node, plugin_view)
         plugin_view = nil
@@ -1343,6 +1378,7 @@ command.add(nil, {
         rawset(_G, "_ag_sidebar_node", sidebar)
       end
     end
+    core.redraw = true
   end
 })
 

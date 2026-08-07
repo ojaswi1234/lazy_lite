@@ -409,44 +409,31 @@ end
 
 -- Wrap text into lines that fit within max_w pixels using given font
 local function parse_inline(text)
-  -- Strip LaTeX math wrappers: $expr$ -> expr, \(expr\) -> expr
-  text = text:gsub("%$([^%$]+)%$", "%1")
-  text = text:gsub("\\%((.-)\\%)", "%1")
-  text = text:gsub("\\%[(.-)\\%]", "%1")
-  -- Convert HTML entities
-  text = text:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&")
-
   local segments = {}
   local s_idx = 1
   while s_idx <= #text do
     local b_s, b_e = text:find("%*%*.-%*%*", s_idx)
-    local i_s, i_e = text:find("%*[^%*]+%*", s_idx)  -- *italic*
     local c_s, c_e = text:find("`.-`", s_idx)
     local l_s, l_e = text:find("%[.-%]%([^%)]+%)", s_idx) -- [link](url)
-
+    
     local next_s, next_e, type
     local min_s = math.huge
-
+    
     if b_s and b_s < min_s then min_s = b_s; next_s, next_e, type = b_s, b_e, "bold" end
     if c_s and c_s < min_s then min_s = c_s; next_s, next_e, type = c_s, c_e, "code" end
     if l_s and l_s < min_s then min_s = l_s; next_s, next_e, type = l_s, l_e, "link" end
-    -- italic only wins if it doesn't overlap with bold
-    if i_s and i_s < min_s and (not b_s or i_s ~= b_s) then
-      min_s = i_s; next_s, next_e, type = i_s, i_e, "italic"
-    end
-
+    
     if next_s then
       if next_s > s_idx then table.insert(segments, { text = text:sub(s_idx, next_s - 1), type = "normal" }) end
-
+      
       local inner_text = text:sub(next_s, next_e)
       if type == "bold" then
         table.insert(segments, { text = inner_text:sub(3, -3), type = "bold" })
-      elseif type == "italic" then
-        table.insert(segments, { text = inner_text:sub(2, -2), type = "italic" })
       elseif type == "code" then
         table.insert(segments, { text = inner_text:sub(2, -2), type = "code" })
       elseif type == "link" then
         local label, url = inner_text:match("%[(.-)%]%(([^%)]+)%)")
+        -- If the link label itself contains code, e.g. [`code`](url), unwrap it
         if label:match("^`.-`$") then
           label = label:sub(2, -2)
           table.insert(segments, { text = label, type = "code_link", url = url })
@@ -473,6 +460,31 @@ local function wrap_segments(segments, base_font, code_font, max_w)
   local function push_word(word, type)
     local f = get_font(type)
     local w = f:get_width(word)
+    if w > max_w then
+      if cur_w > 0 then
+        table.insert(lines, cur_line)
+        cur_line = {}
+        cur_w = 0
+      end
+      local chunk = ""
+      for char in word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        if f:get_width(chunk .. char) > max_w then
+          if #chunk > 0 then
+            table.insert(lines, {{ text = chunk, type = type, font = f, width = f:get_width(chunk) }})
+          end
+          chunk = char
+        else
+          chunk = chunk .. char
+        end
+      end
+      if #chunk > 0 then
+        local cw = f:get_width(chunk)
+        table.insert(cur_line, { text = chunk, type = type, font = f, width = cw })
+        cur_w = cw
+      end
+      return
+    end
+
     if cur_w + w > max_w and cur_w > 0 then
       table.insert(lines, cur_line)
       cur_line = {}
@@ -503,25 +515,34 @@ end
 
 local function wrap_raw_text(font, text, max_w)
   local lines = {}
+  max_w = math.max(max_w or 100, 30)
   for raw_line in (text .. "\n"):gmatch("([^\n]*)\n") do
     if font:get_width(raw_line) <= max_w then
       table.insert(lines, raw_line)
     else
       local cur = ""
       for word in (raw_line .. " "):gmatch("(%S+)%s") do
-        local try = cur == "" and word or (cur .. " " .. word)
-        if font:get_width(try) > max_w then
-          if #cur > 0 then table.insert(lines, cur); cur = word
-          else
-            local char_cur = ""
-            for i = 1, #word do
-              local char = word:sub(i, i)
-              if font:get_width(char_cur .. char) > max_w then table.insert(lines, char_cur); char_cur = char
-              else char_cur = char_cur .. char end
+        if font:get_width(word) > max_w then
+          if #cur > 0 then table.insert(lines, cur); cur = "" end
+          local char_cur = ""
+          for char in word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+            if font:get_width(char_cur .. char) > max_w then
+              if #char_cur > 0 then table.insert(lines, char_cur) end
+              char_cur = char
+            else
+              char_cur = char_cur .. char
             end
-            cur = char_cur
           end
-        else cur = try end
+          cur = char_cur
+        else
+          local try = cur == "" and word or (cur .. " " .. word)
+          if font:get_width(try) > max_w then
+            if #cur > 0 then table.insert(lines, cur) end
+            cur = word
+          else
+            cur = try
+          end
+        end
       end
       if #cur > 0 then table.insert(lines, cur) end
     end
@@ -534,7 +555,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
   local is_code = false
   local cur_text = ""
   local cur_lang = ""
-
+  
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     local lang_match = line:match("^%s*```(%w*)")
     if lang_match then
@@ -553,7 +574,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
       cur_text = cur_text .. line .. "\n"
     end
   end
-
+  
   if #cur_text > 0 then
     cur_text = cur_text:gsub("\n$", "")
     if is_code then
@@ -562,106 +583,29 @@ local function parse_blocks(text, base_font, code_font, max_w)
       table.insert(blocks, { type = "text", raw = cur_text })
     end
   end
-
-  -- Helper: parse a pipe-delimited table row into cell strings
-  local function parse_table_row(line)
-    local cells = {}
-    -- strip leading/trailing pipe
-    local inner = line:match("^%s*|(.+)|%s*$") or line:match("^%s*|(.+)")
-    if not inner then return nil end
-    for cell in (inner .. "|"):gmatch("([^|]*)|") do
-      table.insert(cells, cell:match("^%s*(.-)%s*$"))
-    end
-    return cells
-  end
-
-  local function is_table_separator(line)
-    return line:match("^%s*|[%s|:%-]+|%s*$") ~= nil
-  end
-
-  local function is_table_row(line)
-    return line:match("^%s*|.+|%s*$") ~= nil or line:match("^%s*|.+") ~= nil
-  end
-
-  -- post-process text blocks line by line
+  
+  -- post-process text blocks line by line for headers and lists
   local final_blocks = {}
   for _, blk in ipairs(blocks) do
     if blk.type == "code" then
       table.insert(final_blocks, blk)
     else
-      local raw_lines = {}
       for line in (blk.raw .. "\n"):gmatch("([^\n]*)\n") do
-        table.insert(raw_lines, line)
-      end
-
-      local i = 1
-      while i <= #raw_lines do
-        local line = raw_lines[i]
-
-        -- Horizontal rule: --- or *** or ===
-        if line:match("^%s*%-%-%-+%s*$") or line:match("^%s*%*%*%*+%s*$") or line:match("^%s*===+%s*$") then
-          table.insert(final_blocks, { type = "hr" })
-          i = i + 1
-
-        -- Table detection: starts with |
-        elseif is_table_row(line) then
-          local header_cells = parse_table_row(line)
-          local rows = {}
-          i = i + 1
-          -- skip separator row (|---|---|)
-          if i <= #raw_lines and is_table_separator(raw_lines[i]) then
-            i = i + 1
-          end
-          while i <= #raw_lines and is_table_row(raw_lines[i]) do
-            local cells = parse_table_row(raw_lines[i])
-            if cells then table.insert(rows, cells) end
-            i = i + 1
-          end
-          -- Compute column widths
-          local col_count = header_cells and #header_cells or 0
-          local col_widths = {}
-          for c = 1, col_count do
-            local max_cw = base_font:get_width(header_cells[c] or "")
-            for _, row in ipairs(rows) do
-              local cw = base_font:get_width(row[c] or "")
-              if cw > max_cw then max_cw = cw end
-            end
-            col_widths[c] = max_cw + 12 * SCALE
-          end
-          table.insert(final_blocks, {
-            type = "table",
-            headers = header_cells,
-            rows = rows,
-            col_widths = col_widths,
-            col_count = col_count,
-          })
-
-        elseif #line > 0 then
+        if #line > 0 then
           local header = line:match("^%s*(#+)%s")
-          local list   = line:match("^%s*[%-%*]%s")
-          local numlist = line:match("^%s*%d+%.%s")
-          local level  = header and #header or 0
-
+          local list = line:match("^%s*[%-%*]%s")
+          local level = header and #header or 0
+          
+          -- strip header symbols for parsing
           if header then line = line:gsub("^%s*#+%s", "") end
-          if numlist then
-            local num = line:match("^%s*(%d+%.%s)")
-            local rest = line:gsub("^%s*%d+%.%s", "")
-            local segments = parse_inline(rest)
-            local f = base_font
-            local prefix_w = f:get_width(num or "1. ")
-            local wrapped = wrap_segments(segments, f, code_font, max_w - prefix_w)
-            table.insert(final_blocks, { type = "paragraph", level = 0, list = false, numlist = num, wrapped_lines = wrapped })
-          else
-            local segments = parse_inline(line)
-            local f = (level > 0) and (style.big_font or base_font) or base_font
-            local indent = (list and f:get_width("• ") or 0)
-            local wrapped = wrap_segments(segments, f, code_font, max_w - indent)
-            table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
-          end
-          i = i + 1
+          
+          local segments = parse_inline(line)
+          -- adjust fonts for headers
+          local f = (level > 0) and (style.big_font or base_font) or base_font
+          local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("• ") or 0))
+          table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
         else
           table.insert(final_blocks, { type = "empty" })
-          i = i + 1
         end
       end
     end
@@ -708,25 +652,17 @@ local function parse_pty_model_list(raw)
     then
       seen[line] = true
       local name = line
-      
-      -- If the line starts with an ID followed by multiple spaces (e.g. "gemini-3.1-pro-high   Gemini 3.1 Pro (High)")
-      -- strip the ID and keep only the display name for the CLI.
-      local id, disp = line:match("^([^%s]+)%s%s+(.+)$")
-      if id and disp then
-        name = disp
-      end
-
       local usage = nil
       local limited = false
       
       -- Parse usage e.g. "Gemini 1.5 Pro (50/50)"
-      local base_name, u1, u2 = name:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
+      local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
       if base_name and u1 and u2 then
         name = base_name
         usage = u1 .. "/" .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
-        base_name, u1, u2 = name:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
+        base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
         if base_name and u1 and u2 then
           name = base_name
           usage = u1 .. "/" .. u2
@@ -1367,12 +1303,9 @@ function AGView:update()
 
       -- Typewriter effect logic
       if is_typing then
-        local now = system.get_time()
-        if now - (tab.last_typewriter_time or 0) > 0.1 then
-          tab.last_typewriter_time = now
-          tab._ai_displayed_chars = math.min(ai_len, tab._ai_displayed_chars + 1000)
-          dirty = true
-        end
+        -- Reveal characters chunk by chunk (approx 60fps * 150 chars = 9000 chars/sec)
+        tab._ai_displayed_chars = math.min(ai_len, tab._ai_displayed_chars + 150)
+        dirty = true
       end
       
       -- Update text if dirty
@@ -1433,27 +1366,19 @@ function parse_pty_model_list(raw)
     then
       seen[line] = true
       local name = line
-      
-      -- If the line starts with an ID followed by multiple spaces (e.g. "gemini-3.1-pro-high   Gemini 3.1 Pro (High)")
-      -- strip the ID and keep only the display name for the CLI.
-      local id, disp = line:match("^([^%s]+)%s%s+(.+)$")
-      if id and disp then
-        name = disp
-      end
-
       local usage = nil
       local limited = false
       
       -- Parse usage e.g. "Gemini 1.5 Pro (50/50)"
-      local base_name, u1, u2 = name:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
+      local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
       if base_name and u1 and u2 then
         name = base_name
         usage = u1 .. "/" .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
-        local base_name2, pct = name:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
+        local base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
         if not base_name2 then
-          base_name2, pct = name:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)%%[^%]%)]*[%]%)]?%s*$")
+          base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)%%[^%]%)]*[%]%)]?%s*$")
         end
         if base_name2 and pct then
           name = base_name2
@@ -1536,33 +1461,6 @@ local function draw_rect_outline(x, y, w, h, col)
   renderer.draw_rect(x,     y+h-1, w, 1, col)
   renderer.draw_rect(x,     y,     1, h, col)
   renderer.draw_rect(x+w-1, y,     1, h, col)
-end
-
-local function wrap_input_text(font, text, max_w)
-  local lines = {}
-  text = text:gsub("\r", "")
-  if text == "" then return {{ text = "", start_byte = 1, end_byte = 0, has_nl = false }} end
-  local line_start = 1
-  local line_str = ""
-  local current_byte = 1
-  for char in text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-    if char == "\n" then
-      table.insert(lines, { text = line_str, start_byte = line_start, end_byte = current_byte - 1, has_nl = true })
-      line_start = current_byte + 1
-      line_str = ""
-    else
-      if font:get_width(line_str .. char) > max_w and #line_str > 0 then
-        table.insert(lines, { text = line_str, start_byte = line_start, end_byte = current_byte - 1, has_nl = false })
-        line_start = current_byte
-        line_str = char
-      else
-        line_str = line_str .. char
-      end
-    end
-    current_byte = current_byte + #char
-  end
-  table.insert(lines, { text = line_str, start_byte = line_start, end_byte = #text, has_nl = false })
-  return lines
 end
 
 function AGView:draw()
@@ -1685,16 +1583,7 @@ function AGView:draw()
   -- INPUT AREA (at bottom, fixed)
   -- ═══════════════════════════════════════════════════════════════════
   local send_h   = 30 * SCALE
-  local inp_w = w - 2 * pad
-  local max_text_w = inp_w - 16 * SCALE
-  local display_text = #self:state().input > 0 and self:state().input or "Ask anything about your code."
-  local wrapped_lines = wrap_input_text(style.font, display_text, max_text_w)
-  local line_h = style.font:get_height()
-  local num_lines = #wrapped_lines
-
-  local input_h = math.max(56 * SCALE, num_lines * line_h + 16 * SCALE)
-  input_h = math.min(input_h, self.size.y * 0.4) 
-  
+  local input_h  = 56 * SCALE
   local bottom_h = input_h + send_h + 3 * pad
   local chat_bot = y + h - bottom_h
 
@@ -1704,69 +1593,42 @@ function AGView:draw()
   -- Input box
   local inp_x = x + pad
   local inp_y = chat_bot + pad
+  local inp_w = w - 2 * pad
   renderer.draw_rect(inp_x, inp_y, inp_w, input_h, P.bg_input)
   draw_rect_outline(inp_x, inp_y, inp_w, input_h,
     core.active_view == self and P.border_input or P.border)
 
-  local fg_inp = #self:state().input > 0 and P.fg or P.fg_muted
-  local tx = inp_x + 8 * SCALE
+  -- Placeholder / typed text
+  local display    = #self:state().input > 0 and self:state().input or "Ask anything about your code."
+  local fg_inp     = #self:state().input > 0 and P.fg or P.fg_muted
+
+  local max_text_w = inp_w - 16 * SCALE
   local cursor_idx = self:state().cursor or #self:state().input
-  local cursor_x = 0
-  local cursor_y_idx = 1
-  
-  for i, line in ipairs(wrapped_lines) do
-    cursor_y_idx = i
-    if not line.has_nl and cursor_idx == line.end_byte and i < #wrapped_lines then
-      cursor_x = style.font:get_width(line.text)
-      break
-    elseif cursor_idx >= line.start_byte and cursor_idx <= line.end_byte then
-      local sub_len = cursor_idx - line.start_byte + 1
-      cursor_x = style.font:get_width(line.text:sub(1, sub_len))
-      break
-    elseif line.has_nl and cursor_idx == line.end_byte then
-      cursor_x = style.font:get_width(line.text)
-      break
-    elseif cursor_idx < line.start_byte then
-      cursor_x = 0
-      break
-    end
+  local cursor_x   = style.font:get_width(self:state().input:sub(1, cursor_idx))
+  local tx         = inp_x + 8 * SCALE
+  if core.active_view == self and cursor_x > max_text_w then
+    tx = tx - (cursor_x - max_text_w)
   end
 
-  local input_text_h = input_h - 16 * SCALE
-  local cursor_y_pos = (cursor_y_idx - 1) * line_h
-  if not self:state().input_scroll_y then self:state().input_scroll_y = 0 end
-  if core.active_view == self then
-    if cursor_y_pos < self:state().input_scroll_y then
-      self:state().input_scroll_y = cursor_y_pos
-    elseif cursor_y_pos + line_h > self:state().input_scroll_y + input_text_h then
-      self:state().input_scroll_y = cursor_y_pos + line_h - input_text_h
-    end
-  end
-  
   core.push_clip_rect(inp_x, inp_y, inp_w, input_h)
-  for i, line in ipairs(wrapped_lines) do
-    local ly = inp_y + 8 * SCALE + (i - 1) * line_h - self:state().input_scroll_y
-    if ly + line_h >= inp_y and ly <= inp_y + input_h then
-      renderer.draw_text(style.font, line.text, tx, ly, fg_inp)
-    end
-  end
+  renderer.draw_text(style.font, display, tx, inp_y + 8 * SCALE, fg_inp)
 
   -- Blink cursor
   if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
-    local cw = #self:state().input > 0 and cursor_x or style.font:get_width(display_text)
+    local cw = #self:state().input > 0 and cursor_x or style.font:get_width(display)
     if #self:state().input == 0 then cw = 0 end
-    local cy = inp_y + 8 * SCALE + (cursor_y_idx - 1) * line_h - self:state().input_scroll_y
-    renderer.draw_rect(tx + cw, cy, 2 * SCALE, line_h, P.fg_accent)
+    renderer.draw_rect(tx + cw, inp_y + 8 * SCALE, 2 * SCALE, style.font:get_height(), P.fg_accent)
   end
   core.pop_clip_rect()
 
   -- Hint text bottom-right of input
-  local hint = "Enter ⏎"
+  local hint = "Enter ↵"
   renderer.draw_text(style.font, hint,
     inp_x + inp_w - style.font:get_width(hint) - 6 * SCALE,
     inp_y + input_h - style.font:get_height() - 5 * SCALE,
     P.fg_muted)
 
+  -- Send/Stop button and Attachment button
   local send_y = inp_y + input_h + 4 * SCALE
   local attach_w = 34 * SCALE
   local send_w = inp_w - attach_w - 4 * SCALE
@@ -1892,11 +1754,6 @@ function AGView:draw()
         msg_h = msg_h + #blk.raw_lines * lh_c + 8 * SCALE + 24 * SCALE
       elseif blk.type == "empty" then
         msg_h = msg_h + lh_f
-      elseif blk.type == "hr" then
-        msg_h = msg_h + 10 * SCALE
-      elseif blk.type == "table" then
-        local row_h = style.font:get_height() + 8 * SCALE
-        msg_h = msg_h + row_h * (1 + #blk.rows) + 4 * SCALE
       elseif blk.type == "paragraph" then
         local f = (blk.level > 0) and (style.big_font or style.font) or style.font
         local lh = f:get_height() + 2 * SCALE
@@ -1961,12 +1818,15 @@ function AGView:draw()
               if ok then tokens, state = res1, res2 end
             end
             local lx = x + pad + msg_pad
+            local code_avail_w = math.max(10*SCALE, msg_w - 2 * msg_pad)
+            core.push_clip_rect(lx, line_y, code_avail_w, lh_c)
             for i = 1, #tokens, 2 do
               local type = tokens[i]
               local text = tokens[i+1]
               local col = style.syntax[type] or style.syntax["normal"] or P.fg_ai
               lx = draw_text_emoji(style.code_font, text, lx, line_y, col)
             end
+            core.pop_clip_rect()
           else
             if synt then pcall(function() _, state = tokenizer.tokenize(synt, line, state) end) end
           end
@@ -1976,107 +1836,35 @@ function AGView:draw()
         
       elseif blk.type == "empty" then
         line_y = line_y + lh_f
-
-      elseif blk.type == "hr" then
-        if line_y + 10 * SCALE >= chat_top and line_y <= chat_bot then
-          local hr_y = line_y + 4 * SCALE
-          renderer.draw_rect(x + pad + msg_pad, hr_y, msg_w - 2 * msg_pad, math.max(1, SCALE), P.border)
-        end
-        line_y = line_y + 10 * SCALE
-
-      elseif blk.type == "table" then
-        local row_h   = style.font:get_height() + 8 * SCALE
-        local cell_pad = 6 * SCALE
-        local tbl_x   = x + pad + msg_pad
-        local tbl_w   = msg_w - 2 * msg_pad
-        -- Compute total col width; clamp if wider than available
-        local total_cw = 0
-        for _, cw in ipairs(blk.col_widths) do total_cw = total_cw + cw end
-        local scale_f = (total_cw > tbl_w) and (tbl_w / total_cw) or 1.0
-        local col_widths = {}
-        for c, cw in ipairs(blk.col_widths) do col_widths[c] = math.floor(cw * scale_f) end
-
-        local function draw_table_row(cells, row_idx, is_header)
-          if line_y + row_h < chat_top or line_y > chat_bot then
-            line_y = line_y + row_h
-            return
-          end
-          -- Row bg
-          local row_bg = is_header and P.bg_darker
-                        or (row_idx % 2 == 0 and P.bg_ai_msg or P.bg_darker)
-          renderer.draw_rect(tbl_x, line_y, tbl_w, row_h, row_bg)
-          -- Border top
-          renderer.draw_rect(tbl_x, line_y, tbl_w, math.max(1, SCALE), P.border)
-          local cx = tbl_x
-          for c, cell in ipairs(cells) do
-            local cw = col_widths[c] or 60 * SCALE
-            -- vertical separator
-            renderer.draw_rect(cx, line_y, math.max(1, SCALE), row_h, P.border)
-            -- cell text (clipped)
-            local text = cell or ""
-            local segs = parse_inline(text)
-            local ty_cell = line_y + math.floor((row_h - style.font:get_height()) / 2)
-            local lx = cx + cell_pad
-            for _, seg in ipairs(segs) do
-              local sfont = (seg.type == "code" or seg.type == "code_link") and style.code_font or style.font
-              local scol  = is_header and P.fg_accent
-                            or (seg.type == "bold" and P.fg_accent
-                            or (seg.type == "code" and (style.syntax["keyword"] or P.fg_accent)
-                            or fg_col))
-              local sw = sfont:get_width(seg.text)
-              if lx + sw <= cx + cw - cell_pad then
-                draw_text_emoji(sfont, seg.text, lx, ty_cell, scol)
-              end
-              lx = lx + sw
-            end
-            cx = cx + cw
-          end
-          -- right border
-          renderer.draw_rect(cx, line_y, math.max(1, SCALE), row_h, P.border)
-          line_y = line_y + row_h
-        end
-
-        if blk.headers then draw_table_row(blk.headers, 0, true) end
-        -- Bottom border of header
-        renderer.draw_rect(tbl_x, line_y, tbl_w, math.max(1, SCALE) * 2, P.fg_accent)
-        for r_idx, row in ipairs(blk.rows) do
-          draw_table_row(row, r_idx, false)
-        end
-        -- Bottom border
-        renderer.draw_rect(tbl_x, line_y, tbl_w, math.max(1, SCALE), P.border)
-        line_y = line_y + 4 * SCALE
-
+        
       elseif blk.type == "paragraph" then
         local f = (blk.level > 0) and (style.big_font or style.font) or style.font
         local lh = f:get_height() + 2 * SCALE
         local l_col = (blk.level > 0) and P.fg_accent or fg_col
-
+        
         for l_idx, w_line in ipairs(blk.wrapped_lines) do
           if line_y + lh >= chat_top and line_y <= chat_bot then
             local lx = x + pad + msg_pad
+            local para_avail_w = math.max(10*SCALE, msg_w - 2 * msg_pad)
+            core.push_clip_rect(lx, line_y, para_avail_w, lh)
             if blk.list and l_idx == 1 then
               renderer.draw_text(f, "• ", lx, line_y, P.fg_accent)
               lx = lx + f:get_width("• ")
             elseif blk.list then
               lx = lx + f:get_width("• ")
-            elseif blk.numlist and l_idx == 1 then
-              renderer.draw_text(f, blk.numlist, lx, line_y, P.fg_accent)
-              lx = lx + f:get_width(blk.numlist)
-            elseif blk.numlist then
-              lx = lx + f:get_width(blk.numlist)
             end
-
+            
             for _, seg in ipairs(w_line) do
               local cfont = seg.font
               local ccol = l_col
               if seg.type == "code" or seg.type == "code_link" then ccol = style.syntax["keyword"] or P.fg_accent
               elseif seg.type == "bold" then ccol = P.fg_accent
-              elseif seg.type == "italic" then ccol = style.syntax["string"] or fg_col
               elseif seg.type == "link" then ccol = style.syntax["function"] or P.fg_accent end
-
+              
               draw_text_emoji(cfont, seg.text, lx, line_y, ccol)
               lx = lx + seg.width
             end
+            core.pop_clip_rect()
           end
           line_y = line_y + lh
         end
@@ -2236,7 +2024,7 @@ function AGView:on_paste(text)
       f:write(text)
       f:close()
       table.insert(self.temp_files, filepath)
-      
+      core.log("Saved long paste to %s", filename)
       paste_txt = " @" .. filename .. " "
     end
   end
@@ -2316,16 +2104,13 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "backspace" then
-    local text = self:state().input or ""
-    local c = self:state().cursor or #text
-    if #text > 0 and c > 0 then
-      local i = c
-      -- step back over continuation bytes (10xxxxxx)
-      while i > 1 and text:byte(i) >= 0x80 and text:byte(i) < 0xC0 do
-        i = i - 1
-      end
-      self:state().input = text:sub(1, i - 1) .. text:sub(c + 1)
-      self:state().cursor = i - 1
+    local c = self:state().cursor or #self:state().input
+    if c > 0 then
+      local prev_c = utf8_prev(self:state().input, c)
+      local before = self:state().input:sub(1, prev_c)
+      local after = self:state().input:sub(c + 1)
+      self:state().input = before .. after
+      self:state().cursor = prev_c
       self:_update_mentions()
       core.redraw = true
     end
@@ -2467,58 +2252,34 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
 
   -- Check if clicked inside input
   local pad = 16 * SCALE
-  local inp_w = self.size.x - 2 * pad
-  local max_text_w = inp_w - 16 * SCALE
-  local display_text = #self:state().input > 0 and self:state().input or "Ask anything about your code."
-  local wrapped_lines = wrap_input_text(style.font, display_text, max_text_w)
-  local line_h = style.font:get_height()
-  local input_h = math.max(56 * SCALE, #wrapped_lines * line_h + 16 * SCALE)
-  input_h = math.min(input_h, self.size.y * 0.4)
-  
-  local send_h   = 30 * SCALE
-  local bottom_h = input_h + send_h + 3 * pad
-  local chat_bot = self.position.y + self.size.y - bottom_h
+  local chat_bot = self.size.y - (style.font:get_height() + 16 * SCALE) - 10 * SCALE - pad
   local inp_y = chat_bot + pad
-  
+  local input_h = style.font:get_height() + 16 * SCALE
   if my >= inp_y and my <= inp_y + input_h then
     local inp_x = self.position.x + pad
+    local inp_w = self.size.x - 2 * pad
     local tx = inp_x + 8 * SCALE
-    
-    local click_y = my - (inp_y + 8 * SCALE) + (self:state().input_scroll_y or 0)
-    local clicked_line_idx = math.floor(click_y / line_h) + 1
-    clicked_line_idx = math.max(1, math.min(clicked_line_idx, #wrapped_lines))
-    
-    local line = wrapped_lines[clicked_line_idx]
-    local click_x = mx - tx
-    
-    if #self:state().input == 0 then
-      self:state().cursor = 0
-    elseif click_x <= 0 then
-      self:state().cursor = line.start_byte - 1
-    else
-      local best_cursor = line.start_byte - 1
-      local min_dist = math.abs(click_x)
-      local i = line.start_byte - 1
-      while i < line.end_byte do
-        local b = self:state().input:byte(i + 1)
-        local clen = 1
-        if b >= 0xC0 then
-          if b >= 0xF0 then clen = 4
-          elseif b >= 0xE0 then clen = 3
-          else clen = 2 end
-        end
-        i = i + clen
-        local sub_len = i - line.start_byte + 1
-        local cx = style.font:get_width(line.text:sub(1, sub_len))
-        local dist = math.abs(cx - click_x)
-        if dist < min_dist then
-          min_dist = dist
-          best_cursor = i
-        end
-      end
-      self:state().cursor = best_cursor
+    if core.active_view == self then
+      local max_text_w = inp_w - 16 * SCALE
+      local cursor_idx = self:state().cursor or #self:state().input
+      local cursor_x = style.font:get_width(self:state().input:sub(1, cursor_idx))
+      if cursor_x > max_text_w then tx = tx - (cursor_x - max_text_w) end
     end
-    
+    local click_x = mx - tx
+    local best_cursor = 0
+    local min_dist = math.abs(click_x)
+    local i = 0
+    while i < #self:state().input do
+      local next_i = utf8_next(self:state().input, i)
+      local char_w = style.font:get_width(self:state().input:sub(1, next_i))
+      local dist = math.abs(char_w - click_x)
+      if dist < min_dist then
+        min_dist = dist
+        best_cursor = next_i
+      end
+      i = next_i
+    end
+    self:state().cursor = best_cursor
     core.redraw = true
     return true
   end
@@ -2862,19 +2623,18 @@ command.add(
 
 local keymap = require "core.keymap"
 keymap.add {
-  ["return"]       = "antigravity:return",
-  ["backspace"]    = "antigravity:backspace",
-  ["up"]           = "antigravity:scroll-up",
-  ["down"]         = "antigravity:scroll-down",
-  ["escape"]       = "antigravity:escape",
-  ["ctrl+v"]       = "antigravity:paste",
-  ["cmd+v"]        = "antigravity:paste",
-  ["shift+insert"] = "antigravity:paste",
-  ["delete"]       = "antigravity:delete",
-  ["left"]         = "antigravity:cursor-left",
-  ["right"]        = "antigravity:cursor-right",
-  ["home"]         = "antigravity:cursor-home",
-  ["end"]          = "antigravity:cursor-end",
+  ["return"]    = "antigravity:return",
+  ["backspace"] = "antigravity:backspace",
+  ["up"]        = "antigravity:scroll-up",
+  ["down"]      = "antigravity:scroll-down",
+  ["escape"]    = "antigravity:escape",
+  ["ctrl+v"]    = "antigravity:paste",
+  ["cmd+v"]     = "antigravity:paste",
+  ["delete"]    = "antigravity:delete",
+  ["left"]      = "antigravity:cursor-left",
+  ["right"]     = "antigravity:cursor-right",
+  ["home"]      = "antigravity:cursor-home",
+  ["end"]       = "antigravity:cursor-end",
 }
 
 local ok, contextmenu = pcall(require, "plugins.contextmenu")
@@ -2887,19 +2647,8 @@ if ok then
     { text = "Fix Code with AI",      command = "antigravity:fix" },
     { text = "Generate Unit Tests",   command = "antigravity:tests" },
     { text = "Generate Documentation",command = "antigravity:docs" },
-    { text = "Copy for Antigravity",  command = "antigravity:copy-file" }
   })
-  
-  contextmenu:register(
-    function() return type(core.active_view) == "table" and core.active_view.get_name and core.active_view:get_name() == "Antigravity" end,
-    {
-      { text = "Paste", command = "antigravity:paste" }
-    }
-  )
 end
-
-
-
 
 
 
