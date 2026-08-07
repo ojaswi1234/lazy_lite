@@ -34,6 +34,8 @@ config.plugins.mongodb_explorer = common.merge({
   show_doc_counts = true,           -- Show collection document count badges
   show_indent_guides = true,        -- Show vertical hierarchy lines in tree
   compact_mode = false,             -- Compact row spacing mode
+  autostop_on_exit = true,          -- Auto-stop MongoDB server when closing Lite XL
+  autostart_server = false,         -- Do not autostart MongoDB server when opening Lite XL
   theme_override = nil,             -- Custom color table overrides if desired
   config_spec = {
     name = "MongoDB Explorer",
@@ -66,6 +68,20 @@ config.plugins.mongodb_explorer = common.merge({
       path = "show_indent_guides",
       type = "toggle",
       default = true,
+    },
+    {
+      label = "Auto-Stop Server on Exit",
+      description = "Automatically stop local MongoDB server when Lite XL is closed.",
+      path = "autostop_on_exit",
+      type = "toggle",
+      default = true,
+    },
+    {
+      label = "Autostart Server on Open",
+      description = "Automatically start local MongoDB server when Lite XL opens (Default: disabled).",
+      path = "autostart_server",
+      type = "toggle",
+      default = false,
     },
   }
 }, config.plugins.mongodb_explorer)
@@ -2288,6 +2304,28 @@ db.%s.find({}).limit(20);
     })
   end,
 })
+
+-- ============================================================================
+-- Auto-Stop Server on Lite XL Exit (Never Autostarts on Open)
+-- ============================================================================
+local old_core_quit = core.quit
+function core.quit(force)
+  if config.plugins.mongodb_explorer.autostop_on_exit ~= false then
+    if store.server_status == "running" then
+      pcall(function()
+        local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
+        if is_windows then
+          os.execute("net stop MongoDB >nul 2>&1")
+          os.execute("powershell -Command \"Stop-Service MongoDB -ErrorAction SilentlyContinue\" >nul 2>&1")
+          os.execute("taskkill /F /IM mongod.exe >nul 2>&1")
+        else
+          os.execute("sudo systemctl stop mongod >/dev/null 2>&1")
+        end
+      end)
+    end
+  end
+  return old_core_quit(force)
+end
 
 -- ============================================================================
 -- Keymap Bindings
