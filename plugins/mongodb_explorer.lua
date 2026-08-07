@@ -804,7 +804,156 @@ end
 local store = {
   connections = {},
   selected_node = nil,
+  server_status = "stopped", -- "stopped", "running", "starting", "stopping"
 }
+
+function store.check_server_status(callback)
+  core.add_thread(function()
+    local is_running = false
+    local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
+    if is_windows then
+      local proc = process.start({ "cmd.exe", "/c", "powershell -Command \"(Get-Service MongoDB -ErrorAction SilentlyContinue).Status\"" })
+      if proc then
+        local out = ""
+        local t0 = system.get_time()
+        while proc:running() and system.get_time() - t0 < 3 do
+          local r = proc:read_stdout()
+          if r then out = out .. r end
+          coroutine.yield(0.05)
+        end
+        local r = proc:read_stdout()
+        if r then out = out .. r end
+        if out:find("Running") or out:find("running") then
+          is_running = true
+        end
+      end
+    else
+      local proc = process.start({ "systemctl", "is-active", "mongod" })
+      if proc then
+        local out = ""
+        local t0 = system.get_time()
+        while proc:running() and system.get_time() - t0 < 3 do
+          local r = proc:read_stdout()
+          if r then out = out .. r end
+          coroutine.yield(0.05)
+        end
+        local r = proc:read_stdout()
+        if r then out = out .. r end
+        if out:find("active") then is_running = true end
+      end
+    end
+
+    store.server_status = is_running and "running" or "stopped"
+    if callback then callback(is_running) end
+    core.redraw = true
+  end)
+end
+
+function store.start_server(callback)
+  store.server_status = "starting"
+  core.log("[MongoDB] Starting local MongoDB Community Server...")
+  core.redraw = true
+
+  core.add_thread(function()
+    local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
+    local started = false
+
+    if is_windows then
+      local proc = process.start({ "cmd.exe", "/c", "net start MongoDB" })
+      if proc then
+        local out = ""
+        local t0 = system.get_time()
+        while proc:running() and system.get_time() - t0 < 6 do
+          local r = proc:read_stdout()
+          if r then out = out .. r end
+          coroutine.yield(0.05)
+        end
+        local r = proc:read_stdout()
+        if r then out = out .. r end
+        if out:find("started successfully") or out:find("already been started") then
+          started = true
+        else
+          -- If elevation needed, run via PowerShell RunAs
+          process.start({ "powershell", "-Command", "Start-Process cmd -ArgumentList '/c net start MongoDB' -Verb RunAs -WindowStyle Hidden" })
+        end
+      end
+
+      if not started then
+        local mongod_paths = {
+          "C:\\Program Files\\MongoDB\\Server\\8.0\\bin\\mongod.exe",
+          "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongod.exe",
+          "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongod.exe",
+          "mongod.exe",
+        }
+        for _, mp in ipairs(mongod_paths) do
+          local f = io.open(mp, "r")
+          if f or mp == "mongod.exe" then
+            if f then f:close() end
+            local userprofile = os.getenv("USERPROFILE") or "C:\\Users\\Default"
+            local data_dir = userprofile .. "\\mongodb_data"
+            pcall(function() os.execute('mkdir "' .. data_dir .. '" 2>nul') end)
+            process.start({ "cmd.exe", "/c", "start", "/b", mp, "--dbpath", data_dir })
+            started = true
+            break
+          end
+        end
+      end
+    else
+      process.start({ "sudo", "systemctl", "start", "mongod" })
+      started = true
+    end
+
+    coroutine.yield(2.0)
+    store.server_status = "running"
+    core.log("[MongoDB] MongoDB Server is running.")
+    
+    local local_conn = store.find_connection("conn_local") or store.connections[1]
+    if local_conn and local_conn.uri:find("127.0.0.1") then
+      store.connect(local_conn)
+    end
+
+    if callback then callback(true) end
+    core.redraw = true
+  end)
+end
+
+function store.stop_server(callback)
+  store.server_status = "stopping"
+  core.log("[MongoDB] Stopping local MongoDB Community Server...")
+  core.redraw = true
+
+  core.add_thread(function()
+    local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
+    if is_windows then
+      local shut_js = "db.getSiblingDB('admin').shutdownServer({ force: true })"
+      run_mongo_cli("mongodb://127.0.0.1:27017", shut_js, function() end)
+
+      local proc = process.start({ "cmd.exe", "/c", "net stop MongoDB" })
+      if proc then
+        local t0 = system.get_time()
+        while proc:running() and system.get_time() - t0 < 6 do
+          coroutine.yield(0.05)
+        end
+      end
+    else
+      process.start({ "sudo", "systemctl", "stop", "mongod" })
+    end
+
+    coroutine.yield(1.0)
+    store.server_status = "stopped"
+
+    for _, c in ipairs(store.connections) do
+      if c.uri:find("127.0.0.1") and c.status == "connected" then
+        store.disconnect(c)
+      end
+    end
+
+    core.log("[MongoDB] MongoDB Server stopped.")
+    if callback then callback(true) end
+    core.redraw = true
+  end)
+end
+
 
 function store.save()
   local serialized = {}
@@ -824,6 +973,7 @@ function store.save()
 end
 
 function store.load()
+store.check_server_status()
   local f = io.open(config.plugins.mongodb_explorer.save_path, "r")
   if f then
     local content = f:read("*a")
@@ -1543,7 +1693,10 @@ function MongoDBExplorerView:draw()
   renderer.draw_rect(x, footer_y, w, footer_h, pal.footer_bg)
   renderer.draw_rect(x, footer_y, w, 1 * SCALE, pal.divider)
 
+  local s_lbl = (store.server_status == "starting" and "Starting...") or (store.server_status == "stopping" and "Stopping...") or (store.server_status == "running" and "Stop Server" or "Start Server")
+
   local action_buttons = {
+    { label = s_lbl, cmd = "mongodb_explorer:toggle-server" },
     { label = "mongosh Shell", cmd = "mongodb_explorer:open-terminal" },
     { label = "View Docs", cmd = "mongodb_explorer:view-documents" },
     { label = "Scratchpad", cmd = "mongodb_explorer:new-scratchpad" },
@@ -1726,6 +1879,22 @@ local function get_or_create_explorer()
 end
 
 command.add(nil, {
+  ["mongodb_explorer:start-server"] = function()
+    store.start_server()
+  end,
+
+  ["mongodb_explorer:stop-server"] = function()
+    store.stop_server()
+  end,
+
+  ["mongodb_explorer:toggle-server"] = function()
+    if store.server_status == "running" then
+      store.stop_server()
+    else
+      store.start_server()
+    end
+  end,
+
   ["mongodb_explorer:open-terminal"] = function()
     local conn, db, _ = get_selected_context()
     open_mongosh_terminal(conn, db)
