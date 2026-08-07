@@ -865,6 +865,7 @@ function store.start_server(callback)
       local localappdata = os.getenv("LOCALAPPDATA") or "C:\\Users\\Default\\AppData\\Local"
       local userprofile = os.getenv("USERPROFILE") or "C:\\Users\\Default"
       local data_dir = userprofile .. "\\mongodb_data"
+      local log_file = data_dir .. "\\mongod.log"
       pcall(function() os.execute('mkdir "' .. data_dir .. '" 2>nul') end)
 
       local mongod_paths = {
@@ -878,7 +879,7 @@ function store.start_server(callback)
         local f = io.open(mp, "r")
         if f or mp == "mongod.exe" then
           if f then f:close() end
-          local ok, p = pcall(process.start, { mp, "--dbpath", data_dir, "--bind_ip", "127.0.0.1", "--port", "27017" })
+          local ok, p = pcall(process.start, { mp, "--dbpath", data_dir, "--logpath", log_file, "--logappend", "--bind_ip", "127.0.0.1", "--port", "27017" })
           if ok and p then
             store.mongod_proc = p
             started = true
@@ -907,16 +908,45 @@ function store.start_server(callback)
       if ok and p then started = true end
     end
 
-    coroutine.yield(2.0)
-    store.server_status = "running"
-    core.log("[MongoDB] MongoDB Server is running at 127.0.0.1:27017.")
-    
-    local local_conn = store.find_connection("conn_local") or store.connections[1]
-    if local_conn and local_conn.uri:find("127.0.0.1") then
-      store.connect(local_conn)
+    -- Non-blocking readiness polling (up to 12s)
+    local ready = false
+    local start_t = system.get_time()
+    while system.get_time() - start_t < 12 do
+      coroutine.yield(0.8)
+      local ping_done = false
+      local ping_ok = false
+
+      run_mongo_cli("mongodb://127.0.0.1:27017", "return db.adminCommand({ ping: 1 });", function(res, err)
+        ping_done = true
+        if res and res.ok == 1 then
+          ping_ok = true
+        end
+      end)
+
+      local sub_t = system.get_time()
+      while not ping_done and system.get_time() - sub_t < 1.5 do
+        coroutine.yield(0.05)
+      end
+
+      if ping_ok then
+        ready = true
+        break
+      end
     end
 
-    if callback then callback(true) end
+    if ready then
+      store.server_status = "running"
+      core.log("[MongoDB] MongoDB Server is ready and running at 127.0.0.1:27017.")
+      local local_conn = store.find_connection("conn_local") or store.connections[1]
+      if local_conn and local_conn.uri:find("127.0.0.1") then
+        store.connect(local_conn)
+      end
+      if callback then callback(true) end
+    else
+      store.server_status = "stopped"
+      core.warn("[MongoDB] MongoDB Server took longer than expected to start. Try clicking 'Start Server' again.")
+      if callback then callback(false) end
+    end
     core.redraw = true
   end)
 end
