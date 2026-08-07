@@ -630,31 +630,18 @@ local function get_mongo_command_candidates(uri, script_path)
     local appdata = os.getenv("APPDATA")
     local localappdata = os.getenv("LOCALAPPDATA")
 
-    -- Windows cmd wrapper for mongosh in PATH
-    table.insert(candidates, { "cmd.exe", "/c", "mongosh", "--quiet", "--norc", uri, "--file", script_path })
-
-    -- NPM global bin path
-    if appdata then
-      local npm_mongosh = appdata .. "\\npm\\mongosh.cmd"
-      table.insert(candidates, { "cmd.exe", "/c", npm_mongosh, "--quiet", "--norc", uri, "--file", script_path })
-      local npm_npx = appdata .. "\\npm\\npx.cmd"
-      table.insert(candidates, { "cmd.exe", "/c", npm_npx, "-y", "mongosh", "--quiet", "--norc", uri, "--file", script_path })
-    end
-
-    -- Direct Node.js / npx installation paths
-    table.insert(candidates, { "cmd.exe", "/c", "C:\\Program Files\\nodejs\\npx.cmd", "-y", "mongosh", "--quiet", "--norc", uri, "--file", script_path })
-    table.insert(candidates, { "cmd.exe", "/c", "npx.cmd", "-y", "mongosh", "--quiet", "--norc", uri, "--file", script_path })
-    table.insert(candidates, { "cmd.exe", "/c", "npx", "-y", "mongosh", "--quiet", "--norc", uri, "--file", script_path })
-
-    -- Standard standalone MongoDB bin directories
+    -- 1. Standard standalone mongosh.exe binaries (highest priority)
     if localappdata then
+      table.insert(candidates, { localappdata .. "\\Programs\\mongosh\\mongosh.exe", "--quiet", "--norc", uri, "--file", script_path })
       table.insert(candidates, { localappdata .. "\\Programs\\mongosh\\bin\\mongosh.exe", "--quiet", "--norc", uri, "--file", script_path })
     end
     table.insert(candidates, { "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongosh.exe", "--quiet", "--norc", uri, "--file", script_path })
     table.insert(candidates, { "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongosh.exe", "--quiet", "--norc", uri, "--file", script_path })
     table.insert(candidates, { "mongosh.exe", "--quiet", "--norc", uri, "--file", script_path })
     table.insert(candidates, { "mongo.exe", "--quiet", "--norc", uri, "--file", script_path })
-    table.insert(candidates, { "mongosh", "--quiet", "--norc", uri, "--file", script_path })
+
+    -- 2. Windows PATH fallback
+    table.insert(candidates, { "cmd.exe", "/c", "mongosh", "--quiet", "--norc", uri, "--file", script_path })
   else
     -- Unix / macOS candidates
     table.insert(candidates, { "mongosh", "--quiet", "--norc", uri, "--file", script_path })
@@ -1065,7 +1052,7 @@ function store.connect(conn, on_complete)
       conn.status = "error"
       conn.error = err
       if err and (err:find("ECONNREFUSED") or err:find("MongoNetworkError") or err:find("connection refused")) then
-        core.warn("[MongoDB] Connection refused at 127.0.0.1:27017. Is your local MongoDB server/service or Docker container running? You can also connect to MongoDB Atlas Cloud by clicking '+ Add Connection'.")
+        core.warn("[MongoDB] Connection refused at 127.0.0.1:27017. Click 'Start Server' in the bottom sidebar or connect to MongoDB Atlas Cloud by clicking '+ Add Connection'.")
       else
         core.error("[MongoDB] Connection error on %s: %s", conn.name, err)
       end
@@ -1859,11 +1846,10 @@ local function resolve_mongosh_cmd()
   local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
   if is_windows then
     local candidates = {
+      (os.getenv("LOCALAPPDATA") or "") .. "\\Programs\\mongosh\\mongosh.exe",
       (os.getenv("LOCALAPPDATA") or "") .. "\\Programs\\mongosh\\bin\\mongosh.exe",
-      "C:\\Program Files\\MongoDB\\Server\\8.0\\bin\\mongosh.exe",
       "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongosh.exe",
       "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongosh.exe",
-      "C:\\Program Files\\MongoDB\\Server\\8.0\\bin\\mongo.exe",
       "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongo.exe",
       "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongo.exe",
     }
