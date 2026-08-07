@@ -1642,6 +1642,29 @@ end
 -- Plugin Commands & Keymaps
 -- ============================================================================
 
+local function resolve_mongosh_cmd()
+  local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
+  if is_windows then
+    local candidates = {
+      (os.getenv("LOCALAPPDATA") or "") .. "\\Programs\\mongosh\\bin\\mongosh.exe",
+      "C:\\Program Files\\MongoDB\\Server\\8.0\\bin\\mongosh.exe",
+      "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongosh.exe",
+      "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongosh.exe",
+      "C:\\Program Files\\MongoDB\\Server\\8.0\\bin\\mongo.exe",
+      "C:\\Program Files\\MongoDB\\Server\\7.0\\bin\\mongo.exe",
+      "C:\\Program Files\\MongoDB\\Server\\6.0\\bin\\mongo.exe",
+    }
+    for _, p in ipairs(candidates) do
+      local f = io.open(p, "r")
+      if f then
+        f:close()
+        return "& \"" .. p .. "\""
+      end
+    end
+  end
+  return "mongosh"
+end
+
 local function open_mongosh_terminal(conn, db)
   if not conn then
     conn = store.connections[1]
@@ -1682,7 +1705,8 @@ local function open_mongosh_terminal(conn, db)
       end
     end
 
-    local cmd = "mongosh \"" .. connect_target .. "\""
+    local bin_cmd = resolve_mongosh_cmd()
+    local cmd = bin_cmd .. " \"" .. connect_target .. "\""
     if term.run then
       term:run(cmd)
     end
