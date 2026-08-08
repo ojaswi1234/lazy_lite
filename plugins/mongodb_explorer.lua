@@ -1271,8 +1271,9 @@ function MongoDBExplorerView:get_header_height()
   local font = style.font
   local pad_y = math.floor(style.padding.y * 0.8)
   local title_h = font:get_height() + pad_y * 2
-  local search_h = font:get_height() + math.floor(10 * SCALE)
-  return title_h + search_h + math.floor(6 * SCALE)
+  local search_h = font:get_height() + math.floor(8 * SCALE)
+  local quick_act_h = font:get_height() + math.floor(8 * SCALE)
+  return title_h + search_h + quick_act_h + math.floor(10 * SCALE)
 end
 
 function MongoDBExplorerView:get_footer_height()
@@ -1623,6 +1624,41 @@ function MongoDBExplorerView:draw()
     renderer.draw_text(font, placeholder, search_txt_x, search_box_y + math.floor(3 * SCALE), pal.search_placeholder)
   end
 
+  -- Upper Section Quick Actions Bar (Directly after Search / Filter Input)
+  local quick_act_y = search_box_y + search_box_h + math.floor(4 * SCALE)
+  local quick_btn_h = font:get_height() + math.floor(4 * SCALE)
+  local q_cur_x = x + pad
+  local q_gap = math.floor(4 * SCALE)
+
+  local sel_node = store.selected_node
+  local quick_buttons = {
+    { label = "+ Col", cmd = "mongodb_explorer:create-collection" },
+    { label = "+ Doc", cmd = "mongodb_explorer:insert-document" },
+    { label = "Edit", cmd = "mongodb_explorer:open-document-editor" },
+    { label = "Del", cmd = (sel_node and sel_node.type == "collection" and "mongodb_explorer:drop-collection" or "mongodb_explorer:delete-document") },
+    { label = "Refresh", cmd = "mongodb_explorer:refresh" },
+    { label = "Scratch", cmd = "mongodb_explorer:new-scratchpad" },
+  }
+
+  for _, qb in ipairs(quick_buttons) do
+    local qbw = font:get_width(qb.label) + math.floor(8 * SCALE)
+    if q_cur_x + qbw <= x + w - pad then
+      local is_qb_hover = self.hovered_btn and self.hovered_btn.id == ("qact_" .. qb.label)
+      renderer.draw_rect(q_cur_x, quick_act_y, qbw, quick_btn_h, is_qb_hover and pal.btn_hover or pal.btn_bg)
+      renderer.draw_rect(q_cur_x, quick_act_y, qbw, 1 * SCALE, is_qb_hover and pal.accent or pal.btn_border)
+      renderer.draw_rect(q_cur_x, quick_act_y + quick_btn_h - 1 * SCALE, qbw, 1 * SCALE, is_qb_hover and pal.accent or pal.btn_border)
+      renderer.draw_rect(q_cur_x, quick_act_y, 1 * SCALE, quick_btn_h, is_qb_hover and pal.accent or pal.btn_border)
+      renderer.draw_rect(q_cur_x + qbw - 1 * SCALE, quick_act_y, 1 * SCALE, quick_btn_h, is_qb_hover and pal.accent or pal.btn_border)
+      renderer.draw_text(font, qb.label, q_cur_x + math.floor(4 * SCALE), quick_act_y + math.floor(2 * SCALE), is_qb_hover and pal.btn_hover_text or pal.btn_text)
+      table.insert(self.buttons, {
+        id = "qact_" .. qb.label,
+        x = q_cur_x, y = quick_act_y, w = qbw, h = quick_btn_h,
+        action = function() command.perform(qb.cmd) end
+      })
+      q_cur_x = q_cur_x + qbw + q_gap
+    end
+  end
+
   -- Header Bottom Divider
   renderer.draw_rect(x, y + header_h - 1 * SCALE, w, 1 * SCALE, pal.divider)
 
@@ -1711,36 +1747,39 @@ function MongoDBExplorerView:draw()
           extra_w = font:get_width(extra_info) + math.floor(10 * SCALE)
         end
 
-        local max_db_w = math.max(0, w - (indent_x + icon_w + db_icon_w - x) - extra_w - pad)
+        local max_db_w = math.max(0, w - (indent_x + icon_w + db_icon_w - x) - extra_w - pad - math.floor(60 * SCALE))
         local label_to_draw = truncate_text(font, row.label, max_db_w)
         renderer.draw_text(font, label_to_draw, indent_x + icon_w + db_icon_w, text_y, row_text_color)
+        local label_w = font:get_width(label_to_draw)
 
-        if extra_info ~= "" and x + w - pad - extra_w > indent_x + icon_w + db_icon_w + font:get_width(label_to_draw) + math.floor(6 * SCALE) then
-          renderer.draw_text(font, extra_info, x + w - pad - extra_w, text_y, pal.dim)
-        end
+        -- INLINE ACTIONS RIGHT AFTER DATABASE NAME: [+ Col] [Ref]
+        local inline_x = indent_x + icon_w + db_icon_w + label_w + math.floor(6 * SCALE)
+        local bh = item_h - math.floor(4 * SCALE)
+        local by = row_y + math.floor(2 * SCALE)
 
-        -- In-row hover action: [+ New Coll]
-        if is_hover and not is_compact then
+        if inline_x < x + w - pad - math.floor(35 * SCALE) then
           local btn_txt = "+ Col"
-          local bw = font:get_width(btn_txt) + math.floor(8 * SCALE)
-          local bh = item_h - math.floor(4 * SCALE)
-          local bx = x + w - pad - bw
-          local by = row_y + math.floor(2 * SCALE)
+          local bw = font:get_width(btn_txt) + math.floor(6 * SCALE)
           local is_b_hover = self.hovered_btn and self.hovered_btn.id == ("row_add_col_" .. row.label)
-          renderer.draw_rect(bx, by, bw, bh, is_b_hover and pal.btn_hover or pal.btn_bg)
-          renderer.draw_rect(bx, by, bw, 1 * SCALE, is_b_hover and pal.accent or pal.btn_border)
-          renderer.draw_rect(bx, by + bh - 1 * SCALE, bw, 1 * SCALE, is_b_hover and pal.accent or pal.btn_border)
-          renderer.draw_rect(bx, by, 1 * SCALE, bh, is_b_hover and pal.accent or pal.btn_border)
-          renderer.draw_rect(bx + bw - 1 * SCALE, by, 1 * SCALE, bh, is_b_hover and pal.accent or pal.btn_border)
-          renderer.draw_text(font, btn_txt, bx + math.floor(4 * SCALE), text_y, is_b_hover and pal.btn_hover_text or pal.accent)
+          renderer.draw_rect(inline_x, by, bw, bh, is_b_hover and pal.btn_hover or pal.btn_bg)
+          renderer.draw_rect(inline_x, by, bw, 1 * SCALE, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x, by + bh - 1 * SCALE, bw, 1 * SCALE, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x, by, 1 * SCALE, bh, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x + bw - 1 * SCALE, by, 1 * SCALE, bh, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_text(font, btn_txt, inline_x + math.floor(3 * SCALE), text_y, is_b_hover and pal.btn_hover_text or pal.accent)
           table.insert(self.buttons, {
             id = "row_add_col_" .. row.label,
-            x = bx, y = by, w = bw, h = bh,
+            x = inline_x, y = by, w = bw, h = bh,
             action = function()
               store.selected_node = row
               command.perform("mongodb_explorer:create-collection")
             end
           })
+          inline_x = inline_x + bw + math.floor(4 * SCALE)
+        end
+
+        if extra_info ~= "" and x + w - pad - extra_w > inline_x + math.floor(6 * SCALE) then
+          renderer.draw_text(font, extra_info, x + w - pad - extra_w, text_y, pal.dim)
         end
 
       elseif row.type == "collection" then
@@ -1756,50 +1795,78 @@ function MongoDBExplorerView:draw()
         local count_str = ""
         if config.plugins.mongodb_explorer.show_doc_counts and row.count ~= nil then
           count_str = string.format("%s docs", format_number(row.count))
-          count_w = font:get_width(count_str) + math.floor(12 * SCALE)
+          count_w = font:get_width(count_str) + math.floor(8 * SCALE)
         end
 
-        local max_col_w = math.max(0, w - (indent_x + icon_w + col_icon_w - x) - count_w - pad * 2)
+        local max_col_w = math.max(0, w - (indent_x + icon_w + col_icon_w - x) - math.floor(110 * SCALE))
         local label_to_draw = truncate_text(font, row.label, max_col_w)
         renderer.draw_text(font, label_to_draw, indent_x + icon_w + col_icon_w, text_y, row_text_color)
+        local label_w = font:get_width(label_to_draw)
 
-        if count_str ~= "" and not is_hover and x + w - pad - count_w > indent_x + icon_w + col_icon_w + font:get_width(label_to_draw) + math.floor(4 * SCALE) then
-          local badge_x = x + w - pad - count_w
+        -- INLINE ACTIONS RIGHT AFTER COLLECTION NAME: (count) [+ Doc] [Docs] [x]
+        local inline_x = indent_x + icon_w + col_icon_w + label_w + math.floor(6 * SCALE)
+        local bh = item_h - math.floor(4 * SCALE)
+        local by = row_y + math.floor(2 * SCALE)
+
+        if count_str ~= "" and inline_x + count_w < x + w - pad - math.floor(50 * SCALE) then
           local badge_y = row_y + math.floor((item_h - font:get_height() - math.floor(2 * SCALE)) / 2)
-          draw_pill_badge(font, count_str, badge_x, badge_y, pal.badge_bg, pal.badge_text, pal.badge_border)
+          draw_pill_badge(font, count_str, inline_x, badge_y, pal.badge_bg, pal.badge_text, pal.badge_border)
+          inline_x = inline_x + count_w + math.floor(4 * SCALE)
         end
 
-        -- In-row hover actions: [+ Doc] [x]
-        if is_hover and not is_compact then
-          local drop_txt = "x"
-          local drop_w = font:get_width(drop_txt) + math.floor(8 * SCALE)
-          local drop_h = item_h - math.floor(4 * SCALE)
-          local drop_x = x + w - pad - drop_w
-          local drop_y = row_y + math.floor(2 * SCALE)
-          local is_d_hover = self.hovered_btn and self.hovered_btn.id == ("row_drop_col_" .. row.label)
-          renderer.draw_rect(drop_x, drop_y, drop_w, drop_h, is_d_hover and pal.status_error or pal.btn_bg)
-          renderer.draw_text(font, drop_txt, drop_x + math.floor(4 * SCALE), text_y, is_d_hover and pal.btn_hover_text or pal.status_error)
-          table.insert(self.buttons, {
-            id = "row_drop_col_" .. row.label,
-            x = drop_x, y = drop_y, w = drop_w, h = drop_h,
-            action = function()
-              store.selected_node = row
-              command.perform("mongodb_explorer:drop-collection")
-            end
-          })
-
-          local add_txt = "+ Doc"
-          local add_w = font:get_width(add_txt) + math.floor(8 * SCALE)
-          local add_x = drop_x - add_w - math.floor(4 * SCALE)
+        -- [+ Doc] Button inline right after collection name
+        local add_txt = "+ Doc"
+        local add_w = font:get_width(add_txt) + math.floor(6 * SCALE)
+        if inline_x + add_w <= x + w - pad - math.floor(35 * SCALE) then
           local is_a_hover = self.hovered_btn and self.hovered_btn.id == ("row_add_doc_" .. row.label)
-          renderer.draw_rect(add_x, drop_y, add_w, drop_h, is_a_hover and pal.btn_hover or pal.btn_bg)
-          renderer.draw_text(font, add_txt, add_x + math.floor(4 * SCALE), text_y, is_a_hover and pal.btn_hover_text or pal.accent)
+          renderer.draw_rect(inline_x, by, add_w, bh, is_a_hover and pal.btn_hover or pal.btn_bg)
+          renderer.draw_rect(inline_x, by, add_w, 1 * SCALE, is_a_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x, by + bh - 1 * SCALE, add_w, 1 * SCALE, is_a_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x, by, 1 * SCALE, bh, is_a_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x + add_w - 1 * SCALE, by, 1 * SCALE, bh, is_a_hover and pal.accent or pal.btn_border)
+          renderer.draw_text(font, add_txt, inline_x + math.floor(3 * SCALE), text_y, is_a_hover and pal.btn_hover_text or pal.accent)
           table.insert(self.buttons, {
             id = "row_add_doc_" .. row.label,
-            x = add_x, y = drop_y, w = add_w, h = drop_h,
+            x = inline_x, y = by, w = add_w, h = bh,
             action = function()
               store.selected_node = row
               command.perform("mongodb_explorer:insert-document")
+            end
+          })
+          inline_x = inline_x + add_w + math.floor(4 * SCALE)
+        end
+
+        -- [Docs] Button inline right after collection name
+        local view_txt = "Docs"
+        local view_w = font:get_width(view_txt) + math.floor(6 * SCALE)
+        if inline_x + view_w <= x + w - pad - math.floor(20 * SCALE) then
+          local is_v_hover = self.hovered_btn and self.hovered_btn.id == ("row_view_doc_" .. row.label)
+          renderer.draw_rect(inline_x, by, view_w, bh, is_v_hover and pal.btn_hover or pal.btn_bg)
+          renderer.draw_text(font, view_txt, inline_x + math.floor(3 * SCALE), text_y, is_v_hover and pal.btn_hover_text or pal.text)
+          table.insert(self.buttons, {
+            id = "row_view_doc_" .. row.label,
+            x = inline_x, y = by, w = view_w, h = bh,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:view-documents")
+            end
+          })
+          inline_x = inline_x + view_w + math.floor(4 * SCALE)
+        end
+
+        -- [x] Drop Button inline right after collection name
+        local drop_txt = "x"
+        local drop_w = font:get_width(drop_txt) + math.floor(6 * SCALE)
+        if inline_x + drop_w <= x + w - pad then
+          local is_d_hover = self.hovered_btn and self.hovered_btn.id == ("row_drop_col_" .. row.label)
+          renderer.draw_rect(inline_x, by, drop_w, bh, is_d_hover and pal.status_error or pal.btn_bg)
+          renderer.draw_text(font, drop_txt, inline_x + math.floor(3 * SCALE), text_y, is_d_hover and pal.btn_hover_text or pal.status_error)
+          table.insert(self.buttons, {
+            id = "row_drop_col_" .. row.label,
+            x = inline_x, y = by, w = drop_w, h = bh,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:drop-collection")
             end
           })
         end
@@ -1816,41 +1883,49 @@ function MongoDBExplorerView:draw()
         local doc_icon = "[Doc] "
         renderer.draw_text(font, doc_icon, indent_x, text_y, pal.dim)
         local icon_w = font:get_width(doc_icon)
-        local max_doc_w = math.max(0, w - (indent_x + icon_w - x) - pad)
+        local max_doc_w = math.max(0, w - (indent_x + icon_w - x) - math.floor(75 * SCALE))
         local label_to_draw = truncate_text(font, row.label, max_doc_w)
         renderer.draw_text(font, label_to_draw, indent_x + icon_w, text_y, pal.dim)
+        local label_w = font:get_width(label_to_draw)
 
-        -- In-row hover actions for documents: [Del] [Edit]
-        if is_hover and not is_compact then
-          local del_txt = "Del"
-          local del_w = font:get_width(del_txt) + math.floor(8 * SCALE)
-          local del_h = item_h - math.floor(4 * SCALE)
-          local del_x = x + w - pad - del_w
-          local del_y = row_y + math.floor(2 * SCALE)
-          local is_del_hover = self.hovered_btn and self.hovered_btn.id == ("row_del_doc_" .. tostring(row.label))
-          renderer.draw_rect(del_x, del_y, del_w, del_h, is_del_hover and pal.status_error or pal.btn_bg)
-          renderer.draw_text(font, del_txt, del_x + math.floor(4 * SCALE), text_y, is_del_hover and pal.btn_hover_text or pal.status_error)
-          table.insert(self.buttons, {
-            id = "row_del_doc_" .. tostring(row.label),
-            x = del_x, y = del_y, w = del_w, h = del_h,
-            action = function()
-              store.selected_node = row
-              command.perform("mongodb_explorer:delete-document")
-            end
-          })
+        -- INLINE ACTIONS RIGHT AFTER RECORD / DOCUMENT: [Edit] [Del]
+        local inline_x = indent_x + icon_w + label_w + math.floor(6 * SCALE)
+        local bh = item_h - math.floor(4 * SCALE)
+        local by = row_y + math.floor(2 * SCALE)
 
-          local edit_txt = "Edit"
-          local edit_w = font:get_width(edit_txt) + math.floor(8 * SCALE)
-          local edit_x = del_x - edit_w - math.floor(4 * SCALE)
+        local edit_txt = "Edit"
+        local edit_w = font:get_width(edit_txt) + math.floor(6 * SCALE)
+        if inline_x + edit_w <= x + w - pad - math.floor(25 * SCALE) then
           local is_ed_hover = self.hovered_btn and self.hovered_btn.id == ("row_ed_doc_" .. tostring(row.label))
-          renderer.draw_rect(edit_x, del_y, edit_w, del_h, is_ed_hover and pal.btn_hover or pal.btn_bg)
-          renderer.draw_text(font, edit_txt, edit_x + math.floor(4 * SCALE), text_y, is_ed_hover and pal.btn_hover_text or pal.accent)
+          renderer.draw_rect(inline_x, by, edit_w, bh, is_ed_hover and pal.btn_hover or pal.btn_bg)
+          renderer.draw_rect(inline_x, by, edit_w, 1 * SCALE, is_ed_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x, by + bh - 1 * SCALE, edit_w, 1 * SCALE, is_ed_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x, by, 1 * SCALE, bh, is_ed_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(inline_x + edit_w - 1 * SCALE, by, 1 * SCALE, bh, is_ed_hover and pal.accent or pal.btn_border)
+          renderer.draw_text(font, edit_txt, inline_x + math.floor(3 * SCALE), text_y, is_ed_hover and pal.btn_hover_text or pal.accent)
           table.insert(self.buttons, {
             id = "row_ed_doc_" .. tostring(row.label),
-            x = edit_x, y = del_y, w = edit_w, h = del_h,
+            x = inline_x, y = by, w = edit_w, h = bh,
             action = function()
               store.selected_node = row
               command.perform("mongodb_explorer:open-document-editor")
+            end
+          })
+          inline_x = inline_x + edit_w + math.floor(4 * SCALE)
+        end
+
+        local del_txt = "Del"
+        local del_w = font:get_width(del_txt) + math.floor(6 * SCALE)
+        if inline_x + del_w <= x + w - pad then
+          local is_del_hover = self.hovered_btn and self.hovered_btn.id == ("row_del_doc_" .. tostring(row.label))
+          renderer.draw_rect(inline_x, by, del_w, bh, is_del_hover and pal.status_error or pal.btn_bg)
+          renderer.draw_text(font, del_txt, inline_x + math.floor(3 * SCALE), text_y, is_del_hover and pal.btn_hover_text or pal.status_error)
+          table.insert(self.buttons, {
+            id = "row_del_doc_" .. tostring(row.label),
+            x = inline_x, y = by, w = del_w, h = bh,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:delete-document")
             end
           })
         end
