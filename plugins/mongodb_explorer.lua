@@ -238,7 +238,7 @@ local function init_mongodb_syntax()
   style.syntax["mongo_key"] = { common.color "#94A3B8" }        -- Crisp Ice Slate for general JSON property keys
   style.syntax["mongo_number"] = { common.color "#FB923C" }     -- Bright Tangerine Orange for numeric values
   style.syntax["mongo_literal"] = { common.color "#F87171" }    -- Coral Red / Purple for literals (true, false, null)
-  style.syntax["mongo_bracket"] = { common.color "#64748B" }    -- Muted Slate for array/object scope brackets ([ ], { })
+  style.syntax["mongo_bracket"] = { common.color "#64748B" }    -- Muted Slate for array/object/table scope brackets (┌ ─ ┬ │ ├ ┼ ┤ └ ┴ ┘ [ ] { })
   style.syntax["mongo_colon"] = { common.color "#94A3B8" }      -- Soft Silver for colons and commas
 
   -- Bold font for primary keys and entity names if available
@@ -264,9 +264,11 @@ local function init_mongodb_syntax()
   end
 
   syntax.add {
-    name = "MongoDB JSON",
+    name = "MongoDB JSON & Table View",
     files = {
       "results%.mongodb%.json$",
+      "results%.mongodb%.table$",
+      "%.mongodb%.table$",
       "%.mongodb%.json$",
       "%_documents%.json$",
       "insert_%w+_%w+%.json$",
@@ -280,19 +282,26 @@ local function init_mongodb_syntax()
       { pattern = "//.*", type = "comment" },
       { pattern = { "/%*", "%*/" }, type = "comment" },
 
-      -- 1. Primary Identifier Keys: "_id", "$oid", "$id", "id", "uuid", "_key"
+      -- Table Box-Drawing Brackets & Grid Dividers
+      { pattern = "[┌─┬┐│├┼┤└┴┘%+%-]", type = "mongo_bracket" },
+
+      -- 1. Primary Identifier Keys & Columns: "_id", "$oid", "$id", "id", "uuid", "_key"
       { regex = [["(?:_id|\$oid|\$id|uuid|_key)"()\s*:]], type = { "mongo_id", "mongo_colon" } },
+      { regex = [[\b(?:_id|\$oid|\$id|uuid|_key)\b]], type = "mongo_id" },
 
-      -- 2. Timestamps & Dates Keys: "createdAt", "updatedAt", "$date", "timestamp", "expiry", "expiresAt", "deletedAt", "publishedAt", "modifiedAt", "birthDate", "date", "created_at", "updated_at"
+      -- 2. Timestamps & Dates Keys & Columns
       { regex = [["(?:createdAt|updatedAt|\$date|timestamp|expiry|expiresAt|deletedAt|publishedAt|modifiedAt|birthDate|date|created_at|updated_at|created_on|updated_on|generation_time)"()\s*:]], type = { "mongo_date", "mongo_colon" } },
+      { regex = [[\b(?:createdAt|updatedAt|\$date|timestamp|expiry|expiresAt|deletedAt|publishedAt|modifiedAt|birthDate|date|created_at|updated_at|created_on|updated_on)\b]], type = "mongo_date" },
 
-      -- 3. Core Entity Names / Attributes: "name", "title", "collection", "database", "databases", "label", "username", "user", "email", "role", "category", "manufacturer", "author", "type", "subject", "description"
+      -- 3. Core Entity Names / Attributes & Columns
       { regex = [["(?:name|title|collection|database|databases|label|username|user|email|role|category|manufacturer|author|type|subject|description|first_name|last_name|full_name|product_name|company)"()\s*:]], type = { "mongo_name", "mongo_colon" } },
+      { regex = [[\b(?:name|title|collection|database|databases|label|username|user|email|role|category|manufacturer|author|type|subject|description|first_name|last_name|full_name|product_name|company)\b]], type = "mongo_name" },
 
-      -- 4. Status, Flags & Counters: "__v", "status", "state", "active", "enabled", "disabled", "acknowledged", "ok", "prescriptionRequired", "empty", "sizeOnDisk", "totalSize", "version", "deleted", "isDeleted", "count", "quantity", "price", "total"
+      -- 4. Status, Flags & Counters
       { regex = [["(?:__v|status|state|active|enabled|disabled|acknowledged|ok|prescriptionRequired|empty|sizeOnDisk|totalSize|version|deleted|isDeleted|count|quantity|price|total|inStock|isAvailable|available)"()\s*:]], type = { "mongo_meta", "mongo_colon" } },
+      { regex = [[\b(?:__v|status|state|active|enabled|disabled|acknowledged|ok|prescriptionRequired|empty|sizeOnDisk|totalSize|version|deleted|isDeleted|count|quantity|price|total|inStock|isAvailable|available)\b]], type = "mongo_meta" },
 
-      -- 5. MongoDB & EJSON Operators: "$numberLong", "$numberDecimal", "$numberInt", "$binary", "$regex", "$minKey", "$maxKey", "$timestamp", "$code", "$ref", "$db", "$match", "$group", "$project", "$sort", "$lookup", "$unwind", "$limit", "$skip", "$set", "$inc", "$push", "$pull", "$in", "$nin", "$gt", "$gte", "$lt", "$lte", "$eq", "$ne", "$exists", "$or", "$and", "$not", "$nor"
+      -- 5. MongoDB & EJSON Operators
       { regex = [["\$(?:numberLong|numberDecimal|numberInt|binary|regex|minKey|maxKey|timestamp|code|ref|db|match|group|project|sort|lookup|unwind|limit|skip|set|inc|push|pull|in|nin|gt|gte|lt|lte|eq|ne|exists|or|and|not|nor)"()\s*:]], type = { "mongo_operator", "mongo_colon" } },
 
       -- 6. Generic JSON Keys
@@ -301,8 +310,11 @@ local function init_mongodb_syntax()
       -- 7. Special String Values:
       -- ISO 8601 Date / Timestamps: "2025-12-28T10:35:48.615Z"
       { regex = [["\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?"]], type = "mongo_date_val" },
+      { regex = [[\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b]], type = "mongo_date_val" },
+
       -- 24-hex char MongoDB ObjectIDs: "695108044a82bcf17fb6c5f4"
       { regex = [["[0-9a-fA-F]{24}"]], type = "mongo_oid_val" },
+      { regex = [[\b[0-9a-fA-F]{24}\b]], type = "mongo_oid_val" },
 
       -- 8. General Strings
       { regex = [["(?:[^"\\]|\\.)*"]], type = "string" },
@@ -326,6 +338,208 @@ local function init_mongodb_syntax()
 end
 
 pcall(init_mongodb_syntax)
+
+-- ============================================================================
+-- MongoDB Document Table Structure Formatting Engine
+-- ============================================================================
+local function format_mongo_cell_value(val)
+  if val == nil then
+    return "-"
+  end
+  local t = type(val)
+  if t == "boolean" then
+    return val and "true" or "false"
+  elseif t == "number" then
+    return tostring(val)
+  elseif t == "string" then
+    if val == "" then return '""' end
+    return val
+  elseif t == "table" then
+    if val["$oid"] then
+      return tostring(val["$oid"])
+    elseif val["$date"] then
+      return tostring(val["$date"])
+    elseif val["$numberLong"] then
+      return tostring(val["$numberLong"])
+    elseif val["$numberDecimal"] then
+      return tostring(val["$numberDecimal"])
+    elseif #val > 0 then
+      if #val <= 3 then
+        local parts = {}
+        for _, item in ipairs(val) do
+          table.insert(parts, tostring(type(item) == "table" and (item["$oid"] or item["$date"] or "{...}") or item))
+        end
+        return "[" .. table.concat(parts, ", ") .. "]"
+      end
+      return string.format("[%d items]", #val)
+    else
+      local keys = {}
+      for k in pairs(val) do table.insert(keys, k) end
+      if #keys == 0 then return "{}" end
+      table.sort(keys)
+      local parts = {}
+      for i = 1, math.min(#keys, 2) do
+        local k = keys[i]
+        local v = val[k]
+        local sv = type(v) == "table" and (v["$oid"] or v["$date"] or "{...}") or tostring(v)
+        table.insert(parts, k .. ": " .. sv)
+      end
+      local s = "{" .. table.concat(parts, ", ") .. (#keys > 2 and "..." or "") .. "}"
+      return s
+    end
+  end
+  return tostring(val)
+end
+
+local function format_documents_as_table(docs, title, db_name, col_name)
+  if type(docs) ~= "table" then
+    return tostring(docs)
+  end
+
+  local doc_list = docs
+  if docs.docs and type(docs.docs) == "table" then
+    doc_list = docs.docs
+  elseif docs.databases and type(docs.databases) == "table" then
+    local dbs = {}
+    for idx, d in ipairs(docs.databases) do
+      table.insert(dbs, {
+        ["database"] = d.name or "-",
+        ["sizeOnDisk"] = d.sizeOnDisk and string.format("%.2f MB", d.sizeOnDisk / (1024 * 1024)) or "-",
+        ["empty"] = d.empty ~= nil and tostring(d.empty) or "false",
+      })
+    end
+    doc_list = dbs
+  elseif #docs == 0 and next(docs) ~= nil then
+    doc_list = { docs }
+  end
+
+  if #doc_list == 0 then
+    return string.format([[// ============================================================================
+// 📊 %s: 0 documents found | Context: %s
+// ============================================================================
+(Empty collection or 0 documents matched query)
+]], title or "MongoDB Results", (db_name and col_name) and (db_name .. "." .. col_name) or (db_name or "admin"))
+  end
+
+  -- 1. Discover all unique keys
+  local all_keys = {}
+  local seen = {}
+  for _, d in ipairs(doc_list) do
+    if type(d) == "table" then
+      for k in pairs(d) do
+        if not seen[k] then
+          seen[k] = true
+          table.insert(all_keys, k)
+        end
+      end
+    end
+  end
+
+  local function col_score(k)
+    if k == "_id" then return 0 end
+    if k == "name" or k == "title" or k == "category" or k == "manufacturer" or k == "price" or k == "quantity" or k == "status" or k == "active" or k == "prescriptionRequired" or k == "email" or k == "username" or k == "database" then
+      return 1
+    end
+    if k == "createdAt" or k == "updatedAt" or k == "expiry" or k == "date" or k == "timestamp" or k == "sizeOnDisk" then
+      return 3
+    end
+    if k == "__v" or k == "_class" or k == "empty" then
+      return 4
+    end
+    return 2
+  end
+
+  table.sort(all_keys, function(a, b)
+    local sa, sb = col_score(a), col_score(b)
+    if sa ~= sb then return sa < sb end
+    return a < b
+  end)
+
+  local headers = { "#" }
+  for _, k in ipairs(all_keys) do table.insert(headers, k) end
+  if #all_keys == 0 then table.insert(headers, "Value") end
+
+  local col_widths = {}
+  col_widths["#"] = math.max(3, #tostring(#doc_list))
+  for _, h in ipairs(headers) do
+    col_widths[h] = math.max(col_widths[h] or 0, #h)
+  end
+
+  local formatted_rows = {}
+  for idx, d in ipairs(doc_list) do
+    local row = { ["#"] = tostring(idx) }
+    if type(d) == "table" then
+      for _, k in ipairs(all_keys) do
+        local raw_v = d[k]
+        local v_str = format_mongo_cell_value(raw_v)
+        row[k] = v_str
+        local w = #v_str
+        if w > 45 then w = 45 end
+        col_widths[k] = math.max(col_widths[k] or 0, w)
+      end
+    else
+      local v_str = format_mongo_cell_value(d)
+      row["Value"] = v_str
+      col_widths["Value"] = math.max(col_widths["Value"] or 0, math.min(#v_str, 45))
+    end
+    table.insert(formatted_rows, row)
+  end
+
+  -- Build Box-Drawing Grid
+  local top_parts, mid_parts, bot_parts, head_parts = {}, {}, {}, {}
+  for _, h in ipairs(headers) do
+    local w = col_widths[h]
+    table.insert(top_parts, string.rep("─", w + 2))
+    table.insert(mid_parts, string.rep("─", w + 2))
+    table.insert(bot_parts, string.rep("─", w + 2))
+    
+    local pad_total = w - #h
+    local pad_l = math.floor(pad_total / 2)
+    local pad_r = pad_total - pad_l
+    table.insert(head_parts, " " .. string.rep(" ", pad_l) .. h .. string.rep(" ", pad_r) .. " ")
+  end
+
+  local top_border = "┌" .. table.concat(top_parts, "┬") .. "┐"
+  local header_row = "│" .. table.concat(head_parts, "│") .. "│"
+  local mid_border = "├" .. table.concat(mid_parts, "┼") .. "┤"
+  local bot_border = "└" .. table.concat(bot_parts, "┴") .. "┘"
+
+  local lines = {}
+  local ctx = (db_name and col_name) and (db_name .. "." .. col_name) or (db_name or "admin")
+  table.insert(lines, "// ============================================================================")
+  table.insert(lines, string.format("// 📊 %s (%d document%s) | Context: %s", title or "MongoDB Results", #doc_list, #doc_list == 1 and "" or "s", ctx))
+  table.insert(lines, "// 💡 Toggle View: Run 'MongoDB: Toggle Table / JSON View' (Ctrl+Alt+T)")
+  table.insert(lines, "// ============================================================================")
+  table.insert(lines, "")
+  table.insert(lines, top_border)
+  table.insert(lines, header_row)
+  table.insert(lines, mid_border)
+
+  for _, r in ipairs(formatted_rows) do
+    local row_cells = {}
+    for _, h in ipairs(headers) do
+      local val = r[h] or "-"
+      if #val > 45 then
+        val = val:sub(1, 42) .. "..."
+      end
+      local w = col_widths[h]
+      local is_num = (h == "#") or (tonumber(val) ~= nil and not val:match("^0x") and not val:match("^%d%d%d%d%-"))
+      local cell
+      if is_num then
+        local pad = w - #val
+        cell = " " .. string.rep(" ", math.max(0, pad)) .. val .. " "
+      else
+        local pad = w - #val
+        cell = " " .. val .. string.rep(" ", math.max(0, pad)) .. " "
+      end
+      table.insert(row_cells, cell)
+    end
+    table.insert(lines, "│" .. table.concat(row_cells, "│") .. "│")
+  end
+
+  table.insert(lines, bot_border)
+  return table.concat(lines, "\n")
+end
 
 -- ============================================================================
 -- Layout & UI Helper Utilities
@@ -2530,32 +2744,23 @@ if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
         return
       end
 
-      local formatted_json = json.stringify(result, true)
-      local banner = ""
-      local count = nil
-      if type(result) == "table" and #result > 0 then
-        count = #result
-        banner = string.format([[// ============================================================================
-// 📦 MongoDB Query Results (%d document%s) | Database: %s
-// 🎨 Legend: Cyan=_id/IDs | Gold=Dates/Timestamps | Blue=Names/Entity | Purple=Meta
-// ============================================================================
-]], count, count == 1 and "" or "s", target_db)
-      elseif type(result) == "table" and result.databases then
-        banner = string.format([[// ============================================================================
-// 📦 MongoDB Database List (%d databases) | Status: OK
-// ============================================================================
-]], #result.databases)
+      local is_tab_like = (type(result) == "table" and (#result > 0 or (result.databases and #result.databases > 0)))
+      local content
+      if is_tab_like then
+        content = format_documents_as_table(result, "MongoDB Query Results", target_db, doc.mongo_col)
+      else
+        content = json.stringify(result, true)
       end
-
-      local full_content = banner .. formatted_json
       
-      -- Open or update single reusable results.mongodb.json tab with full JSON syntax highlighting
-      open_virtual_doc("results.mongodb.json", full_content, "results.mongodb.json", {
+      -- Open or update single reusable results.mongodb.json tab with structured Table / JSON format
+      open_virtual_doc("results.mongodb.json", content, "results.mongodb.json", {
         is_mongo_results = true,
         mongo_conn_id = conn.id,
         mongo_db = target_db,
+        mongo_raw_data = result,
+        mongo_view_mode = is_tab_like and "table" or "json",
       })
-      core.log("[MongoDB] Scratchpad query executed -> Results displayed in results.mongodb.json")
+      core.log("[MongoDB] Scratchpad query executed -> Results formatted in Table View (Ctrl+Alt+T to toggle JSON)")
     end)
   end,
 
@@ -2582,24 +2787,20 @@ if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
       end
 
       local docs = (data and data.docs) or data or {}
-      local formatted_json = json.stringify(docs, true)
       local total = (data and data.total) or #docs
-      local banner = string.format([[// ============================================================================
-// 📄 Collection: %s.%s (%d document%s shown | %s total)
-// 🎨 Legend: Cyan=_id/IDs | Gold=Dates/Timestamps | Blue=Names/Entity | Purple=Meta
-// ============================================================================
-]], db, col, #docs, #docs == 1 and "" or "s", tostring(total))
-
-      local full_content = banner .. formatted_json
+      local content = format_documents_as_table(docs, string.format("Collection: %s.%s", db, col), db, col)
       local filename = string.format("%s_%s_documents.json", db, col)
 
-      open_virtual_doc(filename, full_content, filename, {
+      open_virtual_doc(filename, content, filename, {
         is_mongo_doc_viewer = true,
         mongo_conn_id = conn.id,
         mongo_db = db,
         mongo_col = col,
+        mongo_raw_data = docs,
+        mongo_total_count = total,
+        mongo_view_mode = "table",
       })
-      core.log("[MongoDB] Loaded %d documents from %s.%s", #docs, db, col)
+      core.log("[MongoDB] Loaded %d documents from %s.%s in Table View (Ctrl+Alt+T to toggle JSON)", #docs, db, col)
     end)
   end,
 
@@ -2653,8 +2854,11 @@ if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
         if err then
           core.error("[MongoDB] Insert failed: %s", err)
         else
-          core.log("[MongoDB] Document successfully inserted into %s.%s", doc.mongo_db, doc.mongo_col)
+          core.log("[MongoDB] Document successfully inserted into %s.%s -> Refreshing Table View...", doc.mongo_db, doc.mongo_col)
           doc:clean()
+          -- Automatically refresh collection table view
+          command.perform("mongodb_explorer:view-documents")
+          command.perform("mongodb_explorer:refresh")
         end
       end)
     elseif doc.is_mongo_doc_editor then
@@ -2680,13 +2884,55 @@ if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
         if err then
           core.error("[MongoDB] Update document failed: %s", err)
         else
-          core.log("[MongoDB] Document updated in %s.%s", doc.mongo_db, doc.mongo_col)
+          core.log("[MongoDB] Document updated in %s.%s -> Refreshing Table View...", doc.mongo_db, doc.mongo_col)
           doc:clean()
+          -- Automatically refresh collection table view
+          command.perform("mongodb_explorer:view-documents")
+          command.perform("mongodb_explorer:refresh")
         end
       end)
     elseif doc.is_mongo_doc_viewer then
       core.log("[MongoDB] To modify individual documents, double click them in the explorer tree or use Scratchpad.")
     end
+  end,
+
+  ["mongodb_explorer:toggle-table-json-view"] = function()
+    local doc = core.active_view and core.active_view.doc
+    if not doc or (not doc.is_mongo_results and not doc.is_mongo_doc_viewer) then
+      core.warn("[MongoDB] Please focus a MongoDB Results or Collection viewer tab to toggle view format.")
+      return
+    end
+
+    if not doc.mongo_raw_data then
+      core.warn("[MongoDB] No structured raw data available in this tab.")
+      return
+    end
+
+    local raw = doc.mongo_raw_data
+    if doc.mongo_view_mode == "table" then
+      -- Switch to formatted JSON
+      doc.mongo_view_mode = "json"
+      local formatted_json = json.stringify(raw, true)
+      local banner = string.format([[// ============================================================================
+// 📦 MongoDB JSON View | Context: %s
+// 💡 Toggle View: Run 'MongoDB: Toggle Table / JSON View' (Ctrl+Alt+T)
+// ============================================================================
+]], doc.mongo_db or "admin")
+      doc:reset()
+      pcall(function() doc:raw_insert(1, 1, banner .. formatted_json) end)
+      doc:clean()
+      core.log("[MongoDB] Switched view to formatted JSON mode.")
+    else
+      -- Switch to formatted Table
+      doc.mongo_view_mode = "table"
+      local title = doc.mongo_col and string.format("Collection: %s.%s", doc.mongo_db, doc.mongo_col) or "MongoDB Results"
+      local table_content = format_documents_as_table(raw, title, doc.mongo_db, doc.mongo_col)
+      doc:reset()
+      pcall(function() doc:raw_insert(1, 1, table_content) end)
+      doc:clean()
+      core.log("[MongoDB] Switched view to formatted Table mode.")
+    end
+    core.redraw = true
   end,
 
   ["mongodb_explorer:open-document-editor"] = function()
@@ -2935,6 +3181,7 @@ end
 keymap.add({
   ["ctrl+alt+m"] = "mongodb_explorer:toggle",
   ["ctrl+return"] = "mongodb_explorer:execute-scratchpad",
+  ["ctrl+alt+t"] = "mongodb_explorer:toggle-table-json-view",
 })
 
 
@@ -2960,9 +3207,11 @@ if ok_cm and menu and menu.register then
   menu:register(function(x, y)
     return store.selected_node and store.selected_node.type == "collection"
   end, {
-    { text = "📄 View Documents", command = "mongodb_explorer:view-documents" },
+    { text = "📊 View Documents (Table)", command = "mongodb_explorer:view-documents" },
     { text = "➕ Insert Document", command = "mongodb_explorer:insert-document" },
     { text = "⚡ Open Scratchpad", command = "mongodb_explorer:new-scratchpad" },
+    DIVIDER,
+    { text = "🔀 Toggle Table / JSON View", command = "mongodb_explorer:toggle-table-json-view" },
     DIVIDER,
     { text = "⚠️ Delete All Records (Clear)", command = "mongodb_explorer:clear-collection" },
     { text = "🗑 Drop Collection", command = "mongodb_explorer:drop-collection" },
