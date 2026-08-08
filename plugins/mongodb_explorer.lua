@@ -2178,6 +2178,31 @@ local function open_mongosh_terminal(conn, db)
   end
 end
 
+local function preprocess_mongo_script(code)
+  if not code then return "" end
+  local lines = {}
+  for line in code:gmatch("[^\r\n]+") do
+    local stripped = line:match("^%s*(.-)%s*$")
+    if stripped:sub(1, 2) == "//" or stripped:sub(1, 2) == "/*" or stripped:sub(1, 1) == "*" then
+      table.insert(lines, line)
+    elseif stripped:lower():match("^show%s+dbs%s*;?$") or stripped:lower():match("^show%s+databases%s*;?$") then
+      table.insert(lines, "db.adminCommand({ listDatabases: 1 });")
+    elseif stripped:lower():match("^show%s+collections%s*;?$") or stripped:lower():match("^show%s+tables%s*;?$") then
+      table.insert(lines, "db.getCollectionNames();")
+    elseif stripped:lower():match("^show%s+users%s*;?$") then
+      table.insert(lines, "db.getUsers();")
+    elseif stripped:lower():match("^show%s+profile%s*;?$") then
+      table.insert(lines, "db.system.profile.find().toArray();")
+    elseif stripped:lower():match("^use%s+([%w_%-]+)%s*;?$") then
+      local db_target = stripped:match("^use%s+([%w_%-]+)%s*;?$")
+      table.insert(lines, string.format('db = (typeof db !== "undefined" && db.getSiblingDB) ? db.getSiblingDB(%s) : db;', json.stringify(db_target)))
+    else
+      table.insert(lines, line)
+    end
+  end
+  return table.concat(lines, "\n")
+end
+
 local explorer_view = nil
 
 local function get_or_create_explorer()
@@ -2351,13 +2376,15 @@ db.%s.find({}).limit(20);
     local target_db = doc.mongo_db or "admin"
     core.log("[MongoDB] Running scratchpad on %s / %s...", conn.name, target_db)
 
+    local clean_code = preprocess_mongo_script(code)
+
     local eval_script = string.format([[
       (function() {
         const __targetDb = %s;
-        const db = globalThis.db.getSiblingDB(__targetDb);
-        %s
+        let db = (typeof globalThis.db !== 'undefined' && globalThis.db.getSiblingDB) ? globalThis.db.getSiblingDB(__targetDb) : globalThis.db;
+        return eval(%s);
       })()
-    ]], json.stringify(target_db), code)
+    ]], json.stringify(target_db), json.stringify(clean_code))
 
     run_mongo_cli(conn.uri, eval_script, function(result, err)
       if err then
