@@ -508,7 +508,7 @@ local function format_documents_as_table(docs, title, db_name, col_name)
   local ctx = (db_name and col_name) and (db_name .. "." .. col_name) or (db_name or "admin")
   table.insert(lines, "// ============================================================================")
   table.insert(lines, string.format("// 📊 %s (%d document%s) | Context: %s", title or "MongoDB Results", #doc_list, #doc_list == 1 and "" or "s", ctx))
-  table.insert(lines, "// 💡 Toggle View: Run 'MongoDB: Toggle Table / JSON View' (Ctrl+Alt+T)")
+  table.insert(lines, "// 💡 View Mode: Click [ 📊 Table ] or [ 📄 JSON ] button at the top-right to toggle views")
   table.insert(lines, "// ============================================================================")
   table.insert(lines, "")
   table.insert(lines, top_border)
@@ -2915,7 +2915,7 @@ if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
       local formatted_json = json.stringify(raw, true)
       local banner = string.format([[// ============================================================================
 // 📦 MongoDB JSON View | Context: %s
-// 💡 Toggle View: Run 'MongoDB: Toggle Table / JSON View' (Ctrl+Alt+T)
+// 💡 View Mode: Click [ 📊 Table ] or [ 📄 JSON ] button at the top-right to toggle views
 // ============================================================================
 ]], doc.mongo_db or "admin")
       doc:reset()
@@ -3176,12 +3176,119 @@ function core.quit(force)
 end
 
 -- ============================================================================
+-- Interactive In-View Toggle Button Toolbar for MongoDB Results
+-- ============================================================================
+local DocView = require "core.docview"
+
+local old_docview_draw = DocView.draw
+function DocView:draw()
+  old_docview_draw(self)
+
+  if self.doc and (self.doc.is_mongo_results or self.doc.is_mongo_doc_viewer) and self.doc.mongo_raw_data then
+    local font = style.font
+    local is_table = (self.doc.mongo_view_mode ~= "json")
+
+    local h = math.floor(24 * SCALE)
+    local btn_table_text = " 📊 Table "
+    local btn_json_text = " 📄 JSON "
+    local w_table = font:get_width(btn_table_text) + 12 * SCALE
+    local w_json = font:get_width(btn_json_text) + 12 * SCALE
+    local total_w = w_table + w_json + 4 * SCALE
+
+    local right_margin = math.floor(32 * SCALE)
+    local top_margin = math.floor(8 * SCALE)
+    local bx = self.position.x + self.size.x - total_w - right_margin
+    local by = self.position.y + top_margin
+
+    self.mongo_btn_rects = {
+      bx = bx,
+      by = by,
+      bw = total_w,
+      bh = h,
+      table_rect = { x = bx, y = by, w = w_table, h = h },
+      json_rect = { x = bx + w_table + 4 * SCALE, y = by, w = w_json, h = h },
+    }
+
+    -- Outer border / container
+    local bg_bar = { common.color "#0F172A" }
+    local border_bar = { common.color "#334155" }
+    renderer.draw_rect(bx - 3, by - 3, total_w + 6, h + 6, border_bar)
+    renderer.draw_rect(bx - 2, by - 2, total_w + 4, h + 4, bg_bar)
+
+    -- Table Button
+    local table_bg = is_table and { common.color "#0284C7" } or { common.color "#1E293B" }
+    local table_fg = is_table and { common.color "#FFFFFF" } or { common.color "#94A3B8" }
+    if self.mongo_hover_btn == "table" and not is_table then
+      table_bg = { common.color "#475569" }
+      table_fg = { common.color "#F8FAFC" }
+    end
+    renderer.draw_rect(bx, by, w_table, h, table_bg)
+    common.draw_text(font, table_fg, btn_table_text, "center", bx, by, w_table, h)
+
+    -- JSON Button
+    local jx = bx + w_table + 4 * SCALE
+    local json_bg = (not is_table) and { common.color "#0284C7" } or { common.color "#1E293B" }
+    local json_fg = (not is_table) and { common.color "#FFFFFF" } or { common.color "#94A3B8" }
+    if self.mongo_hover_btn == "json" and is_table then
+      json_bg = { common.color "#475569" }
+      json_fg = { common.color "#F8FAFC" }
+    end
+    renderer.draw_rect(jx, by, w_json, h, json_bg)
+    common.draw_text(font, json_fg, btn_json_text, "center", jx, by, w_json, h)
+  else
+    self.mongo_btn_rects = nil
+  end
+end
+
+local old_docview_on_mouse_moved = DocView.on_mouse_moved
+function DocView:on_mouse_moved(x, y, dx, dy)
+  if self.mongo_btn_rects then
+    local r = self.mongo_btn_rects
+    if x >= r.bx and x <= (r.bx + r.bw) and y >= r.by and y <= (r.by + r.bh) then
+      self.cursor = "arrow"
+      local prev_hover = self.mongo_hover_btn
+      if x <= (r.table_rect.x + r.table_rect.w) then
+        self.mongo_hover_btn = "table"
+      else
+        self.mongo_hover_btn = "json"
+      end
+      if self.mongo_hover_btn ~= prev_hover then core.redraw = true end
+      return
+    else
+      if self.mongo_hover_btn then
+        self.mongo_hover_btn = nil
+        core.redraw = true
+      end
+    end
+  end
+  return old_docview_on_mouse_moved(self, x, y, dx, dy)
+end
+
+local old_docview_on_mouse_pressed = DocView.on_mouse_pressed
+function DocView:on_mouse_pressed(button, x, y, clicks)
+  if button == "left" and self.mongo_btn_rects then
+    local r = self.mongo_btn_rects
+    if x >= r.table_rect.x and x <= (r.table_rect.x + r.table_rect.w) and y >= r.table_rect.y and y <= (r.table_rect.y + r.table_rect.h) then
+      if self.doc and self.doc.mongo_view_mode ~= "table" then
+        command.perform("mongodb_explorer:toggle-table-json-view")
+      end
+      return true
+    elseif x >= r.json_rect.x and x <= (r.json_rect.x + r.json_rect.w) and y >= r.json_rect.y and y <= (r.json_rect.y + r.json_rect.h) then
+      if self.doc and self.doc.mongo_view_mode == "table" then
+        command.perform("mongodb_explorer:toggle-table-json-view")
+      end
+      return true
+    end
+  end
+  return old_docview_on_mouse_pressed(self, button, x, y, clicks)
+end
+
+-- ============================================================================
 -- Keymap Bindings
 -- ============================================================================
 keymap.add({
   ["ctrl+alt+m"] = "mongodb_explorer:toggle",
   ["ctrl+return"] = "mongodb_explorer:execute-scratchpad",
-  ["ctrl+alt+t"] = "mongodb_explorer:toggle-table-json-view",
 })
 
 
