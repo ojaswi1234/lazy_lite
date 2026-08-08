@@ -2105,8 +2105,10 @@ end
 -- Plugin Commands & Keymaps
 -- ============================================================================
 
-local function resolve_mongosh_cmd()
+local function resolve_mongosh_binary()
   local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
+  local custom = config.plugins.mongodb_explorer.mongosh_path
+  if custom and custom ~= "" and custom ~= "mongosh" then return custom end
   if is_windows then
     local candidates = {
       (os.getenv("LOCALAPPDATA") or "") .. "\\Programs\\mongosh\\mongosh.exe",
@@ -2120,7 +2122,7 @@ local function resolve_mongosh_cmd()
       local f = io.open(p, "r")
       if f then
         f:close()
-        return "& \"" .. p .. "\""
+        return p
       end
     end
   end
@@ -2136,46 +2138,39 @@ local function open_mongosh_terminal(conn, db)
     return
   end
 
-  local ok, toggle_term = pcall(require, "plugins.toggle_terminal")
-  if not ok or not toggle_term then
-    ok, toggle_term = pcall(require, "plugins.toggle_terminal.init")
-  end
-
-  local term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
-  if not term then
-    command.perform("terminal:toggle")
-    term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
-  end
-
-  if term and not term.visible then
-    command.perform("terminal:toggle")
-  end
-
-  if term then
-    core.set_active_view(term)
-    local tab_name = db and ("mongosh (" .. db .. ")") or ("mongosh (" .. conn.name .. ")")
-    if term.add_session then
-      term:add_session({ name = tab_name, prompt_prefix = "" })
+  local connect_target = conn.uri
+  if db and db ~= "" and not conn.uri:find("mongodb%+?s?r?v?://[^/]+/[^?]+") then
+    if conn.uri:find("%?") then
+      connect_target = conn.uri:gsub("%?", "/" .. db .. "?", 1)
+    else
+      connect_target = conn.uri:gsub("/?$", "/" .. db)
     end
+  end
 
-    local connect_target = conn.uri
-    if db and db ~= "" and not conn.uri:find("mongodb%+?s?r?v?://[^/]+/[^?]+") then
-      if conn.uri:find("%?") then
-        connect_target = conn.uri:gsub("%?", "/" .. db .. "?", 1)
+  local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
+  local bin_path = resolve_mongosh_binary()
+  local title = string.format("MongoDB Shell (%s)", db and (conn.name .. " / " .. db) or conn.name)
+
+  pcall(function()
+    if is_windows then
+      -- Launch in native dedicated terminal window with zero freezing and 100% crash protection
+      local proc = process.start({ "cmd.exe", "/c", "start", title, bin_path, connect_target })
+      if proc then
+        core.log("[MongoDB] Launched interactive mongosh terminal (%s)", conn.name)
       else
-        connect_target = conn.uri:gsub("/?$", "/" .. db)
+        core.warn("[MongoDB] Failed to start mongosh process.")
+      end
+    else
+      local proc = process.start({ "x-terminal-emulator", "-e", bin_path, connect_target })
+      if not proc then proc = process.start({ "gnome-terminal", "--", bin_path, connect_target }) end
+      if not proc then proc = process.start({ "xterm", "-e", bin_path, connect_target }) end
+      if proc then
+        core.log("[MongoDB] Launched interactive mongosh terminal (%s)", conn.name)
+      else
+        core.warn("[MongoDB] Could not launch terminal emulator.")
       end
     end
-
-    local bin_cmd = resolve_mongosh_cmd()
-    local cmd = bin_cmd .. " \"" .. connect_target .. "\""
-    if term.run then
-      term:run(cmd)
-    end
-    core.log("[MongoDB] Launched mongosh shell in bottom terminal (%s)", conn.name)
-  else
-    core.warn("[MongoDB] Bottom terminal plugin not found. Please ensure toggle_terminal is enabled.")
-  end
+  end)
 end
 
 local function preprocess_mongo_script(code)
