@@ -1426,6 +1426,18 @@ function MongoDBExplorerView:on_mouse_pressed(button, px, py, clicks)
     return true
   end
 
+  if button == "right" then
+    if self.hovered_item then
+      store.selected_node = self.hovered_item
+      core.redraw = true
+      local ok, menu = pcall(require, "plugins.contextmenu")
+      if ok and menu and menu.show then
+        menu:show(px, py)
+        return true
+      end
+    end
+  end
+
   if button == "left" then
     if self.hovered_btn then
       if self.hovered_btn.action then self.hovered_btn.action() end
@@ -1707,6 +1719,30 @@ function MongoDBExplorerView:draw()
           renderer.draw_text(font, extra_info, x + w - pad - extra_w, text_y, pal.dim)
         end
 
+        -- In-row hover action: [+ New Coll]
+        if is_hover and not is_compact then
+          local btn_txt = "+ Col"
+          local bw = font:get_width(btn_txt) + math.floor(8 * SCALE)
+          local bh = item_h - math.floor(4 * SCALE)
+          local bx = x + w - pad - bw
+          local by = row_y + math.floor(2 * SCALE)
+          local is_b_hover = self.hovered_btn and self.hovered_btn.id == ("row_add_col_" .. row.label)
+          renderer.draw_rect(bx, by, bw, bh, is_b_hover and pal.btn_hover or pal.btn_bg)
+          renderer.draw_rect(bx, by, bw, 1 * SCALE, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(bx, by + bh - 1 * SCALE, bw, 1 * SCALE, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(bx, by, 1 * SCALE, bh, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_rect(bx + bw - 1 * SCALE, by, 1 * SCALE, bh, is_b_hover and pal.accent or pal.btn_border)
+          renderer.draw_text(font, btn_txt, bx + math.floor(4 * SCALE), text_y, is_b_hover and pal.btn_hover_text or pal.accent)
+          table.insert(self.buttons, {
+            id = "row_add_col_" .. row.label,
+            x = bx, y = by, w = bw, h = bh,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:create-collection")
+            end
+          })
+        end
+
       elseif row.type == "collection" then
         local fold_icon = (row.data.expanded or (self.filter_text ~= "")) and "v " or "> "
         renderer.draw_text(font, fold_icon, indent_x, text_y, pal.dim)
@@ -1727,10 +1763,45 @@ function MongoDBExplorerView:draw()
         local label_to_draw = truncate_text(font, row.label, max_col_w)
         renderer.draw_text(font, label_to_draw, indent_x + icon_w + col_icon_w, text_y, row_text_color)
 
-        if count_str ~= "" and x + w - pad - count_w > indent_x + icon_w + col_icon_w + font:get_width(label_to_draw) + math.floor(4 * SCALE) then
+        if count_str ~= "" and not is_hover and x + w - pad - count_w > indent_x + icon_w + col_icon_w + font:get_width(label_to_draw) + math.floor(4 * SCALE) then
           local badge_x = x + w - pad - count_w
           local badge_y = row_y + math.floor((item_h - font:get_height() - math.floor(2 * SCALE)) / 2)
           draw_pill_badge(font, count_str, badge_x, badge_y, pal.badge_bg, pal.badge_text, pal.badge_border)
+        end
+
+        -- In-row hover actions: [+ Doc] [x]
+        if is_hover and not is_compact then
+          local drop_txt = "x"
+          local drop_w = font:get_width(drop_txt) + math.floor(8 * SCALE)
+          local drop_h = item_h - math.floor(4 * SCALE)
+          local drop_x = x + w - pad - drop_w
+          local drop_y = row_y + math.floor(2 * SCALE)
+          local is_d_hover = self.hovered_btn and self.hovered_btn.id == ("row_drop_col_" .. row.label)
+          renderer.draw_rect(drop_x, drop_y, drop_w, drop_h, is_d_hover and pal.status_error or pal.btn_bg)
+          renderer.draw_text(font, drop_txt, drop_x + math.floor(4 * SCALE), text_y, is_d_hover and pal.btn_hover_text or pal.status_error)
+          table.insert(self.buttons, {
+            id = "row_drop_col_" .. row.label,
+            x = drop_x, y = drop_y, w = drop_w, h = drop_h,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:drop-collection")
+            end
+          })
+
+          local add_txt = "+ Doc"
+          local add_w = font:get_width(add_txt) + math.floor(8 * SCALE)
+          local add_x = drop_x - add_w - math.floor(4 * SCALE)
+          local is_a_hover = self.hovered_btn and self.hovered_btn.id == ("row_add_doc_" .. row.label)
+          renderer.draw_rect(add_x, drop_y, add_w, drop_h, is_a_hover and pal.btn_hover or pal.btn_bg)
+          renderer.draw_text(font, add_txt, add_x + math.floor(4 * SCALE), text_y, is_a_hover and pal.btn_hover_text or pal.accent)
+          table.insert(self.buttons, {
+            id = "row_add_doc_" .. row.label,
+            x = add_x, y = drop_y, w = add_w, h = drop_h,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:insert-document")
+            end
+          })
         end
 
       elseif row.type == "indexes_group" then
@@ -1748,27 +1819,82 @@ function MongoDBExplorerView:draw()
         local max_doc_w = math.max(0, w - (indent_x + icon_w - x) - pad)
         local label_to_draw = truncate_text(font, row.label, max_doc_w)
         renderer.draw_text(font, label_to_draw, indent_x + icon_w, text_y, pal.dim)
+
+        -- In-row hover actions for documents: [Del] [Edit]
+        if is_hover and not is_compact then
+          local del_txt = "Del"
+          local del_w = font:get_width(del_txt) + math.floor(8 * SCALE)
+          local del_h = item_h - math.floor(4 * SCALE)
+          local del_x = x + w - pad - del_w
+          local del_y = row_y + math.floor(2 * SCALE)
+          local is_del_hover = self.hovered_btn and self.hovered_btn.id == ("row_del_doc_" .. tostring(row.label))
+          renderer.draw_rect(del_x, del_y, del_w, del_h, is_del_hover and pal.status_error or pal.btn_bg)
+          renderer.draw_text(font, del_txt, del_x + math.floor(4 * SCALE), text_y, is_del_hover and pal.btn_hover_text or pal.status_error)
+          table.insert(self.buttons, {
+            id = "row_del_doc_" .. tostring(row.label),
+            x = del_x, y = del_y, w = del_w, h = del_h,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:delete-document")
+            end
+          })
+
+          local edit_txt = "Edit"
+          local edit_w = font:get_width(edit_txt) + math.floor(8 * SCALE)
+          local edit_x = del_x - edit_w - math.floor(4 * SCALE)
+          local is_ed_hover = self.hovered_btn and self.hovered_btn.id == ("row_ed_doc_" .. tostring(row.label))
+          renderer.draw_rect(edit_x, del_y, edit_w, del_h, is_ed_hover and pal.btn_hover or pal.btn_bg)
+          renderer.draw_text(font, edit_txt, edit_x + math.floor(4 * SCALE), text_y, is_ed_hover and pal.btn_hover_text or pal.accent)
+          table.insert(self.buttons, {
+            id = "row_ed_doc_" .. tostring(row.label),
+            x = edit_x, y = del_y, w = edit_w, h = del_h,
+            action = function()
+              store.selected_node = row
+              command.perform("mongodb_explorer:open-document-editor")
+            end
+          })
+        end
       end
     end
     row_y = row_y + item_h
   end
   core.pop_clip_rect()
 
-  -- 3. Responsive Auto-Wrapping Bottom Action Toolbar
+  -- 3. Responsive Context-Aware Auto-Wrapping Bottom Action Toolbar
   local footer_y = y + h - footer_h
   renderer.draw_rect(x, footer_y, w, footer_h, pal.footer_bg)
   renderer.draw_rect(x, footer_y, w, 1 * SCALE, pal.divider)
 
   local s_lbl = (store.server_status == "starting" and "Starting...") or (store.server_status == "stopping" and "Stopping...") or (store.server_status == "running" and "Stop Server" or "Start Server")
 
-  local action_buttons = {
-    { label = s_lbl, cmd = "mongodb_explorer:toggle-server" },
-    { label = "mongosh Shell", cmd = "mongodb_explorer:open-terminal" },
-    { label = "View Docs", cmd = "mongodb_explorer:view-documents" },
-    { label = "Scratchpad", cmd = "mongodb_explorer:new-scratchpad" },
-    { label = "Insert", cmd = "mongodb_explorer:insert-document" },
-    { label = "Disconnect", cmd = "mongodb_explorer:disconnect" },
-  }
+  local action_buttons = {}
+  local sel = store.selected_node
+
+  if sel and sel.type == "collection" then
+    table.insert(action_buttons, { label = "📄 View Docs", cmd = "mongodb_explorer:view-documents" })
+    table.insert(action_buttons, { label = "➕ Insert Doc", cmd = "mongodb_explorer:insert-document" })
+    table.insert(action_buttons, { label = "⚠️ Clear All", cmd = "mongodb_explorer:clear-collection" })
+    table.insert(action_buttons, { label = "🗑 Drop Col", cmd = "mongodb_explorer:drop-collection" })
+    table.insert(action_buttons, { label = "⚡ Scratchpad", cmd = "mongodb_explorer:new-scratchpad" })
+    table.insert(action_buttons, { label = "Shell", cmd = "mongodb_explorer:open-terminal" })
+  elseif sel and sel.type == "database" then
+    table.insert(action_buttons, { label = "➕ New Coll", cmd = "mongodb_explorer:create-collection" })
+    table.insert(action_buttons, { label = "⚡ Scratchpad", cmd = "mongodb_explorer:new-scratchpad" })
+    table.insert(action_buttons, { label = "🔄 Refresh", cmd = "mongodb_explorer:refresh" })
+    table.insert(action_buttons, { label = "Shell", cmd = "mongodb_explorer:open-terminal" })
+  elseif sel and sel.type == "document" then
+    table.insert(action_buttons, { label = "✏️ Edit Record", cmd = "mongodb_explorer:open-document-editor" })
+    table.insert(action_buttons, { label = "🗑 Delete Record", cmd = "mongodb_explorer:delete-document" })
+    table.insert(action_buttons, { label = "📋 Copy JSON", cmd = "mongodb_explorer:copy-document-json" })
+    table.insert(action_buttons, { label = "📄 View All", cmd = "mongodb_explorer:view-documents" })
+  else
+    table.insert(action_buttons, { label = s_lbl, cmd = "mongodb_explorer:toggle-server" })
+    table.insert(action_buttons, { label = "mongosh Shell", cmd = "mongodb_explorer:open-terminal" })
+    table.insert(action_buttons, { label = "View Docs", cmd = "mongodb_explorer:view-documents" })
+    table.insert(action_buttons, { label = "Scratchpad", cmd = "mongodb_explorer:new-scratchpad" })
+    table.insert(action_buttons, { label = "Insert", cmd = "mongodb_explorer:insert-document" })
+    table.insert(action_buttons, { label = "Disconnect", cmd = "mongodb_explorer:disconnect" })
+  end
 
   local cur_x = x + pad
   local cur_row = 1
@@ -2029,7 +2155,9 @@ command.add(nil, {
         explorer_view = nil
       end
     else
-      explorer_view = MongoDBExplorerView()
+      if not explorer_view then
+        explorer_view = MongoDBExplorerView()
+      end
       local node = sidebar
       if not node then
         local editor_node = core.root_view:get_active_node_default()
@@ -2353,6 +2481,141 @@ db.%s.find({}).limit(20);
     })
   end,
 
+  ["mongodb_explorer:toggle-connect"] = function()
+    local conn = get_selected_context()
+    if conn then
+      if conn.status == "connected" then
+        store.disconnect(conn)
+      else
+        store.connect(conn)
+      end
+    end
+  end,
+
+  ["mongodb_explorer:remove-connection"] = function()
+    local conn = get_selected_context()
+    if not conn then return end
+    core.command_view:enter(string.format("Type 'yes' to remove saved connection '%s'", conn.name), {
+      submit = function(confirm)
+        if confirm:lower() ~= "yes" then return end
+        for idx, c in ipairs(store.connections) do
+          if c == conn or c.id == conn.id then
+            table.remove(store.connections, idx)
+            break
+          end
+        end
+        store.save()
+        core.log("[MongoDB] Removed connection '%s'", conn.name)
+        core.redraw = true
+      end
+    })
+  end,
+
+  ["mongodb_explorer:clear-collection"] = function()
+    local conn, db, col = get_selected_context()
+    if not conn or not db or not col then
+      core.warn("[MongoDB] Please select a collection to clear.")
+      return
+    end
+
+    core.command_view:enter(string.format("Type 'yes' to delete ALL documents from collection '%s.%s'", db, col), {
+      submit = function(confirm)
+        if confirm:lower() ~= "yes" then
+          core.log("[MongoDB] Clear collection cancelled.")
+          return
+        end
+
+        local clear_js = string.format([[
+          const targetDb = db.getSiblingDB(%s);
+          const res = targetDb.getCollection(%s).deleteMany({});
+          return { deletedCount: res.deletedCount || 0 };
+        ]], json.stringify(db), json.stringify(col))
+
+        core.log("[MongoDB] Deleting all records in %s.%s...", db, col)
+        run_mongo_cli(conn.uri, clear_js, function(res, err)
+          if err then
+            core.error("[MongoDB] Failed to clear collection: %s", err)
+          else
+            local count = res and res.deletedCount or 0
+            core.log("[MongoDB] Cleared collection %s.%s (deleted %d documents)", db, col, count)
+            command.perform("mongodb_explorer:refresh")
+          end
+        end)
+      end
+    })
+  end,
+
+  ["mongodb_explorer:delete-all-documents"] = function()
+    command.perform("mongodb_explorer:clear-collection")
+  end,
+
+  ["mongodb_explorer:delete-document"] = function()
+    local sel = store.selected_node
+    local conn, db, col = nil, nil, nil
+    local doc_id = nil
+
+    if sel and sel.type == "document" then
+      conn = sel.parent_conn
+      db = sel.parent_db.name
+      col = sel.parent_col.name
+      doc_id = sel.data and sel.data._id
+    else
+      local active_doc = core.active_view and core.active_view.doc
+      if active_doc and active_doc.is_mongo_doc_editor then
+        conn = store.find_connection(active_doc.mongo_conn_id)
+        db = active_doc.mongo_db
+        col = active_doc.mongo_col
+        doc_id = active_doc.mongo_doc_id
+      end
+    end
+
+    if not conn or not db or not col or doc_id == nil then
+      core.warn("[MongoDB] Please select a document in the explorer or open a document editor to delete.")
+      return
+    end
+
+    local id_display = type(doc_id) == "table" and (doc_id["$oid"] or json.stringify(doc_id)) or tostring(doc_id)
+
+    core.command_view:enter(string.format("Type 'yes' to delete record {_id: %s} from %s.%s", id_display, db, col), {
+      submit = function(confirm)
+        if confirm:lower() ~= "yes" then
+          core.log("[MongoDB] Delete record cancelled.")
+          return
+        end
+
+        local del_js = string.format([[
+          const targetDb = db.getSiblingDB(%s);
+          const rawId = %s;
+          let filterId = rawId;
+          if (typeof rawId === 'string' && /^[0-9a-fA-F]{24}$/.test(rawId)) {
+            try { filterId = ObjectId(rawId); } catch(e) {}
+          } else if (typeof rawId === 'object' && rawId['$oid']) {
+            try { filterId = ObjectId(rawId['$oid']); } catch(e) {}
+          }
+          const res = targetDb.getCollection(%s).deleteOne({ _id: filterId });
+          return { deletedCount: res.deletedCount || 0 };
+        ]], json.stringify(db), json.stringify(doc_id), json.stringify(col))
+
+        run_mongo_cli(conn.uri, del_js, function(res, err)
+          if err then
+            core.error("[MongoDB] Delete record error: %s", err)
+          else
+            core.log("[MongoDB] Deleted record {_id: %s} from %s.%s", id_display, db, col)
+            command.perform("mongodb_explorer:refresh")
+          end
+        end)
+      end
+    })
+  end,
+
+  ["mongodb_explorer:copy-document-json"] = function()
+    local sel = store.selected_node
+    if not sel or sel.type ~= "document" then return end
+    local formatted = json.stringify(sel.data, true)
+    system.set_clipboard(formatted)
+    core.log("[MongoDB] Copied document JSON to clipboard.")
+  end,
+
   ["mongodb_explorer:create-collection"] = function()
     local conn, db = get_selected_context()
     if not conn or not db then
@@ -2442,6 +2705,59 @@ keymap.add({
   ["ctrl+alt+m"] = "mongodb_explorer:toggle",
   ["ctrl+return"] = "mongodb_explorer:execute-scratchpad",
 })
+
+
+-- ============================================================================
+-- Context Menu Registrations for Right-Click Actions
+-- ============================================================================
+local ok_cm, menu = pcall(require, "plugins.contextmenu")
+if ok_cm and menu and menu.register then
+  local ok_core_cm, ContextMenu = pcall(require, "core.contextmenu")
+  local DIVIDER = (ok_core_cm and ContextMenu.DIVIDER) or {}
+
+  -- Database context menu
+  menu:register(function(x, y)
+    return store.selected_node and store.selected_node.type == "database"
+  end, {
+    { text = "+ Create Collection", command = "mongodb_explorer:create-collection" },
+    { text = "⚡ Open Scratchpad", command = "mongodb_explorer:new-scratchpad" },
+    DIVIDER,
+    { text = "🔄 Refresh Database", command = "mongodb_explorer:refresh" },
+  })
+
+  -- Collection context menu
+  menu:register(function(x, y)
+    return store.selected_node and store.selected_node.type == "collection"
+  end, {
+    { text = "📄 View Documents", command = "mongodb_explorer:view-documents" },
+    { text = "➕ Insert Document", command = "mongodb_explorer:insert-document" },
+    { text = "⚡ Open Scratchpad", command = "mongodb_explorer:new-scratchpad" },
+    DIVIDER,
+    { text = "⚠️ Delete All Records (Clear)", command = "mongodb_explorer:clear-collection" },
+    { text = "🗑 Drop Collection", command = "mongodb_explorer:drop-collection" },
+  })
+
+  -- Document / Record context menu
+  menu:register(function(x, y)
+    return store.selected_node and store.selected_node.type == "document"
+  end, {
+    { text = "✏️ Edit Record", command = "mongodb_explorer:open-document-editor" },
+    { text = "🗑 Delete Record", command = "mongodb_explorer:delete-document" },
+    DIVIDER,
+    { text = "📋 Copy JSON", command = "mongodb_explorer:copy-document-json" },
+  })
+
+  -- Connection context menu
+  menu:register(function(x, y)
+    return store.selected_node and store.selected_node.type == "connection"
+  end, {
+    { text = "Connect / Disconnect", command = "mongodb_explorer:toggle-connect" },
+    { text = "🔄 Refresh", command = "mongodb_explorer:refresh" },
+    DIVIDER,
+    { text = "➕ Add Connection", command = "mongodb_explorer:add-connection" },
+    { text = "🗑 Remove Connection", command = "mongodb_explorer:remove-connection" },
+  })
+end
 
 return {
   store = store,
