@@ -671,25 +671,37 @@ local function run_mongo_cli(uri, eval_js, callback)
     end
 
     local wrapped_js = string.format([[
-try {
-  let result = (function() {
-    %s
-  })();
-  if (result && typeof result.toArray === 'function') {
-    result = result.toArray();
-  }
-  if (typeof result !== 'undefined') {
-    if (typeof EJSON !== 'undefined' && EJSON.stringify) {
-      print("___JSON_START___" + EJSON.stringify(result, { relaxed: true }) + "___JSON_END___");
-    } else {
-      print("___JSON_START___" + JSON.stringify(result) + "___JSON_END___");
+(async () => {
+  try {
+    async function __resolve(val) {
+      if (val && typeof val.then === 'function') {
+        val = await val;
+      }
+      if (val && typeof val.toArray === 'function') {
+        val = await val.toArray();
+      }
+      return val;
     }
-  } else {
-    print("___JSON_START___null___JSON_END___");
+
+    let __res = await (async () => {
+%s
+    })();
+
+    __res = await __resolve(__res);
+
+    if (typeof __res === 'undefined') {
+      __res = { status: "success", acknowledged: true, message: "Query executed successfully." };
+    }
+
+    if (typeof EJSON !== 'undefined' && EJSON.stringify) {
+      print("___JSON_START___" + EJSON.stringify(__res, { relaxed: true }) + "___JSON_END___");
+    } else {
+      print("___JSON_START___" + JSON.stringify(__res) + "___JSON_END___");
+    }
+  } catch (e) {
+    print("___ERR_START___" + (e.stack || e.message || String(e)) + "___ERR_END___");
   }
-} catch (e) {
-  print("___ERR_START___" + (e.stack || e.message || String(e)) + "___ERR_END___");
-}
+})();
 ]], eval_js)
 
     f:write(wrapped_js)
@@ -723,7 +735,7 @@ try {
     local total_bytes = 0
     local max_bytes = config.plugins.mongodb_explorer.max_output_bytes or (8 * 1024 * 1024)
     local start_time = system.get_time()
-    local timeout = config.plugins.mongodb_explorer.query_timeout or 30
+    local timeout = config.plugins.mongodb_explorer.query_timeout or 45
 
     while true do
       local r_out = nil
@@ -2181,20 +2193,42 @@ local function preprocess_mongo_script(code)
     if stripped:sub(1, 2) == "//" or stripped:sub(1, 2) == "/*" or stripped:sub(1, 1) == "*" then
       table.insert(lines, line)
     elseif stripped:lower():match("^show%s+dbs%s*;?$") or stripped:lower():match("^show%s+databases%s*;?$") then
-      table.insert(lines, "db.adminCommand({ listDatabases: 1 });")
+      table.insert(lines, "return db.adminCommand({ listDatabases: 1 });")
     elseif stripped:lower():match("^show%s+collections%s*;?$") or stripped:lower():match("^show%s+tables%s*;?$") then
-      table.insert(lines, "db.getCollectionNames();")
+      table.insert(lines, "return db.getCollectionNames();")
     elseif stripped:lower():match("^show%s+users%s*;?$") then
-      table.insert(lines, "db.getUsers();")
+      table.insert(lines, "return db.getUsers();")
     elseif stripped:lower():match("^show%s+profile%s*;?$") then
-      table.insert(lines, "db.system.profile.find().toArray();")
+      table.insert(lines, "return db.system.profile.find().toArray();")
     elseif stripped:lower():match("^use%s+([%w_%-]+)%s*;?$") then
       local db_target = stripped:match("^use%s+([%w_%-]+)%s*;?$")
       table.insert(lines, string.format('db = (typeof db !== "undefined" && db.getSiblingDB) ? db.getSiblingDB(%s) : db;', json.stringify(db_target)))
     else
-      table.insert(lines, line)
+      -- Auto-convert db.collection. to db.getCollection("collection"). if written literally
+      local fixed_line = line:gsub("db%.collection%.", "db.getCollection(\"collection\").")
+      table.insert(lines, fixed_line)
     end
   end
+
+  -- If the last non-empty line is an expression without return/declaration, wrap with return (...)
+  local last_idx = nil
+  for i = #lines, 1, -1 do
+    local s = lines[i]:match("^%s*(.-)%s*$")
+    if s ~= "" and s:sub(1, 2) ~= "//" and s:sub(1, 2) ~= "/*" and s:sub(1, 1) ~= "*" then
+      last_idx = i
+      break
+    end
+  end
+
+  if last_idx then
+    local s = lines[last_idx]:match("^%s*(.-)%s*$")
+    local lower = s:lower()
+    if not (lower:match("^return%s") or lower:match("^const%s") or lower:match("^let%s") or lower:match("^var%s") or lower:match("^if%s*%(") or lower:match("^for%s*%(") or lower:match("^while%s*%(") or lower:match("^function%s") or lower:match("^try%s*{") or lower:match("^switch%s*%(")) then
+      local trimmed = s:gsub(";%s*$", "")
+      lines[last_idx] = "return (" .. trimmed .. ");"
+    end
+  end
+
   return table.concat(lines, "\n")
 end
 
@@ -2339,15 +2373,15 @@ command.add(nil, {
 // Execute Query: Press 'Ctrl+Enter' or Command Palette: 'mongodb_explorer:execute-scratchpad'
 // ============================================================================
 
-db.%s.find({}).limit(20);
+db.getCollection(%s).find({}).limit(20);
 
 // Example Aggregation Pipeline:
-// db.%s.aggregate([
+// db.getCollection(%s).aggregate([
 //   { $match: {} },
 //   { $group: { _id: "$status", total: { $sum: 1 } } },
 //   { $sort: { total: -1 } }
 // ]);
-]], conn.name, mask_uri(conn.uri), db_name, col_name, col_name, col_name)
+]], conn.name, mask_uri(conn.uri), db_name, col_name, json.stringify(col_name), json.stringify(col_name))
 
     open_virtual_doc("scratchpad.mongodb.js", template, "scratchpad.mongodb.js", {
       is_mongo_scratchpad = true,
@@ -2373,15 +2407,15 @@ db.%s.find({}).limit(20);
 
     local clean_code = preprocess_mongo_script(code)
 
-    local eval_script = string.format([[
-      (function() {
-        const __targetDb = %s;
-        let db = (typeof globalThis.db !== 'undefined' && globalThis.db.getSiblingDB) ? globalThis.db.getSiblingDB(__targetDb) : globalThis.db;
-        return eval(%s);
-      })()
-    ]], json.stringify(target_db), json.stringify(clean_code))
+    local exec_body = string.format([[
+const __targetDb = %s;
+if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
+  db = db.getSiblingDB(__targetDb);
+}
+%s
+]], json.stringify(target_db), clean_code)
 
-    run_mongo_cli(conn.uri, eval_script, function(result, err)
+    run_mongo_cli(conn.uri, exec_body, function(result, err)
       if err then
         core.error("[MongoDB] Scratchpad Error: %s", err)
         return
