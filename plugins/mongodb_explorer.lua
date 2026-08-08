@@ -18,6 +18,7 @@ local process = require "process"
 local Doc = require "core.doc"
 local DocView = require "core.docview"
 local View = require "core.view"
+local syntax = require "core.syntax"
 
 -- ============================================================================
 -- Configuration & Defaults
@@ -217,6 +218,114 @@ local function get_theme_palette()
 
   return palette
 end
+
+-- ============================================================================
+-- MongoDB JSON & Document Results Syntax Highlighter
+-- ============================================================================
+local function init_mongodb_syntax()
+  -- Ensure style syntax table exists
+  style.syntax = style.syntax or {}
+  style.syntax_fonts = style.syntax_fonts or {}
+
+  -- Curated high-contrast semantic palette
+  style.syntax["mongo_id"] = { common.color "#22D3EE" }         -- Bright Cyan / Turquoise for primary keys (_id, $oid)
+  style.syntax["mongo_oid_val"] = { common.color "#06B6D4" }    -- Deep Cyan for hex ObjectIds
+  style.syntax["mongo_date"] = { common.color "#F59E0B" }       -- Golden Amber for date fields (createdAt, updatedAt, expiry)
+  style.syntax["mongo_date_val"] = { common.color "#FDE047" }   -- Warm Gold for ISO 8601 timestamps
+  style.syntax["mongo_name"] = { common.color "#38BDF8" }       -- Vivid Sky Blue for names, titles, categories, manufacturer
+  style.syntax["mongo_meta"] = { common.color "#C084FC" }       -- Soft Orchid Purple for status, __v, counters, booleans
+  style.syntax["mongo_operator"] = { common.color "#FB7185" }   -- Neon Rose Pink for EJSON/Mongo operators ($match, $set, etc.)
+  style.syntax["mongo_key"] = { common.color "#94A3B8" }        -- Crisp Ice Slate for general JSON property keys
+  style.syntax["mongo_number"] = { common.color "#FB923C" }     -- Bright Tangerine Orange for numeric values
+  style.syntax["mongo_literal"] = { common.color "#F87171" }    -- Coral Red / Purple for literals (true, false, null)
+  style.syntax["mongo_bracket"] = { common.color "#64748B" }    -- Muted Slate for array/object scope brackets ([ ], { })
+  style.syntax["mongo_colon"] = { common.color "#94A3B8" }      -- Soft Silver for colons and commas
+
+  -- Bold font for primary keys and entity names if available
+  local bold_font = nil
+  local font_candidates = {
+    "C:/Windows/Fonts/consolab.ttf",
+    "C:/Windows/Fonts/CascadiaCode-Bold.ttf",
+    "C:/Windows/Fonts/segoeuib.ttf",
+    DATADIR .. "/fonts/FiraSans-Bold.ttf",
+  }
+  for _, fp in ipairs(font_candidates) do
+    local ok, f = pcall(renderer.font.load, fp, 15 * SCALE)
+    if ok and f then
+      bold_font = f
+      break
+    end
+  end
+
+  if bold_font then
+    style.syntax_fonts["mongo_id"] = bold_font
+    style.syntax_fonts["mongo_name"] = bold_font
+    style.syntax_fonts["mongo_date"] = bold_font
+  end
+
+  syntax.add {
+    name = "MongoDB JSON",
+    files = {
+      "results%.mongodb%.json$",
+      "%.mongodb%.json$",
+      "%_documents%.json$",
+      "insert_%w+_%w+%.json$",
+      "%.ejson$",
+      "%.json$",
+    },
+    comment = "//",
+    block_comment = { "/*", "*/" },
+    patterns = {
+      -- Comments
+      { pattern = "//.*", type = "comment" },
+      { pattern = { "/%*", "%*/" }, type = "comment" },
+
+      -- 1. Primary Identifier Keys: "_id", "$oid", "$id", "id", "uuid", "_key"
+      { regex = [["(?:_id|\$oid|\$id|uuid|_key)"()\s*:]], type = { "mongo_id", "mongo_colon" } },
+
+      -- 2. Timestamps & Dates Keys: "createdAt", "updatedAt", "$date", "timestamp", "expiry", "expiresAt", "deletedAt", "publishedAt", "modifiedAt", "birthDate", "date", "created_at", "updated_at"
+      { regex = [["(?:createdAt|updatedAt|\$date|timestamp|expiry|expiresAt|deletedAt|publishedAt|modifiedAt|birthDate|date|created_at|updated_at|created_on|updated_on|generation_time)"()\s*:]], type = { "mongo_date", "mongo_colon" } },
+
+      -- 3. Core Entity Names / Attributes: "name", "title", "collection", "database", "databases", "label", "username", "user", "email", "role", "category", "manufacturer", "author", "type", "subject", "description"
+      { regex = [["(?:name|title|collection|database|databases|label|username|user|email|role|category|manufacturer|author|type|subject|description|first_name|last_name|full_name|product_name|company)"()\s*:]], type = { "mongo_name", "mongo_colon" } },
+
+      -- 4. Status, Flags & Counters: "__v", "status", "state", "active", "enabled", "disabled", "acknowledged", "ok", "prescriptionRequired", "empty", "sizeOnDisk", "totalSize", "version", "deleted", "isDeleted", "count", "quantity", "price", "total"
+      { regex = [["(?:__v|status|state|active|enabled|disabled|acknowledged|ok|prescriptionRequired|empty|sizeOnDisk|totalSize|version|deleted|isDeleted|count|quantity|price|total|inStock|isAvailable|available)"()\s*:]], type = { "mongo_meta", "mongo_colon" } },
+
+      -- 5. MongoDB & EJSON Operators: "$numberLong", "$numberDecimal", "$numberInt", "$binary", "$regex", "$minKey", "$maxKey", "$timestamp", "$code", "$ref", "$db", "$match", "$group", "$project", "$sort", "$lookup", "$unwind", "$limit", "$skip", "$set", "$inc", "$push", "$pull", "$in", "$nin", "$gt", "$gte", "$lt", "$lte", "$eq", "$ne", "$exists", "$or", "$and", "$not", "$nor"
+      { regex = [["\$(?:numberLong|numberDecimal|numberInt|binary|regex|minKey|maxKey|timestamp|code|ref|db|match|group|project|sort|lookup|unwind|limit|skip|set|inc|push|pull|in|nin|gt|gte|lt|lte|eq|ne|exists|or|and|not|nor)"()\s*:]], type = { "mongo_operator", "mongo_colon" } },
+
+      -- 6. Generic JSON Keys
+      { regex = [["(?:[^"\\]|\\.)*"()\s*:]], type = { "mongo_key", "mongo_colon" } },
+
+      -- 7. Special String Values:
+      -- ISO 8601 Date / Timestamps: "2025-12-28T10:35:48.615Z"
+      { regex = [["\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?"]], type = "mongo_date_val" },
+      -- 24-hex char MongoDB ObjectIDs: "695108044a82bcf17fb6c5f4"
+      { regex = [["[0-9a-fA-F]{24}"]], type = "mongo_oid_val" },
+
+      -- 8. General Strings
+      { regex = [["(?:[^"\\]|\\.)*"]], type = "string" },
+
+      -- 9. Numbers
+      { pattern = "0x[%da-fA-F]+", type = "mongo_number" },
+      { pattern = "-?%d+[%d%.eE]*", type = "mongo_number" },
+      { pattern = "-?%.?%d+", type = "mongo_number" },
+
+      -- 10. Literals
+      { pattern = "null", type = "mongo_literal" },
+      { pattern = "true", type = "mongo_literal" },
+      { pattern = "false", type = "mongo_literal" },
+
+      -- 11. Structural Brackets and Delimiters
+      { pattern = "[%[%]{}]", type = "mongo_bracket" },
+      { pattern = "[,:]", type = "mongo_colon" },
+    },
+    symbols = {},
+  }
+end
+
+pcall(init_mongodb_syntax)
 
 -- ============================================================================
 -- Layout & UI Helper Utilities
@@ -2421,10 +2530,27 @@ if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
         return
       end
 
-      local formatted = json.stringify(result, true)
+      local formatted_json = json.stringify(result, true)
+      local banner = ""
+      local count = nil
+      if type(result) == "table" and #result > 0 then
+        count = #result
+        banner = string.format([[// ============================================================================
+// 📦 MongoDB Query Results (%d document%s) | Database: %s
+// 🎨 Legend: Cyan=_id/IDs | Gold=Dates/Timestamps | Blue=Names/Entity | Purple=Meta
+// ============================================================================
+]], count, count == 1 and "" or "s", target_db)
+      elseif type(result) == "table" and result.databases then
+        banner = string.format([[// ============================================================================
+// 📦 MongoDB Database List (%d databases) | Status: OK
+// ============================================================================
+]], #result.databases)
+      end
+
+      local full_content = banner .. formatted_json
       
       -- Open or update single reusable results.mongodb.json tab with full JSON syntax highlighting
-      open_virtual_doc("results.mongodb.json", formatted, "results.mongodb.json", {
+      open_virtual_doc("results.mongodb.json", full_content, "results.mongodb.json", {
         is_mongo_results = true,
         mongo_conn_id = conn.id,
         mongo_db = target_db,
@@ -2456,10 +2582,18 @@ if (__targetDb && typeof db !== 'undefined' && db.getSiblingDB) {
       end
 
       local docs = (data and data.docs) or data or {}
-      local formatted = json.stringify(docs, true)
+      local formatted_json = json.stringify(docs, true)
+      local total = (data and data.total) or #docs
+      local banner = string.format([[// ============================================================================
+// 📄 Collection: %s.%s (%d document%s shown | %s total)
+// 🎨 Legend: Cyan=_id/IDs | Gold=Dates/Timestamps | Blue=Names/Entity | Purple=Meta
+// ============================================================================
+]], db, col, #docs, #docs == 1 and "" or "s", tostring(total))
+
+      local full_content = banner .. formatted_json
       local filename = string.format("%s_%s_documents.json", db, col)
 
-      open_virtual_doc(filename, formatted, filename, {
+      open_virtual_doc(filename, full_content, filename, {
         is_mongo_doc_viewer = true,
         mongo_conn_id = conn.id,
         mongo_db = db,
