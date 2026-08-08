@@ -2394,47 +2394,13 @@ db.%s.find({}).limit(20);
 
       local formatted = json.stringify(result, true)
       
-      -- Stream result directly to bottom terminal (reusing single query output session)
-      local ok_tt, toggle_term = pcall(require, "plugins.toggle_terminal")
-      local term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
-      if not term then
-        command.perform("terminal:toggle")
-        term = (type(toggle_term) == "table" and toggle_term.get_instance) and toggle_term.get_instance() or nil
-      end
-      if term and not term.visible then command.perform("terminal:toggle") end
-      if term then
-        core.set_active_view(term)
-        -- Find existing "Query Output" session or create one
-        local target_session = nil
-        if term.sessions then
-          for _, s in ipairs(term.sessions) do
-            if s.name and (s.name == "MongoDB Output" or s.name:find("Query:")) then
-              target_session = s
-              break
-            end
-          end
-        end
-        if not target_session and term.add_session then
-          term:add_session({ name = "MongoDB Output", prompt_prefix = "" })
-          target_session = term.sessions and term.sessions[#term.sessions]
-        end
-        if target_session and term.select_session then
-          term:select_session(target_session)
-        end
-        if term._push then
-          term:_push("cmd", string.format("─── [MongoDB Output: %s | %s] ───", target_db, os.date("%H:%M:%S")))
-          for line in formatted:gmatch("[^\r\n]+") do
-            term:_push("out", line)
-          end
-          term:_push("out", "")
-        end
-      else
-        -- Reuse existing single results.json tab without multiplying tabs
-        open_virtual_doc("results.mongodb.json", formatted, "results.json", {
-          is_mongo_results = true,
-        })
-      end
-      core.log("[MongoDB] Scratchpad query executed successfully -> Output in bottom terminal.")
+      -- Open or update single reusable results.mongodb.json tab with full JSON syntax highlighting
+      open_virtual_doc("results.mongodb.json", formatted, "results.mongodb.json", {
+        is_mongo_results = true,
+        mongo_conn_id = conn.id,
+        mongo_db = target_db,
+      })
+      core.log("[MongoDB] Scratchpad query executed -> Results displayed in results.mongodb.json")
     end)
   end,
 
