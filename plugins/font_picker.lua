@@ -128,6 +128,14 @@ end)
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2.  Helpers
 -- ─────────────────────────────────────────────────────────────────────────────
+local function save_font_config(path, name, size)
+  local f = io.open(USERDIR .. "/font_picker_state.lua", "w")
+  if f then
+    f:write(string.format("return { path = %q, name = %q, size = %s }\n", path or "", name or "Default", tostring(size or 15)))
+    f:close()
+  end
+end
+
 local function apply_font(path, size)
   size = size or (config.native_code_font_size or 15)
   local ok, fnt = pcall(renderer.font.load, path, size * SCALE)
@@ -179,8 +187,10 @@ settings.add("Fonts", {
     max      = 32,
     step     = 0.5,
     on_apply = function(value)
+      config.native_code_font_size = value
       local path = config.native_code_font
       if path and path ~= "" then apply_font(path, value) end
+      save_font_config(config.native_code_font, config.native_code_font_name, config.native_code_font_size)
     end,
   },
   {
@@ -201,6 +211,7 @@ settings.add("Fonts", {
           if name == "" or name == "Default" then
             config.native_code_font      = ""
             config.native_code_font_name = "Default"
+            save_font_config("", "Default", config.native_code_font_size)
             -- Restore default font
             local sz = (config.native_code_font_size or 15) * SCALE
             local function try(p) local ok,f = pcall(renderer.font.load, p, sz); return ok and f or nil end
@@ -216,6 +227,7 @@ settings.add("Fonts", {
             if apply_font(path, size) then
               config.native_code_font      = path
               config.native_code_font_name = name
+              save_font_config(path, name, config.native_code_font_size)
               core.log("[font_picker] Applied: " .. name)
             else
               core.log("[font_picker] Failed to load: " .. path)
@@ -239,12 +251,16 @@ settings.add("Fonts", {
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4.  Restore saved font on startup
 -- ─────────────────────────────────────────────────────────────────────────────
-core.add_thread(function()
-  coroutine.yield(0.5)
-  if config.native_code_font and config.native_code_font ~= "" then
-    local size = config.native_code_font_size or 15
-    if apply_font(config.native_code_font, size) then
-      core.log_quiet("[font_picker] Restored: " .. (config.native_code_font_name or "?"))
-    end
+local ok, state = pcall(dofile, USERDIR .. "/font_picker_state.lua")
+if ok and type(state) == "table" then
+  config.native_code_font      = state.path
+  config.native_code_font_name = state.name
+  config.native_code_font_size = state.size
+end
+
+if config.native_code_font and config.native_code_font ~= "" then
+  local size = config.native_code_font_size or 15
+  if apply_font(config.native_code_font, size) then
+    core.log_quiet("[font_picker] Restored: " .. (config.native_code_font_name or "?"))
   end
-end)
+end

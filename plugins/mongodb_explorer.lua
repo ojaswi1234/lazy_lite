@@ -23,6 +23,16 @@ local syntax = require "core.syntax"
 -- ============================================================================
 -- Configuration & Defaults
 -- ============================================================================
+
+-- Auto-cleanup orphaned temporary query files from previous sessions
+pcall(function()
+  for _, file in ipairs(system.list_dir(USERDIR) or {}) do
+    if file:match("^temp_mongo_query_.*%.js$") then
+      os.remove(USERDIR .. "/" .. file)
+    end
+  end
+end)
+
 config.plugins.mongodb_explorer = common.merge({
   mongosh_path = "mongosh",          -- Path to mongosh (or "mongo" fallback)
   fallback_mongo_path = "mongo",

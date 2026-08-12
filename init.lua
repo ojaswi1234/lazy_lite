@@ -208,6 +208,7 @@ safe_require "plugins.loader_games"
 safe_require "plugins.virtual_codespace_fs"
 safe_require "plugins.github_codespaces"
 safe_require "plugins.font_picker"
+safe_require "plugins.empty_file_guide"
 
 
 -- ── 6. Keybindings (VS Code parity) ──────────────────────────────────────────

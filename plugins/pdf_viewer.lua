@@ -21,10 +21,18 @@ local process = require "process"
 local PYTHON_ENGINE = USERDIR .. "/plugins/pdf_engine.py"
 local HALF_BLOCK = "▀"
 
--- Create cache directory
 local CACHE_DIR = USERDIR .. "/tempfiles/pdf_cache"
 system.mkdir(USERDIR .. "/tempfiles")
 system.mkdir(CACHE_DIR)
+
+-- Auto-cleanup orphaned cache files from previous sessions
+pcall(function()
+  for _, file in ipairs(system.list_dir(CACHE_DIR) or {}) do
+    if file:match("%.lua$") then
+      os.remove(CACHE_DIR .. "/" .. file)
+    end
+  end
+end)
 
 local function invert_color(c, invert)
   if not invert or not c then return c end

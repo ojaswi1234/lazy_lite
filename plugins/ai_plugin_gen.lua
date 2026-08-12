@@ -356,20 +356,57 @@ function AIPluginGen:draw_describe()
 
   -- Input display box
   local inp_w = w - pad*2
-  local inp_h = sp(120)
-  renderer.draw_rect(cx, cy, inp_w, inp_h, style.background2 or c(50,50,50))
-
-  self.doc_view.position.x = cx + sp(12)
-  self.doc_view.position.y = cy + sp(12)
-  self.doc_view.size.x = inp_w - sp(24)
-  self.doc_view.size.y = inp_h - sp(24)
+  local inp_h = sp(130)
+  local is_focused = (core.active_view == self.doc_view) or (core.active_view == self)
   
-  core.push_clip_rect(cx, cy, inp_w, inp_h)
+  -- Card background
+  local card_bg = style.background3 or style.background2 or c(45, 45, 45)
+  renderer.draw_rect(cx, cy, inp_w, inp_h, card_bg)
+  
+  -- Border / Focus Glow
+  local border_color = is_focused and (style.accent or c(80, 160, 240)) or (style.divider or c(70, 70, 70))
+  local bw = is_focused and sp(2) or sp(1)
+  renderer.draw_rect(cx, cy, inp_w, bw, border_color)
+  renderer.draw_rect(cx, cy + inp_h - bw, inp_w, bw, border_color)
+  renderer.draw_rect(cx, cy, bw, inp_h, border_color)
+  renderer.draw_rect(cx + inp_w - bw, cy, bw, inp_h, border_color)
+
+  local inner_pad = sp(10)
+  self.doc_view.position.x = cx + inner_pad
+  self.doc_view.position.y = cy + inner_pad
+  self.doc_view.size.x = inp_w - (inner_pad * 2)
+  self.doc_view.size.y = inp_h - (inner_pad * 2) - sp(16)
+  
+  core.push_clip_rect(cx + bw, cy + bw, inp_w - (bw * 2), inp_h - (bw * 2))
   self.doc_view:draw()
-  local txt = self.doc:get_text(1, 1, math.huge, math.huge)
-  if txt == "\n" or txt == "" then
-    draw_icon_text(font, "\u{f040}  Describe your plugin here...", cx + sp(12), cy + sp(12), style.dim)
+  
+  local raw_txt = self.doc:get_text(1, 1, math.huge, math.huge)
+  local is_empty = (raw_txt:match("^%s*$") ~= nil)
+  
+  if is_empty then
+    local ph_col = { style.dim[1], style.dim[2], style.dim[3], 170 }
+    local ph_y = cy + inner_pad
+    local ph_x = cx + inner_pad
+    
+    if is_focused then
+      ph_x = ph_x + sp(4)
+    end
+    
+    renderer.draw_text(font, "Describe what you want your Lite XL plugin to do...", ph_x, ph_y, ph_col)
+    
+    local ex_y = ph_y + fh + sp(6)
+    if ex_y + fh <= cy + inp_h - sp(22) then
+      renderer.draw_text(font, "Example: 'Add Pomodoro timer to status bar with chime alerts'", ph_x, ex_y, { style.dim[1], style.dim[2], style.dim[3], 120 })
+    end
   end
+  
+  -- Hint in bottom right corner
+  local hint_txt = "Ctrl+V / Right-Click to Paste"
+  local hint_w = font:get_width(hint_txt)
+  local hint_y = cy + inp_h - fh - sp(4)
+  local hint_x = cx + inp_w - hint_w - sp(8)
+  renderer.draw_text(font, hint_txt, hint_x, hint_y, { style.dim[1], style.dim[2], style.dim[3], 90 })
+  
   core.pop_clip_rect()
 
   self.input_rect = {x=cx, y=cy, w=inp_w, h=inp_h}
@@ -973,6 +1010,22 @@ function AIPluginGen:on_mouse_moved(mx, my, dx, dy)
 end
 
 function AIPluginGen:on_mouse_pressed(button, mx, my, clicks)
+  if button == "right" then
+    if self.state == STATE.DESCRIBE and self.input_rect then
+      local r = self.input_rect
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        local text = system.get_clipboard()
+        if text and text ~= "" then
+          self.doc:text_input(text)
+          core.set_active_view(self.doc_view)
+          core.redraw = true
+          return true
+        end
+      end
+    end
+    return false
+  end
+
   if button ~= "left" then return false end
   
   -- Route to doc_view if clicked inside input box

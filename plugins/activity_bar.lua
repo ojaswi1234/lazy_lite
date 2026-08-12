@@ -1,12 +1,26 @@
 -- mod-version:3
 -- VS Code style Activity Bar for Lite XL
 local core = require "core"
+local config = require "core.config"
 local command = require "core.command"
 local keymap = require "core.keymap"
 local style = require "core.style"
 local View = require "core.view"
+local AI_TOOLS = require "plugins.ai_tool_registry"
 
 local ActivityBar = View:extend()
+
+local function is_sidebar_view(view)
+  if not view or not view.name then return false end
+  local name = view.name
+  return name == "AI Plugins"
+      or name == "Docker"
+      or name == "Podman"
+      or name == "LeetCode"
+      or name == "MongoDB Explorer"
+      or name == "MongoDB"
+      or name == "Antigravity"
+end
 
 function ActivityBar:new()
   ActivityBar.super.new(self)
@@ -14,14 +28,14 @@ function ActivityBar:new()
   self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
+    { id = "ai_plugin",icon = "\u{f0e7}", command = "ai-plugin-gen:toggle", tooltip = "AI Plugins" },
     { id = "podman",   icon = "\u{f308}", command = "podman:toggle",    tooltip = "Podman" },
     { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle",   tooltip = "LeetCode" },
-    { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb:activity-bar", tooltip = "MongoDB" },
-    { id = "ai_plugin",icon = "\u{f0e7}", command = "ai-plugin-gen:toggle", tooltip = "AI Plugins" }
+    { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb_explorer:toggle", tooltip = "MongoDB" },
   }
   -- Bottom-anchored auth button
   self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "AGY Auth / Toggle AI" }
-  self.active_id = "podman"
+  self.active_id = "ai_plugin"
   self.target_size = 48 * SCALE
   self.visible = false -- Start hidden; will be pulled open by the AI Sidebar
 end
@@ -41,6 +55,22 @@ function ActivityBar:update()
   elseif not has_views and self.visible then
     self.visible = false
   end
+
+  -- Track the active item in the activity bar based on sidebar's active view
+  if sidebar and sidebar.active_view then
+    local vname = sidebar.active_view.name or ""
+    if vname == "AI Plugins" then
+      self.active_id = "ai_plugin"
+    elseif vname == "Docker" or vname == "Podman" then
+      self.active_id = "podman"
+    elseif vname == "LeetCode" then
+      self.active_id = "leetcode"
+    elseif vname == "MongoDB Explorer" or vname == "MongoDB" then
+      self.active_id = "mongodb"
+    elseif vname == "Antigravity" then
+      self.active_id = nil
+    end
+  end
   
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "x", dest)
@@ -49,25 +79,31 @@ end
 function ActivityBar:get_auth_label()
   -- Read auth info from the global AGView instance if available
   local inst = rawget(_G, "_ag_instance")
+  local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
+  local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
+  local tname = (tdef and tdef.short) or "AGY"
+
   if inst and inst.auth_status == "logged_in" then
-    local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
-    local sep = PLATFORM == "Windows" and "\\" or "/"
-    local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
-    local f = io.open(state_path, "r")
-    if f then
-      local content = f:read("*a")
-      f:close()
-      local email = content:match('email:%s*"([^"]+)"')
-                 or content:match("email:%s*'([^']+)'")
-      if email then
-        return email:match("^([^@]+)") or email
+    if cur_tool == "agy" then
+      local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+      local sep = PLATFORM == "Windows" and "\\" or "/"
+      local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
+      local f = io.open(state_path, "r")
+      if f then
+        local content = f:read("*a")
+        f:close()
+        local email = content:match('email:%s*"([^"]+)"')
+                   or content:match("email:%s*'([^']+)'")
+        if email then
+          return email:match("^([^@]+)") or email
+        end
       end
     end
-    return os.getenv("USER") or os.getenv("USERNAME") or "AGY"
+    return os.getenv("USER") or os.getenv("USERNAME") or tname
   elseif inst and inst.auth_status == "auth_error" then
-    return "Auth Error!"
+    return tname .. " Auth Error!"
   end
-  return "AGY Auth"
+  return tname .. " Auth"
 end
 
 function ActivityBar:draw()
@@ -118,23 +154,32 @@ function ActivityBar:draw()
     end
 
     if is_authed then
-      -- Get the user's first initial
       local initial = "A"
-      local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
-      local sep = PLATFORM == "Windows" and "\\" or "/"
-      local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
-      local f = io.open(state_path, "r")
-      if f then
-        local content = f:read("*a"); f:close()
-        local email = content:match('email:%s*"([^"]+)"') or content:match("email:%s*'([^']+)'")
-        if email then
-          local name = email:match("^([^@]+)")
-          if name and #name > 0 then initial = name:sub(1,1):upper() end
+      local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
+      
+      if cur_tool == "agy" then
+        local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+        local sep = PLATFORM == "Windows" and "\\" or "/"
+        local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
+        local f = io.open(state_path, "r")
+        if f then
+          local content = f:read("*a"); f:close()
+          local email = content:match('email:%s*"([^"]+)"') or content:match("email:%s*'([^']+)'")
+          if email then
+            local name = email:match("^([^@]+)")
+            if name and #name > 0 then initial = name:sub(1,1):upper() end
+          end
         end
       end
       if initial == "A" then
-        local uname = os.getenv("USER") or os.getenv("USERNAME") or "A"
-        initial = uname:sub(1,1):upper()
+        if cur_tool == "agy" then
+          local uname = os.getenv("USER") or os.getenv("USERNAME") or "A"
+          initial = uname:sub(1,1):upper()
+        else
+          local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
+          local short = tdef and tdef.short or "AI"
+          initial = short:sub(1,1):upper()
+        end
       end
 
       -- Draw filled avatar circle (approximated with a square + corner clips)
@@ -269,7 +314,7 @@ rawset(_G, "get_sidebar_node", function(dont_create)
   -- Dynamically search for any existing custom sidebar in the tree
   local found_sidebar = nil
   for _, view in ipairs(core.root_view.root_node:get_children()) do
-    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity" or view.name == "AI Plugins") then
+    if is_sidebar_view(view) then
       found_sidebar = core.root_view.root_node:get_node_for_view(view)
       break
     end
@@ -292,7 +337,7 @@ local function init_activity_bar()
   
   -- Find any existing custom sidebar if it is already open
   for _, view in ipairs(core.root_view.root_node:get_children()) do
-    if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity" or view.name == "AI Plugins") then
+    if is_sidebar_view(view) then
       target_node = core.root_view.root_node:get_node_for_view(view)
       break
     end
@@ -319,7 +364,7 @@ local function init_activity_bar()
   local is_sidebar = false
   if sibling_node and sibling_node.views then
     for _, view in ipairs(sibling_node.views) do
-      if view and (view.name == "Docker" or view.name == "LeetCode" or view.name == "Antigravity" or view.name == "AI Plugins") then
+      if is_sidebar_view(view) then
         is_sidebar = true
         break
       end
@@ -332,18 +377,6 @@ local function init_activity_bar()
   else
     sidebar_node = nil
   end
-    
-    -- Do not override treeview:toggle anymore. Let it function normally.
-    command.add(nil, {
-      ["mongodb:activity-bar"] = function()
-        local mongo = require("plugins.mongodb_explorer")
-        if not mongo.uri then
-          command.perform("mongodb:connect")
-        else
-          command.perform("mongodb:explore-databases")
-        end
-      end
-    })
 end
 
 core.add_thread(function()

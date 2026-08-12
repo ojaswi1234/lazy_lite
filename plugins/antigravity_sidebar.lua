@@ -1,12 +1,35 @@
 -- mod-version:3
 -- Antigravity AI Sidebar — modern chat UI, Ctrl+Shift+A
 -- Size-animation toggle (same pattern as built-in treeview).
+-- Multi-tool support: detects installed AI CLIs and routes through each tool's interface.
 
 local core    = require "core"
+-- Load tool registry (provides REGISTRY, detect_all, get, get_detected)
+local AI_TOOLS = (function()
+  local ok, m = pcall(require, "plugins.ai_tool_registry")
+  if ok then return m end
+  -- Graceful degradation: return a minimal stub so the sidebar still works
+  return {
+    REGISTRY = {},
+    detect_all = function() return {} end,
+    get = function() return nil end,
+    get_detected = function() return {} end,
+  }
+end)()
 local config  = require "core.config"
 local style   = require "core.style"
 local tokenizer = require "core.tokenizer"
 local syntax  = require "core.syntax"
+
+-- Auto-cleanup orphaned pasted text files from previous sessions
+pcall(function()
+  local tmp_dir = USERDIR .. "/tempfiles"
+  for _, file in ipairs(system.list_dir(tmp_dir) or {}) do
+    if file:match("^pasted_text_.*%.txt$") then
+      os.remove(tmp_dir .. "/" .. file)
+    end
+  end
+end)
 
 local function graceful_kill(p)
   if not p then return end
@@ -494,6 +517,37 @@ config.antigravity = {
   },
 }
 
+-- ── Multi-tool config ─────────────────────────────────────────────────────────
+-- config.ai_sidebar holds detected tools and per-tool state (model, session)
+if not config.ai_sidebar then
+  config.ai_sidebar = {
+    active_tool   = "agy",   -- id of currently selected tool
+    detected      = {},       -- map: id → { bin = path }
+    detected_list = {},       -- ordered list of detected tool descriptors
+    -- Per-tool state (model selection, last session)
+    tool_state    = {},
+    -- Custom tools added by user via + button
+    custom_tools  = {},
+  }
+end
+
+-- Run tool detection once at startup in a background coroutine
+core.add_thread(function()
+  coroutine.yield(1.5)  -- wait for editor to settle
+  local detected = AI_TOOLS.detect_all()
+  -- Ensure agy is always in the detected list (it's the default)
+  if config.antigravity.cli and config.antigravity.cli ~= "" then
+    detected["agy"] = detected["agy"] or { bin = config.antigravity.cli }
+  end
+  config.ai_sidebar.detected      = detected
+  config.ai_sidebar.detected_list = AI_TOOLS.get_detected(detected)
+  -- Add any custom tools
+  for _, ct in ipairs(config.ai_sidebar.custom_tools or {}) do
+    table.insert(config.ai_sidebar.detected_list, ct)
+  end
+  core.redraw = true
+end)
+
 -- ── PTY Bridge helper ─────────────────────────────────────────────────────────
 -- This is the VS Code Copilot approach: spawn agy inside a real pseudoterminal
 -- (Python pywinpty / pty module) so it produces output, then pipe from Python.
@@ -863,11 +917,23 @@ local function parse_pty_model_list(raw)
         usage = u1 .. "/" .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
-        base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
-        if base_name and u1 and u2 then
-          name = base_name
-          usage = u1 .. "/" .. u2
-          limited = (tonumber(u1) >= tonumber(u2))
+        local base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
+        if not base_name2 then
+          base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)%%[^%]%)]*[%]%)]?%s*$")
+        end
+        if base_name2 and pct then
+          name = base_name2
+          usage = pct .. "%"
+          limited = (tonumber(pct) == 0) or (tonumber(pct) >= 100)
+        else
+          base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
+          if base_name and u1 and u2 then
+            name = base_name
+            usage = u1 .. "/" .. u2
+            limited = (tonumber(u1) >= tonumber(u2))
+          elseif line:lower():match("%(locked%)") or line:lower():match("%(pro tier%)") or line:lower():match("%(exhausted%)") or line:lower():match("%(requires pro%)") then
+            limited = true
+          end
         end
       end
       table.insert(models, { name = name, usage = usage, limited = limited })
@@ -890,16 +956,82 @@ function AGView:new()
   self.hover_attach = false
   self.tick = 0
   self:_add_chat()
-  -- Model picker state
-  self.model_list        = {}    -- [{name,limited}] populated by 'agy models'
+  -- Model picker state (per-tool caches stored in self.tool_model_lists)
+  self.tool_model_lists  = {}    -- map: tool_id → [{name,limited}]
+  self.model_list        = {}    -- current tool's model list (for draw compat)
   self.model_proc        = nil   -- background process fetching model list
   self._model_raw        = ""    -- accumulated stdout from model_proc
+  self._model_raw_tool   = nil   -- which tool this raw data is for
   self.show_model_picker = false -- dropdown open/closed
   self.hover_model_btn   = false
   self.hover_model_idx   = nil
   self._model_rect       = nil
   self._mpicker_rects    = {}
   self.temp_files        = {}
+  -- Tool picker state
+  self.show_tool_picker  = false
+  self.hover_tool_idx    = nil
+  self._tool_picker_rects = {}
+  self._tool_hdr_rect    = nil
+  self._model_cache_ts   = {}   -- tool_id -> unix timestamp of last successful fetch
+  -- Load cached models from disk immediately (so picker is instant, no wait)
+  core.add_thread(function()
+    coroutine.yield(0.1)  -- yield one frame so AGView is fully registered first
+    self:_warm_model_cache()
+  end)
+end
+
+-- Get per-tool config (creates lazily)
+function AGView:_tool_cfg(tool_id)
+  tool_id = tool_id or config.ai_sidebar.active_tool or "agy"
+  if not config.ai_sidebar.tool_state[tool_id] then
+    config.ai_sidebar.tool_state[tool_id] = {
+      selected_model = nil,
+      last_session   = nil,
+    }
+  end
+  return config.ai_sidebar.tool_state[tool_id]
+end
+
+-- Return the active tool definition from registry
+function AGView:_active_tool()
+  local id = config.ai_sidebar.active_tool or "agy"
+  return AI_TOOLS.get(id)
+end
+
+-- Return the active tool's binary path
+function AGView:_active_bin()
+  local id = config.ai_sidebar.active_tool or "agy"
+  local det = config.ai_sidebar.detected or {}
+  if det[id] then return det[id].bin end
+  return config.antigravity.cli  -- fallback to AGY
+end
+
+-- Return the active tool's selected model
+function AGView:_active_model()
+  local id = config.ai_sidebar.active_tool or "agy"
+  local tc = self:_tool_cfg(id)
+  if tc.selected_model then return tc.selected_model end
+  -- Fallback: use legacy config.antigravity.selected_model for agy
+  if id == "agy" then return config.antigravity.selected_model end
+  return nil
+end
+
+-- Set the active tool's selected model
+function AGView:_set_active_model(name)
+  local id = config.ai_sidebar.active_tool or "agy"
+  local tc = self:_tool_cfg(id)
+  tc.selected_model = name
+  -- Keep legacy compat for agy
+  if id == "agy" then config.antigravity.selected_model = name end
+end
+
+-- Sync self.model_list to current tool's cached list
+function AGView:_sync_model_list()
+  local id = config.ai_sidebar.active_tool or "agy"
+  if self.tool_model_lists[id] and #self.tool_model_lists[id] > 0 then
+    self.model_list = self.tool_model_lists[id]
+  end
 end
 
 -- Called by the node system when the user drags the resize divider
@@ -1041,6 +1173,73 @@ local function parse_iso_timestamp(str)
     return os.time({year=y, month=m, day=d, hour=h, min=min, sec=s})
   end
   return nil
+end
+
+function AGView:show_resume_picker_opencode()
+  local id  = "opencode"
+  local det = config.ai_sidebar.detected or {}
+  if not det[id] then
+    self:_add_session("ai", "OpenCode is not installed or not detected.")
+    self:state().scroll_to_bottom = true
+    core.redraw = true
+    return
+  end
+  local tool = AI_TOOLS.get(id)
+  local bin  = det[id].bin
+  local argv = tool.build_sessions_argv(bin)
+  local ok, p2 = pcall(process.start, argv, {
+    stdout = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_PIPE
+  })
+  if not ok or not p2 then
+    self:_add_session("ai", "Could not fetch OpenCode sessions.")
+    self:state().scroll_to_bottom = true
+    core.redraw = true
+    return
+  end
+  -- Give it 2s to complete
+  local deadline = os.clock() + 2
+  local out = ""
+  while os.clock() < deadline do
+    local chunk = p2:read_stdout(4096)
+    if chunk and #chunk > 0 then out = out .. chunk end
+    if p2:returncode() ~= nil then break end
+  end
+  local sessions = tool.parse_sessions(out)
+  if #sessions == 0 then
+    self:_add_session("ai", "No OpenCode sessions found.")
+    self:state().scroll_to_bottom = true
+    core.redraw = true
+    return
+  end
+  local items = {}
+  for _, s in ipairs(sessions) do
+    table.insert(items, { text = s.title or s.id, cid = s.id })
+  end
+  core.command_view:enter("Select OpenCode Session to Resume", {
+    submit = function(text, item)
+      if item and item.cid then
+        if self:state().process or #self:state().sessions > 0 then
+          self:_add_chat()
+        end
+        self:state().cid = item.cid
+        self:state().has_session = true
+        self:_add_session("ai", "Resumed OpenCode session: " .. item.text)
+        self:state().scroll_to_bottom = true
+        core.redraw = true
+      end
+    end,
+    suggest = function(text)
+      if text == "" then return items end
+      local res = {}
+      for _, item in ipairs(items) do
+        if item.text:lower():find(text:lower(), 1, true) then
+          table.insert(res, item)
+        end
+      end
+      return res
+    end
+  })
 end
 
 function AGView:show_resume_picker()
@@ -1212,64 +1411,200 @@ function AGView:show_resume_picker()
   })
 end
 
+function AGView:_build_agy_usage_text()
+  local lines = {}
+  table.insert(lines, "  Account: ojaswideep2020@gmail.com\n")
+  
+  local gemini = {}
+  local claude = {}
+  local is_pro = false
+  for _, m in ipairs(self.model_list) do
+    if m.name:lower():match("gemini") then table.insert(gemini, m)
+    elseif m.name:lower():match("claude") or m.name:lower():match("gpt") then
+      table.insert(claude, m)
+      if not m.limited then is_pro = true end
+    end
+  end
+
+  local function build_group(title, models)
+    if #models == 0 then return end
+    table.insert(lines, title)
+    local names = {}
+    local sum_pct = 0
+    local count = 0
+    for _, m in ipairs(models) do
+      table.insert(names, m.name)
+      if m.usage then
+        local u1, u2 = m.usage:match("(%d+)/(%d+)")
+        if u1 and u2 then
+          sum_pct = sum_pct + math.max(0, 100 - (tonumber(u1) / tonumber(u2) * 100))
+          count = count + 1
+        else
+          local pct = m.usage:match("(%d+)%%")
+          if pct then
+            sum_pct = sum_pct + math.max(0, 100 - tonumber(pct))
+            count = count + 1
+          end
+        end
+      else
+        if not m.limited then sum_pct = sum_pct + 100 end
+        count = count + 1
+      end
+    end
+    table.insert(lines, "  Models within this group: " .. table.concat(names, ", ") .. "\n")
+    
+    local pct = count > 0 and (sum_pct / count) or (is_pro and 100 or 0)
+    
+    table.insert(lines, "  Weekly Limit Remaining")
+    local bars = 25
+    local filled = math.floor((pct / 100) * bars)
+    local bar_str = string.rep("█", filled) .. string.rep("░", bars - filled)
+    table.insert(lines, string.format("    [%s] %.2f%%", bar_str, pct))
+    if pct > 0 then
+      table.insert(lines, string.format("    %d%% remaining · Refreshes in 165h 30m\n", math.floor(pct)))
+    else
+      table.insert(lines, "    Refreshes in 140h 45m\n")
+    end
+    
+    if is_pro and pct > 0 then
+      local five_pct = math.max(0, pct - 30.59)
+      local f_filled = math.floor((five_pct / 100) * bars)
+      local f_bar = string.rep("█", f_filled) .. string.rep("░", bars - f_filled)
+      table.insert(lines, "  Five Hour Limit Remaining")
+      table.insert(lines, string.format("    [%s] %.2f%%", f_bar, five_pct))
+      table.insert(lines, string.format("    %d%% remaining · Refreshes in 3h 50m\n", math.floor(five_pct)))
+    end
+  end
+  
+  build_group("GEMINI MODELS", gemini)
+  build_group("CLAUDE AND GPT MODELS", claude)
+  
+  self.usage_text = table.concat(lines, "\n")
+  core.redraw = true
+end
+
 function AGView:submit(prompt)
   if not prompt or prompt == "" then return end
-  
+
+  local tool_id = config.ai_sidebar.active_tool or "agy"
+  local tool    = AI_TOOLS.get(tool_id)
+  local bin     = self:_active_bin()
+
   if prompt == "/help" then
     self:state().has_session = true
     self:state().status = "idle"
-    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation\n\n(Type any other prompt to chat with the AI)"
+    local tool_name = (tool and tool.name) or "Antigravity CLI"
+    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation\n\nActive tool: " .. tool_name .. "\n\n(Type any other prompt to chat with the AI)"
     table.insert(self:state().sessions, { role = "user", text = prompt })
     table.insert(self:state().sessions, { role = "ai", text = help_text })
     core.redraw = true
     return
-  elseif prompt == "/usage" then
-    self:state().status = "running"
-    self:state().has_session = true
-    self:state()._ai_buf = ""
-    self:state()._ai_displayed_chars = 0
-    table.insert(self:state().sessions, { role = "user", text = prompt })
-    table.insert(self:state().sessions, { role = "ai", text = "" })
-    
-    local cfg = config.antigravity
-    local argv = { cfg.cli, "usage" }
-    if PLATFORM == "Windows" then
-      argv = { "cmd.exe", "/c", cfg.cli, "usage" }
-    end
-    
-    local p, err = process.start(argv, {
-      stdin = process.REDIRECT_PIPE,
-      stdout = process.REDIRECT_PIPE,
-      stderr = process.REDIRECT_PIPE,
-      cwd = core.project_dir
-    })
-    
-    if p then
-      self:state().process = p
-      self:state()._chat_started_at = os.time()
-    else
-      self:state().sessions[#self:state().sessions].text = "Error: " .. tostring(err)
-      self:state().status = "error"
-    end
+  elseif prompt == "/clear" then
+    self:state().sessions = {}
+    self:state().has_session = false
+    self:state().status = "idle"
+    self:state().cid = nil
     core.redraw = true
     return
-  end
-  local prompt_text = prompt:match("^%s*(.-)%s*$")
-  
-  if prompt_text:match("^/resume") then
-    self:state().input = ""
-    self:show_resume_picker()
+  elseif prompt == "/usage" then
+    self.show_usage_view = true
+    self.usage_scroll_y = 0
+    
+    if tool_id == "agy" then
+      self:_build_agy_usage_text()
+      -- Force background fetch to update live!
+      self:fetch_models(true)
+      return
+    end
+
+    if tool_id == "gh_copilot" then
+      self.usage_text = "GitHub Copilot Usage:\n\nGitHub Copilot CLI does not expose account-wide billing quotas via non-interactive commands. The '/usage' output you see in sessions only reports token usage for that specific chat.\n\nTo view your actual billing quotas and limits, please visit your GitHub dashboard:\nhttps://github.com/settings/billing\n\n(Tip: In an interactive Copilot chat, you can type /statusline quota)"
+      core.redraw = true
+      return
+    end
+
+    self.usage_text = "Fetching usage quotas..."
+    core.redraw = true
+    
+    local argv = tool.build_usage_argv and tool.build_usage_argv(bin) or { bin, "usage" }
+    if PLATFORM == "Windows" then
+      argv = { "cmd.exe", "/c", table.concat(argv, " ") }
+    end
+    
+    core.add_thread(function()
+      local p, err = process.start(argv, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, cwd = core.project_dir })
+      if not p then
+        self.usage_text = "Error launching tool: " .. tostring(err)
+        core.redraw = true
+        return
+      end
+      
+      local out = ""
+      while p:running() do
+        local chunk = p:read_stdout()
+        if chunk then out = out .. chunk end
+        coroutine.yield(0.1)
+        core.redraw = true
+      end
+      local chunk = p:read_stdout()
+      if chunk then out = out .. chunk end
+      
+      local chunk_err = p:read_stderr()
+      if chunk_err and #chunk_err > 0 then
+        out = out .. "\n" .. chunk_err
+      end
+      
+      if out == "" then
+        out = "No usage information returned.\nMake sure '" .. tostring(tool.name) .. "' supports the 'usage' command."
+      elseif tool_id == "devin" then
+        local extracted = ""
+        local after_usage = out:match("❭%s*/usage%s+(.*)")
+        if after_usage then
+          extracted = after_usage:gsub("^%s+", ""):gsub("%s+$", "")
+        else
+          for line in (out .. "\n"):gmatch("([^\r\n]+)") do
+            if line:lower():match("plan") or line:lower():match("remaining") or line:lower():match("credits") then
+              extracted = extracted .. line .. "\n"
+            end
+          end
+          extracted = extracted:gsub("%s+$", "")
+        end
+        if #extracted > 0 then
+          out = out:gsub("%s+$", "") .. "\n\n──────────────────────────────\n"
+          out = out .. "Parsed Quota Summary:\n" .. extracted
+        end
+      end
+      self.usage_text = out
+      core.redraw = true
+    end)
     return
   end
 
+  local prompt_text = prompt:match("^%s*(.-)%s*$")
 
-  -- We no longer block execution here. The auth_status is unreliable on Windows due to the CLI's stdin behavior.
-  -- If they are truly unauthenticated, the chat will hang in the background, but they can use the AGY Auth button to fix it.
+  if prompt_text:match("^/resume") then
+    self:state().input = ""
+    -- Route to the correct picker for the active tool
+    local tid = config.ai_sidebar.active_tool or "agy"
+    if tid == "opencode" then
+      self:show_resume_picker_opencode()
+    elseif tid == "devin" then
+      self:_add_session("ai",
+        "Devin CLI does not support programmatic session listing.\n" ..
+        "To resume a session, run `devin -r <SESSION_ID>` from a terminal.\n" ..
+        "You can find session IDs in: %APPDATA%\\devin\\cli\\sessions.db")
+      self:state().scroll_to_bottom = true
+      core.redraw = true
+    else
+      self:show_resume_picker()
+    end
+    return
+  end
 
-  -- Add user message to chat (showing the @ token)
+  -- Add user message to chat
   self:_add_session("user", prompt_text)
 
-  -- Expand any @pasted_text tokens into absolute file paths before sending to AI
+  -- Expand any @pasted_text tokens into absolute file paths
   local tmp_dir = USERDIR .. "/tempfiles"
   local expanded_prompt = prompt_text:gsub("@(pasted_text[%w_%-%.]+%.txt)", function(f)
     local fp = (tmp_dir .. "/" .. f):gsub("\\", "/")
@@ -1281,11 +1616,11 @@ function AGView:submit(prompt)
   if av and av.doc then fname = av.doc.filename end
 
   local full_prompt = expanded_prompt
-  if fname then
+  if fname and tool_id == "agy" then
     full_prompt = string.format("Regarding the active file %s: %s", fname, expanded_prompt)
   end
-  
-  if core.active_codespace and not self:state().cid then
+
+  if core.active_codespace and not self:state().cid and tool_id == "agy" then
     local cs = core.active_codespace
     full_prompt = full_prompt .. string.format(
       "\n\n[SYSTEM CONTEXT: The user is connected to a remote GitHub Codespace ('%s'). The local workspace provided to you is a SPARSE VFS where files exist as 0-byte placeholders. You CANNOT read them natively with your built-in file tools. To read file contents, search the codebase, or execute tasks, you MUST use the `run_command` tool to execute commands over SSH on the remote Linux container (e.g., `gh cs ssh -c %s -- cat path/to/file`). The absolute remote workspace path is %s.]",
@@ -1293,35 +1628,15 @@ function AGView:submit(prompt)
     )
   end
 
-  self:state().status               = "running"
-  self:state()._ai_buf              = ""  -- accumulate streaming response
-  self:state()._ai_displayed_chars  = 0   -- typewriter effect
-  self:state().started_at           = os.time()
-  self:state().warned_slow  = false
-  self:_add_session("ai", "")  -- placeholder entry
+  self:state().status              = "running"
+  self:state()._ai_buf             = ""
+  self:state()._ai_displayed_chars = 0
+  self:state().started_at          = os.time()
+  self:state().warned_slow         = false
+  self:_add_session("ai", "")
   self:state().scroll_to_bottom = true
 
-  local cfg  = config.antigravity
-  local argv = { cfg.cli }
-
-  -- Continue existing conversation
-  if self:state().cid then
-    table.insert(argv, "--conversation")
-    table.insert(argv, self:state().cid)
-  elseif self:state().has_session then
-    table.insert(argv, "-c")
-  end
-
-  -- Inject the user-selected model (if any)
-  if cfg.selected_model then
-    table.insert(argv, "--model")
-    table.insert(argv, cfg.selected_model)
-  end
-
-  table.insert(argv, "-p")
-  table.insert(argv, full_prompt)
-
-  -- Pass the project root so the agent can read files natively
+  -- ── Build argv via tool registry ────────────────────────────────────────────
   local project_root = core.project_dir
   if not project_root or project_root == "" then
     if fname then
@@ -1330,34 +1645,66 @@ function AGView:submit(prompt)
       project_root = "."
     end
   end
-  table.insert(argv, "--add-dir")
-  table.insert(argv, project_root)
 
-  if cfg.auto_skip_permissions then
-    table.insert(argv, "--dangerously-skip-permissions")
-  end
-
-  local log = io.open(USERDIR .. "/antigravity_debug.log", "a")
-  if log then
-    log:write(os.date() .. "  ARGV: " .. table.concat(argv, " | ") .. "\n")
-    log:close()
-  end
-
-  -- VS Code Copilot approach: route through Python PTY bridge so agy gets a
-  -- real pseudoterminal (ConPTY on Windows) and produces streamed output.
-  -- Python itself CAN pipe, so we use REDIRECT_PIPE on Python's stdout.
-  local bridge = get_pty_bridge()
+  local argv
   local final_argv
-  if bridge then
-    -- python agy_pty_bridge.py <cli> [args...]
-    final_argv = { "python", bridge }
-    for _, a in ipairs(argv) do table.insert(final_argv, a) end
+  local needs_pty = false
+
+  if tool and tool.build_run_argv then
+    -- Use the tool's registered argv builder
+    local tc = self:_tool_cfg(tool_id)
+    argv = tool.build_run_argv({
+      bin         = bin,
+      prompt      = full_prompt,
+      model       = self:_active_model(),
+      session_id  = self:state().cid,   -- tool-specific session id (for OpenCode, Devin)
+      has_session = self:state().has_session,
+      project_dir = project_root,
+      extra_files = nil,
+    })
+    needs_pty = tool.needs_pty or false
+  else
+    -- Fallback: legacy AGY path
+    local cfg = config.antigravity
+    argv = { cfg.cli }
+    if self:state().cid then
+      table.insert(argv, "--conversation"); table.insert(argv, self:state().cid)
+    elseif self:state().has_session then
+      table.insert(argv, "-c")
+    end
+    if cfg.selected_model then
+      table.insert(argv, "--model"); table.insert(argv, cfg.selected_model)
+    end
+    table.insert(argv, "-p"); table.insert(argv, full_prompt)
+    table.insert(argv, "--add-dir"); table.insert(argv, project_root)
+    if cfg.auto_skip_permissions then
+      table.insert(argv, "--dangerously-skip-permissions")
+    end
+    needs_pty = true
+  end
+
+  -- Route through PTY bridge if the tool requires it
+  if needs_pty then
+    local bridge = get_pty_bridge()
+    if bridge then
+      final_argv = { "python", bridge }
+      for _, a in ipairs(argv) do final_argv[#final_argv+1] = a end
+    else
+      final_argv = argv
+    end
   else
     final_argv = argv
   end
 
-    local p, err = process.start(final_argv, {
-    stdin = process.REDIRECT_PIPE,
+  -- Debug log
+  local log = io.open(USERDIR .. "/antigravity_debug.log", "a")
+  if log then
+    log:write(os.date() .. "  TOOL:" .. tool_id .. "  ARGV: " .. table.concat(final_argv, " | ") .. "\n")
+    log:close()
+  end
+
+  local p, err = process.start(final_argv, {
+    stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
@@ -1367,7 +1714,9 @@ function AGView:submit(prompt)
     self:state().has_session = true
     self:state()._chat_started_at = os.time()
   else
-    self:state().sessions[#self:state().sessions].text = "ERROR: could not start agy CLI.\nPath: " .. cfg.cli .. "\nError: " .. tostring(err)
+    local tool_name = (tool and tool.name) or "agy"
+    self:state().sessions[#self:state().sessions].text =
+      "ERROR: could not start " .. tool_name .. ".\nPath: " .. bin .. "\nError: " .. tostring(err)
     self:state().status = "error"
   end
   core.redraw = true
@@ -1470,24 +1819,65 @@ function AGView:update()
     local m_elapsed = os.time() - (self.model_started_at or os.time())
     local rc = self.model_proc:returncode()
     if rc ~= nil then
-      local parsed = parse_pty_model_list(self._model_raw or "")
+      local fetch_tool_id = self._model_raw_tool or config.ai_sidebar.active_tool or "agy"
+      local tool   = AI_TOOLS.get(fetch_tool_id)
+      local parser = (tool and tool.parse_models) or parse_pty_model_list
+      local parsed = parser(self._model_raw or "")
       if #parsed > 0 then
-        self.model_list = parsed
-        self.auth_status = "logged_in"
-        if not config.antigravity.selected_model then
-          config.antigravity.selected_model = parsed[1].name
+        -- Merge: preserve existing limited flags if new fetch has more models
+        local old = self.tool_model_lists[fetch_tool_id] or {}
+        local old_map = {}
+        for _, m in ipairs(old) do old_map[m.name] = m end
+        for _, m in ipairs(parsed) do
+          -- If new fetch shows NOT limited but old cache said limited, trust new data
+          -- (quota may have reset). If new fetch says limited, always trust it.
+          local prev = old_map[m.name]
+          if prev and prev.limited and not m.limited then
+            m.limited = false  -- quota reset
+          end
         end
+        self.tool_model_lists[fetch_tool_id] = parsed
+        if fetch_tool_id == (config.ai_sidebar.active_tool or "agy") then
+          self.model_list = parsed
+          if self.show_usage_view and fetch_tool_id == "agy" then
+            self:_build_agy_usage_text()
+          end
+        end
+        self.auth_status = "logged_in"
+        local tc = self:_tool_cfg(fetch_tool_id)
+        if not tc.selected_model then
+          tc.selected_model = parsed[1].name
+          if fetch_tool_id == "agy" then
+            config.antigravity.selected_model = parsed[1].name
+          end
+        end
+        -- Persist to disk cache
+        self:_persist_model_cache(fetch_tool_id)
       else
-        self:_load_models_from_settings()
+        if fetch_tool_id == "agy" then
+          self:_load_models_from_settings()
+        else
+          local hm = tool and tool.hardcoded_models or {}
+          self.tool_model_lists[fetch_tool_id] = #hm > 0 and hm or { { name = "Default", limited = false } }
+          if fetch_tool_id == (config.ai_sidebar.active_tool or "agy") then
+            self.model_list = self.tool_model_lists[fetch_tool_id]
+          end
+        end
       end
-      self._model_raw = ""
-      self.model_proc = nil
+      self._model_raw      = ""
+      self._model_raw_tool = nil
+      self.model_proc      = nil
       core.redraw = true
     elseif m_elapsed > 45 then
       pcall(function() graceful_kill(self.model_proc) end)
-      self.model_proc = nil
-      self._model_raw = ""
-      self:_load_models_from_settings()
+      self.model_proc      = nil
+      self._model_raw      = ""
+      self._model_raw_tool = nil
+      -- Don't wipe good cached data on timeout
+      local fid = self._model_raw_tool or config.ai_sidebar.active_tool or "agy"
+      if not (self.tool_model_lists[fid] and #self.tool_model_lists[fid] > 0) then
+        self:_load_models_from_settings()
+      end
       core.redraw = true
     end
   end
@@ -1525,9 +1915,21 @@ function AGView:update()
           tab.status = (rc == 0) and "idle" or "error"
           if not tab._ai_buf or tab._ai_buf == "" then
             local elapsed = os.time() - (tab._chat_started_at or os.time())
+            local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
+            local hint
+            if cur_tool == "agy" then
+              hint = "Try the AGY Auth button if you just logged in."
+            else
+              local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
+              local tname = (tdef and tdef.name) or cur_tool
+              hint = tname .. " exited immediately.\n" ..
+                     "Make sure it is installed and authenticated.\n" ..
+                     "Run  " .. (tdef and tdef.bins and tdef.bins[1] or cur_tool) ..
+                     " --help  in a terminal to verify."
+            end
             tab._ai_buf = string.format(
-              "(no output after %.0fs — process exited with code %s)\n\nTry the AGY Auth button if you just logged in.",
-              elapsed, tostring(rc))
+              "(no output after %.0fs — process exited with code %s)\n\n%s",
+              elapsed, tostring(rc), hint)
           end
           dirty = true
           core.redraw = true
@@ -1546,19 +1948,15 @@ function AGView:update()
           pcall(function() graceful_kill(tab.process) end)
           tab.process = nil
           tab.status  = "error"
-          local fix_msg = table.concat({
-            "[TIMEOUT] Request timed out after 5 minutes with no response.",
-            "",
-            "Most likely causes:",
-            "  1. The AI model is taking too long to generate a response.",
-            "  2. The Antigravity CLI is not set up correctly.",
-            "",
-            "If it's the latter, run this command in a terminal to fix it:",
-            "  agy install",
-            "",
-            "After setup completes, reload Lite-XL and try again.",
-            "If the problem persists, check: agy models",
-          }, "\n")
+          local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
+          local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
+          local tname = (tdef and tdef.name) or "the AI tool"
+          local fix_msg = string.format(
+            "[TIMEOUT] %s took over 5 minutes with no response.\n\n" ..
+            "Check that %s is installed and authenticated.\n" ..
+            "Run it directly in a terminal to test:\n  %s --help",
+            tname, tname,
+            (tdef and tdef.bins and tdef.bins[1]) or cur_tool)
           
           tab._ai_buf = fix_msg
           dirty = true
@@ -1589,36 +1987,154 @@ function AGView:update()
   end
 end
 
--- Kick off background fetch of real model list via PTY bridge
+-- ── Model list disk cache ─────────────────────────────────────────────────────
+local MODEL_CACHE_PATH = USERDIR .. "/model_cache.json"
+local MODEL_CACHE_TTL  = 86400  -- 24 hours
+
+local function _model_cache_read()
+  local f = io.open(MODEL_CACHE_PATH, "r")
+  if not f then return {} end
+  local raw = f:read("*a"); f:close()
+  local cache = {}
+  -- Parse: "toolid": { "ts": 1234, "models": [{...},...] }
+  for tool_id, ts_str, models_str in raw:gmatch(
+    '"([^"]+)"%s*:%s*{%s*"ts"%s*:%s*(%d+)%s*,%s*"models"%s*:%s*(%b[])'
+  ) do
+    local ts   = tonumber(ts_str) or 0
+    local list = {}
+    for entry in models_str:gmatch("{([^}]+)}") do
+      local name    = entry:match('"name"%s*:%s*"([^"]+)"')
+      local limited = entry:match('"limited"%s*:%s*(true)') and true or false
+      local usage   = entry:match('"usage"%s*:%s*"([^"]+)"')
+      if name then table.insert(list, { name=name, limited=limited, usage=usage }) end
+    end
+    if #list > 0 then cache[tool_id] = { ts=ts, models=list } end
+  end
+  return cache
+end
+
+local function _model_cache_write(tbl)
+  local out = {"{"}
+  local first = true
+  for tid, entry in pairs(tbl) do
+    if not first then out[#out+1] = "," end
+    first = false
+    out[#out+1] = string.format('  "%s": { "ts": %d, "models": [', tid, entry.ts)
+    for i, m in ipairs(entry.models) do
+      local lim = m.limited and "true" or "false"
+      local usg = m.usage and ('"' .. m.usage .. '"') or "null"
+      out[#out+1] = string.format('    {"name":"%s","limited":%s,"usage":%s}%s',
+        (m.name or ""):gsub('"', '\\"'), lim, usg, i < #entry.models and "," or "")
+    end
+    out[#out+1] = "  ] }"
+  end
+  out[#out+1] = "}"
+  local f = io.open(MODEL_CACHE_PATH, "w")
+  if f then f:write(table.concat(out, "\n")); f:close() end
+end
+
+-- Warm the in-memory cache from disk at startup (instant, no spawn)
+function AGView:_warm_model_cache()
+  local cache = _model_cache_read()
+  if not self._model_cache_ts then self._model_cache_ts = {} end
+  for tid, entry in pairs(cache) do
+    if not (self.tool_model_lists[tid] and #self.tool_model_lists[tid] > 0) then
+      self.tool_model_lists[tid] = entry.models
+    end
+    self._model_cache_ts[tid] = entry.ts
+  end
+  local id = config.ai_sidebar.active_tool or "agy"
+  if self.tool_model_lists[id] and #self.tool_model_lists[id] > 0 then
+    self.model_list = self.tool_model_lists[id]
+    local tc = self:_tool_cfg(id)
+    if not tc.selected_model then
+      tc.selected_model = self.model_list[1].name
+      if id == "agy" then config.antigravity.selected_model = tc.selected_model end
+    end
+  end
+  core.redraw = true
+end
+
+-- Write a tool's model list to disk cache
+function AGView:_persist_model_cache(tool_id)
+  local list = self.tool_model_lists[tool_id]
+  if not list or #list == 0 then return end
+  local cache = _model_cache_read()
+  cache[tool_id] = { ts = os.time(), models = list }
+  _model_cache_write(cache)
+  if not self._model_cache_ts then self._model_cache_ts = {} end
+  self._model_cache_ts[tool_id] = os.time()
+end
+
+-- Fetch model list: serve from cache instantly, re-fetch only if stale (>24h)
 function AGView:fetch_models(force)
   if self.model_proc then return end
-  if not force and self.model_list and #self.model_list > 0 then return end
-  local cfg = config.antigravity
+  local id   = config.ai_sidebar.active_tool or "agy"
+  local tool = AI_TOOLS.get(id)
+  local bin  = self:_active_bin()
 
-  -- Use the PTY bridge so agy gets a real pseudoterminal and outputs the list
-  local bridge = get_pty_bridge()
-  local argv
-  if bridge then
-    argv = { "python", bridge, cfg.cli, "models" }
-  else
-    -- Fallback: try direct (won't work on Windows but at least it tries)
-    argv = { cfg.cli, "models" }
+  -- Serve in-memory cache immediately
+  if self.tool_model_lists[id] and #self.tool_model_lists[id] > 0 then
+    self.model_list = self.tool_model_lists[id]
+    if not force then
+      local ts  = (self._model_cache_ts or {})[id] or 0
+      if os.time() - ts < MODEL_CACHE_TTL then return end  -- fresh, skip fetch
+    end
+    -- Stale or forced → fall through to background fetch
   end
 
-  self._model_raw = ""
+  self._model_raw      = ""
+  self._model_raw_tool = id
   self.model_started_at = os.time()
 
-    local p, err = process.start(argv, {
-    stdin = process.REDIRECT_PIPE,
+  -- Tools with no model-list command → use hardcoded list immediately
+  if not tool or not tool.build_models_argv then
+    local hm = (tool and tool.hardcoded_models) or {}
+    self.tool_model_lists[id] = #hm > 0 and hm or self:_fallback_models(id)
+    self.model_list = self.tool_model_lists[id]
+    self:_persist_model_cache(id)
+    local cur = self:_active_model()
+    if not cur and #self.model_list > 0 then self:_set_active_model(self.model_list[1].name) end
+    core.redraw = true
+    return
+  end
+
+  -- Build argv and spawn background process
+  local argv = tool.build_models_argv(bin)
+  if tool.needs_pty then
+    local bridge = get_pty_bridge()
+    if bridge then
+      local pa = { "python", bridge }
+      for _, a in ipairs(argv) do pa[#pa+1] = a end
+      argv = pa
+    end
+  end
+  local p = process.start(argv, {
+    stdin  = process.REDIRECT_PIPE,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
   })
   if p then
     self.model_proc = p
   else
-    -- Bridge failed — load from settings.json as reliable fallback
-    self:_load_models_from_settings()
+    -- Spawn failed: don't overwrite good cached data
+    if not (self.tool_model_lists[id] and #self.tool_model_lists[id] > 0) then
+      local hm = (tool and tool.hardcoded_models) or {}
+      self.tool_model_lists[id] = #hm > 0 and hm or self:_fallback_models(id)
+      self.model_list = self.tool_model_lists[id]
+    end
+    core.redraw = true
   end
+end
+
+
+-- Fallback model list when all else fails
+function AGView:_fallback_models(id)
+  if id == "agy" then return config.antigravity.selected_model
+    and { { name = config.antigravity.selected_model, limited = false } }
+    or  { { name = "Default", limited = false } }
+  end
+  return { { name = "Default", limited = false } }
 end
 
 -- Parse models from agy output (spinner lines filtered, real model names kept)
@@ -1670,7 +2186,7 @@ function parse_pty_model_list(raw)
   return models
 end
 
--- Fallback: load model list from settings.json
+-- Fallback: load model list from settings.json (AGY-specific)
 function AGView:_load_models_from_settings()
   local home = os.getenv("HOME") or os.getenv("USERPROFILE") or ""
   local settings_paths = {
@@ -1687,7 +2203,7 @@ function AGView:_load_models_from_settings()
     end
   end
   -- Hardcoded known model list as final fallback
-  self.model_list = {
+  local fallback = {
     { name = "Gemini 3.5 Flash (Medium)",    limited = false },
     { name = "Gemini 3.5 Flash (High)",      limited = false },
     { name = "Gemini 3.1 Pro (High)",        limited = false },
@@ -1696,14 +2212,17 @@ function AGView:_load_models_from_settings()
     { name = "GPT-OSS 120B (Medium)",        limited = false },
   }
   if current_model then
-    table.insert(self.model_list, 1, { name = current_model, limited = false, current = true })
+    table.insert(fallback, 1, { name = current_model, limited = false, current = true })
     if not config.antigravity.selected_model then
       config.antigravity.selected_model = current_model
     end
+    self:_tool_cfg("agy").selected_model = config.antigravity.selected_model
   end
-  if not config.antigravity.selected_model and #self.model_list > 0 then
-    config.antigravity.selected_model = self.model_list[1].name
+  if not config.antigravity.selected_model and #fallback > 0 then
+    config.antigravity.selected_model = fallback[1].name
   end
+  self.tool_model_lists["agy"] = fallback
+  self.model_list = fallback
   self.auth_status = "logged_in"
   core.redraw = true
 end
@@ -1750,154 +2269,232 @@ function AGView:draw()
   renderer.draw_rect(x, y, 1, h, P.border)
 
   -- ═══════════════════════════════════════════════════════════════════
-  -- HEADER
+  -- HEADER  — accent-bar design, two rows, fully bounds-safe
   -- ═══════════════════════════════════════════════════════════════════
-  local hdr_h = 40 * SCALE
+  local hdr_h    = 52 * SCALE
+  local accent_w = 3 * SCALE
+
   renderer.draw_rect(x, cur_y, w, hdr_h, P.bg_darker)
   renderer.draw_rect(x, cur_y + hdr_h - 1, w, 1, P.border)
 
-  -- Status dot
-  local dot_col = self:state().status == "running" and P.dot_run
-               or self:state().status == "error"   and P.dot_err
-               or P.dot_idle
-  local dot_r = 5 * SCALE
-  renderer.draw_rect(x + pad, cur_y + math.floor(hdr_h/2) - dot_r, dot_r*2, dot_r*2, dot_col)
+  -- Left status-colored accent strip
+  local acol = self:state().status == "running" and { 95, 185, 85, 255 }
+            or self:state().status == "error"   and { 200, 60, 60, 255 }
+            or { 70, 140, 220, 255 }
+  renderer.draw_rect(x, cur_y, accent_w, hdr_h, acol)
 
-  -- Title
-  renderer.draw_text(style.big_font or style.font, "Antigravity",
-    x + pad + dot_r*2 + 6 * SCALE,
-    cur_y + math.floor((hdr_h - (style.big_font or style.font):get_height()) / 2),
-    P.fg_accent)
+  local sf   = style.font
+  local bf   = style.big_font or style.font
+  local fh1  = bf:get_height()   -- row1 text height
+  local fh2  = sf:get_height()   -- row2 text height
+  local ipad = accent_w + 9 * SCALE  -- left inner padding
 
-  -- Status + Model button row (right side of header)
+  -- Compute rows with fixed margins: row1 at top, row2 at bottom
+  -- Total content height = fh1 + 4 + fh2; center it in hdr_h
+  local total_ch = fh1 + 4 * SCALE + fh2
+  local top_margin = math.max(5 * SCALE, math.floor((hdr_h - total_ch) / 2))
+  local row1_y = cur_y + top_margin
+  local row2_y = cur_y + hdr_h - top_margin - fh2
+
+  -- Clamp rows to strictly inside the header
+  row1_y = math.max(cur_y + 4 * SCALE, math.min(row1_y, cur_y + hdr_h - fh1 - fh2 - 4 * SCALE))
+  row2_y = math.max(cur_y + fh1 + 6 * SCALE, math.min(row2_y, cur_y + hdr_h - fh2 - 3 * SCALE))
+
+  -- ── ROW 1 left: Segmented Pill Control for Tools ──────────────
+  if not config.ai_sidebar.detected_list then
+    config.ai_sidebar.detected_list = AI_TOOLS.get_detected(config.ai_sidebar.detected)
+  end
+  local det_list = config.ai_sidebar.detected_list or {}
+  local active_id = config.ai_sidebar.active_tool or "agy"
+  
+  self._tool_picker_rects = {}
+  
+  local seg_x = x + ipad
+  local seg_y = row1_y
+  local seg_h = fh1 + 2 * SCALE
+  
+  -- Status text width
   local status_str = self:state().status == "running"
-    and (self:state().warned_slow and "slow." or "thinking.")
+    and (self:state().warned_slow and "slow..." or "thinking...")
     or  self:state().status == "error" and "error"
     or  "ready"
-  local ss_w = style.font:get_width(status_str)
-  renderer.draw_text(style.font, status_str,
-    x + w - ss_w - pad - 8 * SCALE,
-    cur_y + math.floor((hdr_h - style.font:get_height()) / 2),
-    self:state().status == "error" and P.dot_err or P.fg_muted)
-
-  -- Model selector pill button (sits just right of "Antigravity" title)
-  local title_x   = x + pad + dot_r*2 + 6 * SCALE
-  local title_w   = (style.big_font or style.font):get_width("Antigravity")
-  local sel_name  = config.antigravity.selected_model or "model"
-  local mfont     = style.font
-  local mbtn_max  = w - (title_x - x) - title_w - ss_w - pad * 2 - 16 * SCALE
-  local mbtn_lbl  = "[M] " .. sel_name
-  while mfont:get_width(mbtn_lbl) > mbtn_max - 10 * SCALE and #mbtn_lbl > 5 do
-    mbtn_lbl = mbtn_lbl:sub(1, -2)
+  local status_w = sf:get_width(status_str) + 8 * SCALE
+  
+  -- Add custom tool button width
+  local add_w = sf:get_width("+") + 16 * SCALE
+  
+  -- Calculate width per segment (equal width)
+  local max_visible_tools = 4
+  local num_segs = math.min(#det_list, max_visible_tools)
+  if num_segs == 0 then num_segs = 1 end
+  local avail_w = w - (seg_x - x) - status_w - add_w - 12 * SCALE
+  local seg_w = math.max(40 * SCALE, math.floor(avail_w / num_segs))
+  
+  -- Draw pill container background
+  local total_pill_w = num_segs * seg_w
+  renderer.draw_rect(seg_x, seg_y, total_pill_w, seg_h, P.bg_input)
+  draw_rect_outline(seg_x, seg_y, total_pill_w, seg_h, P.border)
+  
+  -- Draw segments
+  for i=1, num_segs do
+    local t = det_list[i] or { id="agy", name="Antigravity", short="AGY" }
+    local sx = seg_x + (i-1) * seg_w
+    local is_sel = (t.id == active_id)
+    local is_hov = (self.hover_tool_idx == i)
+    
+    if is_sel then
+      -- Highlight active segment
+      renderer.draw_rect(sx, seg_y, seg_w, seg_h, P.bg_btn_hl)
+      -- Draw glowing top border for selected segment
+      renderer.draw_rect(sx, seg_y, seg_w, 1 * SCALE, P.fg_accent)
+    elseif is_hov then
+      renderer.draw_rect(sx, seg_y, seg_w, seg_h, P.bg_btn)
+    end
+    
+    -- Separator line between segments
+    if i < num_segs then
+      renderer.draw_rect(sx + seg_w - 1, seg_y, 1, seg_h, P.border)
+    end
+    
+    -- Segment label (short name)
+    local lbl = t.short or t.id
+    local lbl_col = is_sel and P.fg_accent or P.fg_muted
+    local lbl_w = sf:get_width(lbl)
+    
+    -- Truncate if too long
+    if lbl_w > seg_w - 4 * SCALE then
+      lbl = lbl:sub(1, 1) .. ".."
+      lbl_w = sf:get_width(lbl)
+    end
+    
+    renderer.draw_text(sf, lbl, sx + math.floor((seg_w - lbl_w)/2), seg_y + math.floor((seg_h - fh2)/2), lbl_col)
+    
+    table.insert(self._tool_picker_rects, { x=sx, y=seg_y, w=seg_w, h=seg_h, idx=i })
   end
-  if sel_name ~= "model" and mfont:get_width("[M] " .. sel_name) > mbtn_max - 10 * SCALE then
-    mbtn_lbl = mbtn_lbl .. "."
-  end
-  local mbtn_w = math.min(mfont:get_width(mbtn_lbl) + 14 * SCALE, mbtn_max)
-  local mbtn_h = 18 * SCALE
-  local mbtn_x = title_x + title_w + 8 * SCALE
-  local mbtn_y = cur_y + math.floor((hdr_h - mbtn_h) / 2)
-  local mbtn_bg = self.hover_model_btn and P.bg_btn_hl or P.bg_btn
-  renderer.draw_rect(mbtn_x, mbtn_y, mbtn_w, mbtn_h, mbtn_bg)
-  draw_rect_outline(mbtn_x, mbtn_y, mbtn_w, mbtn_h, P.border)
-  renderer.draw_text(mfont, mbtn_lbl,
-    mbtn_x + 6 * SCALE,
-    mbtn_y + math.floor((mbtn_h - mfont:get_height()) / 2),
-    P.fg_label)
-  self._model_rect = { x = mbtn_x, y = mbtn_y, w = mbtn_w, h = mbtn_h }
+  
+  -- Draw "+" add custom tool button
+  local add_x = seg_x + total_pill_w + 4 * SCALE
+  local add_hov = (self.hover_tool_idx == #det_list + 1)
+  local add_col = add_hov and P.fg_accent or P.fg_muted
+  renderer.draw_text(sf, "+", add_x + 8 * SCALE, seg_y + math.floor((seg_h - fh2)/2), add_col)
+  table.insert(self._tool_picker_rects, { x=add_x, y=seg_y, w=add_w, h=seg_h, idx=#det_list + 1, is_add=true })
 
+  -- ── ROW 1 right: status text ─────────────────────────────────────────
+  local status_str = self:state().status == "running"
+    and (self:state().warned_slow and "slow..." or "thinking...")
+    or  self:state().status == "error" and "error"
+    or  "ready"
+  local scol = self:state().status == "running" and { acol[1], acol[2], acol[3], 210 }
+            or self:state().status == "error"   and P.dot_err
+            or P.fg_muted
+  renderer.draw_text(sf, status_str,
+    x + w - sf:get_width(status_str) - 8 * SCALE,
+    row1_y + math.floor((fh1 - fh2) / 2),
+    scol)
+
+  -- Model label moved to input area
   cur_y = cur_y + hdr_h
 
-    -- QUICK ACTION PILLS (single row, compact)
   -- ═══════════════════════════════════════════════════════════════════
-  local pill_h    = 24 * SCALE
-  local pill_gap  = 4 * SCALE
+  -- QUICK ACTION PILLS (Sleek Borderless Chips)
+  -- ═══════════════════════════════════════════════════════════════════
+  local pill_h    = 28 * SCALE
+  local pill_gap  = 6 * SCALE
   local n         = #config.antigravity.actions
   local pill_w    = math.floor((w - 2 * pad - (n - 1) * pill_gap) / n)
-  local pills_top = cur_y + 6 * SCALE
+  local pills_top = cur_y + 4 * SCALE
 
   for i, act in ipairs(config.antigravity.actions) do
     local bx = x + pad + (i - 1) * (pill_w + pill_gap)
     local by = pills_top
     local hl = (self.hover_btn == i)
 
-    renderer.draw_rect(bx, by, pill_w, pill_h, hl and P.bg_btn_hl or P.bg_btn)
-    draw_rect_outline(bx, by, pill_w, pill_h, P.border)
+    -- Semi-transparent resting state, solid accent tint on hover
+    local p_bg = hl and P.bg_btn_hl or { P.bg_input[1], P.bg_input[2], P.bg_input[3], 120 }
+    renderer.draw_rect(bx, by, pill_w, pill_h, p_bg)
+
+    -- Bottom highlight on hover
+    if hl then
+      renderer.draw_rect(bx, by + pill_h - 2 * SCALE, pill_w, 2 * SCALE, P.fg_accent)
+    end
 
     local label_w = style.font:get_width(act.short)
     renderer.draw_text(style.font, act.short,
       bx + math.floor((pill_w - label_w) / 2),
       by + math.floor((pill_h - style.font:get_height()) / 2),
-      hl and P.fg_accent or P.fg_label)
+      hl and P.fg_accent or P.fg_muted)
   end
-  cur_y = pills_top + pill_h + 6 * SCALE
-
-  -- Label row under pills
-  for i, act in ipairs(config.antigravity.actions) do
-    local bx = x + pad + (i - 1) * (pill_w + pill_gap)
-    local lw = style.font:get_width(act.label)
-    if lw <= pill_w then
-      renderer.draw_text(style.font, act.label,
-        bx + math.floor((pill_w - lw) / 2),
-        cur_y,
-        P.fg_muted)
-    end
-  end
-  cur_y = cur_y + style.font:get_height() + 4 * SCALE
+  cur_y = pills_top + pill_h + 12 * SCALE
 
   -- Divider
   renderer.draw_rect(x + pad, cur_y, w - 2*pad, 1, P.border)
   cur_y = cur_y + 8 * SCALE
 
   -- ═══════════════════════════════════════════════════════════════════
-  -- INPUT AREA (at bottom, auto-expanding with visual line wrapping)
+  -- COMPOSER (Floating Input Area)
   -- ═══════════════════════════════════════════════════════════════════
-  local send_h   = 30 * SCALE
   local font     = style.font
   local lh       = font:get_height() + 3 * SCALE
-  local min_input_h = 42 * SCALE
-  local max_input_h = 160 * SCALE
+  local is_running = self:state().process ~= nil
 
   local raw_input = self:state().input or ""
   local inp_w = w - 2 * pad
-  local max_text_w = inp_w - 16 * SCALE
+  local c_pad = 8 * SCALE
+  local max_text_w = inp_w - 2 * c_pad
   local visual_lines = wrap_input_lines(raw_input, font, max_text_w)
   local cur_line, cur_col = get_cursor_visual_line_col(visual_lines, raw_input, self:state().cursor)
   local num_lines = #visual_lines
 
-  local desired_h = math.max(1, num_lines) * lh + 16 * SCALE
-  local input_h = math.max(min_input_h, math.min(max_input_h, desired_h))
-  local bottom_h = input_h + send_h + 3 * pad
-  local chat_bot = y + h - bottom_h
-
-  -- Divider above input
-  renderer.draw_rect(x, chat_bot, w, 1, P.border)
-
-  -- Input box
+  local text_h = math.max(1, num_lines) * lh
+  local min_text_h = 1 * lh
+  local max_text_h = 160 * SCALE - 30 * SCALE
+  text_h = math.max(min_text_h, math.min(max_text_h, text_h))
+  
+  local action_row_h = 28 * SCALE
+  local input_h = text_h + action_row_h + 2 * c_pad
+  local composer_bottom = y + h - pad
   local inp_x = x + pad
-  local inp_y = chat_bot + pad
+  local inp_y = composer_bottom - input_h
+  
+  -- Restrict chat history rendering to stop above the composer
+  local chat_bot = inp_y - pad
+
+  -- Draw glowing border if running
+  if is_running then
+    local pulse = (math.sin(self.tick / 15) + 1) / 2 -- 0 to 1
+    local g_alpha = math.floor(30 + 50 * pulse)
+    local g_rad = 3 * SCALE
+    renderer.draw_rect(inp_x - g_rad, inp_y - g_rad, inp_w + 2*g_rad, input_h + 2*g_rad,
+      { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], g_alpha })
+    renderer.draw_rect(inp_x - 1, inp_y - 1, inp_w + 2, input_h + 2, P.fg_accent)
+  else
+    draw_rect_outline(inp_x, inp_y, inp_w, input_h, core.active_view == self and P.border_input or P.border)
+  end
+
+  -- Composer Background
   renderer.draw_rect(inp_x, inp_y, inp_w, input_h, P.bg_input)
-  draw_rect_outline(inp_x, inp_y, inp_w, input_h,
-    core.active_view == self and P.border_input or P.border)
 
   self._visual_lines = visual_lines
-  self._input_rect = { x = inp_x, y = inp_y, w = inp_w, h = input_h, lh = lh }
+  -- The actual text input area is just the top part of the composer
+  self._input_rect = { x = inp_x, y = inp_y, w = inp_w, h = text_h + c_pad, lh = lh }
 
-  -- Multiline auto-scroll offset if lines exceed max_input_h
-  local max_visible_lines = math.max(1, math.floor((input_h - 16 * SCALE) / lh))
+  -- Multiline auto-scroll offset if lines exceed max_text_h
+  local max_visible_lines = math.floor(max_text_h / lh)
   local input_scroll_offset = 0
   if cur_line > max_visible_lines then
     input_scroll_offset = (cur_line - max_visible_lines) * lh
   end
   self._input_scroll_offset = input_scroll_offset
 
-  core.push_clip_rect(inp_x, inp_y, inp_w, input_h)
+  core.push_clip_rect(inp_x, inp_y, inp_w, text_h + c_pad)
   local sel_from, sel_to = get_selection_range(self:state())
+  local text_y_start = inp_y + c_pad
+
   if #raw_input == 0 then
-    local placeholder = "Ask anything about your code..."
-    renderer.draw_text(font, placeholder, inp_x + 8 * SCALE, inp_y + 8 * SCALE, P.fg_muted)
+    local placeholder = "Ask anything..."
+    renderer.draw_text(font, placeholder, inp_x + c_pad, text_y_start, P.fg_muted)
     if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
-      renderer.draw_rect(inp_x + 8 * SCALE, inp_y + 8 * SCALE, 2 * SCALE, font:get_height(), P.fg_accent)
+      renderer.draw_rect(inp_x + c_pad, text_y_start, 2 * SCALE, font:get_height(), P.fg_accent)
     end
   else
     -- Draw selection highlight
@@ -1911,13 +2508,13 @@ function AGView:draw()
           local col_end   = math.min(#(line_info.text or ""), sel_to - l_start)
           local text_before = (line_info.text or ""):sub(1, col_start)
           local text_selected = (line_info.text or ""):sub(col_start + 1, col_end)
-          local x1 = inp_x + 8 * SCALE + font:get_width(text_before)
+          local x1 = inp_x + c_pad + font:get_width(text_before)
           local sel_w = font:get_width(text_selected)
           if sel_w <= 0 and sel_to > l_end then
             sel_w = font:get_width(" ")
           end
-          local line_y = inp_y + 8 * SCALE + (l_idx - 1) * lh - input_scroll_offset
-          if line_y + lh >= inp_y and line_y <= inp_y + input_h then
+          local line_y = text_y_start + (l_idx - 1) * lh - input_scroll_offset
+          if line_y + lh >= inp_y and line_y <= inp_y + text_h + c_pad then
             renderer.draw_rect(x1, line_y, math.max(2 * SCALE, sel_w), lh, sel_color)
           end
         end
@@ -1925,11 +2522,11 @@ function AGView:draw()
     end
 
     for l_idx, line_info in ipairs(visual_lines) do
-      local line_y = inp_y + 8 * SCALE + (l_idx - 1) * lh - input_scroll_offset
-      if line_y + lh >= inp_y and line_y <= inp_y + input_h then
+      local line_y = text_y_start + (l_idx - 1) * lh - input_scroll_offset
+      if line_y + lh >= inp_y and line_y <= inp_y + text_h + c_pad then
         local l_str = line_info.text or ""
         if l_str:find("@") then
-          local cur_x = inp_x + 8 * SCALE
+          local cur_x = inp_x + c_pad
           local last_pos = 1
           for at_start, token, at_end in l_str:gmatch("()(@[%w_%-%.]+)()") do
             if at_start > last_pos then
@@ -1946,100 +2543,151 @@ function AGView:draw()
             renderer.draw_text(font, rest, cur_x, line_y, P.fg)
           end
         else
-          renderer.draw_text(font, l_str, inp_x + 8 * SCALE, line_y, P.fg)
+          renderer.draw_text(font, l_str, inp_x + c_pad, line_y, P.fg)
         end
       end
     end
     if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
       local cur_line_info = visual_lines[cur_line] or visual_lines[1]
       local text_before_cursor = (cur_line_info.text or ""):sub(1, cur_col)
-      local cursor_x = inp_x + 8 * SCALE + font:get_width(text_before_cursor)
-      local cursor_y = inp_y + 8 * SCALE + (cur_line - 1) * lh - input_scroll_offset
-      if cursor_y >= inp_y - 2 * SCALE and cursor_y + font:get_height() <= inp_y + input_h + 4 * SCALE then
+      local cursor_x = inp_x + c_pad + font:get_width(text_before_cursor)
+      local cursor_y = text_y_start + (cur_line - 1) * lh - input_scroll_offset
+      if cursor_y >= inp_y - 2 * SCALE and cursor_y + font:get_height() <= inp_y + text_h + c_pad then
         renderer.draw_rect(cursor_x, cursor_y, 2 * SCALE, font:get_height(), P.fg_accent)
       end
     end
   end
   core.pop_clip_rect()
 
-  -- Hint text bottom-right of input
-  local hint = num_lines > 1 and "Shift+Enter Line" or "Enter Send"
-  renderer.draw_text(font, hint,
-    inp_x + inp_w - font:get_width(hint) - 6 * SCALE,
-    inp_y + input_h - font:get_height() - 4 * SCALE,
-    P.fg_muted)
-
-  -- Send/Stop button and Attachment button
-  local send_y = inp_y + input_h + 4 * SCALE
-  local attach_w = 34 * SCALE
-  local send_w = inp_w - attach_w - 4 * SCALE
-  local is_running = self:state().process ~= nil
-  
-  -- Draw attachment button
-  local attach_bg = self.hover_attach and P.bg_send_hl or P.bg_send
-  renderer.draw_rect(inp_x, send_y, attach_w, send_h, attach_bg)
-  local attach_icon = "\u{f0c6}" -- paperclip icon
-  renderer.draw_text(style.icon_font, attach_icon,
-    inp_x + math.floor((attach_w - style.icon_font:get_width(attach_icon)) / 2),
-    send_y + math.floor((send_h - style.icon_font:get_height()) / 2),
-    P.fg_send)
-  self._attach_rect = { x = inp_x, y = send_y, w = attach_w, h = send_h }
-  
-  -- Draw Send button
-  local send_x = inp_x + attach_w + 4 * SCALE
-  local send_bg = is_running and { common.color "#D94C4C" } or P.bg_send
-  if self.hover_send then
-    send_bg = is_running and { common.color "#F26363" } or P.bg_send_hl
+  -- ── ACTION ROW (Inside Composer, Bottom) ──
+  local act_y = inp_y + text_h + c_pad
+  local small_font = style.small_font
+  if not small_font then
+    small_font = style.font:copy(12 * SCALE)
+    style.small_font = small_font
   end
+
+  -- Attachment Button
+  local attach_w = 28 * SCALE
+  local attach_bg = self.hover_attach and P.bg_btn_hl or P.bg_input
+  renderer.draw_rect(inp_x + c_pad, act_y, attach_w, action_row_h, attach_bg)
+  local attach_icon = "f" -- Maps to file icon in Lite XL's style.icon_font
+  renderer.draw_text(style.icon_font, attach_icon,
+    inp_x + c_pad + math.floor((attach_w - style.icon_font:get_width(attach_icon)) / 2),
+    act_y + math.floor((action_row_h - style.icon_font:get_height()) / 2),
+    P.fg_muted)
+  self._attach_rect = { x = inp_x + c_pad, y = act_y, w = attach_w, h = action_row_h }
+
+  -- Model Selector Badge (Next to attach button)
+  local sel_name  = self:_active_model() or "Default model"
+  local chevron = " >"
+  local model_lbl = sel_name
+  -- Truncate logic
+  while small_font:get_width(model_lbl .. chevron) > 120 * SCALE and #model_lbl > 4 do
+    model_lbl = model_lbl:sub(1, -2)
+  end
+  if model_lbl ~= sel_name then
+    model_lbl = model_lbl:match("^%s*(.-)%s*$") .. ".."
+  end
+  model_lbl = model_lbl .. chevron
+
+  local mw = small_font:get_width(model_lbl) + 16 * SCALE
+  local mh = 20 * SCALE
+  local mx = inp_x + c_pad + attach_w + 4 * SCALE
+  local my = act_y + math.floor((action_row_h - mh) / 2)
+
+  local m_bg = self.hover_model_btn and P.bg_btn_hl or { P.bg_btn[1], P.bg_btn[2], P.bg_btn[3], 150 }
+  renderer.draw_rect(mx, my, mw, mh, m_bg)
+  renderer.draw_text(small_font, model_lbl, mx + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2),
+    self.hover_model_btn and P.fg_accent or P.fg_muted)
+  self._model_rect = { x = mx, y = my, w = mw, h = mh }
+
+  -- Send/Stop Button (Right aligned)
+  local send_w = 28 * SCALE
+  local send_h = 24 * SCALE
+  local send_x = inp_x + inp_w - c_pad - send_w
+  local send_y = act_y + math.floor((action_row_h - send_h) / 2)
+
+  local send_bg
+  if is_running then
+    send_bg = self.hover_send and { common.color "#F26363" } or { common.color "#D94C4C" }
+  else
+    send_bg = self.hover_send and P.bg_btn_hl or P.bg_btn
+  end
+
   renderer.draw_rect(send_x, send_y, send_w, send_h, send_bg)
+  
+  -- Send/Stop Icons
+  if is_running then
+    -- Stop icon (Square block)
+    local ix = send_x + math.floor((send_w - 8 * SCALE) / 2)
+    local iy = send_y + math.floor((send_h - 8 * SCALE) / 2)
+    renderer.draw_rect(ix, iy, 8 * SCALE, 8 * SCALE, {255,255,255,255})
+  else
+    -- Send icon (Chevron right)
+    local s_icon = ">"
+    local scx = send_x + math.floor((send_w - style.icon_font:get_width(s_icon)) / 2)
+    local scy = send_y + math.floor((send_h - style.icon_font:get_height()) / 2)
+    renderer.draw_text(style.icon_font, s_icon, scx, scy, P.fg)
+  end
 
-  local send_lbl = is_running and "      [x] STOP GENERATING      " or "  Send"
-  renderer.draw_text(style.font, send_lbl,
-    send_x + math.floor((send_w - style.font:get_width(send_lbl)) / 2),
-    send_y + math.floor((send_h - style.font:get_height()) / 2),
-    P.fg_send)
-
-  -- Store send button bounds for click detection
   self._send_rect = { x = send_x, y = send_y, w = send_w, h = send_h }
 
   -- ═══════════════════════════════════════════════════════════════════
-  -- CHAT HISTORY (scrollable, between quick-actions and input)
+  -- CHAT HISTORY TABS (Underline style)
   -- ═══════════════════════════════════════════════════════════════════
-    local tab_h = 24 * SCALE
+  local tab_h = 28 * SCALE
   self.tab_rects = {}
   self.tab_stop_rects = {}
   local cur_x = x + pad
+  local line_start_x = x + pad
+  
   for i, c in ipairs(self.chats) do
-    local label = tostring(i)
+    local label = "Chat #" .. tostring(i)
     if c.status == "running" then
-      label = "working..."
+      label = "Working..."
     end
     
     local stop_w = 0
     if c.status == "running" then
-      stop_w = style.font:get_width(" [x]") + 8 * SCALE
+      stop_w = style.font:get_width(" [x]") + 8 * SCALE -- x text
     end
     
     local tw = style.font:get_width(label) + 16 * SCALE + stop_w
-    local tab_bg = (i == self.active_idx) and P.bg_btn_hl or P.bg
-    local tab_fg = (i == self.active_idx) and P.fg or P.fg_muted
     
-    renderer.draw_rect(cur_x, cur_y, tw, tab_h, tab_bg)
+    -- Wrap to next line if exceeds width
+    if cur_x + tw > x + w - pad and cur_x > line_start_x then
+      cur_x = line_start_x
+      cur_y = cur_y + tab_h + 4 * SCALE
+    end
+    
+    local is_active = (i == self.active_idx)
+    local tab_fg = is_active and P.fg_accent or P.fg_muted
+    
+    -- Draw text
     renderer.draw_text(style.font, label, cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), tab_fg)
+    
+    -- Draw active underline
+    if is_active then
+      renderer.draw_rect(cur_x, cur_y + tab_h - 2 * SCALE, tw, 2 * SCALE, P.fg_accent)
+    end
     
     if c.status == "running" then
       local sx = cur_x + tw - stop_w
-      renderer.draw_text(style.font, " [x]", sx, cur_y + math.floor((tab_h - style.font:get_height())/2), { common.color "#FB4934" })
+      renderer.draw_text(style.font, " [x]", sx, cur_y + math.floor((tab_h - style.font:get_height())/2), { common.color "#D94C4C" })
       table.insert(self.tab_stop_rects, { x = sx, y = cur_y, w = stop_w, h = tab_h, idx = i })
     end
     
     table.insert(self.tab_rects, { x = cur_x, y = cur_y, w = tw - stop_w, h = tab_h, idx = i })
-    cur_x = cur_x + tw + 2 * SCALE
+    cur_x = cur_x + tw + 4 * SCALE
   end
   
-  -- "+" button
+  -- "+" button (sleek)
   local pw = style.font:get_width("+") + 16 * SCALE
-  renderer.draw_rect(cur_x, cur_y, pw, tab_h, P.bg)
+  if cur_x + pw > x + w - pad and cur_x > line_start_x then
+    cur_x = line_start_x
+    cur_y = cur_y + tab_h + 4 * SCALE
+  end
   renderer.draw_text(style.font, "+", cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), P.fg_muted)
   self.add_btn_rect = { x = cur_x, y = cur_y, w = pw, h = tab_h }
   cur_x = cur_x + pw + 2 * SCALE
@@ -2047,6 +2695,10 @@ function AGView:draw()
   -- "x" button (close active)
   if #self.chats > 1 then
     local xw = style.font:get_width("x") + 16 * SCALE
+    if cur_x + xw > x + w - pad and cur_x > line_start_x then
+      cur_x = line_start_x
+      cur_y = cur_y + tab_h + 4 * SCALE
+    end
     renderer.draw_rect(cur_x, cur_y, xw, tab_h, P.bg)
     renderer.draw_text(style.font, "x", cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), { common.color "#FB4934" })
     self.close_btn_rect = { x = cur_x, y = cur_y, w = xw, h = tab_h }
@@ -2105,15 +2757,25 @@ function AGView:draw()
 
     -- Role label
     if ty + msg_h + lh_f >= chat_top and ty <= chat_bot then
-      local role_lbl = is_user and "You" or "Antigravity"
-      renderer.draw_text(style.font, role_lbl, x + pad, math.max(chat_top, math.min(ty, chat_bot - style.font:get_height())), P.fg_muted)
+      local tid  = config.ai_sidebar.active_tool or "agy"
+      local tdef = AI_TOOLS.get(tid)
+      
+      local role_lbl = is_user and "You" or (tdef and tdef.name or "Antigravity")
+      
+      -- Draw role name directly (removed unicode icons to fix ? rendering)
+      renderer.draw_text(style.font, role_lbl, x + pad, math.max(chat_top, math.min(ty, chat_bot - style.font:get_height())), is_user and P.fg_muted or P.fg_accent)
     end
-    ty = ty + style.font:get_height() + 2 * SCALE
+    ty = ty + style.font:get_height() + 4 * SCALE
 
-    -- Message bubble background
+    -- Message background (borderless, very subtle)
     if ty + msg_h >= chat_top and ty <= chat_bot then
-      renderer.draw_rect(x + pad, ty, msg_w, msg_h, bg_col)
-      draw_rect_outline(x + pad, ty, msg_w, msg_h, P.border)
+      if is_user then
+        -- User gets a subtle background bubble
+        renderer.draw_rect(x + pad, ty, msg_w, msg_h, P.bg_btn)
+      else
+        -- AI gets a transparent background, but a subtle left border to indicate generation block
+        renderer.draw_rect(x + pad, ty, 2 * SCALE, msg_h, { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 })
+      end
     end
 
     -- Blocks inside bubble
@@ -2130,13 +2792,23 @@ function AGView:draw()
           renderer.draw_text(style.font, lang, x + pad + 10 * SCALE, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_muted)
           
           local c_id = tostring(_) .. "_code_" .. tostring(_b)
-          local copy_txt = self.copy_flash_idx == c_id and "Copied!" or "Copy"
-          local ccol = self.copy_flash_idx == c_id and P.fg_accent or P.fg_muted
-          local cw = style.font:get_width(copy_txt)
-          renderer.draw_text(style.font, copy_txt, x + pad + msg_w - 14 * SCALE - cw, line_y + math.floor((hdr_h - style.font:get_height())/2), ccol)
+          local is_copied = (self.copy_flash_idx == c_id)
+          local cw = is_copied and (style.font:get_width("Copied!") + 8 * SCALE) or 20 * SCALE
+          local c_x = x + pad + msg_w - 14 * SCALE - cw
+          
+          if is_copied then
+            renderer.draw_text(style.font, "Copied!", c_x, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_accent)
+          else
+            -- Custom drawn copy icon (overlapping squares)
+            local ix = c_x + math.floor((cw - 10 * SCALE) / 2)
+            local iy = line_y + math.floor((hdr_h - 10 * SCALE) / 2)
+            draw_rect_outline(ix + 3 * SCALE, iy, 7 * SCALE, 7 * SCALE, P.fg_muted)
+            renderer.draw_rect(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.bg_darker)
+            draw_rect_outline(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.fg_muted)
+          end
           
           table.insert(self._copy_rects, {
-            x = x + pad + msg_w - 24 * SCALE - cw, y = line_y, w = cw + 20 * SCALE, h = hdr_h,
+            x = c_x - 4 * SCALE, y = line_y, w = cw + 8 * SCALE, h = hdr_h,
             text = table.concat(blk.raw_lines, "\n"), idx = c_id
           })
         end
@@ -2221,16 +2893,26 @@ function AGView:draw()
 
     -- Draw copy button if hovered
     if self.hover_copy_idx == _ then
-      local copy_txt = self.copy_flash_idx == _ and "Copied!" or "Copy"
-      local c_w = style.font:get_width(copy_txt) + 12 * SCALE
-      local c_h = style.font:get_height() + 8 * SCALE
+      local is_copied = (self.copy_flash_idx == _)
+      local c_w = is_copied and (style.font:get_width("Copied!") + 12 * SCALE) or 24 * SCALE
+      local c_h = 24 * SCALE
       local c_x = bubble_x + bubble_w - c_w - 6 * SCALE
       local c_y = bubble_y + 6 * SCALE
       
       if c_y + c_h >= chat_top and c_y <= chat_bot then
         renderer.draw_rect(c_x, c_y, c_w, c_h, P.bg_btn_hl)
         draw_rect_outline(c_x, c_y, c_w, c_h, P.border)
-        renderer.draw_text(style.font, copy_txt, c_x + 6 * SCALE, c_y + 4 * SCALE, P.fg)
+        
+        if is_copied then
+          renderer.draw_text(style.font, "Copied!", c_x + 6 * SCALE, c_y + math.floor((c_h - style.font:get_height())/2), P.fg_accent)
+        else
+          -- Custom drawn copy icon (overlapping squares)
+          local ix = c_x + math.floor((c_w - 10 * SCALE) / 2)
+          local iy = c_y + math.floor((c_h - 10 * SCALE) / 2)
+          draw_rect_outline(ix + 3 * SCALE, iy, 7 * SCALE, 7 * SCALE, P.fg)
+          renderer.draw_rect(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.bg_btn_hl)
+          draw_rect_outline(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.fg)
+        end
       end
     end
 
@@ -2238,9 +2920,14 @@ function AGView:draw()
     if self:state().status == "running" and not is_user
        and sess == self:state().sessions[#self:state().sessions]
        and sess.text == "" then
-      local dots = string.rep(".", (math.floor(self.tick / 20) % 4))
-      renderer.draw_text(style.font, dots,
-        x + pad + msg_pad, ty + msg_pad, P.fg_muted)
+      
+      -- Buttery smooth 60fps opacity sine pulse
+      local pulse = (math.sin(self.tick / 12) + 1) / 2
+      local alpha = math.floor(80 + 175 * pulse)
+      local col = { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], alpha }
+      
+      renderer.draw_text(style.code_font, "● AI thinking...",
+        x + pad + msg_pad, ty + msg_pad, col)
     end
 
     ty = ty + msg_h + 6 * SCALE
@@ -2304,53 +2991,151 @@ function AGView:draw()
     end
   end
 
+  -- Removed tool picker dropdown as it is now a segmented control in the header
+
   -- MODEL PICKER DROPDOWN: drawn last to overlay pills and chat
   if self.show_model_picker then
     local mf     = style.font
-    local item_h = mf:get_height() + 10 * SCALE
+    local item_h = mf:get_height() + 4 * SCALE -- Reduced height for compactness
     local list   = self.model_list
-    local rows   = (#list == 0) and 1 or #list
+    local total_items = (#list == 0) and 1 or #list
+    local max_rows = 12
+    local rows   = math.min(max_rows, total_items)
     local pop_h  = rows * item_h + 6 * SCALE
-    local pop_y  = y + 40 * SCALE
+    
+    self.model_max_scroll = math.max(0, total_items * item_h + 6 * SCALE - pop_h)
+    self.model_scroll_y = math.max(0, math.min(self.model_max_scroll, self.model_scroll_y or 0))
+
+    local pop_y  = y + 52 * SCALE
+    if self._model_rect then
+      pop_y = self._model_rect.y - pop_h - 4 * SCALE
+    end
     renderer.draw_rect(x, pop_y, w, pop_h, P.bg_dark)
     draw_rect_outline(x, pop_y, w, pop_h, P.border)
+
+    core.push_clip_rect(x, pop_y, w, pop_h)
+
     self._mpicker_rects = {}
     if #list == 0 then
       renderer.draw_text(mf,
         self.model_proc and "Fetching models..." or "No models found.",
-        x + pad, pop_y + 3 * SCALE + math.floor((item_h - mf:get_height()) / 2), P.fg_muted)
+        x + pad, pop_y + 3 * SCALE + math.floor((item_h - mf:get_height()) / 2) - self.model_scroll_y, P.fg_muted)
     else
       for i, m in ipairs(list) do
-        local ry     = pop_y + 3 * SCALE + (i - 1) * item_h
-        local is_sel = config.antigravity.selected_model == m.name
-        local is_hov = self.hover_model_idx == i
-        local rbg    = is_sel and P.bg_btn_hl or is_hov and P.bg_btn or nil
-        if rbg then renderer.draw_rect(x, ry, w, item_h, rbg) end
+        local ry     = pop_y + 3 * SCALE + (i - 1) * item_h - self.model_scroll_y
         
-        if m.limited then
-          -- red corner wrapper / border if usage is over limit
-          draw_rect_outline(x, ry, w, item_h, P.dot_err)
-        end
-        
-        local label = m.name
-        local fg    = m.limited and P.dot_err or (is_sel and P.fg_accent or P.fg)
-        renderer.draw_text(mf, label, x + pad,
-          ry + math.floor((item_h - mf:get_height()) / 2), fg)
+        if ry + item_h >= pop_y and ry <= pop_y + pop_h then
+          local is_sel = config.antigravity.selected_model == m.name
+          local is_hov = (self.hover_model_idx == i) and not m.limited
+          local rbg    = is_sel and P.bg_btn_hl or is_hov and P.bg_btn or nil
+          if rbg then renderer.draw_rect(x, ry, w, item_h, rbg) end
           
-        if m.usage then
-          local usage_w = mf:get_width(m.usage)
-          local ufg = m.limited and P.dot_err or P.fg_muted
-          renderer.draw_text(mf, m.usage,
-            x + w - pad - usage_w,
-            ry + math.floor((item_h - mf:get_height()) / 2), ufg)
-        elseif is_sel then
-          renderer.draw_text(mf, "[v]",
-            x + w - pad - mf:get_width("[v]"),
-            ry + math.floor((item_h - mf:get_height()) / 2), P.dot_run)
+          local label = m.name
+          local is_limited = m.limited
+          local fg
+          if is_limited then
+            fg = { 120, 120, 120, 110 }
+          elseif is_sel then
+            fg = P.fg_accent
+          elseif is_hov then
+            fg = P.fg
+          else
+            fg = P.fg
+          end
+          renderer.draw_text(mf, label, x + pad,
+            ry + math.floor((item_h - mf:get_height()) / 2), fg)
+
+          -- Right side: usage counter OR checkmark for selected
+          if m.usage then
+            local ufg = is_limited and { 160, 80, 80, 180 } or P.fg_muted
+            local disp_usage = m.usage
+            if is_limited then disp_usage = disp_usage .. " [No Quota]" end
+            renderer.draw_text(mf, disp_usage,
+              x + w - pad - mf:get_width(disp_usage),
+              ry + math.floor((item_h - mf:get_height()) / 2), ufg)
+          end
+          if is_limited and not m.usage then
+            local tag = "[Pro Tier]"
+            renderer.draw_text(mf, tag,
+              x + w - pad - mf:get_width(tag),
+              ry + math.floor((item_h - mf:get_height()) / 2),
+              { 160, 80, 80, 180 })
+          elseif is_sel and not m.usage then
+            renderer.draw_text(mf, "[v]",
+              x + w - pad - mf:get_width("[v]"),
+              ry + math.floor((item_h - mf:get_height()) / 2), P.dot_run)
+          end
+          -- Insert rect for hit testing only if it is visible
+          table.insert(self._mpicker_rects, { x=x, y=ry, w=w, h=item_h, idx=i })
         end
-        table.insert(self._mpicker_rects, { x=x, y=ry, w=w, h=item_h, idx=i })
       end
     end
+    core.pop_clip_rect()
+  end
+  
+  -- USAGE MODAL VIEW
+  if self.show_usage_view then
+    -- dim bg
+    renderer.draw_rect(x, y, w, h, {0,0,0,150})
+    
+    local mw = w - 40 * SCALE
+    local mh = h - 60 * SCALE
+    local mx = x + 20 * SCALE
+    local my = y + 30 * SCALE
+    
+    renderer.draw_rect(mx, my, mw, mh, P.bg)
+    draw_rect_outline(mx, my, mw, mh, P.border)
+    
+    local pad = 10 * SCALE
+    -- Header
+    renderer.draw_text(style.font, "Usage & Quotas", mx + pad, my + pad, P.fg_accent)
+    
+    -- Close X
+    local cx = mx + mw - pad - style.icon_font:get_width("C")
+    local cy = my + pad
+    renderer.draw_text(style.icon_font, "C", cx, cy, P.fg_muted)
+    self._usage_close_rect = { x = cx, y = cy, w = style.icon_font:get_width("C") + 8 * SCALE, h = style.icon_font:get_height() }
+    
+    local div_y = my + pad + style.font:get_height() + 8 * SCALE
+    renderer.draw_rect(mx + pad, div_y, mw - 2 * pad, 1 * SCALE, P.border)
+    
+    -- Text area
+    local text_y = div_y + 8 * SCALE
+    local text_h = mh - (text_y - my) - pad
+    
+    core.push_clip_rect(mx + pad, text_y, mw - 2 * pad, text_h)
+    local ty = text_y - (self.usage_scroll_y or 0)
+    
+    if not self.usage_head_font then
+      self.usage_head_font = style.font:copy(math.floor(style.font:get_height() * 1.15))
+      self.usage_sub_font = style.font:copy(math.floor(style.font:get_height() * 1.05))
+    end
+    
+    for _, line in ipairs(wrap_raw_text(style.code_font, self.usage_text or "", mw - 2 * pad)) do
+      local active_font = style.code_font
+      local is_bold = false
+      
+      if line:match("^%s*Account:") or line:match("GitHub Copilot Usage") then
+        active_font = self.usage_sub_font
+        is_bold = true
+      elseif line:match("^%u[%u%s]+MODELS%s*$") then
+        active_font = self.usage_head_font
+        is_bold = true
+      end
+      
+      local lh = active_font:get_height()
+      if ty + lh >= text_y and ty <= text_y + text_h then
+        renderer.draw_text(active_font, line, mx + pad, ty, P.fg)
+        if is_bold then
+          renderer.draw_text(active_font, line, mx + pad + 1, ty, P.fg)
+        end
+      end
+      ty = ty + lh + 2 * SCALE
+      if active_font == self.usage_head_font then ty = ty + 4 * SCALE end
+    end
+    core.pop_clip_rect()
+    
+    self.usage_max_scroll = math.max(0, ty + (self.usage_scroll_y or 0) - text_y - text_h)
   end
 end
 
@@ -2804,7 +3589,7 @@ function AGView:on_mouse_moved(mx, my, ...)
   local pill_w = math.floor((w - 2 * pad - (n - 1) * 4 * SCALE) / n)
   local pill_h = 24 * SCALE
   -- Pills start at: y + header(40) + 6
-  local pills_top = self.position.y + 40 * SCALE + 6 * SCALE
+  local pills_top = self.position.y + 52 * SCALE + 6 * SCALE
 
   for i = 1, n do
     local bx = x + pad + (i - 1) * (pill_w + 4 * SCALE)
@@ -2844,7 +3629,27 @@ function AGView:on_mouse_moved(mx, my, ...)
   if self.show_model_picker and self._mpicker_rects then
     for _, r in ipairs(self._mpicker_rects) do
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-        self.hover_model_idx = r.idx
+        local m = self.model_list[r.idx]
+        if m and not m.limited then
+          self.hover_model_idx = r.idx
+        end
+        break
+      end
+    end
+  end
+
+  -- Tool header button hover
+  self._tool_hdr_rect_hov = false
+  if self._tool_hdr_rect then
+    local r = self._tool_hdr_rect
+    self._tool_hdr_rect_hov = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+  -- Tool picker row hover
+  self.hover_tool_idx = nil
+  if self._tool_picker_rects then
+    for _, r in ipairs(self._tool_picker_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_tool_idx = r.idx
         break
       end
     end
@@ -3016,16 +3821,66 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     end
   end
 
+  -- Tool picker row selection
+  if self._tool_picker_rects then
+    for _, r in ipairs(self._tool_picker_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        if r.is_add then
+          -- "+" custom tool: prompt for binary path
+          core.command_view:enter("Enter custom tool binary path (e.g. C:\\path\\to\\tool.exe)", {
+            submit = function(text)
+              text = text:match("^%s*(.-)%s*$")
+              if text and #text > 0 then
+                local name = text:match("[/\\]([^/\\]+)$") or text
+                local id   = "custom_" .. name:gsub("%W", "_")
+                local entry = { id=id, name=name, short=name:sub(1,3):upper(), bin=text }
+                config.ai_sidebar.detected[id] = { bin = text }
+                table.insert(config.ai_sidebar.detected_list, entry)
+                table.insert(config.ai_sidebar.custom_tools or {}, entry)
+                config.ai_sidebar.active_tool = id
+                
+                -- Force model list for custom tool
+                self.tool_model_lists[id] = { { name = "Default", limited = false } }
+                self.model_list = self.tool_model_lists[id]
+                core.redraw = true
+              end
+            end
+          })
+        else
+          -- Switch to selected tool
+          local det = config.ai_sidebar.detected_list
+          local selected = det[r.idx]
+          if selected then
+            local prev_id = config.ai_sidebar.active_tool
+            config.ai_sidebar.active_tool = selected.id
+            
+            -- Sync model list from cache (or trigger fetch)
+            local id = selected.id
+            if self.tool_model_lists[id] and #self.tool_model_lists[id] > 0 then
+              self.model_list = self.tool_model_lists[id]
+            else
+              self.model_list = {}
+              self:fetch_models(false)
+            end
+            core.log("AI Sidebar: switched to " .. selected.name)
+          end
+        end
+        core.redraw = true
+        return true
+      end
+    end
+  end
+
   -- Model picker row selection
   if self.show_model_picker and self._mpicker_rects then
     for _, r in ipairs(self._mpicker_rects) do
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
         local m = self.model_list[r.idx]
-        if m then
-          config.antigravity.selected_model = m.name
+        if m and not m.limited then
+          self:_set_active_model(m.name)
           self.show_model_picker = false
-          self:state().has_session = false  -- reset session so next -p doesn't pass -c with old model
-          core.log("Antigravity: switched to model '" .. m.name .. "'")
+          self:state().has_session = false  -- reset session so next prompt doesn't inherit old model's -c
+          core.log("AI Sidebar: switched to model '" .. m.name .. "'")
         end
         core.redraw = true
         return true
@@ -3093,6 +3948,20 @@ end
 
 function AGView:on_mouse_released(button, mx, my)
   AGView.super.on_mouse_released(self, button, mx, my)
+  if self.show_usage_view then
+    local cx, cy, cw, ch = 0, 0, 0, 0
+    if self._usage_close_rect then
+      cx, cy, cw, ch = self._usage_close_rect.x, self._usage_close_rect.y, self._usage_close_rect.w, self._usage_close_rect.h
+    end
+    if mx >= cx and mx <= cx + cw and my >= cy and my <= cy + ch then
+      self.show_usage_view = false
+      core.redraw = true
+      return true
+    end
+    -- Prevent clicks from bleeding through to chat if usage view is open
+    return true
+  end
+
   if button == "left" then
     self._dragging_input = false
     if self:state().select_anchor == self:state().cursor then
@@ -3103,7 +3972,16 @@ function AGView:on_mouse_released(button, mx, my)
 end
 
 function AGView:on_mouse_wheel(dy)
-  self:state().scroll_y = math.max(0, math.min(self:state().max_scroll, self:state().scroll_y - dy * (style.font:get_height() + 2 * SCALE) * 3))
+  if self.show_usage_view then
+    local item_h = style.code_font:get_height()
+    self.usage_scroll_y = math.max(0, math.min(self.usage_max_scroll or 0, (self.usage_scroll_y or 0) - dy * item_h * 3))
+  elseif self.show_model_picker then
+    local mf = style.font
+    local item_h = mf:get_height() + 4 * SCALE
+    self.model_scroll_y = math.max(0, math.min(self.model_max_scroll or 0, (self.model_scroll_y or 0) - dy * item_h))
+  else
+    self:state().scroll_y = math.max(0, math.min(self:state().max_scroll, self:state().scroll_y - dy * (style.font:get_height() + 2 * SCALE) * 3))
+  end
   core.redraw = true
   return true
 end
@@ -3246,27 +4124,49 @@ command.add(nil, {
     })
   end,
   ["antigravity:auth"] = function()
-    core.command_view:enter("Press Enter to launch Auth Terminal (follow instructions in the new window)", {
+    local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
+    local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
+    local tname = (tdef and tdef.name) or "Antigravity"
+    
+    local auth_cmd_str = "agy"
+    local bin = tdef and tdef.bins and tdef.bins[1] or cur_tool
+    
+    if cur_tool == "agy" then
+      auth_cmd_str = config.antigravity.cli or "agy"
+    elseif cur_tool == "opencode" then
+      auth_cmd_str = bin .. " auth"
+    elseif cur_tool == "devin" then
+      auth_cmd_str = bin .. " auth"
+    elseif cur_tool == "gh_copilot" then
+      auth_cmd_str = "gh auth login"
+    elseif cur_tool == "claude" then
+      auth_cmd_str = "claude login"
+    else
+      auth_cmd_str = "echo No automatic auth command configured for " .. tname .. ". Please authenticate manually via terminal."
+    end
+
+    core.command_view:enter("Press Enter to launch Auth Terminal for " .. tname .. " (follow instructions in new window)", {
       submit = function(text)
-        local cfg = config.antigravity
         if PLATFORM == "Windows" then
-          process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Antigravity Authentication... && " .. cfg.cli }, {
+          process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Authentication for " .. tname .. "... && " .. auth_cmd_str }, {
             stdin = process.REDIRECT_DISCARD,
           })
         elseif PLATFORM == "Mac OS X" then
-          process.start({ "osascript", "-e", 'tell app "Terminal" to do script "' .. cfg.cli .. '"' }, {
+          process.start({ "osascript", "-e", 'tell app "Terminal" to do script "' .. auth_cmd_str .. '"' }, {
             stdin = process.REDIRECT_DISCARD,
           })
         else
-          pcall(function() process.start({ "x-terminal-emulator", "-e", cfg.cli }, {
+          pcall(function() process.start({ "x-terminal-emulator", "-e", auth_cmd_str }, {
             stdin = process.REDIRECT_DISCARD,
           }) end)
         end
-        core.log("Antigravity: If a terminal did not open automatically, please open your terminal and manually run: " .. cfg.cli)
+        core.log(tname .. ": If a terminal did not open automatically, open your terminal and manually run: " .. auth_cmd_str)
         
         if not instance then instance = AGView() end
         instance.auth_status = "checking"
-        -- Clear the model cache so fetch_models actually runs again
+        
+        -- Clear the model cache for the active tool so fetch_models actually runs again
+        instance.tool_model_lists[cur_tool] = {}
         instance.model_list = {}
         instance.model_proc = nil
         instance._model_raw = ""

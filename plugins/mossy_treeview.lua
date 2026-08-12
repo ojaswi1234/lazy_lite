@@ -59,7 +59,37 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
   local icon_color = (active or hovered) and active_txt or base_dim
   local text_color = (active or hovered) and active_txt or base_text
   
-  local icon_x     = x + depth * step + 6 * SCALE
+  local badge_x = x + depth * step + 6 * SCALE
+  local badge_offset = 0
+  
+  if item.git_status then
+    local badge = ""
+    local badge_color = style.text
+    if item.git_status == "added" then
+      badge = "A"
+      badge_color = { 100, 220, 100, 255 }
+    elseif item.git_status == "deleted" then
+      badge = "D"
+      badge_color = { 220, 100, 100, 255 }
+    elseif item.git_status == "modified" then
+      badge = "M"
+      badge_color = { 220, 180, 80, 255 }
+    end
+    
+    if badge ~= "" then
+      local badge_font = style.font
+      local bw = badge_font:get_width(badge)
+      renderer.draw_text(
+        badge_font, badge,
+        badge_x,
+        y + math.floor((h - badge_font:get_height()) / 2),
+        badge_color
+      )
+      badge_offset = bw + 6 * SCALE
+    end
+  end
+
+  local icon_x     = badge_x + badge_offset
 
   renderer.draw_text(
     ifont, icon_str,
@@ -70,6 +100,14 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
 
   -- Filename
   local name_x     = icon_x + ifont:get_width(icon_str) + 4 * SCALE
+  
+  if item.git_status == "added" then
+    text_color = { 100, 220, 100, 255 }
+  elseif item.git_status == "deleted" then
+    text_color = { 220, 100, 100, 255 }
+  elseif item.git_status == "modified" then
+    text_color = { 220, 180, 80, 255 }
+  end
 
   renderer.draw_text(
     style.font, item.name,

@@ -299,6 +299,35 @@ function GitTimelineView:update_commits()
     end
 
     self:parse_and_build_graph(out)
+    
+    -- Check for uncommitted changes
+    local cmd_status = {"git", "-C", p_dir, "status", "--porcelain"}
+    if core.active_codespace then
+      local safe = "'cd " .. core.active_codespace.remote_dir .. " && git status --porcelain'"
+      cmd_status = {"gh", "cs", "ssh", "-c", core.active_codespace.name, "--", "sh", "-c", safe}
+    end
+    local p_stat = process.start(cmd_status, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE})
+    if p_stat then
+      local stat_out = self:read_process_output(p_stat)
+      if p_stat:returncode() == 0 and stat_out:match("%S") then
+        table.insert(self.commits, 1, {
+          hash = "UNCOMMITTED",
+          short_hash = "Working Dir",
+          parents = {},
+          refs = {},
+          message = "Uncommitted Changes",
+          author = "You",
+          date = "now",
+          color = {255, 255, 255, 255},
+          row_index = 1,
+          column = 0
+        })
+        for i = 2, #self.commits do
+          self.commits[i].row_index = i
+        end
+      end
+    end
+
     self.loading = false
     core.redraw  = true
   end)
@@ -409,7 +438,7 @@ end
 -- ─── Ref/branch parsing ───────────────────────────────────────────────────────
 
 function GitTimelineView:parse_branches(ref_string)
-  if not ref_string then return {} end
+  if type(ref_string) ~= "string" then return {} end
   local branches = {}
   for part in ref_string:gmatch("[^,]+") do
     part = part:match("^%s*(.-)%s*$")
@@ -706,6 +735,8 @@ function GitTimelineView:draw_commits(start_y, layout)
 
   -- Dim color derived from style.dim — used for hash + meta
   local dim_c = style.dim
+  
+  self.commit_rects = {}
 
   for i, commit in ipairs(self.commits) do
     -- vertical center of this row
@@ -714,6 +745,12 @@ function GitTimelineView:draw_commits(start_y, layout)
     -- culling
     if cy + rh < self.position.y or cy - rh > self.position.y + self.size.y then
       goto continue
+    end
+
+    -- "?"? ACTIVE COMMIT HIGHLIGHT "?"?
+    if core.git_active_commit == commit.hash then
+      local hl_bg = (style.mossy and style.mossy.hover_row) or style.line_highlight or {255, 255, 255, 10}
+      renderer.draw_rect(self.position.x, cy - rh * 0.5, self.size.x, rh, hl_bg)
     end
 
     local dc = math.min(commit.column, eff_cols - 1)
@@ -818,6 +855,14 @@ function GitTimelineView:draw_commits(start_y, layout)
                          {dim_c[1] or 120, dim_c[2] or 120, dim_c[3] or 120, 140})
     end
 
+    table.insert(self.commit_rects, {
+      x = layout.graph_abs_x,
+      y = cy - rh * 0.5,
+      w = (layout.date_abs_x + 100) - layout.graph_abs_x,
+      h = rh,
+      commit = commit
+    })
+
     ::continue::
   end
 end
@@ -918,6 +963,90 @@ function GitTimelineView:on_mouse_pressed(button, mx, my, clicks)
         if ir.item.number then
           self:open_in_editor(ir.item, self.active_tab == 3)
         end
+        return true
+      end
+    end
+  end
+  
+  if self.active_tab == 1 and clicks >= 1 then
+    for _, cr in ipairs(self.commit_rects or {}) do
+      if mx >= cr.x and mx < cr.x+cr.w and my >= cr.y and my < cr.y+cr.h then
+        local hash = cr.commit.hash
+        
+        -- Close any currently open diff views from previous commits
+        local GitDiffView = require "plugins.git_diff_view"
+        for _, v in ipairs(core.root_view.root_node:get_children()) do
+          if v:is(GitDiffView) then
+            local v_node = core.root_view.root_node:get_node_for_view(v)
+            if v_node then
+              v_node:close_view(core.root_view.root_node, v)
+            end
+          end
+        end
+        
+        if core.git_active_commit == hash then
+          if core.set_git_ghost_files then
+            core.set_git_ghost_files({}, nil, nil)
+          end
+          
+          core.redraw = true
+          return true
+        end
+
+        core.add_thread(function()
+          local p_dir = core.project_dir or ""
+          -- Treeview Ghost Files
+          local cmd_status
+          if hash == "UNCOMMITTED" then
+            cmd_status = {"git", "status", "--porcelain"}
+          else
+            cmd_status = {"git", "diff-tree", "--no-commit-id", "--name-status", "-r", hash}
+          end
+          
+          local p_status = process.start(cmd_status, { cwd = p_dir ~= "" and p_dir or nil, stdout = process.REDIRECT_PIPE })
+          if p_status then
+            local out = ""
+            while p_status:returncode() == nil do
+              out = out .. (p_status:read_stdout(8192) or "")
+              coroutine.yield(0.05)
+            end
+            while true do local c = p_status:read_stdout(8192) or ""; if c == "" then break end; out = out .. c end
+            
+            local status_map = {}
+            local diff_files = {}
+            if hash == "UNCOMMITTED" then
+              for status_char, file_path in out:gmatch("([%s%u%?][%u%?])%s+([^\r\n]+)") do
+                file_path = file_path:gsub('^"(.*)"$', '%1')
+                local norm_path = file_path:gsub("[/\\]+", PATHSEP)
+                local full_path = (p_dir ~= "" and p_dir or "") .. PATHSEP .. norm_path
+                full_path = full_path:gsub("[/\\]+", PATHSEP)
+                table.insert(diff_files, file_path)
+                if status_char:match("A") or status_char:match("%?%?") then status_map[full_path] = "added"
+                elseif status_char:match("D") then status_map[full_path] = "deleted"
+                elseif status_char:match("M") then status_map[full_path] = "modified"
+                end
+              end
+            else
+              for status_char, file_path in out:gmatch("([ADM])%s+([^\r\n]+)") do
+                file_path = file_path:gsub('^"(.*)"$', '%1')
+                local norm_path = file_path:gsub("[/\\]+", PATHSEP)
+                local full_path = (p_dir ~= "" and p_dir or "") .. PATHSEP .. norm_path
+                full_path = full_path:gsub("[/\\]+", PATHSEP)
+                table.insert(diff_files, file_path)
+                if status_char == "A" then status_map[full_path] = "added"
+                elseif status_char == "D" then status_map[full_path] = "deleted"
+                elseif status_char == "M" then status_map[full_path] = "modified"
+                end
+              end
+            end
+            
+            if core.set_git_ghost_files then
+              core.set_git_ghost_files(status_map, hash, p_dir)
+            end
+            
+            core.redraw = true
+          end
+        end)
         return true
       end
     end
