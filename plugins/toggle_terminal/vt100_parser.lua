@@ -276,6 +276,39 @@ function Terminal:dispatch_csi(action)
       for x = 1, self.cols do self:clear_cell(x, self.cursor_y) end
     end
     
+  elseif char == '@' then -- ICH (Insert Character)
+    local n = self.params[1] or 1
+    if n == 0 then n = 1 end
+    local row = self.grid[self.cursor_y]
+    if row then
+      for i = self.cols, self.cursor_x + n, -1 do
+        row[i] = row[i - n]
+      end
+      for i = self.cursor_x, math.min(self.cols, self.cursor_x + n - 1) do
+        row[i] = { char = ' ', attr = { fg = self.attr.fg, bg = self.attr.bg, bold = self.attr.bold } }
+      end
+    end
+    
+  elseif char == 'P' then -- DCH (Delete Character)
+    local n = self.params[1] or 1
+    if n == 0 then n = 1 end
+    local row = self.grid[self.cursor_y]
+    if row then
+      for i = self.cursor_x, self.cols - n do
+        row[i] = row[i + n]
+      end
+      for i = math.max(1, self.cols - n + 1), self.cols do
+        row[i] = { char = ' ', attr = { fg = self.attr.fg, bg = self.attr.bg, bold = self.attr.bold } }
+      end
+    end
+    
+  elseif char == 'X' then -- ECH (Erase Character)
+    local n = self.params[1] or 1
+    if n == 0 then n = 1 end
+    for x = self.cursor_x, math.min(self.cols, self.cursor_x + n - 1) do
+      self:clear_cell(x, self.cursor_y)
+    end
+    
   elseif char == 'm' then -- SGR (Select Graphic Rendition - Colors/Bold)
     if #self.params == 0 then self.params = {0} end
     for _, param in ipairs(self.params) do

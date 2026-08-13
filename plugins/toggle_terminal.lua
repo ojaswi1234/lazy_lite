@@ -683,7 +683,7 @@ function TermView:update()
   max_cols = math.max(40, max_cols)
   
   local lh = style.code_font:get_height() + 2 * SCALE
-  local out_h = self.size.y - 31 * SCALE
+  local out_h = self.target_size - 31 * SCALE
   local max_rows = math.floor((out_h - 10 * SCALE) / lh)
   max_rows = math.max(10, max_rows)
 
