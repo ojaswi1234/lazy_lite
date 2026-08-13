@@ -300,13 +300,13 @@ rawset(_G, "get_sidebar_node", function(dont_create)
     return node
   end
   
-  if sidebar_node and is_node_in_tree(core.root_view.root_node, sidebar_node) then
+  if sidebar_node and is_node_in_tree(core.root_view.root_node, sidebar_node) and sidebar_node.type == "leaf" then
     return apply_monkey_patch(sidebar_node)
   end
   
   -- Also check if toggle registered a node directly
   local ag_node = rawget(_G, "_ag_sidebar_node")
-  if ag_node and is_node_in_tree(core.root_view.root_node, ag_node) then
+  if ag_node and is_node_in_tree(core.root_view.root_node, ag_node) and ag_node.type == "leaf" then
     sidebar_node = ag_node
     return apply_monkey_patch(sidebar_node)
   end
