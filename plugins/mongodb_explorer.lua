@@ -2525,9 +2525,9 @@ local function preprocess_mongo_script(code)
     local stripped = line:match("^%s*(.-)%s*$")
     if stripped:sub(1, 2) == "//" or stripped:sub(1, 2) == "/*" or stripped:sub(1, 1) == "*" then
       table.insert(lines, line)
-    elseif stripped:lower():match("^show%s+dbs%s*;?$") or stripped:lower():match("^show%s+databases%s*;?$") then
+    elseif stripped:lower():match("^show%s+dbs?%s*;?$") or stripped:lower():match("^show%s+databases?%s*;?$") then
       table.insert(lines, "return db.adminCommand({ listDatabases: 1 });")
-    elseif stripped:lower():match("^show%s+collections%s*;?$") or stripped:lower():match("^show%s+tables%s*;?$") then
+    elseif stripped:lower():match("^show%s+collections?%s*;?$") or stripped:lower():match("^show%s+tables?%s*;?$") then
       table.insert(lines, "return db.getCollectionNames();")
     elseif stripped:lower():match("^show%s+users%s*;?$") then
       table.insert(lines, "return db.getUsers();")
