@@ -1124,6 +1124,7 @@ local function run_mongo_cli(uri, eval_js, callback)
     end
 
     if err_data then
+      err_data = err_data:gsub("\x1b%[%d+;?%d*;?%d*m", ""):gsub("\x1b%[%d*m", "")
       if callback then callback(nil, err_data) end
       return
     end
@@ -2543,7 +2544,7 @@ local function preprocess_mongo_script(code)
     end
   end
 
-  -- If the last non-empty line is an expression without return/declaration, wrap with return (...)
+  -- Find last non-empty, non-comment line
   local last_idx = nil
   for i = #lines, 1, -1 do
     local s = lines[i]:match("^%s*(.-)%s*$")
@@ -2554,11 +2555,32 @@ local function preprocess_mongo_script(code)
   end
 
   if last_idx then
-    local s = lines[last_idx]:match("^%s*(.-)%s*$")
+    -- Trace backwards from last_idx to find the start line of the last statement
+    local start_idx = last_idx
+    local balance = 0
+    for i = last_idx, 1, -1 do
+      local line = lines[i]
+      local s = line:match("^%s*(.-)%s*$")
+      if s ~= "" and s:sub(1, 2) ~= "//" and s:sub(1, 2) ~= "/*" and s:sub(1, 1) ~= "*" then
+        -- Strip strings and inline comments to avoid false bracket counting
+        local clean_s = s:gsub('".-"', ''):gsub("'.-'", ""):gsub("`.-`", ""):gsub("//.*", "")
+        for ch in clean_s:gmatch(".") do
+          if ch == "(" or ch == "[" or ch == "{" then balance = balance + 1 end
+          if ch == ")" or ch == "]" or ch == "}" then balance = balance - 1 end
+        end
+        start_idx = i
+        if balance >= 0 then
+          break
+        end
+      end
+    end
+
+    local first_line = lines[start_idx]
+    local s = first_line:match("^%s*(.-)%s*$")
     local lower = s:lower()
     if not (lower:match("^return%s") or lower:match("^const%s") or lower:match("^let%s") or lower:match("^var%s") or lower:match("^if%s*%(") or lower:match("^for%s*%(") or lower:match("^while%s*%(") or lower:match("^function%s") or lower:match("^try%s*{") or lower:match("^switch%s*%(")) then
-      local trimmed = s:gsub(";%s*$", "")
-      lines[last_idx] = "return (" .. trimmed .. ");"
+      local indent = first_line:match("^(%s*)") or ""
+      lines[start_idx] = indent .. "return " .. s
     end
   end
 
