@@ -12,7 +12,12 @@ end
 
 local function check_directory_path(path)
   local abs_path = system.absolute_path(path)
-  local info = abs_path and system.get_file_info(abs_path)
+  if not abs_path then return nil end
+  -- Windows stat fails on paths with trailing slashes, so strip them
+  local check_path = abs_path:match("^(.-)[\\/]*$")
+  -- Except if it's a drive root like C: or C:\
+  if check_path:match("^[a-zA-Z]:$") then check_path = check_path .. "\\" end
+  local info = system.get_file_info(check_path)
   if not info or info.type ~= 'dir' then
     return nil
   end
