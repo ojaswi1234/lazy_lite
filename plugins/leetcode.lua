@@ -5660,8 +5660,6 @@ function LeetCodeView:set_target_size(axis, value)
   end
 end
 
-return LeetCodeView
-
 -- =========================================================================
 -- Study Plan & Calendar View
 -- =========================================================================
@@ -5823,3 +5821,5 @@ command.add(nil, {
     node:add_view(StudyPlanView())
   end,
 })
+
+return LeetCodeView
