@@ -2954,7 +2954,7 @@ def cmd_submit(params):
 
 # ── main loop ──────────────────────────────────────────────────────────────────
 
-def cmd_study_plan_detail(params, req_id):
+def cmd_study_plan_detail(params):
     slug = params.get("slug")
     if not slug:
         return {"ok": False, "error": "Missing slug"}
@@ -2976,13 +2976,13 @@ def cmd_study_plan_detail(params, req_id):
     }
     '''
     try:
-        resp = _requests_session.post(GRAPHQL_URL, timeout=10, json={'query': query, 'variables': {'slug': slug}})
+        resp = _requests_session.post("https://leetcode.com/graphql", timeout=10, json={'query': query, 'variables': {'slug': slug}})
         data = resp.json()
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-def cmd_favorite_lists(params, req_id):
+def cmd_favorite_lists(params):
     query = '''
     query favoriteList {
       favoritesLists {
@@ -2999,13 +2999,13 @@ def cmd_favorite_lists(params, req_id):
     }
     '''
     try:
-        resp = _requests_session.post(GRAPHQL_URL, timeout=10, json={'query': query})
+        resp = _requests_session.post("https://leetcode.com/graphql", timeout=10, json={'query': query})
         data = resp.json()
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-def cmd_user_calendar(params, req_id):
+def cmd_user_calendar(params):
     username = params.get("username")
     year = params.get("year", 2026)
     if not username:
@@ -3023,7 +3023,7 @@ def cmd_user_calendar(params, req_id):
     }
     '''
     try:
-        resp = _requests_session.post(GRAPHQL_URL, timeout=10, json={'query': query, 'variables': {'username': username, 'year': year}})
+        resp = _requests_session.post("https://leetcode.com/graphql", timeout=10, json={'query': query, 'variables': {'username': username, 'year': year}})
         data = resp.json()
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:
