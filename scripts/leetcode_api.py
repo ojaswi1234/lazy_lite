@@ -2969,7 +2969,7 @@ def cmd_study_plan_detail(params, req_id):
           questions {
             title
             titleSlug
-            hasSolution
+            status
           }
         }
       }

@@ -5789,8 +5789,8 @@ function StudyPlanView:draw()
       
       if not is_collapsed and group.questions then
         for j, q in ipairs(group.questions) do
-          local q_icon = q.hasSolution and "[✓]" or "[ ]"
-          local q_color = q.hasSolution and style.good or style.dim
+          local q_icon = q.status == "AC" and "[✓]" or "[ ]"
+          local q_color = q.status == "AC" and style.good or style.dim
           renderer.draw_text(style.font, "   " .. q_icon .. " " .. q.title, x, y, q_color)
           y = y + style.font:get_height() + 3
         end
