@@ -5670,11 +5670,22 @@ local StudyPlanView = View:extend()
 function StudyPlanView:new()
   StudyPlanView.super.new(self)
   self.scrollable = true
-  self.plan_slug = "top-interview-150"
+  
+  self.available_plans = {
+    { label = "Top Interview 150", slug = "top-interview-150" },
+    { label = "LeetCode 75", slug = "leetcode-75" },
+    { label = "SQL 50", slug = "sql-50" },
+    { label = "Top 100 Liked", slug = "top-100-liked" }
+  }
+  self.current_plan_idx = 1
+  self.plan_slug = self.available_plans[self.current_plan_idx].slug
+  
   self.plan_data = nil
   self.calendar_data = nil
-  self.username = "ojaswi1234" -- Defaulting based on context
+  self.username = "ojaswi1234" -- Ideally fetched from auth state
   self.collapsed_sections = {}
+  
+  self.show_dropdown = false
   
   self:fetch_data()
 end
@@ -5684,6 +5695,7 @@ function StudyPlanView:get_name()
 end
 
 function StudyPlanView:fetch_data()
+  self.plan_data = nil
   api_call({cmd = "study_plan_detail", slug = self.plan_slug}, function(res)
     if res and res.ok and res.data then
       self.plan_data = res.data.studyPlanV2Detail
@@ -5691,19 +5703,21 @@ function StudyPlanView:fetch_data()
     end
   end)
   
-  api_call({cmd = "user_calendar", username = self.username, year = 2026}, function(res)
-    if res and res.ok and res.data then
-      self.calendar_data = res.data.matchedUser and res.data.matchedUser.userCalendar
-      if self.calendar_data and self.calendar_data.submissionCalendar then
-        -- Parse stringified JSON to table
-        local ok, parsed = pcall(json.decode, self.calendar_data.submissionCalendar)
-        if ok then
-          self.calendar_data.parsed_subs = parsed
+  -- Calendar only needs to be fetched once unless username changes
+  if not self.calendar_data then
+    api_call({cmd = "user_calendar", username = self.username, year = 2026}, function(res)
+      if res and res.ok and res.data then
+        self.calendar_data = res.data.matchedUser and res.data.matchedUser.userCalendar
+        if self.calendar_data and self.calendar_data.submissionCalendar then
+          local ok, parsed = pcall(json.decode, self.calendar_data.submissionCalendar)
+          if ok then
+            self.calendar_data.parsed_subs = parsed
+          end
         end
+        core.redraw = true
       end
-      core.redraw = true
-    end
-  end)
+    end)
+  end
 end
 
 function StudyPlanView:draw()
@@ -5714,8 +5728,24 @@ function StudyPlanView:draw()
   y = y + pad
   x = x + pad
   
-  renderer.draw_text(style.big_font, "Study Plan: " .. (self.plan_data and self.plan_data.name or "Loading..."), x, y, style.text)
-  y = y + style.big_font:get_height() + 10
+  -- Draw Dropdown Header
+  local dropdown_label = "Study Plan: ▼ " .. self.available_plans[self.current_plan_idx].label
+  local dropdown_w = style.big_font:get_width(dropdown_label) + 20
+  local dropdown_h = style.big_font:get_height()
+  
+  local is_hovered = false
+  if core.window.mouse.x >= x and core.window.mouse.x <= x + dropdown_w and core.window.mouse.y >= y and core.window.mouse.y <= y + dropdown_h then
+    is_hovered = true
+    if core.window.mouse_pressed_trigger then
+      self.show_dropdown = not self.show_dropdown
+      core.redraw = true
+    end
+  end
+  
+  renderer.draw_rect(x, y, dropdown_w, dropdown_h, is_hovered and style.line_highlight or style.background)
+  renderer.draw_text(style.big_font, dropdown_label, x + 5, y, style.text)
+  
+  y = y + dropdown_h + 10
   
   -- Render simple calendar placeholder / stats
   if self.calendar_data then
@@ -5735,7 +5765,7 @@ function StudyPlanView:draw()
       -- Quick click area for collapse/expand
       if core.window.mouse_pressed_trigger then
         local mx, my = core.window.mouse.x, core.window.mouse.y
-        if mx >= x and mx <= x + 200 and my >= y and my <= y + style.font:get_height() then
+        if mx >= x and mx <= x + 300 and my >= y and my <= y + style.font:get_height() then
            self.collapsed_sections[group.name] = not is_collapsed
            core.redraw = true
         end
@@ -5753,6 +5783,37 @@ function StudyPlanView:draw()
       end
       y = y + 10
     end
+  elseif not self.plan_data then
+    renderer.draw_text(style.font, "Loading plan data...", x, y, style.dim)
+  end
+  
+  -- Overlay Dropdown Menu (Drawn last so it overlaps)
+  if self.show_dropdown then
+    local menu_x = x
+    local menu_y = self.position.y + pad + dropdown_h
+    local item_h = style.font:get_height() + 8
+    local menu_w = 200
+    
+    renderer.draw_rect(menu_x, menu_y, menu_w, #self.available_plans * item_h, style.background)
+    -- renderer.draw_rect(menu_x, menu_y, menu_w, #self.available_plans * item_h, style.text) -- outline? nah
+    
+    for i, plan in ipairs(self.available_plans) do
+      local ix = menu_x
+      local iy = menu_y + (i - 1) * item_h
+      
+      local m_hover = core.window.mouse.x >= ix and core.window.mouse.x <= ix + menu_w and core.window.mouse.y >= iy and core.window.mouse.y <= iy + item_h
+      renderer.draw_rect(ix, iy, menu_w, item_h, m_hover and style.line_highlight or style.background)
+      renderer.draw_text(style.font, plan.label, ix + 10, iy + 4, style.text)
+      
+      if m_hover and core.window.mouse_pressed_trigger then
+        self.current_plan_idx = i
+        self.plan_slug = plan.slug
+        self.show_dropdown = false
+        self.collapsed_sections = {}
+        self:fetch_data()
+        core.redraw = true
+      end
+    end
   end
 end
 
@@ -5762,4 +5823,3 @@ command.add(nil, {
     node:add_view(StudyPlanView())
   end,
 })
-
