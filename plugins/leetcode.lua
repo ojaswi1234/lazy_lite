@@ -5680,10 +5680,11 @@ function StudyPlanView:new()
   
   self.plan_data = nil
   self.calendar_data = nil
-  self.username = "ojaswi1234" -- Ideally fetched from auth state
+  self.username = "ojaswi1234"
   self.collapsed_sections = {}
   
   self.show_dropdown = false
+  self.click_zones = {}
   
   self:fetch_data()
 end
@@ -5701,7 +5702,6 @@ function StudyPlanView:fetch_data()
     end
   end)
   
-  -- Calendar only needs to be fetched once unless username changes
   if not self.calendar_data then
     api_call({cmd = "user_calendar", username = self.username, year = 2026}, function(res)
       if res and res.ok and res.data then
@@ -5718,34 +5718,57 @@ function StudyPlanView:fetch_data()
   end
 end
 
+function StudyPlanView:on_mouse_pressed(button, x, y, clicks)
+  local res = StudyPlanView.super.on_mouse_pressed(self, button, x, y, clicks)
+  if res then return res end
+  
+  for _, zone in ipairs(self.click_zones) do
+    if x >= zone.x and x <= zone.x + zone.w and y >= zone.y and y <= zone.y + zone.h then
+      if zone.action == "toggle_dropdown" then
+        self.show_dropdown = not self.show_dropdown
+        core.redraw = true
+        return true
+      elseif zone.action == "select_plan" then
+        self.current_plan_idx = zone.idx
+        self.plan_slug = self.available_plans[self.current_plan_idx].slug
+        self.show_dropdown = false
+        self.collapsed_sections = {}
+        self:fetch_data()
+        core.redraw = true
+        return true
+      elseif zone.action == "toggle_section" then
+        self.collapsed_sections[zone.name] = not self.collapsed_sections[zone.name]
+        core.redraw = true
+        return true
+      end
+    end
+  end
+end
+
 function StudyPlanView:draw()
   self:draw_background(style.background)
   local x, y = self.position.x, self.position.y
   local pad = 15
   
+  self.click_zones = {} -- Reset click zones on every frame
+  
   y = y + pad
   x = x + pad
   
-  -- Draw Dropdown Header
+  local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
+  
   local dropdown_label = "Study Plan: ▼ " .. self.available_plans[self.current_plan_idx].label
   local dropdown_w = style.big_font:get_width(dropdown_label) + 20
   local dropdown_h = style.big_font:get_height()
   
-  local is_hovered = false
-  if core.window.mouse.x >= x and core.window.mouse.x <= x + dropdown_w and core.window.mouse.y >= y and core.window.mouse.y <= y + dropdown_h then
-    is_hovered = true
-    if core.window.mouse_pressed_trigger then
-      self.show_dropdown = not self.show_dropdown
-      core.redraw = true
-    end
-  end
+  local is_hovered = mx >= x and mx <= x + dropdown_w and my >= y and my <= y + dropdown_h
+  table.insert(self.click_zones, {x = x, y = y, w = dropdown_w, h = dropdown_h, action = "toggle_dropdown"})
   
   renderer.draw_rect(x, y, dropdown_w, dropdown_h, is_hovered and style.line_highlight or style.background)
   renderer.draw_text(style.big_font, dropdown_label, x + 5, y, style.text)
   
   y = y + dropdown_h + 10
   
-  -- Render simple calendar placeholder / stats
   if self.calendar_data then
     local txt = string.format("Streak: %s  |  Active Days: %s", self.calendar_data.streak or 0, self.calendar_data.totalActiveDays or 0)
     renderer.draw_text(style.font, txt, x, y, style.accent)
@@ -5757,17 +5780,8 @@ function StudyPlanView:draw()
       local is_collapsed = self.collapsed_sections[group.name]
       local icon = is_collapsed and "▶" or "▼"
       
-      -- Draw group header
       renderer.draw_text(style.font, icon .. " " .. group.name, x, y, style.text)
-      
-      -- Quick click area for collapse/expand
-      if core.window.mouse_pressed_trigger then
-        local mx, my = core.window.mouse.x, core.window.mouse.y
-        if mx >= x and mx <= x + 300 and my >= y and my <= y + style.font:get_height() then
-           self.collapsed_sections[group.name] = not is_collapsed
-           core.redraw = true
-        end
-      end
+      table.insert(self.click_zones, {x = x, y = y, w = 300, h = style.font:get_height(), action = "toggle_section", name = group.name})
       
       y = y + style.font:get_height() + 5
       
@@ -5785,7 +5799,6 @@ function StudyPlanView:draw()
     renderer.draw_text(style.font, "Loading plan data...", x, y, style.dim)
   end
   
-  -- Overlay Dropdown Menu (Drawn last so it overlaps)
   if self.show_dropdown then
     local menu_x = x
     local menu_y = self.position.y + pad + dropdown_h
@@ -5793,24 +5806,16 @@ function StudyPlanView:draw()
     local menu_w = 200
     
     renderer.draw_rect(menu_x, menu_y, menu_w, #self.available_plans * item_h, style.background)
-    -- renderer.draw_rect(menu_x, menu_y, menu_w, #self.available_plans * item_h, style.text) -- outline? nah
     
     for i, plan in ipairs(self.available_plans) do
       local ix = menu_x
       local iy = menu_y + (i - 1) * item_h
       
-      local m_hover = core.window.mouse.x >= ix and core.window.mouse.x <= ix + menu_w and core.window.mouse.y >= iy and core.window.mouse.y <= iy + item_h
+      local m_hover = mx >= ix and mx <= ix + menu_w and my >= iy and my <= iy + item_h
       renderer.draw_rect(ix, iy, menu_w, item_h, m_hover and style.line_highlight or style.background)
       renderer.draw_text(style.font, plan.label, ix + 10, iy + 4, style.text)
       
-      if m_hover and core.window.mouse_pressed_trigger then
-        self.current_plan_idx = i
-        self.plan_slug = plan.slug
-        self.show_dropdown = false
-        self.collapsed_sections = {}
-        self:fetch_data()
-        core.redraw = true
-      end
+      table.insert(self.click_zones, {x = ix, y = iy, w = menu_w, h = item_h, action = "select_plan", idx = i})
     end
   end
 end
