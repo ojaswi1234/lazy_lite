@@ -5684,6 +5684,7 @@ function StudyPlanView:new()
   self.collapsed_sections = {}
   
   self.show_dropdown = false
+  self.content_height = 0
   self.click_zones = {}
   
   self:fetch_data()
@@ -5691,6 +5692,10 @@ end
 
 function StudyPlanView:get_name()
   return "LeetCode Study Plan"
+end
+
+function StudyPlanView:get_scrollable_size()
+  return self.content_height or 0
 end
 
 function StudyPlanView:fetch_data()
@@ -5732,6 +5737,7 @@ function StudyPlanView:on_mouse_pressed(button, x, y, clicks)
         self.current_plan_idx = zone.idx
         self.plan_slug = self.available_plans[self.current_plan_idx].slug
         self.show_dropdown = false
+  self.content_height = 0
         self.collapsed_sections = {}
         self:fetch_data()
         core.redraw = true
@@ -5796,7 +5802,7 @@ function StudyPlanView:draw()
     y = y + style.font:get_height() + 10
   end
   
-  self.max_scroll.y = math.max(0, y - (self.position.y - self.scroll.y) - self.size.y + pad)
+  self.content_height = y - (self.position.y - self.scroll.y) + pad
   
   -- Overlay Dropdown Menu (Fixed position relative to scrolled header)
   if self.show_dropdown then
