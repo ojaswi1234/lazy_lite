@@ -5661,3 +5661,105 @@ function LeetCodeView:set_target_size(axis, value)
 end
 
 return LeetCodeView
+
+-- =========================================================================
+-- Study Plan & Calendar View
+-- =========================================================================
+local StudyPlanView = View:extend()
+
+function StudyPlanView:new()
+  StudyPlanView.super.new(self)
+  self.scrollable = true
+  self.plan_slug = "top-interview-150"
+  self.plan_data = nil
+  self.calendar_data = nil
+  self.username = "ojaswi1234" -- Defaulting based on context
+  self.collapsed_sections = {}
+  
+  self:fetch_data()
+end
+
+function StudyPlanView:get_name()
+  return "LeetCode Study Plan"
+end
+
+function StudyPlanView:fetch_data()
+  api_call({cmd = "study_plan_detail", slug = self.plan_slug}, function(res)
+    if res and res.ok and res.data then
+      self.plan_data = res.data.studyPlanV2Detail
+      core.redraw = true
+    end
+  end)
+  
+  api_call({cmd = "user_calendar", username = self.username, year = 2026}, function(res)
+    if res and res.ok and res.data then
+      self.calendar_data = res.data.matchedUser and res.data.matchedUser.userCalendar
+      if self.calendar_data and self.calendar_data.submissionCalendar then
+        -- Parse stringified JSON to table
+        local ok, parsed = pcall(json.decode, self.calendar_data.submissionCalendar)
+        if ok then
+          self.calendar_data.parsed_subs = parsed
+        end
+      end
+      core.redraw = true
+    end
+  end)
+end
+
+function StudyPlanView:draw()
+  self:draw_background(style.background)
+  local x, y = self.position.x, self.position.y
+  local pad = 15
+  
+  y = y + pad
+  x = x + pad
+  
+  renderer.draw_text(style.big_font, "Study Plan: " .. (self.plan_data and self.plan_data.name or "Loading..."), x, y, style.text)
+  y = y + style.big_font:get_height() + 10
+  
+  -- Render simple calendar placeholder / stats
+  if self.calendar_data then
+    local txt = string.format("Streak: %s  |  Active Days: %s", self.calendar_data.streak or 0, self.calendar_data.totalActiveDays or 0)
+    renderer.draw_text(style.font, txt, x, y, style.accent)
+    y = y + style.font:get_height() + 20
+  end
+  
+  if self.plan_data and self.plan_data.planSubGroups then
+    for i, group in ipairs(self.plan_data.planSubGroups) do
+      local is_collapsed = self.collapsed_sections[group.name]
+      local icon = is_collapsed and "▶" or "▼"
+      
+      -- Draw group header
+      renderer.draw_text(style.font, icon .. " " .. group.name, x, y, style.text)
+      
+      -- Quick click area for collapse/expand
+      if core.window.mouse_pressed_trigger then
+        local mx, my = core.window.mouse.x, core.window.mouse.y
+        if mx >= x and mx <= x + 200 and my >= y and my <= y + style.font:get_height() then
+           self.collapsed_sections[group.name] = not is_collapsed
+           core.redraw = true
+        end
+      end
+      
+      y = y + style.font:get_height() + 5
+      
+      if not is_collapsed and group.questions then
+        for j, q in ipairs(group.questions) do
+          local q_icon = q.hasSolution and "[✓]" or "[ ]"
+          local q_color = q.hasSolution and style.good or style.dim
+          renderer.draw_text(style.font, "   " .. q_icon .. " " .. q.title, x, y, q_color)
+          y = y + style.font:get_height() + 3
+        end
+      end
+      y = y + 10
+    end
+  end
+end
+
+command.add(nil, {
+  ["leetcode:open-study-plan"] = function()
+    local node = core.root_view:get_active_node_default()
+    node:add_view(StudyPlanView())
+  end,
+})
+

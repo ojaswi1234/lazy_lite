@@ -2953,6 +2953,83 @@ def cmd_submit(params):
         return {"ok": False, "error": str(e)}
 
 # ── main loop ──────────────────────────────────────────────────────────────────
+
+def cmd_study_plan_detail(params, req_id):
+    slug = params.get("slug")
+    if not slug:
+        return {"ok": False, "error": "Missing slug"}
+    query = '''
+    query studyPlanV2Detail($slug: String!) {
+      studyPlanV2Detail(planSlug: $slug) {
+        name
+        slug
+        planSubGroups {
+          name
+          slug
+          questions {
+            title
+            titleSlug
+            hasSolution
+          }
+        }
+      }
+    }
+    '''
+    try:
+        resp = session.post(GRAPHQL_URL, json={'query': query, 'variables': {'slug': slug}})
+        data = resp.json()
+        return {"ok": True, "data": data.get("data", {})}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def cmd_favorite_lists(params, req_id):
+    query = '''
+    query favoriteList {
+      favoritesLists {
+        allFavorites {
+          id
+          name
+          isPublic
+          questions {
+            title
+            titleSlug
+          }
+        }
+      }
+    }
+    '''
+    try:
+        resp = session.post(GRAPHQL_URL, json={'query': query})
+        data = resp.json()
+        return {"ok": True, "data": data.get("data", {})}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def cmd_user_calendar(params, req_id):
+    username = params.get("username")
+    year = params.get("year", 2026)
+    if not username:
+        return {"ok": False, "error": "Missing username"}
+    query = '''
+    query userProfileCalendar($username: String!, $year: Int) {
+      matchedUser(username: $username) {
+        userCalendar(year: $year) {
+          activeYears
+          streak
+          totalActiveDays
+          submissionCalendar
+        }
+      }
+    }
+    '''
+    try:
+        resp = session.post(GRAPHQL_URL, json={'query': query, 'variables': {'username': username, 'year': year}})
+        data = resp.json()
+        return {"ok": True, "data": data.get("data", {})}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+# -----------------
 HANDLERS = {
     "auth_check":        cmd_auth_check,
     "auth_set":          cmd_auth_set,
@@ -2971,6 +3048,9 @@ HANDLERS = {
     "topic_tags":        cmd_topic_tags,
     "company_list":      cmd_company_list,
     "companies":         cmd_company_list,
+    "study_plan_detail": cmd_study_plan_detail,
+    "favorite_lists":    cmd_favorite_lists,
+    "user_calendar":     cmd_user_calendar,
     "verify_db":          cmd_verify_db,
     "reconcile_db":       cmd_verify_db,
 }
