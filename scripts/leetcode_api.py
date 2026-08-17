@@ -2976,7 +2976,7 @@ def cmd_study_plan_detail(params, req_id):
     }
     '''
     try:
-        resp = session.post(GRAPHQL_URL, json={'query': query, 'variables': {'slug': slug}})
+        resp = _requests_session.post(GRAPHQL_URL, timeout=10, json={'query': query, 'variables': {'slug': slug}})
         data = resp.json()
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:
@@ -2999,7 +2999,7 @@ def cmd_favorite_lists(params, req_id):
     }
     '''
     try:
-        resp = session.post(GRAPHQL_URL, json={'query': query})
+        resp = _requests_session.post(GRAPHQL_URL, timeout=10, json={'query': query})
         data = resp.json()
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:
@@ -3023,7 +3023,7 @@ def cmd_user_calendar(params, req_id):
     }
     '''
     try:
-        resp = session.post(GRAPHQL_URL, json={'query': query, 'variables': {'username': username, 'year': year}})
+        resp = _requests_session.post(GRAPHQL_URL, timeout=10, json={'query': query, 'variables': {'username': username, 'year': year}})
         data = resp.json()
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:

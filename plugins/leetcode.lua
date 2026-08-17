@@ -5747,14 +5747,10 @@ end
 
 function StudyPlanView:draw()
   self:draw_background(style.background)
-  local x, y = self.position.x, self.position.y
   local pad = 15
+  local x, y = self.position.x + pad, self.position.y + pad - self.scroll.y
   
-  self.click_zones = {} -- Reset click zones on every frame
-  
-  y = y + pad
-  x = x + pad
-  
+  self.click_zones = {}
   local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
   
   local dropdown_label = "Study Plan: ▼ " .. self.available_plans[self.current_plan_idx].label
@@ -5797,11 +5793,15 @@ function StudyPlanView:draw()
     end
   elseif not self.plan_data then
     renderer.draw_text(style.font, "Loading plan data...", x, y, style.dim)
+    y = y + style.font:get_height() + 10
   end
   
+  self.max_scroll.y = math.max(0, y - (self.position.y - self.scroll.y) - self.size.y + pad)
+  
+  -- Overlay Dropdown Menu (Fixed position relative to scrolled header)
   if self.show_dropdown then
     local menu_x = x
-    local menu_y = self.position.y + pad + dropdown_h
+    local menu_y = self.position.y + pad - self.scroll.y + dropdown_h
     local item_h = style.font:get_height() + 8
     local menu_w = 200
     
