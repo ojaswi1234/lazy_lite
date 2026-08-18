@@ -5902,116 +5902,121 @@ function StudyPlanView:draw()
   self:draw_background(style.background)
 
   local W   = self.size.x
+  local H   = self.size.y
   local pad = 16
-  local x   = self.position.x + pad
-  local y   = self.position.y + pad - self.scroll.y
+  local fh  = style.font:get_height()
   local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
 
   self.click_zones = {}
 
-  -- ── 1. Dropdown ────────────────────────────────────────────────────
-  local plan_label   = self.available_plans[self.current_plan_idx].label
-  local dd_text      = "Study Plan: " .. plan_label .. " \xe2\x96\xbc"  -- ▼ in UTF-8
-  local dd_w         = style.big_font:get_width(dd_text) + 24
-  local dd_h         = style.big_font:get_height() + 8
-  local dd_hovered   = mx >= x and mx <= x + dd_w and my >= y and my <= y + dd_h
+  -- ── Column layout ──────────────────────────────────────────────────
+  -- Right calendar panel: fixed 220px wide, flush right, no divider
+  local cal_panel_w = 220
+  local col_gap     = 28          -- invisible breathing room between columns
+  local left_x      = self.position.x + pad
+  local left_w      = W - pad * 2 - cal_panel_w - col_gap  -- list column width
+  local right_x     = self.position.x + W - pad - cal_panel_w
+  local top_y       = self.position.y + pad - self.scroll.y
 
-  renderer.draw_rect(x, y, dd_w, dd_h, dd_hovered and style.line_highlight or style.background2 or style.background)
-  renderer.draw_text(style.big_font, dd_text, x + 8, y + 4, style.text)
-  table.insert(self.click_zones, { x = x, y = y, w = dd_w, h = dd_h, action = "toggle_dropdown" })
-  y = y + dd_h + 12
+  -- ── LEFT: Dropdown ─────────────────────────────────────────────────
+  local lx = left_x
+  local ly = top_y
 
-  -- ── 2. Calendar ────────────────────────────────────────────────────
-  if self.calendar_data then
-    local cal = self.calendar_data
-    local streak_txt = string.format(
-      "Streak: %d day%s  |  Active Days: %d  |  User: %s",
-      cal.streak or 0,
-      (cal.streak or 0) == 1 and "" or "s",
-      cal.totalActiveDays or 0,
-      self.username or "?"
-    )
-    renderer.draw_text(style.font, streak_txt, x, y, style.accent)
-    y = y + style.font:get_height() + 10
+  local plan_label = self.available_plans[self.current_plan_idx].label
+  local dd_text    = "Study Plan: " .. plan_label .. " \xe2\x96\xbc"
+  local dd_w       = math.min(style.big_font:get_width(dd_text) + 24, left_w)
+  local dd_h       = style.big_font:get_height() + 8
+  local dd_hov     = mx >= lx and mx <= lx + dd_w and my >= ly and my <= ly + dd_h
 
-    -- mini calendar heatmap
-    local cal_w = math.min(W - pad * 2, 260)
-    y = draw_calendar(x, y, cal_w, cal, style.small_font or style.font) + 12
-  else
-    renderer.draw_text(style.font, "Loading activity calendar...", x, y, style.dim)
-    y = y + style.font:get_height() + 10
-  end
+  renderer.draw_rect(lx, ly, dd_w, dd_h, dd_hov and style.line_highlight or style.background2 or style.background)
+  renderer.draw_text(style.big_font, dd_text, lx + 8, ly + 4, style.text)
+  table.insert(self.click_zones, { x = lx, y = ly, w = dd_w, h = dd_h, action = "toggle_dropdown" })
+  ly = ly + dd_h + 10
 
-  -- ── 3. Separator ───────────────────────────────────────────────────
-  renderer.draw_rect(x, y, W - pad * 2, 1, style.dim)
-  y = y + 10
-
-  -- ── 4. Problem list ────────────────────────────────────────────────
-  local fh = style.font:get_height()
-
+  -- ── LEFT: Problem list ─────────────────────────────────────────────
   if self.loading then
-    renderer.draw_text(style.font, "Loading plan data...", x, y, style.dim)
-    y = y + fh + 8
+    renderer.draw_text(style.font, "Loading plan data...", lx, ly, style.dim)
+    ly = ly + fh + 8
   elseif not self.plan_data then
-    renderer.draw_text(style.font, "Failed to load plan. Check your connection.", x, y, { 1, 0.4, 0.4, 1 })
-    y = y + fh + 8
+    renderer.draw_text(style.font, "Failed to load plan. Check your connection.", lx, ly, { 1, 0.4, 0.4, 1 })
+    ly = ly + fh + 8
   else
     local groups = self.plan_data.planSubGroups or {}
     for _, grp in ipairs(groups) do
       local collapsed  = self.collapsed_sections[grp.name]
-      local arrow      = collapsed and "\xe2\x96\xb6" or "\xe2\x96\xbc"  -- ▶ / ▼
+      local arrow      = collapsed and "\xe2\x96\xb6" or "\xe2\x96\xbc"
       local qs         = grp.questions or {}
       local done_count = 0
       for _, q in ipairs(qs) do
         if (q.status == "AC" or q.status == "PAST_SOLVED") then done_count = done_count + 1 end
       end
-      local hdr_text  = string.format("%s %s  (%d/%d)", arrow, grp.name, done_count, #qs)
-      local hdr_hov   = mx >= x and mx <= x + W - pad * 2 and my >= y and my <= y + fh + 4
-      renderer.draw_rect(x, y, W - pad * 2, fh + 4, hdr_hov and style.line_highlight or style.background)
-      renderer.draw_text(style.font, hdr_text, x + 4, y + 2, style.text)
-      table.insert(self.click_zones, { x = x, y = y, w = W - pad * 2, h = fh + 4, action = "toggle_section", name = grp.name })
-      y = y + fh + 6
+      local hdr_text = string.format("%s %s  (%d/%d)", arrow, grp.name, done_count, #qs)
+      local hdr_hov  = mx >= lx and mx <= lx + left_w and my >= ly and my <= ly + fh + 4
+      renderer.draw_rect(lx, ly, left_w, fh + 4, hdr_hov and style.line_highlight or style.background)
+      renderer.draw_text(style.font, hdr_text, lx + 4, ly + 2, style.text)
+      table.insert(self.click_zones, { x = lx, y = ly, w = left_w, h = fh + 4, action = "toggle_section", name = grp.name })
+      ly = ly + fh + 6
 
       if not collapsed then
         for _, q in ipairs(qs) do
-          local is_ac    = (q.status == "AC" or q.status == "PAST_SOLVED")
-          local icon     = is_ac and "\xe2\x9c\x93 " or "  "   -- ✓
-          local q_color  = is_ac and (style.good or { 0.3, 0.9, 0.5, 1 }) or style.text
-          local q_text   = icon .. q.title
-          local q_hov    = mx >= x + 20 and mx <= x + W - pad and my >= y and my <= y + fh + 2
+          local is_ac   = (q.status == "AC" or q.status == "PAST_SOLVED")
+          local icon    = is_ac and "\xe2\x9c\x93 " or "  "
+          local q_color = is_ac and (style.good or { 0.3, 0.9, 0.5, 1 }) or style.text
+          local q_hov   = mx >= lx + 20 and mx <= lx + left_w and my >= ly and my <= ly + fh + 2
           if q_hov then
-            renderer.draw_rect(x + 20, y, W - pad - 20, fh + 2, style.line_highlight)
+            renderer.draw_rect(lx + 20, ly, left_w - 20, fh + 2, style.line_highlight)
           end
-          renderer.draw_text(style.font, q_text, x + 24, y + 1, q_color)
+          renderer.draw_text(style.font, icon .. q.title, lx + 24, ly + 1, q_color)
           table.insert(self.click_zones, {
-            x = x + 20, y = y, w = W - pad - 20, h = fh + 2,
+            x = lx + 20, y = ly, w = left_w - 20, h = fh + 2,
             action = "open_problem", slug = q.titleSlug or q.slug or "",
           })
-          y = y + fh + 3
+          ly = ly + fh + 3
         end
-        y = y + 6
+        ly = ly + 6
       end
     end
   end
 
-  -- ── 5. Update scrollable height ────────────────────────────────────
-  self.content_height = y - self.position.y + self.scroll.y + pad
+  -- ── RIGHT COLUMN: Calendar heatmap ─────────────────────────────────
+  -- Fixed to the visible window top — doesn't scroll with the left list
+  local ry = self.position.y + 16
+  core.push_clip_rect(right_x, self.position.y, cal_panel_w, H)
 
-  -- ── 6. Dropdown overlay (drawn last so it floats on top) ───────────
+  if self.calendar_data then
+    local cal = self.calendar_data
+    -- Streak / active days mini stats
+    local str_txt = string.format("%d day streak", cal.streak or 0)
+    local act_txt = string.format("%d active days", cal.totalActiveDays or 0)
+    renderer.draw_text(style.font, str_txt, right_x, ry, style.accent)
+    ry = ry + fh + 3
+    renderer.draw_text(style.font, act_txt, right_x, ry, style.dim)
+    ry = ry + fh + 12
+    draw_calendar(right_x, ry, cal_panel_w, cal, style.small_font or style.font)
+  else
+    renderer.draw_text(style.font, "Loading calendar...", right_x, ry, style.dim)
+  end
+
+  core.pop_clip_rect()
+
+  -- ── Update scrollable height (left column drives scroll) ───────────
+  self.content_height = ly - self.position.y + self.scroll.y + pad
+
+  -- ── Dropdown overlay (drawn last so it floats on top) ──────────────
   if self.show_dropdown then
     local item_h = fh + 8
     local menu_w = 240
     local menu_x = self.position.x + pad
-    local menu_y = self.position.y + pad + dd_h + 2  -- fixed, ignore scroll
+    local menu_y = self.position.y + pad + dd_h + 2
     local menu_h = #self.available_plans * item_h + 4
 
     renderer.draw_rect(menu_x, menu_y, menu_w, menu_h, style.background2 or style.background)
     draw_rect_outline(menu_x, menu_y, menu_w, menu_h, style.dim)
 
     for i, plan in ipairs(self.available_plans) do
-      local iy    = menu_y + 2 + (i - 1) * item_h
-      local hov   = mx >= menu_x and mx <= menu_x + menu_w and my >= iy and my <= iy + item_h
-      local sel   = (i == self.current_plan_idx)
+      local iy  = menu_y + 2 + (i - 1) * item_h
+      local hov = mx >= menu_x and mx <= menu_x + menu_w and my >= iy and my <= iy + item_h
+      local sel = (i == self.current_plan_idx)
       renderer.draw_rect(menu_x + 2, iy, menu_w - 4, item_h,
         sel and (style.selection or style.line_highlight) or
         (hov and style.line_highlight or (style.background2 or style.background))
@@ -6022,6 +6027,7 @@ function StudyPlanView:draw()
     end
   end
 end
+
 
 command.add(nil, {
   ["leetcode:open-study-plan"] = function()
