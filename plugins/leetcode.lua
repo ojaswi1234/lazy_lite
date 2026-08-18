@@ -5793,20 +5793,34 @@ function StudyPlanView:on_mouse_pressed(btn, x, y, clicks)
         return true
 
       elseif z.action == "open_problem" then
-        -- fetch detail then open, same pattern as the list view
-        api_call({ cmd = "problem_detail", slug = z.slug }, function(resp)
-          if resp and resp.ok and resp.data then
-            local lc = lc_view or core.root_view:get_active_node_default()
-            local lang = "python3"
-            open_problem(resp.data, lang)
-            core.redraw = true
-          else
-            core.log("[Study Plan] Failed to fetch problem: " .. (resp and resp.error or "?"))
-          end
-        end)
+        -- Navigate to the main LeetCodeView detail page (same as clicking from the list)
+        -- This shows the full detail view: topics, language picker, company tags, etc.
+        if not lc_view then
+          core.log("[Study Plan] LeetCode panel not open. Open it first with leetcode:toggle.")
+          return true
+        end
+
+        lc_view.state       = "loading"
+        lc_view.loading_msg = "Loading " .. (z.title or z.slug or "problem") .. "..."
+        core.set_active_view(lc_view)
         core.redraw = true
+
+        api_call({ cmd = "problem_detail", slug = z.slug }, function(resp)
+          if not lc_view then return end
+          if resp and resp.ok and resp.data then
+            lc_view.current   = resp.data
+            lc_view.state     = "problem"
+            lc_view.scroll_y  = 0
+          else
+            lc_view.state      = "list"
+            lc_view.last_error = "[Study Plan] Failed to load: " .. (resp and resp.error or "?")
+            core.log(lc_view.last_error)
+          end
+          core.redraw = true
+        end)
         return true
       end
+
     end
   end
   return false
@@ -5969,7 +5983,7 @@ function StudyPlanView:draw()
           renderer.draw_text(style.font, icon .. q.title, lx + 24, ly + 1, q_color)
           table.insert(self.click_zones, {
             x = lx + 20, y = ly, w = left_w - 20, h = fh + 2,
-            action = "open_problem", slug = q.titleSlug or q.slug or "",
+            action = "open_problem", slug = q.titleSlug or q.slug or "", title = q.title or "",
           })
           ly = ly + fh + 3
         end
