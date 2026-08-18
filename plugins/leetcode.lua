@@ -3189,6 +3189,28 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
       end
     end
 
+    -- Study Plans button — opens StudyPlanView in a new node tab
+    if self.study_plan_btn_rect then
+      local r = self.study_plan_btn_rect
+      if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
+        -- Check if a StudyPlanView is already open; focus it, else create
+        local found = false
+        for _, view in ipairs(core.root_view.root.a and {} or {}) do
+          if view:is(StudyPlanView) then
+            core.root_view:set_active_view(view)
+            found = true
+            break
+          end
+        end
+        if not found then
+          local node = core.root_view:get_active_node_default()
+          node:add_view(StudyPlanView())
+        end
+        core.redraw = true
+        return true
+      end
+    end
+
     -- Search box
     if self.clear_btn_rect then
       local r = self.clear_btn_rect
@@ -4938,6 +4960,17 @@ function LeetCodeView:draw()
     renderer.draw_rect(tx, cy, pick_w, th, style.background2)
     renderer.draw_rect(tx, cy, pick_w, 1*SCALE, style.dim)
     renderer.draw_text(style.font, pick_lbl, tx + 7*SCALE, cy + 3*SCALE, style.text)
+    tx = tx + pick_w + 6*SCALE
+
+    -- [Study Plans] — opens StudyPlanView in a new tab
+    local sp_lbl = "\xe2\x93\x9f Study Plans"   -- Ⓟ Study Plans (UTF-8)
+    local sp_w   = style.font:get_width(sp_lbl) + 14*SCALE
+    if tx + sp_w > cx + cw then tx = cx; cy = cy + th + 6*SCALE end
+    self.study_plan_btn_rect = {x=tx, y=cy, w=sp_w, h=th}
+    local sp_acc = LC_COLORS.accepted or style.accent
+    renderer.draw_rect(tx, cy, sp_w, th, {sp_acc[1], sp_acc[2], sp_acc[3], 0.12})
+    renderer.draw_rect(tx, cy, sp_w, 1*SCALE, sp_acc)
+    renderer.draw_text(style.font, sp_lbl, tx + 7*SCALE, cy + 3*SCALE, sp_acc)
 
     -- [Update Database] button (far-right of toolbar row)
     local upd_lbl = "[~] Update DB"
