@@ -5983,21 +5983,57 @@ function StudyPlanView:draw()
   local ry = self.position.y + 16
   core.push_clip_rect(right_x, self.position.y, cal_panel_w, H)
 
+  if self.plan_data then
+    -- ── Plan progress stats (changes per plan) ─────────────────────────
+    local groups  = self.plan_data.planSubGroups or {}
+    local total_q = 0
+    local done_q  = 0
+
+    for _, grp in ipairs(groups) do
+      for _, q in ipairs(grp.questions or {}) do
+        total_q = total_q + 1
+        if (q.status == "AC" or q.status == "PAST_SOLVED") then
+          done_q = done_q + 1
+        end
+      end
+    end
+
+    -- Plan name header
+    local plan_name = (self.plan_data.name or self.available_plans[self.current_plan_idx].label)
+    renderer.draw_text(style.font, plan_name, right_x, ry, style.text)
+    ry = ry + fh + 6
+
+    -- Completion fraction
+    local pct      = total_q > 0 and math.floor(done_q / total_q * 100) or 0
+    local frac_txt = string.format("%d / %d  (%d%%)", done_q, total_q, pct)
+    renderer.draw_text(style.font, frac_txt, right_x, ry, style.accent)
+    ry = ry + fh + 5
+
+    -- Progress bar
+    local bar_h = 6
+    renderer.draw_rect(right_x, ry, cal_panel_w, bar_h, style.background2 or style.background)
+    local fill_w = total_q > 0 and math.floor(cal_panel_w * done_q / total_q) or 0
+    if fill_w > 0 then
+      renderer.draw_rect(right_x, ry, fill_w, bar_h, LC_COLORS.accepted or { 0.3, 0.9, 0.5, 1 })
+    end
+    ry = ry + bar_h + 16
+  end
+
+  -- ── Global activity calendar (same for all plans by design) ─────────
   if self.calendar_data then
     local cal = self.calendar_data
-    -- Streak / active days mini stats
-    local str_txt = string.format("%d day streak", cal.streak or 0)
-    local act_txt = string.format("%d active days", cal.totalActiveDays or 0)
-    renderer.draw_text(style.font, str_txt, right_x, ry, style.accent)
-    ry = ry + fh + 3
-    renderer.draw_text(style.font, act_txt, right_x, ry, style.dim)
-    ry = ry + fh + 12
+    renderer.draw_text(style.font, "Your Activity", right_x, ry, style.text)
+    ry = ry + fh + 2
+    local str_txt = string.format("%d day streak  \xc2\xb7  %d active days", cal.streak or 0, cal.totalActiveDays or 0)
+    renderer.draw_text(style.font, str_txt, right_x, ry, style.dim)
+    ry = ry + fh + 8
     draw_calendar(right_x, ry, cal_panel_w, cal, style.small_font or style.font)
   else
     renderer.draw_text(style.font, "Loading calendar...", right_x, ry, style.dim)
   end
 
   core.pop_clip_rect()
+
 
   -- ── Update scrollable height (left column drives scroll) ───────────
   self.content_height = ly - self.position.y + self.scroll.y + pad
