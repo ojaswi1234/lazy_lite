@@ -3193,9 +3193,7 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
     if self.study_plan_btn_rect then
       local r = self.study_plan_btn_rect
       if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
-        local node = core.root_view:get_active_node_default()
-        node:add_view(StudyPlanView())
-        core.redraw = true
+        command.perform("leetcode:open-study-plan")
         return true
       end
     end
