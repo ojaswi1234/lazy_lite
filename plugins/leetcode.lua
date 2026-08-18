@@ -3193,19 +3193,8 @@ function LeetCodeView:on_mouse_pressed(btn, mouse_x, mouse_y, clicks)
     if self.study_plan_btn_rect then
       local r = self.study_plan_btn_rect
       if mouse_x >= r.x and mouse_x <= r.x + r.w and mouse_y >= r.y and mouse_y <= r.y + r.h then
-        -- Check if a StudyPlanView is already open; focus it, else create
-        local found = false
-        for _, view in ipairs(core.root_view.root.a and {} or {}) do
-          if view:is(StudyPlanView) then
-            core.root_view:set_active_view(view)
-            found = true
-            break
-          end
-        end
-        if not found then
-          local node = core.root_view:get_active_node_default()
-          node:add_view(StudyPlanView())
-        end
+        local node = core.root_view:get_active_node_default()
+        node:add_view(StudyPlanView())
         core.redraw = true
         return true
       end
