@@ -4950,7 +4950,7 @@ function LeetCodeView:draw()
     tx = tx + pick_w + 6*SCALE
 
     -- [Study Plans] — opens StudyPlanView in a new tab
-    local sp_lbl = "\xe2\x93\x9f Study Plans"   -- Ⓟ Study Plans (UTF-8)
+    local sp_lbl = "[P] Study Plans"   -- Ⓟ Study Plans (UTF-8)
     local sp_w   = style.font:get_width(sp_lbl) + 14*SCALE
     if tx + sp_w > cx + cw then tx = cx; cy = cy + th + 6*SCALE end
     self.study_plan_btn_rect = {x=tx, y=cy, w=sp_w, h=th}
@@ -5923,7 +5923,7 @@ function StudyPlanView:draw()
   local ly = top_y
 
   local plan_label = self.available_plans[self.current_plan_idx].label
-  local dd_text    = "Study Plan: " .. plan_label .. " \xe2\x96\xbc"
+  local dd_text    = "Study Plan: " .. plan_label .. " v"
   local dd_w       = math.min(style.big_font:get_width(dd_text) + 24, left_w)
   local dd_h       = style.big_font:get_height() + 8
   local dd_hov     = mx >= lx and mx <= lx + dd_w and my >= ly and my <= ly + dd_h
@@ -5944,7 +5944,7 @@ function StudyPlanView:draw()
     local groups = self.plan_data.planSubGroups or {}
     for _, grp in ipairs(groups) do
       local collapsed  = self.collapsed_sections[grp.name]
-      local arrow      = collapsed and "\xe2\x96\xb6" or "\xe2\x96\xbc"
+      local arrow      = collapsed and ">" or "v"
       local qs         = grp.questions or {}
       local done_count = 0
       for _, q in ipairs(qs) do
@@ -5960,7 +5960,7 @@ function StudyPlanView:draw()
       if not collapsed then
         for _, q in ipairs(qs) do
           local is_ac   = (q.status == "AC" or q.status == "PAST_SOLVED")
-          local icon    = is_ac and "\xe2\x9c\x93 " or "  "
+          local icon    = is_ac and "[+] " or "  "
           local q_color = is_ac and (style.good or { 0.3, 0.9, 0.5, 1 }) or style.text
           local q_hov   = mx >= lx + 20 and mx <= lx + left_w and my >= ly and my <= ly + fh + 2
           if q_hov then
@@ -6024,7 +6024,7 @@ function StudyPlanView:draw()
     local cal = self.calendar_data
     renderer.draw_text(style.font, "Your Activity", right_x, ry, style.text)
     ry = ry + fh + 2
-    local str_txt = string.format("%d day streak  \xc2\xb7  %d active days", cal.streak or 0, cal.totalActiveDays or 0)
+    local str_txt = string.format("%d day streak  -  %d active days", cal.streak or 0, cal.totalActiveDays or 0)
     renderer.draw_text(style.font, str_txt, right_x, ry, style.dim)
     ry = ry + fh + 8
     draw_calendar(right_x, ry, cal_panel_w, cal, style.small_font or style.font)
