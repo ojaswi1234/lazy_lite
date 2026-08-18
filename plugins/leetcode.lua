@@ -5668,160 +5668,337 @@ local StudyPlanView = View:extend()
 function StudyPlanView:new()
   StudyPlanView.super.new(self)
   self.scrollable = true
-  
+
   self.available_plans = {
     { label = "Top Interview 150", slug = "top-interview-150" },
-    { label = "LeetCode 75", slug = "leetcode-75" },
-    { label = "SQL 50", slug = "sql-50" },
-    { label = "Top 100 Liked", slug = "top-100-liked" }
+    { label = "LeetCode 75",       slug = "leetcode-75" },
+    { label = "SQL 50",            slug = "sql-50" },
+    { label = "Top 100 Liked",     slug = "top-100-liked" },
   }
   self.current_plan_idx = 1
-  self.plan_slug = self.available_plans[self.current_plan_idx].slug
-  
-  self.plan_data = nil
+  self.plan_slug  = self.available_plans[1].slug
+  self.plan_data  = nil
   self.calendar_data = nil
-  self.username = "ojaswi1234"
+  self.username   = nil          -- resolved dynamically from auth_check
+
   self.collapsed_sections = {}
-  
-  self.show_dropdown = false
+  self.show_dropdown  = false
   self.content_height = 0
-  self.click_zones = {}
-  
-  self:fetch_data()
+  self.click_zones    = {}
+  self.loading        = true
+
+  self:resolve_username()
 end
 
-function StudyPlanView:get_name()
-  return "LeetCode Study Plan"
+-- ── helpers ────────────────────────────────────────────────────────────
+
+function StudyPlanView:resolve_username()
+  api_call({ cmd = "auth_check" }, function(res)
+    if res and res.ok and res.data and res.data.username then
+      self.username = res.data.username
+    end
+    self:fetch_plan()
+    self:fetch_calendar()
+  end)
 end
+
+function StudyPlanView:fetch_plan()
+  self.plan_data = nil
+  self.loading   = true
+  core.redraw    = true
+  api_call({ cmd = "study_plan_detail", slug = self.plan_slug }, function(res)
+    self.loading = false
+    if res and res.ok and res.data and res.data.studyPlanV2Detail then
+      self.plan_data = res.data.studyPlanV2Detail
+    end
+    core.redraw = true
+  end)
+end
+
+function StudyPlanView:fetch_calendar()
+  if not self.username then return end
+  local year = os.date("*t").year
+  api_call({ cmd = "user_calendar", username = self.username, year = year }, function(res)
+    if res and res.ok and res.data then
+      local mu = res.data.matchedUser
+      if mu and mu.userCalendar then
+        self.calendar_data = mu.userCalendar
+        -- parse the JSON-encoded submission calendar into a lookup table
+        if self.calendar_data.submissionCalendar then
+          local ok, parsed = pcall(json_decode, self.calendar_data.submissionCalendar)
+          self.calendar_data.parsed_subs = ok and parsed or {}
+        else
+          self.calendar_data.parsed_subs = {}
+        end
+      end
+    end
+    core.redraw = true
+  end)
+end
+
+-- ── lifecycle ──────────────────────────────────────────────────────────
+
+function StudyPlanView:get_name() return "LeetCode Study Plan" end
 
 function StudyPlanView:get_scrollable_size()
-  return self.content_height or 0
+  return math.max(self.size.y + 1, self.content_height)
 end
 
-function StudyPlanView:fetch_data()
-  self.plan_data = nil
-  api_call({cmd = "study_plan_detail", slug = self.plan_slug}, function(res)
-    if res and res.ok and res.data then
-      self.plan_data = res.data.studyPlanV2Detail
-      core.redraw = true
-    end
-  end)
-  
-  if not self.calendar_data then
-    api_call({cmd = "user_calendar", username = self.username, year = 2026}, function(res)
-      if res and res.ok and res.data then
-        self.calendar_data = res.data.matchedUser and res.data.matchedUser.userCalendar
-        if self.calendar_data and self.calendar_data.submissionCalendar then
-          local ok, parsed = pcall(json.decode, self.calendar_data.submissionCalendar)
-          if ok then
-            self.calendar_data.parsed_subs = parsed
-          end
-        end
-        core.redraw = true
-      end
-    end)
-  end
-end
+-- ── mouse ──────────────────────────────────────────────────────────────
 
-function StudyPlanView:on_mouse_pressed(button, x, y, clicks)
-  local res = StudyPlanView.super.on_mouse_pressed(self, button, x, y, clicks)
+function StudyPlanView:on_mouse_pressed(btn, x, y, clicks)
+  local res = StudyPlanView.super.on_mouse_pressed(self, btn, x, y, clicks)
   if res then return res end
-  
-  for _, zone in ipairs(self.click_zones) do
-    if x >= zone.x and x <= zone.x + zone.w and y >= zone.y and y <= zone.y + zone.h then
-      if zone.action == "toggle_dropdown" then
+  if btn ~= "left" then return false end
+
+  for _, z in ipairs(self.click_zones) do
+    if x >= z.x and x <= z.x + z.w and y >= z.y and y <= z.y + z.h then
+      if z.action == "toggle_dropdown" then
         self.show_dropdown = not self.show_dropdown
         core.redraw = true
         return true
-      elseif zone.action == "select_plan" then
-        self.current_plan_idx = zone.idx
-        self.plan_slug = self.available_plans[self.current_plan_idx].slug
+
+      elseif z.action == "select_plan" then
+        self.current_plan_idx = z.idx
+        self.plan_slug = self.available_plans[z.idx].slug
         self.show_dropdown = false
-  self.content_height = 0
         self.collapsed_sections = {}
-        self:fetch_data()
+        self:fetch_plan()
         core.redraw = true
         return true
-      elseif zone.action == "toggle_section" then
-        self.collapsed_sections[zone.name] = not self.collapsed_sections[zone.name]
+
+      elseif z.action == "toggle_section" then
+        self.collapsed_sections[z.name] = not self.collapsed_sections[z.name]
+        core.redraw = true
+        return true
+
+      elseif z.action == "open_problem" then
+        -- fetch detail then open, same pattern as the list view
+        api_call({ cmd = "problem_detail", slug = z.slug }, function(resp)
+          if resp and resp.ok and resp.data then
+            local lc = lc_view or core.root_view:get_active_node_default()
+            local lang = "python3"
+            open_problem(resp.data, lang)
+            core.redraw = true
+          else
+            core.log("[Study Plan] Failed to fetch problem: " .. (resp and resp.error or "?"))
+          end
+        end)
         core.redraw = true
         return true
       end
     end
   end
+  return false
 end
+
+-- ── draw helpers ───────────────────────────────────────────────────────
+
+local function draw_rect_outline(x, y, w, h, color, thickness)
+  thickness = thickness or 1
+  renderer.draw_rect(x, y, w, thickness, color)
+  renderer.draw_rect(x, y + h - thickness, w, thickness, color)
+  renderer.draw_rect(x, y, thickness, h, color)
+  renderer.draw_rect(x + w - thickness, y, thickness, h, color)
+end
+
+-- Draw the mini contribution heatmap for this month
+local function draw_calendar(x, y, w, cal, font)
+  local fh     = font:get_height()
+  local cell   = fh + 4          -- cell size
+  local cols   = 7               -- days per row
+  local rows   = 5
+
+  local t = os.date("*t")
+  -- First day of current month (weekday: 0=Sun,1=Mon…)
+  local first_wday = os.date("*t", os.time({ year = t.year, month = t.month, day = 1 })).wday - 1
+  local days_in_month = os.date("*t", os.time({ year = t.year, month = t.month + 1, day = 0 })).day
+
+  local month_name = os.date("%B %Y")
+  renderer.draw_text(font, month_name, x, y, style.text)
+  y = y + fh + 6
+
+  -- Day labels
+  local day_labels = { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" }
+  for i, lbl in ipairs(day_labels) do
+    local lx = x + (i - 1) * (cell + 2)
+    renderer.draw_text(font, lbl, lx, y, style.dim)
+  end
+  y = y + fh + 4
+
+  local parsed = cal.parsed_subs or {}
+  -- Convert epoch keys to YYYY-MM-DD
+  local subs_by_day = {}
+  for epoch_str, count in pairs(parsed) do
+    local epoch = tonumber(epoch_str)
+    if epoch then
+      local d = os.date("*t", epoch)
+      local key = string.format("%04d-%02d-%02d", d.year, d.month, d.day)
+      subs_by_day[key] = (subs_by_day[key] or 0) + count
+    end
+  end
+
+  local col = first_wday
+  local row = 0
+  for day = 1, days_in_month do
+    local cx = x + col * (cell + 2)
+    local cy = y + row * (cell + 2)
+    local key = string.format("%04d-%02d-%02d", t.year, t.month, day)
+    local count = subs_by_day[key] or 0
+
+    local bg
+    if count == 0 then
+      bg = style.background2 or style.background
+    elseif count <= 2 then
+      bg = { common.color "#264d3b" }
+    elseif count <= 5 then
+      bg = { common.color "#1a7f4b" }
+    else
+      bg = { common.color "#26c063" }
+    end
+
+    renderer.draw_rect(cx, cy, cell, cell, bg)
+    if day == t.day then
+      draw_rect_outline(cx, cy, cell, cell, style.accent, 1)
+    end
+
+    -- day number inside cell
+    renderer.draw_text(font, tostring(day), cx + 1, cy, style.dim)
+
+    col = col + 1
+    if col >= cols then
+      col = 0
+      row = row + 1
+    end
+  end
+
+  local total_h = y + (row + 1) * (cell + 2)
+  return total_h
+end
+
+-- ── main draw ──────────────────────────────────────────────────────────
 
 function StudyPlanView:draw()
   self:draw_background(style.background)
-  local pad = 15
-  local x, y = self.position.x + pad, self.position.y + pad - self.scroll.y
-  
-  self.click_zones = {}
+
+  local W   = self.size.x
+  local pad = 16
+  local x   = self.position.x + pad
+  local y   = self.position.y + pad - self.scroll.y
   local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
-  
-  local dropdown_label = "Study Plan: ▼ " .. self.available_plans[self.current_plan_idx].label
-  local dropdown_w = style.big_font:get_width(dropdown_label) + 20
-  local dropdown_h = style.big_font:get_height()
-  
-  local is_hovered = mx >= x and mx <= x + dropdown_w and my >= y and my <= y + dropdown_h
-  table.insert(self.click_zones, {x = x, y = y, w = dropdown_w, h = dropdown_h, action = "toggle_dropdown"})
-  
-  renderer.draw_rect(x, y, dropdown_w, dropdown_h, is_hovered and style.line_highlight or style.background)
-  renderer.draw_text(style.big_font, dropdown_label, x + 5, y, style.text)
-  
-  y = y + dropdown_h + 10
-  
+
+  self.click_zones = {}
+
+  -- ── 1. Dropdown ────────────────────────────────────────────────────
+  local plan_label   = self.available_plans[self.current_plan_idx].label
+  local dd_text      = "Study Plan: " .. plan_label .. " \xe2\x96\xbc"  -- ▼ in UTF-8
+  local dd_w         = style.big_font:get_width(dd_text) + 24
+  local dd_h         = style.big_font:get_height() + 8
+  local dd_hovered   = mx >= x and mx <= x + dd_w and my >= y and my <= y + dd_h
+
+  renderer.draw_rect(x, y, dd_w, dd_h, dd_hovered and style.line_highlight or style.background2 or style.background)
+  renderer.draw_text(style.big_font, dd_text, x + 8, y + 4, style.text)
+  table.insert(self.click_zones, { x = x, y = y, w = dd_w, h = dd_h, action = "toggle_dropdown" })
+  y = y + dd_h + 12
+
+  -- ── 2. Calendar ────────────────────────────────────────────────────
   if self.calendar_data then
-    local txt = string.format("Streak: %s  |  Active Days: %s", self.calendar_data.streak or 0, self.calendar_data.totalActiveDays or 0)
-    renderer.draw_text(style.font, txt, x, y, style.accent)
-    y = y + style.font:get_height() + 20
-  end
-  
-  if self.plan_data and self.plan_data.planSubGroups then
-    for i, group in ipairs(self.plan_data.planSubGroups) do
-      local is_collapsed = self.collapsed_sections[group.name]
-      local icon = is_collapsed and "▶" or "▼"
-      
-      renderer.draw_text(style.font, icon .. " " .. group.name, x, y, style.text)
-      table.insert(self.click_zones, {x = x, y = y, w = 300, h = style.font:get_height(), action = "toggle_section", name = group.name})
-      
-      y = y + style.font:get_height() + 5
-      
-      if not is_collapsed and group.questions then
-        for j, q in ipairs(group.questions) do
-          local q_icon = q.status == "AC" and "[✓]" or "[ ]"
-          local q_color = q.status == "AC" and style.good or style.dim
-          renderer.draw_text(style.font, "   " .. q_icon .. " " .. q.title, x, y, q_color)
-          y = y + style.font:get_height() + 3
-        end
-      end
-      y = y + 10
-    end
-  elseif not self.plan_data then
-    renderer.draw_text(style.font, "Loading plan data...", x, y, style.dim)
+    local cal = self.calendar_data
+    local streak_txt = string.format(
+      "Streak: %d day%s  |  Active Days: %d  |  User: %s",
+      cal.streak or 0,
+      (cal.streak or 0) == 1 and "" or "s",
+      cal.totalActiveDays or 0,
+      self.username or "?"
+    )
+    renderer.draw_text(style.font, streak_txt, x, y, style.accent)
+    y = y + style.font:get_height() + 10
+
+    -- mini calendar heatmap
+    local cal_w = math.min(W - pad * 2, 260)
+    y = draw_calendar(x, y, cal_w, cal, style.small_font or style.font) + 12
+  else
+    renderer.draw_text(style.font, "Loading activity calendar...", x, y, style.dim)
     y = y + style.font:get_height() + 10
   end
-  
-  self.content_height = y - (self.position.y - self.scroll.y) + pad
-  
-  -- Overlay Dropdown Menu (Fixed position relative to scrolled header)
+
+  -- ── 3. Separator ───────────────────────────────────────────────────
+  renderer.draw_rect(x, y, W - pad * 2, 1, style.dim)
+  y = y + 10
+
+  -- ── 4. Problem list ────────────────────────────────────────────────
+  local fh = style.font:get_height()
+
+  if self.loading then
+    renderer.draw_text(style.font, "Loading plan data...", x, y, style.dim)
+    y = y + fh + 8
+  elseif not self.plan_data then
+    renderer.draw_text(style.font, "Failed to load plan. Check your connection.", x, y, { 1, 0.4, 0.4, 1 })
+    y = y + fh + 8
+  else
+    local groups = self.plan_data.planSubGroups or {}
+    for _, grp in ipairs(groups) do
+      local collapsed  = self.collapsed_sections[grp.name]
+      local arrow      = collapsed and "\xe2\x96\xb6" or "\xe2\x96\xbc"  -- ▶ / ▼
+      local qs         = grp.questions or {}
+      local done_count = 0
+      for _, q in ipairs(qs) do
+        if (q.status == "AC" or q.status == "PAST_SOLVED") then done_count = done_count + 1 end
+      end
+      local hdr_text  = string.format("%s %s  (%d/%d)", arrow, grp.name, done_count, #qs)
+      local hdr_hov   = mx >= x and mx <= x + W - pad * 2 and my >= y and my <= y + fh + 4
+      renderer.draw_rect(x, y, W - pad * 2, fh + 4, hdr_hov and style.line_highlight or style.background)
+      renderer.draw_text(style.font, hdr_text, x + 4, y + 2, style.text)
+      table.insert(self.click_zones, { x = x, y = y, w = W - pad * 2, h = fh + 4, action = "toggle_section", name = grp.name })
+      y = y + fh + 6
+
+      if not collapsed then
+        for _, q in ipairs(qs) do
+          local is_ac    = (q.status == "AC" or q.status == "PAST_SOLVED")
+          local icon     = is_ac and "\xe2\x9c\x93 " or "  "   -- ✓
+          local q_color  = is_ac and (style.good or { 0.3, 0.9, 0.5, 1 }) or style.text
+          local q_text   = icon .. q.title
+          local q_hov    = mx >= x + 20 and mx <= x + W - pad and my >= y and my <= y + fh + 2
+          if q_hov then
+            renderer.draw_rect(x + 20, y, W - pad - 20, fh + 2, style.line_highlight)
+          end
+          renderer.draw_text(style.font, q_text, x + 24, y + 1, q_color)
+          table.insert(self.click_zones, {
+            x = x + 20, y = y, w = W - pad - 20, h = fh + 2,
+            action = "open_problem", slug = q.titleSlug or q.slug or "",
+          })
+          y = y + fh + 3
+        end
+        y = y + 6
+      end
+    end
+  end
+
+  -- ── 5. Update scrollable height ────────────────────────────────────
+  self.content_height = y - self.position.y + self.scroll.y + pad
+
+  -- ── 6. Dropdown overlay (drawn last so it floats on top) ───────────
   if self.show_dropdown then
-    local menu_x = x
-    local menu_y = self.position.y + pad - self.scroll.y + dropdown_h
-    local item_h = style.font:get_height() + 8
-    local menu_w = 200
-    
-    renderer.draw_rect(menu_x, menu_y, menu_w, #self.available_plans * item_h, style.background)
-    
+    local item_h = fh + 8
+    local menu_w = 240
+    local menu_x = self.position.x + pad
+    local menu_y = self.position.y + pad + dd_h + 2  -- fixed, ignore scroll
+    local menu_h = #self.available_plans * item_h + 4
+
+    renderer.draw_rect(menu_x, menu_y, menu_w, menu_h, style.background2 or style.background)
+    draw_rect_outline(menu_x, menu_y, menu_w, menu_h, style.dim)
+
     for i, plan in ipairs(self.available_plans) do
-      local ix = menu_x
-      local iy = menu_y + (i - 1) * item_h
-      
-      local m_hover = mx >= ix and mx <= ix + menu_w and my >= iy and my <= iy + item_h
-      renderer.draw_rect(ix, iy, menu_w, item_h, m_hover and style.line_highlight or style.background)
-      renderer.draw_text(style.font, plan.label, ix + 10, iy + 4, style.text)
-      
-      table.insert(self.click_zones, {x = ix, y = iy, w = menu_w, h = item_h, action = "select_plan", idx = i})
+      local iy    = menu_y + 2 + (i - 1) * item_h
+      local hov   = mx >= menu_x and mx <= menu_x + menu_w and my >= iy and my <= iy + item_h
+      local sel   = (i == self.current_plan_idx)
+      renderer.draw_rect(menu_x + 2, iy, menu_w - 4, item_h,
+        sel and (style.selection or style.line_highlight) or
+        (hov and style.line_highlight or (style.background2 or style.background))
+      )
+      renderer.draw_text(style.font, plan.label, menu_x + 10, iy + 4,
+        sel and style.accent or style.text)
+      table.insert(self.click_zones, { x = menu_x, y = iy, w = menu_w, h = item_h, action = "select_plan", idx = i })
     end
   end
 end

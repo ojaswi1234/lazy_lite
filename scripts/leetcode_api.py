@@ -2976,8 +2976,9 @@ def cmd_study_plan_detail(params):
     }
     '''
     try:
-        resp = _requests_session.post("https://leetcode.com/graphql", timeout=10, json={'query': query, 'variables': {'slug': slug}})
-        data = resp.json()
+        # Use http_request so auth cookies are sent — gives real per-user status
+        data = http_request("https://leetcode.com/graphql",
+                            {"query": query, "variables": {"slug": slug}})
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -3023,11 +3024,13 @@ def cmd_user_calendar(params):
     }
     '''
     try:
-        resp = _requests_session.post("https://leetcode.com/graphql", timeout=10, json={'query': query, 'variables': {'username': username, 'year': year}})
-        data = resp.json()
+        # Use http_request so auth cookies are sent
+        data = http_request("https://leetcode.com/graphql",
+                            {"query": query, "variables": {"username": username, "year": year}})
         return {"ok": True, "data": data.get("data", {})}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
 
 # -----------------
 HANDLERS = {
