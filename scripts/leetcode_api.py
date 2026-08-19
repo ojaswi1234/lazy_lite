@@ -51,24 +51,27 @@ def http_request(url, data=None, method="POST", referer="https://leetcode.com/")
     session, csrf, raw = load_session()
     headers = {
         "Content-Type":   "application/json",
+        "Accept":         "application/json",
+        "Origin":         "https://leetcode.com",   # Required for CSRF on submit/run
         "Referer":        referer,
         "User-Agent":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "x-csrftoken":    csrf,
         "Cookie":         raw if raw else f"LEETCODE_SESSION={session}; csrftoken={csrf}",
         "Connection":     "keep-alive",
     }
-    
+
     if _requests_session is not None:
         try:
             if method.upper() == "POST":
-                resp = _requests_session.post(url, json=data, headers=headers, timeout=8, verify=False)
+                resp = _requests_session.post(url, json=data, headers=headers, timeout=15, verify=False)
             else:
-                resp = _requests_session.get(url, headers=headers, timeout=8, verify=False)
-            
+                resp = _requests_session.get(url, headers=headers, timeout=15, verify=False)
+
             if resp.status_code == 429:
-                raise Exception("Too Many Requests: Please wait 10 seconds before submitting again.")
+                raise Exception("Too Many Requests: Please wait a few seconds before submitting again.")
             elif resp.status_code == 403:
-                raise Exception("403 Forbidden: Your session might be expired. Try re-authenticating.")
+                # Don't blame session — 403 on LeetCode is almost always a missing Origin/CSRF header
+                raise Exception(f"403 Forbidden: Request rejected by LeetCode (CSRF/header issue). Response: {resp.text[:120]}")
             elif resp.status_code >= 400:
                 raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
             return resp.json()
@@ -76,7 +79,8 @@ def http_request(url, data=None, method="POST", referer="https://leetcode.com/")
             if "Too Many Requests" in str(e) or "403 Forbidden" in str(e):
                 raise
             # Fall through to urllib fallback
-            
+
+
     body = json.dumps(data).encode() if data else None
     req  = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
@@ -85,11 +89,11 @@ def http_request(url, data=None, method="POST", referer="https://leetcode.com/")
     except urllib.error.HTTPError as e:
         body_text = e.read().decode('utf-8', errors='ignore')
         if e.code == 429:
-            raise Exception("Too Many Requests: Please wait 10 seconds before submitting again.")
+            raise Exception("Too Many Requests: Please wait a few seconds before submitting again.")
         elif e.code == 499:
             raise Exception("Error 499: LeetCode dropped the request. Try again.")
         elif e.code == 403:
-            raise Exception("403 Forbidden: Your session might be expired. Try re-authenticating.")
+            raise Exception(f"403 Forbidden: Request rejected by LeetCode. {body_text[:120]}")
         elif e.code == 502:
             raise Exception("HTTP 502: LeetCode server is temporarily unavailable. Retrying...")
         else:
