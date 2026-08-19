@@ -5723,13 +5723,15 @@ function StudyPlanView:resolve_username()
 end
 
 function StudyPlanView:fetch_plan()
-  self.plan_data = nil
-  self.loading   = true
-  core.redraw    = true
+  self.plan_data     = nil
+  self.loading       = true
+  self.plan_fetched_at = nil
+  core.redraw = true
   api_call({ cmd = "study_plan_detail", slug = self.plan_slug }, function(res)
     self.loading = false
     if res and res.ok and res.data and res.data.studyPlanV2Detail then
-      self.plan_data = res.data.studyPlanV2Detail
+      self.plan_data       = res.data.studyPlanV2Detail
+      self.plan_fetched_at = os.time()
     end
     core.redraw = true
   end)
@@ -5737,13 +5739,15 @@ end
 
 function StudyPlanView:fetch_calendar()
   if not self.username then return end
+  self.calendar_fetching = true
   local year = os.date("*t").year
   api_call({ cmd = "user_calendar", username = self.username, year = year }, function(res)
+    self.calendar_fetching = false
     if res and res.ok and res.data then
       local mu = res.data.matchedUser
       if mu and mu.userCalendar then
         self.calendar_data = mu.userCalendar
-        -- parse the JSON-encoded submission calendar into a lookup table
+        self.cal_fetched_at = os.time()
         if self.calendar_data.submissionCalendar then
           local ok, parsed = pcall(json_decode, self.calendar_data.submissionCalendar)
           self.calendar_data.parsed_subs = ok and parsed or {}
@@ -5755,6 +5759,17 @@ function StudyPlanView:fetch_calendar()
     core.redraw = true
   end)
 end
+
+-- Force-refresh everything (plan + calendar)
+function StudyPlanView:refresh()
+  self:fetch_plan()
+  if self.username then
+    self:fetch_calendar()
+  else
+    self:resolve_username()  -- will chain into fetch_calendar
+  end
+end
+
 
 -- ── lifecycle ──────────────────────────────────────────────────────────
 
@@ -5810,6 +5825,11 @@ function StudyPlanView:on_mouse_pressed(btn, x, y, clicks)
         core.redraw = true
         return true
 
+      elseif z.action == "refresh" then
+        self:refresh()
+        core.redraw = true
+        return true
+
       elseif z.action == "open_problem" then
         -- Navigate to the main LeetCodeView detail page (same as clicking from the list)
         -- This shows the full detail view: topics, language picker, company tags, etc.
@@ -5843,6 +5863,7 @@ function StudyPlanView:on_mouse_pressed(btn, x, y, clicks)
   end
   return false
 end
+
 
 -- ── draw helpers ───────────────────────────────────────────────────────
 
@@ -6010,10 +6031,32 @@ function StudyPlanView:draw()
     end
   end
 
-  -- ── RIGHT COLUMN: Calendar heatmap ─────────────────────────────────
-  -- Fixed to the visible window top — doesn't scroll with the left list
+  -- ── RIGHT COLUMN ────────────────────────────────────────────────────
   local ry = self.position.y + 16
   core.push_clip_rect(right_x, self.position.y, cal_panel_w, H)
+
+  -- [R] Refresh button (top-right corner of right panel)
+  local ref_lbl = "[R] Refresh"
+  local ref_w   = style.font:get_width(ref_lbl) + 10
+  local ref_h   = fh + 4
+  local ref_x   = right_x + cal_panel_w - ref_w
+  local ref_hov = mx >= ref_x and mx <= ref_x + ref_w and my >= ry and my <= ry + ref_h
+  renderer.draw_rect(ref_x, ry, ref_w, ref_h, ref_hov and style.line_highlight or (style.background2 or style.background))
+  renderer.draw_text(style.font, ref_lbl, ref_x + 5, ry + 2, ref_hov and style.accent or style.dim)
+  table.insert(self.click_zones, { x = ref_x, y = ry, w = ref_w, h = ref_h, action = "refresh" })
+
+  -- "Updated X min ago" label
+  local upd_txt
+  local plan_age = self.plan_fetched_at and math.floor((os.time() - self.plan_fetched_at) / 60) or nil
+  if self.loading then
+    upd_txt = "Refreshing..."
+  elseif plan_age then
+    upd_txt = plan_age == 0 and "Just updated" or string.format("Updated %dm ago", plan_age)
+  else
+    upd_txt = "Not loaded"
+  end
+  renderer.draw_text(style.font, upd_txt, right_x, ry + 2, style.dim)
+  ry = ry + ref_h + 10
 
   if self.plan_data then
     -- ── Plan progress stats (changes per plan) ─────────────────────────
@@ -6051,20 +6094,27 @@ function StudyPlanView:draw()
     ry = ry + bar_h + 16
   end
 
-  -- ── Global activity calendar (same for all plans by design) ─────────
+  -- ── Activity calendar ───────────────────────────────────────────────
   if self.calendar_data then
     local cal = self.calendar_data
     renderer.draw_text(style.font, "Your Activity", right_x, ry, style.text)
     ry = ry + fh + 2
-    local str_txt = string.format("%d day streak  -  %d active days", cal.streak or 0, cal.totalActiveDays or 0)
+    -- Show how stale the calendar data is
+    local cal_age = self.cal_fetched_at and math.floor((os.time() - self.cal_fetched_at) / 60) or nil
+    local cal_age_txt = cal_age and (cal_age == 0 and "" or string.format("  (%dm ago)", cal_age)) or ""
+    local str_txt = string.format("%d day streak  -  %d days active%s",
+      cal.streak or 0, cal.totalActiveDays or 0, cal_age_txt)
     renderer.draw_text(style.font, str_txt, right_x, ry, style.dim)
     ry = ry + fh + 8
     draw_calendar(right_x, ry, cal_panel_w, cal, style.small_font or style.font)
-  else
+  elseif self.calendar_fetching then
     renderer.draw_text(style.font, "Loading calendar...", right_x, ry, style.dim)
+  else
+    renderer.draw_text(style.font, "Calendar unavailable", right_x, ry, style.dim)
   end
 
   core.pop_clip_rect()
+
 
 
   -- ── Update scrollable height (left column drives scroll) ───────────
