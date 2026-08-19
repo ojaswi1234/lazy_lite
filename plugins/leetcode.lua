@@ -5771,19 +5771,37 @@ function StudyPlanView:on_mouse_pressed(btn, x, y, clicks)
   if res then return res end
   if btn ~= "left" then return false end
 
+  -- ── Dropdown has priority: check it first before anything else ──────
+  if self.show_dropdown then
+    for _, z in ipairs(self.click_zones) do
+      if z.action == "select_plan" or z.action == "toggle_dropdown" then
+        if x >= z.x and x <= z.x + z.w and y >= z.y and y <= z.y + z.h then
+          if z.action == "select_plan" then
+            self.current_plan_idx = z.idx
+            self.plan_slug = self.available_plans[z.idx].slug
+            self.show_dropdown = false
+            self.collapsed_sections = {}
+            self:fetch_plan()
+            core.redraw = true
+            return true
+          elseif z.action == "toggle_dropdown" then
+            self.show_dropdown = false
+            core.redraw = true
+            return true
+          end
+        end
+      end
+    end
+    -- Click outside dropdown closes it
+    self.show_dropdown = false
+    core.redraw = true
+    return true
+  end
+
   for _, z in ipairs(self.click_zones) do
     if x >= z.x and x <= z.x + z.w and y >= z.y and y <= z.y + z.h then
       if z.action == "toggle_dropdown" then
-        self.show_dropdown = not self.show_dropdown
-        core.redraw = true
-        return true
-
-      elseif z.action == "select_plan" then
-        self.current_plan_idx = z.idx
-        self.plan_slug = self.available_plans[z.idx].slug
-        self.show_dropdown = false
-        self.collapsed_sections = {}
-        self:fetch_plan()
+        self.show_dropdown = true
         core.redraw = true
         return true
 
