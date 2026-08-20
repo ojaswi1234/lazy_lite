@@ -89,14 +89,9 @@ config.ignore_files           = {
 }
 
 -- ── 4. Built-in plugin config ─────────────────────────────────────────────────
-config.plugins.treeview       = true
-config.plugins.autocomplete   = true
-config.plugins.bracketmatch   = true
-config.plugins.autosave       = false
-config.plugins.minimap        = true
-config.plugins.drawwhitespace = false
-config.plugins.lineguide      = false
-config.plugins.wordcount      = false
+-- Plugin toggles are now managed by the GUI Settings plugin (user_settings.lua)
+-- Hardcoding them here causes conflicts and startup warnings.
+-- (Use the settings menu in the editor to toggle plugins)
 
 -- ── 5. Hybrid Theme Universal Patches ──────────────────────────────────────────
 local Node = require "core.node"
