@@ -451,6 +451,21 @@ def main():
     parser.add_argument("--validate-keys", action="store_true")
     args = parser.parse_args()
 
+    # Intercept and expand pasted text files directly into the prompt to bypass OS command-line limits
+    if args.prompt:
+        import re
+        import os
+        def replace_pasted_text(match):
+            filepath = match.group(1).strip()
+            try:
+                with open(filepath, 'r', encoding='utf-8') as pf:
+                    content = pf.read()
+                    return f'\n\n--- PASTED TEXT ({os.path.basename(filepath)}) ---\n{content}\n--- END PASTED TEXT ---\n\n'
+            except Exception as e:
+                return f" [Error reading pasted text from {filepath}: {e}] "
+                
+        args.prompt = re.sub(r'\[Read this pasted text from file: (.*?)\]', replace_pasted_text, args.prompt)
+
     
     if args.get_history:
         import sqlite3
