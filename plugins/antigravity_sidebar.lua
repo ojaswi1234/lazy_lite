@@ -4076,26 +4076,36 @@ end
       local proc = process.start({ "cmd", "/c", cmd })
       local out = ""
       while true do
-        local chunk = proc:read_stdout(2048)
-        if chunk then out = out .. chunk end
+        local chunk = proc:read_stdout(65536)
+        if chunk and #chunk > 0 then out = out .. chunk end
         if not proc:running() then break end
         coroutine.yield(0.1)
       end
-      out = out .. (proc:read_stdout(2048) or "")
+      
+      -- Final drain loop to ensure we catch all remaining buffered bytes
+      while true do
+        local chunk = proc:read_stdout(65536)
+        if not chunk or #chunk == 0 then break end
+        out = out .. chunk
+      end
       
       -- evaluate lua table safely
       local env = {}
       local f, err = load(out, "history", "t", env)
       local ok = false
       local data = nil
+      local err_msg = err
       if f then
         ok, data = pcall(f)
+        if not ok then err_msg = tostring(data) end
       end
       
       if ok and type(data) == "table" and not data.error then
         self:_layout_history(data)
         self.history_state = "loaded"
       else
+        core.log("[History] Error loading history: %s", tostring(err_msg))
+        core.log("[History] Out length: %s", tostring(#out))
         self.history_state = "error"
       end
       core.redraw = true
