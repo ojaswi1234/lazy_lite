@@ -208,7 +208,78 @@ local HM = {
 
 M.REGISTRY = {
 
-  -- ── Antigravity CLI ─────────────────────────────────────────────────────────
+  -- ── Cloud APIs (LangChain Bridge) ─────────────────────────────────────────
+  {
+    id    = "cloud_api",
+    name  = "Cloud AI (API)",
+    short = "API",
+    bins  = { "python", "python.exe", "python3" },
+    extra_paths = function() return {} end,
+    build_run_argv = function(cfg)
+      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local a = { cfg.bin, bridge, "--chat" }
+      -- Extract provider from model string (e.g. "gemini/gemini-2.5-pro")
+      local provider = "gemini"
+      local model_id = cfg.model
+      if cfg.model and cfg.model:find("/") then
+        provider = cfg.model:match("^(.-)/")
+        model_id = cfg.model:match("/(.*)$")
+      end
+      a[#a+1] = "--provider"; a[#a+1] = provider
+      if model_id then a[#a+1] = "--model"; a[#a+1] = model_id end
+      
+      local config = require "core.config"
+      if config.ai_sidebar and config.ai_sidebar.autopilot then
+        a[#a+1] = "--autopilot"
+      end
+      if config.ai_sidebar and config.ai_sidebar.read_only then
+        a[#a+1] = "--read-only"
+      end
+
+      local pdir = (require "core").project_dir or (os.getenv("PWD") or os.getenv("CD") or "")
+      if pdir ~= "" then
+        a[#a+1] = "--workspace"; a[#a+1] = pdir
+      end
+
+      a[#a+1] = "--prompt"; a[#a+1] = cfg.prompt
+      return a
+    end,
+    build_models_argv = function(bin, extra)
+      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      -- extra can be passed from UI if we select a specific provider
+      local provider = (extra and extra.provider) or "all" 
+      return { bin, bridge, "--list-models", "--provider", provider }
+    end,
+    parse_models = function(raw)
+      local models = {}
+      for line in (raw .. "\n"):gmatch("([^\r\n]*)\r?\n") do
+        if line:match("^MISSING_API_KEY:(.*)") then
+           return { missing_key = line:match("^MISSING_API_KEY:(.*)") }
+        end
+        line = line:match("^%s*(.-)%s*$")
+        if #line > 2 then
+          table.insert(models, { name = line, limited = false })
+        end
+      end
+      return models
+    end,
+    build_sessions_argv = nil,
+    parse_sessions = nil,
+    hardcoded_models = {
+      { name = "gemini/gemini-2.5-pro", limited = false },
+      { name = "groq/llama3-70b-8192", limited = false },
+      { name = "openai/gpt-4o", limited = false },
+      { name = "anthropic/claude-3-7-sonnet-20250219", limited = false },
+    },
+    needs_pty = false,
+    session_flag = nil,
+    continue_flag = nil,
+    resume_supported = false,
+  },
+
+  -- ==================================================================================================
+  -- Antigravity CLI
+  -- ==================================================================================================
   {
     id    = "agy",
     name  = "Antigravity CLI",

@@ -8,11 +8,17 @@ def safe_write(text):
     sys.stdout.buffer.write(text.encode('utf-8', errors='replace'))
     sys.stdout.buffer.flush()
 
-def stdin_watcher(proc):
+def stdin_watcher(proc, write_cb=None):
     try:
-        for line in sys.stdin:
+        while True:
+            chunk = os.read(0, 1024)
+            if not chunk: break
+            line = chunk.decode('utf-8', errors='replace')
             if line.strip() == "KILL":
                 break
+            if write_cb:
+                try: write_cb(line)
+                except Exception: pass
     except Exception:
         pass
     finally:
@@ -33,7 +39,10 @@ def run_pty(argv):
             sys.exit(1)
         proc = PtyProcess.spawn(argv, dimensions=(24, 220))
         
-        threading.Thread(target=stdin_watcher, args=(proc,), daemon=True).start()
+        def win_write(text):
+            proc.write(text)
+        
+        threading.Thread(target=stdin_watcher, args=(proc, win_write), daemon=True).start()
         
         try:
             while proc.isalive():
@@ -61,7 +70,10 @@ def run_pty(argv):
         proc = subprocess.Popen(argv, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd, close_fds=True)
         os.close(slave_fd)
         
-        threading.Thread(target=stdin_watcher, args=(proc,), daemon=True).start()
+        def unix_write(text):
+            os.write(master_fd, text.encode('utf-8'))
+            
+        threading.Thread(target=stdin_watcher, args=(proc, unix_write), daemon=True).start()
         
         try:
             while True:

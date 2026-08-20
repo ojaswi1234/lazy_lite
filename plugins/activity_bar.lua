@@ -83,6 +83,7 @@ function ActivityBar:get_auth_label()
   local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
   local tname = (tdef and tdef.short) or "AGY"
 
+  if cur_tool == "cloud_api" then return "API Key Manager" end
   if inst and inst.auth_status == "logged_in" then
     if cur_tool == "agy" then
       local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
@@ -153,7 +154,15 @@ function ActivityBar:draw()
       renderer.draw_rect(x, auth_y, self.size.x, cell, { 255, 255, 255, 15 })
     end
 
-    if is_authed then
+    local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
+    if cur_tool == "cloud_api" then
+      local auth_color = hovered and style.text or style.dim
+      local icon_w = style.icon_font:get_width("\u{f084}") -- key icon
+      local icon_h = style.icon_font:get_height()
+      local hx = x + (self.size.x - icon_w) / 2
+      local hy = auth_y + (cell - icon_h) / 2
+      renderer.draw_text(style.icon_font, "\u{f084}", hx, hy, auth_color)
+    elseif is_authed then
       local initial = "A"
       local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
       
@@ -237,7 +246,16 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
       local inst = rawget(_G, "_ag_instance")
       local is_authed = inst and inst.auth_status == "logged_in"
       
-      if not is_authed then
+      local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
+      if cur_tool == "cloud_api" then
+        if inst then
+          local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
+          if not sidebar or sidebar.active_view ~= inst then
+            command.perform("antigravity:toggle")
+          end
+          inst:submit("/api")
+        end
+      elseif not is_authed then
         command.perform("antigravity:auth")
       else
         local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)

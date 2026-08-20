@@ -1,76 +1,92 @@
-# 🍃 LazyLite
+# Lite-XL — Everforest Light (Mossy Green)
 
-![LazyLite Preview](images/preview.png)
+A pixel-faithful replica of the VS Code **Everforest Light** layout for **Lite-XL**.
 
-LazyLite is a highly customized, portable configuration for [Lite-XL](https://lite-xl.com/). It transforms the lightweight editor into a modern, beautifully themed, VS Code-like powerhouse with an integrated terminal, a custom Git status bar, an incredibly powerful built-in AI coding assistant (Antigravity), and comprehensive GitHub Codespaces integration for remote development.
+## Panel Layout
 
-Built around a soothing **Everforest Light ("Mossy")** aesthetic, it is designed to be elegant, extremely fast, and easy to deploy across any OS.
-
----
-
-## ✨ Features
-
-- **Mossy Everforest Theme**: A curated, pixel-perfect sage green light theme that dynamically matches Light/Dark modes in real-time.
-- **VS Code Layout**: Familiar panel arrangements with a left-side file explorer, bottom terminal, and right-side AI assistant.
-- **Conversational AI Sidebar**: Native AI chat UI powered by the Antigravity CLI. Includes typewriter output streaming, `@`-mention file picker, multi-turn memory, and one-click quick action pills.
-- **Smart Auto-Healer**: Intercepts Lua crashes in real-time and dispatches them to the AI for autonomous analysis and healing. 
-- **Auto-Close Brackets**: Smart bracket auto-closing with selection wrapping and step-over support.
-- **Integrated Terminal**: Native command runner featuring shell selector, VS Code-style history, and ultra-fast 64KB chunked IPC buffering.
-- **Real-Time Resource Monitor**: Animated CPU and RAM sparkline chart injected directly into the titlebar (WMI on Windows, `/proc/stat` on Linux).
-- **Native LeetCode Integration**: Browse, solve, run, and submit LeetCode problems entirely within the editor natively.
-- **GitHub Codespaces Integration**: Comprehensive remote development environment with hybrid SSH + cache architecture.
-- **Port Manager & Live Preview**: Multi-select active processes by port and kill them. Native live web preview server running in C with live-reload.
-- **Framework Detection**: Status bar natively detects React, Node, Python, Vite, and Next.js for one-click startup.
-
----
-
-## ⌨️ Keyboard Shortcuts
-
-| Shortcut | Action | Context |
-| :--- | :--- | :--- |
-| <kbd>Ctrl</kbd> + <kbd>B</kbd> | Toggle File Explorer | Global |
-| <kbd>Ctrl</kbd> + <kbd>`</kbd> | Toggle Terminal | Global |
-| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> | Toggle Antigravity AI | Global |
-| <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Clear Chat / New Session | While in AI Sidebar |
-| <kbd>Up</kbd> / <kbd>Down</kbd> | Terminal Command History | While in Terminal |
-| <kbd>Ctrl</kbd> + <kbd>C</kbd> | Kill Running Command | While in Terminal |
-| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> | Copy Selected Text | While in Terminal |
-| <kbd>Ctrl</kbd> + <kbd>L</kbd> | Clear Output | While in Terminal |
-| <kbd>PageUp</kbd> / <kbd>PageDn</kbd> | Scroll Output | While in Terminal |
-| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | Toggle LeetCode Browser | Global |
-| <kbd>Ctrl</kbd> + <kbd>R</kbd> | Run Test Cases | While in a LeetCode solution file |
-| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Submit Solution | While in a LeetCode solution file |
-| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>P</kbd> | Start Web Preview | Global |
-
----
-
-## 🚀 Installation & Setup
-
-LazyLite automatically provisions your `init.lua`, detects your package managers natively (supporting `apt`, `apk`, `dnf`, `pacman`), and pulls all dependencies including Python 3, GitHub CLI, and MongoDB tools.
-
-### For Linux & macOS
-
-```bash
-# Clone the repository
-git clone https://github.com/ojaswi1234/lazy_lite.git ~/.config/lite-xl
-
-# Run the automated setup script
-cd ~/.config/lite-xl
-./install.sh
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│  [AI PANEL ~255px]  │  [EDITOR + GUTTER + MINIMAP]   │  [EXPLORER ~240px]  │
+│  bg: #E4EAD0        │  editor: #F0F4DF               │  bg: #E4EAD0        │
+│  Ctrl+Shift+A       │  gutter: #E4EBD2               │  Ctrl+B             │
+├────────────────────────────────────────────────────────────────────────────┤
+│  [TERMINAL — Ctrl+` — hidden by default — bg: #2D3B28]                     │
+├────────────────────────────────────────────────────────────────────────────┤
+│  [STATUS BAR — bg: #597450]                                                │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### For Windows
+## Keybindings
 
-```powershell
-# Clone the repository
-git clone https://github.com/ojaswi1234/lazy_lite.git $env:USERPROFILE\.config\lite-xl
+| Key            | Action                          |
+|----------------|---------------------------------|
+| `Ctrl+B`       | Toggle Explorer sidebar         |
+| `Ctrl+Shift+A` | Toggle Antigravity AI panel     |
+| Ctrl+\`        | Toggle terminal panel           |
+| `Ctrl+P`       | Quick-open file                 |
+| `Ctrl+Shift+P` | Command palette                 |
+| `Ctrl+/`       | Toggle line comment             |
+| `Ctrl+D`       | Select next occurrence          |
+| `Ctrl+Z / Y`   | Undo / Redo                     |
+| `Ctrl+S`       | Save                            |
+| `Ctrl+W`       | Close tab                       |
+| `Ctrl+Shift+K` | Delete line                     |
+| `Alt+↑ / ↓`   | Move line up / down             |
 
-# Run the automated setup script
-cd $env:USERPROFILE\.config\lite-xl
-.\install.ps1
+## Font Setup (Manual)
+
+1. **Fira Code iScript** — code font with cursive italics  
+   Download: <https://github.com/kencrocken/FiraCodeiScript>  
+   Place `FiraCode-iScript.ttf` at `~/.config/lite-xl/fonts/`
+
+2. **Fira Code Nerd Font** — required for file-type icons  
+   Download: <https://github.com/ryanoasis/nerd-fonts>  
+   Place `FiraCodeNerdFont-Regular.ttf` at `~/.config/lite-xl/fonts/`
+
+> Without the Nerd Font, icons will appear as empty squares. Everything else works fine.
+
+## Files
+
+| Path | Purpose |
+|------|---------|
+| `colors/everforest-lite-xl.lua` | Color scheme (all hex values pixel-sampled) |
+| `plugins/mossy_icons.lua` | Nerd Font icon registry |
+| `plugins/mossy_treeview.lua` | Styled Explorer with indent guides |
+| `plugins/toggle_terminal.lua` | Bottom terminal sheet |
+| `plugins/antigravity_sidebar.lua` | Left AI panel (streams from `agy` CLI) |
+| `init.lua` | Master entry point |
+
+## Antigravity CLI
+
+The AI sidebar calls `agy ask --stdin --stream` and streams the response.  
+The context block written to stdin looks like:
+
+```
+FILE: main.go
+
+CODE:
+```go
+package main
+...
 ```
 
-### Post-Installation
-1. Restart Lite-XL.
-2. Run `agy install` in your terminal to configure the AI backend if not already set up.
-3. Enjoy your new powerhouse editor!
+INSTRUCTION: Explain what this code does.
+```
+
+Make sure `agy` (or `antigravity`) is on your `PATH`, or update  
+`config.antigravity.cli` in `plugins/antigravity_sidebar.lua`.
+
+## Color Quick Reference
+
+| Name | Hex | |
+|---|---|---|
+| Editor canvas | `#F0F4DF` | ![#F0F4DF](https://via.placeholder.com/12/F0F4DF/F0F4DF.png) |
+| Sidebar / panels | `#E4EAD0` | |
+| Gutter | `#E4EBD2` | |
+| Active file row | `#BFD3A7` | |
+| Active tab | `#CCD0BC` | |
+| Activity bar | `#4F6A47` | |
+| Status bar | `#597450` | |
+| Terminal | `#2D3B28` | |
+| Selection | `#C5D9A8` | |
+| Current line | `#E8EDCF` | |

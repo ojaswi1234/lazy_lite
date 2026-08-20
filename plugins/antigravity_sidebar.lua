@@ -420,8 +420,14 @@ local function muted(fg, factor)
 end
 
 -- Recomputed every draw — automatically tracks theme changes
+local _pal_cache = nil
+local _pal_sig   = nil
 local function get_palette()
   local base = style.background or { 255,255,255,255 }
+  local sig  = base[1] .. "," .. base[2] .. "," .. base[3] .. (style.mossy and "M" or "")
+  if sig == _pal_sig and _pal_cache then return _pal_cache end
+  _pal_sig = sig
+
   local bg       = contrast_bg(base, 0.08)
   local bg_dark  = contrast_bg(base, 0.14)
   local bg_darker= contrast_bg(base, 0.20)
@@ -429,19 +435,16 @@ local function get_palette()
   local fg       = contrast_fg(bg)
   local fg_muted = muted(fg, 0.55)
   local fg_accent= muted(fg, 0.80)
-  -- Message bubbles: user slightly darker bg, AI slightly lighter
   local bg_user  = contrast_bg(base, 0.18)
   local bg_ai    = contrast_bg(base, 0.06)
-  -- Button colors derived from bg levels
   local bg_btn   = contrast_bg(base, 0.12)
   local bg_btnhl = contrast_bg(base, 0.22)
-  -- Send button uses accent (green on light, teal-ish on dark)
   local sr,sg,sb = base[1],base[2],base[3]
   local bg_send  = { math.floor(sr*0.35+0.5), math.floor(sg*0.45+0.5), math.floor(sb*0.30+0.5), 255 }
   local bg_sendhl= { math.max(0,bg_send[1]-15), math.max(0,bg_send[2]-15), math.max(0,bg_send[3]-15), 255 }
   local fg_send  = contrast_fg(bg_send)
   local border   = contrast_bg(base, 0.16)
-  
+
   if style.mossy then
     bg          = style.mossy.sidebar_bg or bg
     bg_dark     = style.mossy.sidebar_bg or bg_dark
@@ -459,7 +462,8 @@ local function get_palette()
     fg_send     = style.mossy.sidebar_text or fg_send
     border      = style.mossy.border or border
   end
-  return {
+
+  _pal_cache = {
     bg          = bg,
     bg_dark     = bg_dark,
     bg_darker   = bg_darker,
@@ -485,7 +489,9 @@ local function get_palette()
     dot_err     = { 170, 56, 59, 255 },
     scrollbar   = border,
   }
+  return _pal_cache
 end
+
 
 -- ── Config ────────────────────────────────────────────────────────────────────
 config.antigravity = {
@@ -805,6 +811,56 @@ local function wrap_raw_text(font, text, max_w)
   return lines
 end
 
+
+local function format_markdown_table(table_text)
+  local rows = {}
+  for line in (table_text.."\n"):gmatch("([^\n]*)\n") do
+    if #line > 0 then
+      local cells = {}
+      local inner = line:match("^%s*|?(.*)|?%s*$") or line
+      if inner:sub(1,1) == "|" then inner = inner:sub(2) end
+      if inner:sub(-1) == "|" then inner = inner:sub(1, -2) end
+      
+      for cell in (inner.."|"):gmatch("(.-)|") do
+        table.insert(cells, cell:match("^%s*(.-)%s*$") or "")
+      end
+      table.insert(rows, cells)
+    end
+  end
+  
+  local col_widths = {}
+  for _, row in ipairs(rows) do
+    for i, cell in ipairs(row) do
+      if not cell:match("^%-+$") then
+        col_widths[i] = math.max(col_widths[i] or 0, #cell)
+      end
+    end
+  end
+  
+  local out = {}
+  for _, row in ipairs(rows) do
+    local is_sep = true
+    for _, cell in ipairs(row) do
+      if not cell:match("^%-+$") and cell ~= "" then is_sep = false end
+    end
+    
+    local out_row = {}
+    for i, cell in ipairs(row) do
+      local w = col_widths[i] or 3
+      if is_sep then
+        table.insert(out_row, string.rep("-", w))
+      else
+        local pad = w - #cell
+        if pad < 0 then pad = 0 end
+        table.insert(out_row, cell .. string.rep(" ", pad))
+      end
+    end
+    table.insert(out, "| " .. table.concat(out_row, " | ") .. " |")
+  end
+  
+  return table.concat(out, "\n")
+end
+
 local function parse_blocks(text, base_font, code_font, max_w)
   local blocks = {}
   local is_code = false
@@ -845,24 +901,42 @@ local function parse_blocks(text, base_font, code_font, max_w)
     if blk.type == "code" then
       table.insert(final_blocks, blk)
     else
-      for line in (blk.raw .. "\n"):gmatch("([^\n]*)\n") do
-        if #line > 0 then
-          local header = line:match("^%s*(#+)%s")
-          local list = line:match("^%s*[%-%*]%s")
-          local level = header and #header or 0
-          
-          -- strip header symbols for parsing
-          if header then line = line:gsub("^%s*#+%s", "") end
-          
-          local segments = parse_inline(line)
-          -- adjust fonts for headers
-          local f = (level > 0) and (style.big_font or base_font) or base_font
-          local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("• ") or 0))
-          table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
-        else
-          table.insert(final_blocks, { type = "empty" })
+      local cur_table = ""
+      
+      local function flush_table()
+        if #cur_table > 0 then
+          cur_table = cur_table:gsub("\n$", "")
+          local formatted = format_markdown_table(cur_table)
+          -- Use a massive max_w so tables never word-wrap
+          table.insert(final_blocks, { type = "code", lang = "table", raw_lines = wrap_raw_text(code_font, formatted, 999999) })
+          cur_table = ""
         end
       end
+      
+      for line in (blk.raw .. "\n"):gmatch("([^\n]*)\n") do
+        local is_table = line:match("^%s*|.*|%s*$") ~= nil
+        if is_table then
+          cur_table = cur_table .. line .. "\n"
+        else
+          flush_table()
+          if #line > 0 then
+            local header = line:match("^%s*(#+)%s")
+            local list = line:match("^%s*[%-%*]%s")
+            local level = header and #header or 0
+            
+            if header then line = line:gsub("^%s*#+%s", "") end
+            if list then line = line:gsub("^%s*[%-%*]%s", "") end
+            
+            local segments = parse_inline(line)
+            local f = (level > 0) and (style.big_font or base_font) or base_font
+            local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("• ") or 0))
+            table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
+          else
+            table.insert(final_blocks, { type = "empty" })
+          end
+        end
+      end
+      flush_table()
     end
   end
   return final_blocks
@@ -1506,6 +1580,41 @@ function AGView:submit(prompt)
     self:state().cid = nil
     core.redraw = true
     return
+  elseif prompt == "/api" then
+    if tool_id ~= "cloud_api" then
+      core.error("/api is only available in Cloud AI (API) mode")
+      return
+    end
+    self.show_api_view = true
+    self.api_key_status = { status = "loading" }
+    
+    local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+    core.add_thread(function()
+      local p, err = process.start({ "python", bridge, "--validate-keys" })
+      if not p then
+        self.api_key_status = { status = "error", err = err }
+        return
+      end
+      local out = ""
+      while p:running() do
+        local chunk = p:read_stdout(4096)
+        if chunk and #chunk > 0 then out = out .. chunk end
+        coroutine.yield(0.1)
+      end
+      local chunk = p:read_stdout(4096)
+      if chunk and #chunk > 0 then out = out .. chunk end
+      p:wait()
+      local parsed_data = {}
+      for line in (out .. "\n"):gmatch("([^\r\n]+)\r?\n") do
+        local k, v = line:match("^([^:]+):(.+)$")
+        if k and v then
+          parsed_data[k] = v
+        end
+      end
+      self.api_key_status = { status = "done", data = parsed_data }
+      core.redraw = true
+    end)
+    return
   elseif prompt == "/usage" then
     self.show_usage_view = true
     self.usage_scroll_y = 0
@@ -1519,6 +1628,12 @@ function AGView:submit(prompt)
 
     if tool_id == "gh_copilot" then
       self.usage_text = "GitHub Copilot Usage:\n\nGitHub Copilot CLI does not expose account-wide billing quotas via non-interactive commands. The '/usage' output you see in sessions only reports token usage for that specific chat.\n\nTo view your actual billing quotas and limits, please visit your GitHub dashboard:\nhttps://github.com/settings/billing\n\n(Tip: In an interactive Copilot chat, you can type /statusline quota)"
+      core.redraw = true
+      return
+    end
+
+    if tool_id == "cloud_api" then
+      self.usage_text = "Cloud AI (API) Usage:\n\nBecause you are using a direct API integration, usage tracking and billing are managed by your respective API provider.\n\nPlease check your provider's dashboard to view your token quotas and limits:\n\n- Google (Gemini): https://aistudio.google.com/app/plan_information\n- Groq: https://console.groq.com/settings/billing\n- OpenAI: https://platform.openai.com/settings/organization/billing/overview\n- Anthropic: https://console.anthropic.com/settings/billing\n- Ollama Cloud: https://ollama.com/settings/billing"
       core.redraw = true
       return
     end
@@ -1598,6 +1713,15 @@ function AGView:submit(prompt)
     else
       self:show_resume_picker()
     end
+    return
+  end
+
+  -- If AI is already running, intercept input and send it to stdin (e.g. for HITL approvals)
+  if self:state().status == "running" and self:state().process then
+    pcall(function() self:state().process:write(prompt_text .. "\r\n") end)
+    self:_add_session("user", prompt_text)
+    self:state().scroll_to_bottom = true
+    core.redraw = true
     return
   end
 
@@ -1823,7 +1947,12 @@ function AGView:update()
       local tool   = AI_TOOLS.get(fetch_tool_id)
       local parser = (tool and tool.parse_models) or parse_pty_model_list
       local parsed = parser(self._model_raw or "")
-      if #parsed > 0 then
+      if parsed.missing_key then
+        self.model_list = {}
+        self.model_fetching = false
+        self.model_proc = nil
+        self:_prompt_for_api_key(parsed.missing_key)
+      elseif #parsed > 0 then
         -- Merge: preserve existing limited flags if new fetch has more models
         local old = self.tool_model_lists[fetch_tool_id] or {}
         local old_map = {}
@@ -1913,6 +2042,11 @@ function AGView:update()
           end
           tab.process = nil
           tab.status = (rc == 0) and "idle" or "error"
+          
+          -- Automatically refresh the Chat Memory Tree if it's currently open
+          if self.show_history_tree then
+              self:fetch_history()
+          end
           if not tab._ai_buf or tab._ai_buf == "" then
             local elapsed = os.time() - (tab._chat_started_at or os.time())
             local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
@@ -2262,6 +2396,7 @@ function AGView:draw()
   local w, h  = self.size.x, self.size.y
   local pad   = 10 * SCALE
   local cur_y = y
+  self._hitl_rects = {}
 
   -- ── Full background ─────────────────────────────────────────────────────────
   renderer.draw_rect(x, y, w, h, P.bg)
@@ -2441,8 +2576,15 @@ function AGView:draw()
   local inp_w = w - 2 * pad
   local c_pad = 8 * SCALE
   local max_text_w = inp_w - 2 * c_pad
-  local visual_lines = wrap_input_lines(raw_input, font, max_text_w)
-  local cur_line, cur_col = get_cursor_visual_line_col(visual_lines, raw_input, self:state().cursor)
+  -- Cache wrap_input_lines: expensive per-frame call, only redo if text or width changed
+  local st = self:state()
+  if st._vl_text ~= raw_input or st._vl_w ~= max_text_w then
+    st._vl_text   = raw_input
+    st._vl_w      = max_text_w
+    st._vl_cache  = wrap_input_lines(raw_input, font, max_text_w)
+  end
+  local visual_lines = st._vl_cache
+  local cur_line, cur_col = get_cursor_visual_line_col(visual_lines, raw_input, st.cursor)
   local num_lines = #visual_lines
 
   local text_h = math.max(1, num_lines) * lh
@@ -2569,7 +2711,7 @@ function AGView:draw()
 
   -- Attachment Button
   local attach_w = 28 * SCALE
-  local attach_bg = self.hover_attach and P.bg_btn_hl or P.bg_input
+  local attach_bg = self.hover_attach and P.bg_btn_hl or {0,0,0,0}
   renderer.draw_rect(inp_x + c_pad, act_y, attach_w, action_row_h, attach_bg)
   local attach_icon = "f" -- Maps to file icon in Lite XL's style.icon_font
   renderer.draw_text(style.icon_font, attach_icon,
@@ -2578,12 +2720,31 @@ function AGView:draw()
     P.fg_muted)
   self._attach_rect = { x = inp_x + c_pad, y = act_y, w = attach_w, h = action_row_h }
 
+  -- Right-side control buttons
+  local send_w = 28 * SCALE
+  local send_h = 24 * SCALE
+  local send_x = inp_x + inp_w - c_pad - send_w
+  
+  -- Read-Only Toggle (Right aligned)
+  local ro_lbl = "RO"
+  local ro_w = small_font:get_width(ro_lbl) + 16 * SCALE
+  local ro_x = send_x - 4 * SCALE - ro_w
+  
+  -- Autopilot Toggle (Right aligned)
+  local auto_lbl = "Auto"
+  local auto_w = small_font:get_width(auto_lbl) + 16 * SCALE
+  local auto_x = ro_x - 4 * SCALE - auto_w
+  
+  local mh = 20 * SCALE
+  local my = act_y + math.floor((action_row_h - mh) / 2)
+
   -- Model Selector Badge (Next to attach button)
   local sel_name  = self:_active_model() or "Default model"
   local chevron = " >"
   local model_lbl = sel_name
+  local max_model_w = math.max(40 * SCALE, (auto_x - 4 * SCALE) - (inp_x + c_pad + attach_w + 4 * SCALE))
   -- Truncate logic
-  while small_font:get_width(model_lbl .. chevron) > 120 * SCALE and #model_lbl > 4 do
+  while small_font:get_width(model_lbl .. chevron) > (max_model_w - 16 * SCALE) and #model_lbl > 4 do
     model_lbl = model_lbl:sub(1, -2)
   end
   if model_lbl ~= sel_name then
@@ -2596,11 +2757,25 @@ function AGView:draw()
   local mx = inp_x + c_pad + attach_w + 4 * SCALE
   local my = act_y + math.floor((action_row_h - mh) / 2)
 
-  local m_bg = self.hover_model_btn and P.bg_btn_hl or { P.bg_btn[1], P.bg_btn[2], P.bg_btn[3], 150 }
+  local m_bg = self.hover_model_btn and P.bg_btn_hl or {0,0,0,0}
   renderer.draw_rect(mx, my, mw, mh, m_bg)
   renderer.draw_text(small_font, model_lbl, mx + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2),
     self.hover_model_btn and P.fg_accent or P.fg_muted)
   self._model_rect = { x = mx, y = my, w = mw, h = mh }
+
+  -- Draw Autopilot
+  local auto_bg = config.ai_sidebar.autopilot and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_auto_btn and P.bg_btn_hl or {0,0,0,0})
+  local auto_fg = config.ai_sidebar.autopilot and P.fg_accent or P.fg_muted
+  renderer.draw_rect(auto_x, my, auto_w, mh, auto_bg)
+  renderer.draw_text(small_font, auto_lbl, auto_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), auto_fg)
+  self._auto_rect = { x = auto_x, y = my, w = auto_w, h = mh }
+
+  -- Draw Read-Only
+  local ro_bg = config.ai_sidebar.read_only and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_ro_btn and P.bg_btn_hl or {0,0,0,0})
+  local ro_fg = config.ai_sidebar.read_only and P.fg_accent or P.fg_muted
+  renderer.draw_rect(ro_x, my, ro_w, mh, ro_bg)
+  renderer.draw_text(small_font, ro_lbl, ro_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ro_fg)
+  self._ro_rect = { x = ro_x, y = my, w = ro_w, h = mh }
 
   -- Send/Stop Button (Right aligned)
   local send_w = 28 * SCALE
@@ -2641,7 +2816,16 @@ function AGView:draw()
   self.tab_stop_rects = {}
   local cur_x = x + pad
   local line_start_x = x + pad
-  
+
+  -- Timeline Button (Extreme right of tabs)
+  local h_btn_w = 32 * SCALE
+  local h_btn_x = x + w - pad - h_btn_w
+  local h_btn_y = cur_y + math.floor((tab_h - 30 * SCALE) / 2)
+  self._hist_toggle_rect = { x = h_btn_x, y = h_btn_y, w = h_btn_w, h = 30 * SCALE }
+  local is_hov = self.hover_hist_btn
+  renderer.draw_rect(h_btn_x, h_btn_y, h_btn_w, 30 * SCALE, self.show_history_tree and P.fg_accent or (is_hov and P.bg_dark or P.bg))
+  renderer.draw_text(style.icon_font, "g", h_btn_x + 8 * SCALE, h_btn_y + 6 * SCALE, self.show_history_tree and P.bg or P.fg_accent)
+
   for i, c in ipairs(self.chats) do
     local label = "Chat #" .. tostring(i)
     if c.status == "running" then
@@ -2656,7 +2840,7 @@ function AGView:draw()
     local tw = style.font:get_width(label) + 16 * SCALE + stop_w
     
     -- Wrap to next line if exceeds width
-    if cur_x + tw > x + w - pad and cur_x > line_start_x then
+    if cur_x + tw > h_btn_x - 8 * SCALE and cur_x > line_start_x then
       cur_x = line_start_x
       cur_y = cur_y + tab_h + 4 * SCALE
     end
@@ -2710,6 +2894,11 @@ function AGView:draw()
   local chat_top = cur_y
   local chat_h   = chat_bot - chat_top
 
+
+  if self.show_history_tree then
+    self:draw_history_tree(x, chat_top, w, chat_h)
+  end
+
   -- Clip: draw a bg rect to mask overflow
   renderer.draw_rect(x, chat_top, w, chat_h, P.bg)
   core.push_clip_rect(x, chat_top, w, chat_h)
@@ -2754,6 +2943,11 @@ function AGView:draw()
       end
     end
     msg_h = math.max(lh_f + 2 * msg_pad, msg_h)
+
+    local has_hitl = not is_user and sess.text:find("[HITL_APPROVAL_REQUIRED]", 1, true)
+    if has_hitl and self:state().status == "running" and sess == self:state().sessions[#self:state().sessions] then
+      msg_h = msg_h + 36 * SCALE
+    end
 
     -- Role label
     if ty + msg_h + lh_f >= chat_top and ty <= chat_bot then
@@ -2884,6 +3078,30 @@ function AGView:draw()
       end
     end
 
+    if has_hitl and self:state().status == "running" and sess == self:state().sessions[#self:state().sessions] then
+      local btn_w = 60 * SCALE
+      local btn_h = 24 * SCALE
+      local yes_x = x + pad + msg_pad
+      local no_x = yes_x + btn_w + 12 * SCALE
+      local btn_y = line_y + 4 * SCALE
+      
+      if btn_y + btn_h >= chat_top and btn_y <= chat_bot then
+        table.insert(self._hitl_rects, { x = yes_x, y = btn_y, w = btn_w, h = btn_h, val = "y" })
+        table.insert(self._hitl_rects, { x = no_x, y = btn_y, w = btn_w, h = btn_h, val = "n" })
+        
+        local yes_hov = self.hover_hitl == "y"
+        renderer.draw_rect(yes_x, btn_y, btn_w, btn_h, yes_hov and P.bg_btn_hl or P.bg_btn)
+        draw_rect_outline(yes_x, btn_y, btn_w, btn_h, P.fg_accent)
+        renderer.draw_text(style.font, "Yes", yes_x + math.floor((btn_w - style.font:get_width("Yes"))/2), btn_y + math.floor((btn_h - style.font:get_height())/2), P.fg_accent)
+        
+        local no_hov = self.hover_hitl == "n"
+        renderer.draw_rect(no_x, btn_y, btn_w, btn_h, no_hov and P.bg_btn_hl or P.bg_btn)
+        draw_rect_outline(no_x, btn_y, btn_w, btn_h, P.border)
+        renderer.draw_text(style.font, "No", no_x + math.floor((btn_w - style.font:get_width("No"))/2), btn_y + math.floor((btn_h - style.font:get_height())/2), P.fg)
+      end
+      line_y = line_y + btn_h + 12 * SCALE
+    end
+
     -- Save bounds for hover/click detection
     local bubble_x, bubble_y = x + pad, ty
     local bubble_w, bubble_h = msg_w, msg_h
@@ -2992,6 +3210,7 @@ function AGView:draw()
   end
 
   -- Removed tool picker dropdown as it is now a segmented control in the header
+
 
   -- MODEL PICKER DROPDOWN: drawn last to overlay pills and chat
   if self.show_model_picker then
@@ -3111,11 +3330,12 @@ function AGView:draw()
       self.usage_sub_font = style.font:copy(math.floor(style.font:get_height() * 1.05))
     end
     
+    self._usage_links = {}
     for _, line in ipairs(wrap_raw_text(style.code_font, self.usage_text or "", mw - 2 * pad)) do
       local active_font = style.code_font
       local is_bold = false
       
-      if line:match("^%s*Account:") or line:match("GitHub Copilot Usage") then
+      if line:match("^%s*Account:") or line:match("GitHub Copilot Usage") or line:match("Cloud AI %(API%) Usage") then
         active_font = self.usage_sub_font
         is_bold = true
       elseif line:match("^%u[%u%s]+MODELS%s*$") then
@@ -3125,9 +3345,32 @@ function AGView:draw()
       
       local lh = active_font:get_height()
       if ty + lh >= text_y and ty <= text_y + text_h then
-        renderer.draw_text(active_font, line, mx + pad, ty, P.fg)
-        if is_bold then
-          renderer.draw_text(active_font, line, mx + pad + 1, ty, P.fg)
+        local url_start, url_end = line:find("https?://%S+")
+        if url_start then
+          local pre = line:sub(1, url_start - 1)
+          local url = line:sub(url_start, url_end)
+          local post = line:sub(url_end + 1)
+          
+          local lx = mx + pad
+          lx = renderer.draw_text(active_font, pre, lx, ty, P.fg)
+          local ux = lx
+          
+          -- Check hover
+          local mx_mouse, my_mouse = core.active_view:get_mouse() -- get mouse is not always available, but we can check if it's stored or just check hover below
+          local hover_link = false
+          if self._usage_links_hover and self._usage_links_hover == url then hover_link = true end
+          
+          lx = renderer.draw_text(active_font, url, lx, ty, hover_link and P.fg_accent or { 100, 150, 255, 255 })
+          renderer.draw_rect(ux, ty + lh - 2 * SCALE, lx - ux, 1 * SCALE, hover_link and P.fg_accent or { 100, 150, 255, 255 })
+          
+          renderer.draw_text(active_font, post, lx, ty, P.fg)
+          
+          table.insert(self._usage_links, { x = ux, y = ty, w = lx - ux, h = lh, url = url })
+        else
+          renderer.draw_text(active_font, line, mx + pad, ty, P.fg)
+          if is_bold then
+            renderer.draw_text(active_font, line, mx + pad + 1, ty, P.fg)
+          end
         end
       end
       ty = ty + lh + 2 * SCALE
@@ -3136,6 +3379,83 @@ function AGView:draw()
     core.pop_clip_rect()
     
     self.usage_max_scroll = math.max(0, ty + (self.usage_scroll_y or 0) - text_y - text_h)
+  end
+
+  -- API MANAGEMENT VIEW
+  if self.show_api_view then
+    -- dim bg
+    renderer.draw_rect(x, y, w, h, {0,0,0,150})
+    
+    local mw = w - 40 * SCALE
+    local mh = h - 60 * SCALE
+    local mx = x + 20 * SCALE
+    local my = y + 30 * SCALE
+    
+    renderer.draw_rect(mx, my, mw, mh, P.bg)
+    draw_rect_outline(mx, my, mw, mh, P.border)
+    
+    local pad = 10 * SCALE
+    -- Header
+    renderer.draw_text(style.font, "API Management", mx + pad, my + pad, P.fg_accent)
+    
+    -- Close X
+    local cx = mx + mw - pad - style.icon_font:get_width("C")
+    local cy = my + pad
+    renderer.draw_text(style.icon_font, "C", cx, cy, P.fg_muted)
+    self._api_close_rect = { x = cx, y = cy, w = style.icon_font:get_width("C") + 8 * SCALE, h = style.icon_font:get_height() }
+    
+    local div_y = my + pad + style.font:get_height() + 8 * SCALE
+    renderer.draw_rect(mx + pad, div_y, mw - 2 * pad, 1 * SCALE, P.border)
+    
+    -- Text area
+    local text_y = div_y + 8 * SCALE
+    local ty = text_y
+    local lh = style.font:get_height()
+    
+    self._api_btns = {}
+    
+    if not self.api_key_status or self.api_key_status.status == "loading" then
+      renderer.draw_text(style.font, "Validating API Keys...", mx + pad, ty, P.fg_muted)
+    elseif self.api_key_status.status == "error" then
+      renderer.draw_text(style.font, "Error: " .. tostring(self.api_key_status.err), mx + pad, ty, {255, 100, 100, 255})
+    else
+      local providers = { "gemini", "groq", "openai", "anthropic", "ollama" }
+      for _, p in ipairs(providers) do
+        local stat = self.api_key_status.data[p] or "missing"
+        local p_name = p:sub(1,1):upper() .. p:sub(2)
+        
+        renderer.draw_text(style.font, p_name, mx + pad, ty, P.fg)
+        local status_x = mx + pad + 100 * SCALE
+        
+        local stat_color = P.fg_muted
+        if stat == "valid" then stat_color = { 100, 255, 100, 255 }
+        elseif stat == "expired" then stat_color = { 255, 100, 100, 255 } end
+        
+        renderer.draw_text(style.font, stat:upper(), status_x, ty, stat_color)
+        
+        local btn_w = 60 * SCALE
+        local btn_x = mx + mw - pad - btn_w
+        
+        local btn_text = (stat == "missing" or stat == "expired") and "Set Key" or "Delete"
+        local is_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == btn_text
+        local btn_bg = is_hover and P.bg_btn_hl or P.bg_btn
+        renderer.draw_rect(btn_x, ty, btn_w, lh, btn_bg)
+        renderer.draw_text(style.font, btn_text, btn_x + (btn_w - style.font:get_width(btn_text))/2, ty, P.fg)
+        
+        table.insert(self._api_btns, { p = p, text = btn_text, action = btn_text, x = btn_x, y = ty, w = btn_w, h = lh })
+        
+        if stat == "valid" then
+          local use_w = 40 * SCALE
+          local use_x = btn_x - use_w - 5 * SCALE
+          local is_use_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == "Use"
+          renderer.draw_rect(use_x, ty, use_w, lh, is_use_hover and P.bg_btn_hl or P.bg_btn)
+          renderer.draw_text(style.font, "Use", use_x + (use_w - style.font:get_width("Use"))/2, ty, P.fg)
+          table.insert(self._api_btns, { p = p, text = "Use", action = "Use", x = use_x, y = ty, w = use_w, h = lh })
+        end
+        
+        ty = ty + lh + 10 * SCALE
+      end
+    end
   end
 end
 
@@ -3548,6 +3868,39 @@ end
 -- ── Mouse ──────────────────────────────────────────────────────────────────────
 function AGView:on_mouse_moved(mx, my, ...)
   AGView.super.on_mouse_moved(self, mx, my, ...)
+  
+  self._usage_links_hover = nil
+  if self.show_usage_view and self._usage_links then
+    local hovering = false
+    for _, link in ipairs(self._usage_links) do
+      if mx >= link.x and mx <= link.x + link.w and my >= link.y and my <= link.y + link.h then
+        self._usage_links_hover = link.url
+        system.set_cursor("hand")
+        hovering = true
+        core.redraw = true
+        break
+      end
+    end
+    if not hovering then system.set_cursor("arrow") end
+  end
+
+  self._api_hover_btn = nil
+  self._api_hover_action = nil
+  if self.show_api_view and self._api_btns then
+    local hovering = false
+    for _, btn in ipairs(self._api_btns) do
+      if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+        self._api_hover_btn = btn.p
+        self._api_hover_action = btn.action
+        system.set_cursor("hand")
+        hovering = true
+        core.redraw = true
+        break
+      end
+    end
+    if not hovering then system.set_cursor("arrow") end
+  end
+
   self.hover_btn  = nil
   self.hover_send = false
   self.hover_attach = false
@@ -3556,7 +3909,7 @@ function AGView:on_mouse_moved(mx, my, ...)
   if self._dragging_input and self._input_rect then
     local r = self._input_rect
     local raw_input = self:state().input or ""
-    local visual_lines = self._visual_lines or wrap_input_lines(raw_input, style.font, r.w - 16 * SCALE)
+    local visual_lines = self._visual_lines or (self:state()._vl_cache) or wrap_input_lines(raw_input, style.font, r.w - 16 * SCALE)
     local lh = r.lh or (style.font:get_height() + 3 * SCALE)
     local scroll_offset = self._input_scroll_offset or 0
     local line_idx = math.floor((my - (r.y + 8 * SCALE) + scroll_offset) / lh) + 1
@@ -3622,6 +3975,29 @@ function AGView:on_mouse_moved(mx, my, ...)
   -- Model button hover
   self.hover_model_btn = false
   self.hover_model_idx = nil
+  self.hover_auto_btn = false
+  self.hover_ro_btn = false
+
+  if self._auto_rect then
+    local r = self._auto_rect
+    self.hover_auto_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+  if self._ro_rect then
+    local r = self._ro_rect
+    self.hover_ro_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+
+  self.hover_hitl = nil
+  if self._hitl_rects then
+    for _, r in ipairs(self._hitl_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_hitl = r.val
+        system.set_cursor("hand")
+        break
+      end
+    end
+  end
+
   if self._model_rect then
     local r = self._model_rect
     self.hover_model_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
@@ -3655,12 +4031,446 @@ function AGView:on_mouse_moved(mx, my, ...)
     end
   end
 
-  core.redraw = true
+  self.hover_hist_btn = false
+  if self._hist_toggle_rect then
+    local r = self._hist_toggle_rect
+    self.hover_hist_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+
+  self.hover_hist_node = nil
+  if self.show_history_tree and self._hist_node_rects then
+    for _, r in ipairs(self._hist_node_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_hist_node = r.id
+        system.set_cursor("hand")
+        break
+      end
+    end
+  end
+
+  if self.hover_hist_btn then
+    system.set_cursor("hand")
+  end
+
+  -- Only trigger redraw when hover state actually changed (prevents 60fps forced redraws on every mouse move)
+  local new_sig = tostring(self.hover_btn) .. tostring(self.hover_send) .. tostring(self.hover_attach)
+                  .. tostring(self.hover_hist_node) .. tostring(self.hover_hist_btn)
+                  .. tostring(self.hover_model_btn) .. tostring(self.hover_model_idx)
+                  .. tostring(self.hover_copy_idx) .. tostring(self.hover_hitl)
+                  .. tostring(self.hover_auto_btn) .. tostring(self.hover_ro_btn)
+                  .. tostring(self._usage_links_hover) .. tostring(self._api_hover_btn)
+  if new_sig ~= self._last_hover_sig then
+    self._last_hover_sig = new_sig
+    core.redraw = true
+  end
 end
+
+
+  function AGView:fetch_history()
+    if self.history_state == "loading" then return end
+    self.history_state = "loading"
+    core.redraw = true
+    core.add_thread(function()
+      local config_dir = USERDIR .. "/scripts"
+      local cmd = "python " .. config_dir .. "/ai_api_bridge.py --get-history"
+      local proc = process.start({ "cmd", "/c", cmd })
+      local out = ""
+      while true do
+        local chunk = proc:read_stdout(2048)
+        if chunk then out = out .. chunk end
+        if not proc:running() then break end
+        coroutine.yield(0.1)
+      end
+      out = out .. (proc:read_stdout(2048) or "")
+      
+      -- evaluate lua table safely
+      local env = {}
+      local f, err = load(out, "history", "t", env)
+      local ok = false
+      local data = nil
+      if f then
+        ok, data = pcall(f)
+      end
+      
+      if ok and type(data) == "table" and not data.error then
+        self:_layout_history(data)
+        self.history_state = "loaded"
+      else
+        self.history_state = "error"
+      end
+      core.redraw = true
+    end)
+  end
+
+  function AGView:_layout_history(data)
+    -- Group by thread
+    local threads = {}
+    for _, n in ipairs(data) do
+      if not threads[n.thread_id] then threads[n.thread_id] = {} end
+      table.insert(threads[n.thread_id], n)
+    end
+    
+    local nodes = {}
+    local node_map = {}
+    local row = 0
+    
+    for tid, tnodes in pairs(threads) do
+      -- Title node for thread
+      row = row + 1
+      table.insert(nodes, { is_title = true, title = tid, row = row })
+      
+      -- Layout nodes chronologically
+      -- Reset columns for new thread
+      local col_ends = {} 
+      
+      for _, n in ipairs(tnodes) do
+        row = row + 1
+        n.row = row
+        node_map[n.id] = n
+        
+        local parent = node_map[n.parent_id]
+        if parent then
+          if not parent.has_child then
+            parent.has_child = true
+            n.col = parent.col
+          else
+            -- branch
+            local c = parent.col + 1
+            while col_ends[c] do c = c + 1 end
+            n.col = c
+          end
+        else
+          n.col = 1
+        end
+        col_ends[n.col] = row
+        table.insert(nodes, n)
+      end
+      row = row + 1 -- padding
+    end
+    
+    self.history_nodes = nodes
+    self.history_map = node_map
+  end
+  
+  function AGView:draw_history_tree(x, y, w, h)
+    local function get_is_left(n)
+      if n.is_title then return (n.row % 2 == 1) end
+      return (n.char_count or 0) < 200
+    end
+
+    local P       = get_palette()
+    local C_TR    = {84, 52, 20, 255}    -- Trunk dark brown
+    local C_LEAF  = {142, 186, 43, 255}  -- Light green leaf
+    local C_LEAF_D= {112, 150, 30, 255}  -- Darker green leaf
+    local C_YEAR  = {142, 186, 43, 255}  -- Year green
+    local C_TEXT  = P.fg_muted
+    local f       = style.font
+    local fh      = f:get_height()
+
+    renderer.draw_rect(x, y, w, h, P.bg)
+    core.push_clip_rect(x, y, w, h)
+
+    if self.history_state == "loading" then
+      renderer.draw_text(f, "Growing tree...", x + 20, y + 20, C_LEAF)
+      core.pop_clip_rect(); return
+    elseif self.history_state == "error" then
+      renderer.draw_text(f, "Error loading timeline.", x + 20, y + 20, {220,60,60,255})
+      core.pop_clip_rect(); return
+    end
+    if not self.history_nodes or #self.history_nodes == 0 then
+      renderer.draw_text(f, "No history yet.", x + 20, y + 20, C_TEXT)
+      core.pop_clip_rect(); return
+    end
+
+    -- -- Primitive Drawing Helpers ----------------------------------
+    local function fill_circle(cx, cy, r, color)
+        r = math.max(1, math.floor(r))
+        for dy = -r, r do
+            local dx = math.floor(math.sqrt(r*r - dy*dy))
+            renderer.draw_rect(cx - dx, cy + dy, dx * 2, 1, color)
+        end
+    end
+
+    -- -- Layout Math -----------------------------------------------
+    local SCROLL  = self.history_scroll_y or 0
+    local ROW_H   = 120 * SCALE
+    local CANOPY  = 250 * SCALE
+    local MARGIN  = 20 * SCALE
+
+    -- Fixed elegant trunk width
+    local TRUNK_W = 24 * SCALE
+    local trunk_cx = x + math.floor(w * 0.50)
+    local trunk_x = trunk_cx - math.floor(TRUNK_W / 2)
+    
+    local LEFT_W  = (trunk_x) - x - MARGIN
+    local RIGHT_W = (x + w) - (trunk_x + TRUNK_W) - MARGIN
+
+    if not self._hist_max_row or self._hist_max_row_n ~= #self.history_nodes then
+      local m = 0
+      for _, n in ipairs(self.history_nodes) do
+        if n.row and n.row > m then m = n.row end
+      end
+      self._hist_max_row   = m
+      self._hist_max_row_n = #self.history_nodes
+    end
+    local max_row = self._hist_max_row
+
+    self.history_max_scroll = math.max(0, max_row * ROW_H + CANOPY - h + 100 * SCALE)
+
+    local function cy_of(row)
+      return y + CANOPY + (max_row - row) * ROW_H - SCROLL
+    end
+
+    -- -- PASS 1: The Trunk -----------------------------------------
+    -- The newest chat is right beneath the canopy
+    local scroll_trunk_top = cy_of(max_row) - 80 * SCALE
+    local scroll_trunk_bot = cy_of(1) + 150 * SCALE
+    
+    local draw_start_y = math.max(y, scroll_trunk_top)
+    local draw_end_y = math.min(y + h, scroll_trunk_bot)
+    
+    if draw_start_y < draw_end_y then
+        renderer.draw_rect(trunk_x, draw_start_y, TRUNK_W, draw_end_y - draw_start_y, C_TR)
+    end
+    
+    -- Smooth root flares at the bottom
+    if scroll_trunk_bot > y and scroll_trunk_bot < y + h + 50*SCALE then
+        for ri = 1, 10 do
+            fill_circle(trunk_x - ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
+            fill_circle(trunk_x + TRUNK_W + ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
+        end
+    end
+
+    -- -- PASS 2: Solid Curved Branches -----------------------------
+    local function draw_solid_branch(cy, is_left)
+        local dir = is_left and -1 or 1
+        local blen = (is_left and LEFT_W or RIGHT_W) * 0.90
+        local base_thick = 18 * SCALE  -- thick at base
+        
+        local sx = is_left and trunk_x or (trunk_x + TRUNK_W)
+        local steps = math.floor(blen)
+        
+        for i = 0, steps do
+            local t = i / steps
+            local bx = sx + dir * i
+            
+            -- Top edge swoops down then sweeps up gracefully
+            local y_top = cy + (45 * t - 70 * t * t) * SCALE
+            
+            -- Thickness stays meaty for most of the branch, then tapers elegantly to a 1px point
+            local thick = math.max(1, base_thick * (1 - t^2))
+            local y_bot = y_top + thick
+            
+            -- Draw vertical slice
+            renderer.draw_rect(bx, math.floor(y_top), 1, math.max(1, math.floor(y_bot - y_top)), C_TR)
+        end
+    end
+
+    for _, n in ipairs(self.history_nodes) do
+      if not n.is_title then
+        local cy = cy_of(n.row)
+        if cy > y - ROW_H and cy < y + h + ROW_H then
+          draw_solid_branch(cy, get_is_left(n))
+        end
+      end
+    end
+
+    -- -- PASS 3: Cloud Canopy (Vector Style) -----------------------
+    local canopy_cy = scroll_trunk_top - 30 * SCALE
+    if canopy_cy > y - 400*SCALE and canopy_cy < y + h + 400*SCALE then
+      math.randomseed(42)
+      
+      -- Draw structural top branches splitting into the canopy
+      for i=1, 6 do
+         local bx = trunk_cx
+         local by = scroll_trunk_top + 20*SCALE
+         local dir = (i % 2 == 0) and 1 or -1
+         local sweep = math.random() * 80 * SCALE
+         for j=0, 30 do
+             local t = j/30
+             local cx = bx + dir * t * sweep
+             local cy = by - t * 90 * SCALE
+             local r = math.max(1, (8 - t*7)*SCALE)
+             fill_circle(cx, cy, r, C_TR)
+         end
+      end
+      
+      -- Modern Vector UI Tree Crown (Overlapping solid circles)
+      -- Main crown shapes
+      local blobs = {
+          {x=0, y=0, r=60},
+          {x=-50, y=10, r=50},
+          {x=50, y=10, r=50},
+          {x=-80, y=-20, r=45},
+          {x=80, y=-20, r=45},
+          {x=-30, y=-40, r=55},
+          {x=30, y=-40, r=55},
+          {x=0, y=-70, r=50}
+      }
+      
+      for _, b in ipairs(blobs) do
+          fill_circle(trunk_cx + b.x*SCALE, canopy_cy + b.y*SCALE, b.r*SCALE, C_LEAF_D)
+      end
+      for _, b in ipairs(blobs) do
+          fill_circle(trunk_cx + b.x*SCALE, canopy_cy + b.y*SCALE - 5*SCALE, (b.r-4)*SCALE, C_LEAF)
+      end
+      
+      -- Scatted perimeter leaves (small circles)
+      for i=1, 60 do
+          local ang = math.random() * math.pi * 2
+          local dist = 60*SCALE + math.random() * 60*SCALE
+          local cx = trunk_cx + math.cos(ang) * dist
+          local cy = canopy_cy - 20*SCALE + math.sin(ang) * dist * 0.6
+          local r = 8*SCALE + math.random()*12*SCALE
+          local c = (math.random() > 0.5) and C_LEAF or C_LEAF_D
+          fill_circle(cx, cy, r, c)
+      end
+      
+      -- Chat Memory Tree Title in the Canopy
+      local tf = style.big_font or style.font
+      local title_str = "Chat Memory Tree"
+      local tw = tf:get_width(title_str)
+      local th = tf:get_height()
+      local ty = canopy_cy - 10*SCALE - th/2
+      -- Draw shadow/outline for readability
+      renderer.draw_text(tf, title_str, trunk_cx - tw/2 + 2, ty + 2, {0,0,0,180})
+      renderer.draw_text(tf, title_str, trunk_cx - tw/2, ty, P.bg)
+    end
+
+    -- -- PASS 4: Text Wrap Cache -----------------------------------
+    local function align_wrap(text, font, max_w)
+       local lines = {}
+       for line in text:gmatch("([^\r\n]+)") do
+          local cur = ""
+          for word in line:gmatch("%S+") do
+             if font:get_width(cur .. " " .. word) > max_w then
+                if cur ~= "" then table.insert(lines, cur) end
+                cur = word
+             else
+                cur = cur == "" and word or (cur .. " " .. word)
+             end
+          end
+          if cur ~= "" then table.insert(lines, cur) end
+       end
+       return lines
+    end
+
+    for _, n in ipairs(self.history_nodes) do
+      if n._cache_w ~= w then
+        n._cache_w = w
+        local is_left = get_is_left(n)
+        
+        local dt = n.date or ""
+        n._year = dt ~= "" and dt:sub(1, 4) or "Chat"
+        n._date = dt ~= "" and dt:sub(1, 10) or ""
+        
+        local tw = is_left and LEFT_W or RIGHT_W
+        n._lines = align_wrap(n.snippet or "No content", f, tw)
+        if #n._lines > 4 then
+           n._lines = { n._lines[1], n._lines[2], n._lines[3], n._lines[4] .. "..." }
+        end
+        n._title = n.title == "default_thread" and "main" or (n.title or "?")
+      end
+    end
+
+    -- -- PASS 5: Clean Labels --------------------------------------
+    self._hist_node_rects = {}
+    local year_f = style.font -- A bigger font would be nice, but stick to standard to avoid errors
+
+    for _, n in ipairs(self.history_nodes) do
+      local cy = cy_of(n.row)
+      if cy > y - ROW_H and cy < y + h + ROW_H then
+        local is_left = get_is_left(n)
+        local is_hov  = self.hover_hist_node == n.id
+
+        if n.is_title then
+           local tx = is_left and (trunk_x - 10*SCALE - f:get_width(n._title)) or (trunk_x + TRUNK_W + 10*SCALE)
+           renderer.draw_text(f, n._title, tx, cy - fh//2, is_hov and P.fg_accent or C_YEAR)
+        else
+           -- Year sits elegantly ON TOP of the branch base
+           local year_w = year_f:get_width(n._year)
+           local y_x = is_left and (trunk_x - year_w - 10*SCALE) or (trunk_x + TRUNK_W + 10*SCALE)
+           local y_y = cy - fh - 2*SCALE
+           
+           renderer.draw_text(year_f, n._year, y_x, y_y, is_hov and P.fg_accent or C_YEAR)
+           
+           -- Text floats cleanly BELOW the branch
+           local t_y = cy + 14*SCALE
+           
+           local prov_str = ""
+           if n.source == "human" then
+               prov_str = "[User] "
+           elseif n.provider and n.provider ~= "" then
+               prov_str = "[" .. n.provider .. "] "
+           elseif n.source == "ai" then
+               prov_str = "[AI] "
+           end
+           
+           local m_str = prov_str .. n._date
+           
+           local function draw_aligned(text, font, yy, col, bold)
+              local tw = font:get_width(text)
+              -- Push text slightly further out to follow the curve of the branch downwards
+              local tx = is_left and (trunk_x - tw - 15*SCALE) or (trunk_x + TRUNK_W + 15*SCALE)
+              renderer.draw_text(font, text, tx, yy, col)
+              if bold then
+                 renderer.draw_text(font, text, tx + 1, yy, col)
+                 -- Add horizontal offset twice for a crisp bold effect
+                 -- If the text is light, we can even double strike it
+              end
+           end
+           
+           local current_y = t_y
+           draw_aligned(m_str, f, current_y, P.fg_accent or {200,200,200,255}, true) -- Bold & brighter!
+           current_y = current_y + fh + 2*SCALE
+           
+           for _, line in ipairs(n._lines) do
+              draw_aligned(line, f, current_y, is_hov and P.fg or C_TEXT, false)
+              current_y = current_y + fh + 2*SCALE
+           end
+           
+           -- Hitbox
+           local rx = is_left and (trunk_x - LEFT_W) or (trunk_x + TRUNK_W)
+           table.insert(self._hist_node_rects, { id=n.id, thread=n.thread_id, x=rx, y=y_y, w=LEFT_W, h=(current_y - y_y) })
+        end
+      end
+    end
+
+    core.pop_clip_rect()
+  end
+
+
+
 
 function AGView:on_mouse_pressed(button, mx, my, clicks)
   AGView.super.on_mouse_pressed(self, button, mx, my, clicks)
   core.set_active_view(self)
+  if button == "left" then
+    if self.hover_hist_btn then
+      self.show_history_tree = not self.show_history_tree
+      if self.show_history_tree then self:fetch_history() end
+      core.redraw = true
+      return
+    end
+    
+    if self.show_history_tree and self.hover_hist_node then
+      for _, r in ipairs(self._hist_node_rects) do
+        if r.id == self.hover_hist_node then
+          core.log("Resuming thread: " .. r.thread)
+          self.show_history_tree = false
+          self:state().thread_id = r.thread
+          self:state().sessions = {}
+          self:state().has_session = true
+          self:state().status = "idle"
+          self:_add_session("ai", "Resumed conversation thread: " .. r.thread .. "\nAsk a question to continue from this branch.")
+          core.redraw = true
+          break
+        end
+      end
+      return
+    end
+  end
+
 
   -- Right-click: Linux shell style instant paste into input box
   if button == "right" then
@@ -3721,6 +4531,39 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
       end
       core.redraw = true
       return true
+    end
+  end
+
+  if self._auto_rect then
+    local r = self._auto_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      config.ai_sidebar.autopilot = not config.ai_sidebar.autopilot
+      core.redraw = true
+      return true
+    end
+  end
+
+  if self._ro_rect then
+    local r = self._ro_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      config.ai_sidebar.read_only = not config.ai_sidebar.read_only
+      core.redraw = true
+      return true
+    end
+  end
+
+  if self._hitl_rects and self:state().status == "running" then
+    for _, r in ipairs(self._hitl_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        if self:state().process then
+          pcall(function() self:state().process:write(r.val .. "\r\n") end)
+          -- Append the user's choice to the chat so they see what they did
+          self:_add_session("user", r.val)
+          self:state().scroll_to_bottom = true
+          core.redraw = true
+        end
+        return true
+      end
     end
   end
 
@@ -3816,6 +4659,13 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   for _, r in ipairs(self.tab_rects or {}) do
     if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
       self.active_idx = r.idx
+      
+      -- Restore the tool method used by this specific tab
+      if self:state().tool_id then
+        config.ai_sidebar.active_tool = self:state().tool_id
+        self:_sync_model_list()
+      end
+      
       core.redraw = true
       return true
     end
@@ -3853,6 +4703,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
           if selected then
             local prev_id = config.ai_sidebar.active_tool
             config.ai_sidebar.active_tool = selected.id
+              self:state().tool_id = selected.id
             
             -- Sync model list from cache (or trigger fetch)
             local id = selected.id
@@ -3948,6 +4799,53 @@ end
 
 function AGView:on_mouse_released(button, mx, my)
   AGView.super.on_mouse_released(self, button, mx, my)
+  
+  if self.show_api_view then
+    local cx, cy, cw, ch = 0, 0, 0, 0
+    if self._api_close_rect then
+      cx, cy, cw, ch = self._api_close_rect.x, self._api_close_rect.y, self._api_close_rect.w, self._api_close_rect.h
+    end
+    if mx >= cx and mx <= cx + cw and my >= cy and my <= cy + ch then
+      self.show_api_view = false
+      core.redraw = true
+      return true
+    end
+    if self._api_btns then
+      for _, btn in ipairs(self._api_btns) do
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          if btn.action == "Delete" then
+            -- run delete command
+            local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+            core.add_thread(function()
+              process.start({ "python", bridge, "--provider", btn.p, "--delete-key" }):wait()
+              self:submit("/api") -- refresh
+            end)
+          elseif btn.action == "Use" then
+            -- Set provider as active by picking its first model
+            if self.tool_model_lists and self.tool_model_lists["cloud_api"] then
+              for _, m in ipairs(self.tool_model_lists["cloud_api"]) do
+                if m.name:match("^" .. btn.p .. "/") then
+                  local tc = self:_tool_cfg("cloud_api")
+                  tc.selected_model = m.name
+                  if (config.ai_sidebar.active_tool or "agy") == "cloud_api" then
+                    config.antigravity.selected_model = m.name
+                  end
+                  self.show_api_view = false
+                  break
+                end
+              end
+            end
+          else
+            -- set key
+            self:_prompt_for_api_key(btn.p)
+          end
+          return true
+        end
+      end
+    end
+    return true
+  end
+
   if self.show_usage_view then
     local cx, cy, cw, ch = 0, 0, 0, 0
     if self._usage_close_rect then
@@ -3957,6 +4855,20 @@ function AGView:on_mouse_released(button, mx, my)
       self.show_usage_view = false
       core.redraw = true
       return true
+    end
+    if self._usage_links then
+      for _, link in ipairs(self._usage_links) do
+        if mx >= link.x and mx <= link.x + link.w and my >= link.y and my <= link.y + link.h then
+          if PLATFORM == "Windows" then
+            system.exec("start \"\" \"" .. link.url .. "\"")
+          elseif PLATFORM == "Mac OS X" then
+            system.exec("open \"" .. link.url .. "\"")
+          else
+            system.exec("xdg-open \"" .. link.url .. "\"")
+          end
+          return true
+        end
+      end
     end
     -- Prevent clicks from bleeding through to chat if usage view is open
     return true
@@ -3979,11 +4891,50 @@ function AGView:on_mouse_wheel(dy)
     local mf = style.font
     local item_h = mf:get_height() + 4 * SCALE
     self.model_scroll_y = math.max(0, math.min(self.model_max_scroll or 0, (self.model_scroll_y or 0) - dy * item_h))
+  elseif self.show_history_tree then
+    local item_h = 36 * SCALE
+    self.history_scroll_y = math.max(0, math.min(self.history_max_scroll or 0, (self.history_scroll_y or 0) - dy * item_h))
   else
     self:state().scroll_y = math.max(0, math.min(self:state().max_scroll, self:state().scroll_y - dy * (style.font:get_height() + 2 * SCALE) * 3))
   end
   core.redraw = true
   return true
+end
+
+function AGView:_prompt_for_api_key(provider)
+  if provider == "all" then
+    core.command_view:enter("Choose Provider (gemini, groq, openai, anthropic)", {
+      submit = function(text)
+        text = text:match("^%s*(.-)%s*$"):lower()
+        if text == "gemini" or text == "groq" or text == "openai" or text == "anthropic" then
+          self:_prompt_for_api_key(text)
+        else
+          core.error("Invalid provider: " .. text)
+        end
+      end
+    })
+    return
+  end
+
+  core.command_view:enter("Enter API Key for " .. provider, {
+    submit = function(text)
+      text = text:match("^%s*(.-)%s*$")
+      if text and #text > 0 then
+        -- Run python script to save key
+        local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+        local p = process.start({ "python", bridge, "--provider", provider, "--set-key", text })
+        if p then
+          core.add_thread(function()
+            p:wait()
+            self:fetch_models(true)
+            if self.show_api_view then
+              self:submit("/api")
+            end
+          end)
+        end
+      end
+    end
+  })
 end
 
 function AGView:open_artifacts_popup()
@@ -4038,16 +4989,16 @@ command.add(nil, {
       rawset(_G, "_ag_instance", instance) -- expose for activity_bar auth display
     end
     
-    local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true) -- dont_create=true
     local node = core.root_view.root_node:get_node_for_view(instance)
+    local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node(true)
     
     -- Determine if AI is currently visible and active
-    local ai_is_active = sidebar and (sidebar.active_view == instance)
+    local ai_is_active = node and (node.active_view == instance)
     
     if ai_is_active then
       -- Toggle OFF: close everything in the sidebar
-      for i = #sidebar.views, 1, -1 do
-        sidebar:close_view(core.root_view.root_node, sidebar.views[i])
+      for i = #node.views, 1, -1 do
+        node:close_view(core.root_view.root_node, node.views[i])
       end
       instance.visible = false
     else
@@ -4316,4 +5267,38 @@ end
 
 
 
+
+
+
+-- -----------------------------------------------------------------------------
+-- SAFE HISTORY TREE INJECTION
+-- -----------------------------------------------------------------------------
+local original_draw = AGView.draw
+function AGView:draw(...)
+  if self.show_history_tree then
+    local x, y = self.position.x, self.position.y
+    local w, h = self.size.x, self.size.y
+    local pad = 10 * SCALE
+    
+    -- Draw tree
+    self:draw_history_tree(x, y, w, h)
+    
+    -- Draw toggle button on top
+    local P = get_palette()
+    local h_btn_w = 32 * SCALE
+    local h_btn_x = x + w - pad - h_btn_w
+    local h_btn_y = y + 103 * SCALE
+    self._hist_toggle_rect = { x = h_btn_x, y = h_btn_y, w = h_btn_w, h = 30 * SCALE }
+    
+    -- We need mx, my to check hover. But draw doesn't get mx, my directly. 
+    -- We can just use self.hover_hist_btn which is updated by on_mouse_moved.
+    local is_hov = self.hover_hist_btn
+    renderer.draw_rect(h_btn_x, h_btn_y, h_btn_w, 30 * SCALE, P.fg_accent)
+    renderer.draw_text(style.icon_font, "g", h_btn_x + 8 * SCALE, h_btn_y + 6 * SCALE, P.bg)
+    return
+  end
+  
+  -- If not in history mode, just call the normal draw!
+  original_draw(self, ...)
+end
 
