@@ -29,3 +29,9 @@ Thumbs.db
 *.o
 *.log
 temp_*
+
+# AI Data
+
+# AI Data
+scripts/ai_api_keys.json
+scripts/ai_threads.db

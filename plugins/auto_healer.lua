@@ -92,11 +92,7 @@ local function agy_path()
 end
 
 local function run_headless(prompt)
-  local cmd = { agy_path(), "-p", prompt, "--dangerously-skip-permissions" }
-  if (config.ai_sidebar and config.ai_sidebar.active_tool == "cloud_api") or (config.antigravity and config.antigravity.cli == nil and os.execute("agy --version") ~= 0) then
-     cmd = { "python", USERDIR .. "/scripts/ai_api_bridge.py", "-p", prompt, "--headless" }
-  end
-  local p = process.start(cmd, {
+  local p = process.start({ agy_path(), "-p", prompt, "--dangerously-skip-permissions" }, {
     stdin = process.REDIRECT_DISCARD,
     stdout = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
