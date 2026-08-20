@@ -14,6 +14,7 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # Auto-detect non-interactive environments (CI, GitHub Actions, background tasks)
 if ($env:CI -eq "true" -or $env:GITHUB_ACTIONS -eq "true" -or [Console]::IsInputRedirected) {
@@ -61,7 +62,7 @@ function Safe-Download {
         if (-not (Test-Path -LiteralPath $parent)) {
             New-Item -ItemType Directory -Force -Path $parent | Out-Null
         }
-        Invoke-RestMethod -Uri $Url -OutFile $OutPath -TimeoutSec 20 -ErrorAction Stop
+        Invoke-RestMethod -Uri $Url -OutFile $OutPath -TimeoutSec 120 -ErrorAction Stop
         Write-Host "[+] Downloaded $Desc" -ForegroundColor Gray
         return $true
     } catch {
@@ -112,7 +113,7 @@ if (-not $SkipLiteXl) {
                 $dlOk = Safe-Download "https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe" $installer "Lite-XL Setup"
                 if ($dlOk -and (Test-Path -LiteralPath $installer)) {
                     Write-Host "Running Lite-XL installer..."
-                    Start-Process -FilePath $installer -Wait
+                    Start-Process -FilePath $installer -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
                 } else {
                     Write-Host "WARNING: Could not download installer. Placing configuration in $configDir." -ForegroundColor Yellow
                 }

@@ -50,10 +50,14 @@ if %errorlevel% neq 0 (
             )
             if /i "!install_lite!"=="y" (
                 echo Downloading Lite-XL setup...
-                curl -L --connect-timeout 15 -o "%TEMP%\LiteXL-setup.exe" https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe
+                curl -L --connect-timeout 15 -o "%TEMP%\LiteXL-setup.exe" https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe >nul 2>nul
+                if not exist "%TEMP%\LiteXL-setup.exe" (
+                    echo Curl failed. Trying PowerShell fallback...
+                    powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-RestMethod -Uri 'https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64-setup.exe' -OutFile '%TEMP%\LiteXL-setup.exe' -ErrorAction Stop" >nul 2>nul
+                )
                 if exist "%TEMP%\LiteXL-setup.exe" (
-                    echo Running Lite-XL installer...
-                    start /wait "" "%TEMP%\LiteXL-setup.exe"
+                    echo Running Lite-XL installer silently...
+                    start /wait "" "%TEMP%\LiteXL-setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
                 ) else (
                     echo WARNING: Download failed. Placing configuration in %CONFIG_DIR%.
                 )
@@ -101,6 +105,9 @@ if %errorlevel% neq 0 (
     if /i "!install_agy!"=="y" (
         echo Installing Antigravity CLI...
         curl -fsSL --connect-timeout 15 https://antigravity.google/cli/install.cmd -o "%TEMP%\install_agy.cmd" 2>nul
+        if not exist "%TEMP%\install_agy.cmd" (
+            powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-RestMethod -Uri 'https://antigravity.google/cli/install.cmd' -OutFile '%TEMP%\install_agy.cmd' -ErrorAction SilentlyContinue" >nul 2>nul
+        )
         if exist "%TEMP%\install_agy.cmd" (
             call "%TEMP%\install_agy.cmd"
             del "%TEMP%\install_agy.cmd" >nul 2>nul

@@ -157,8 +157,26 @@ if ! command -v lite-xl &> /dev/null && [ "$INSTALL_LITE" = true ]; then
             $SUDO pacman -Sy --noconfirm lite-xl >/dev/null 2>&1 || true
         elif command -v brew &> /dev/null; then
             brew install --cask lite-xl >/dev/null 2>&1 || true
-        else
-            echo "Notice: Package manager not recognized for Lite-XL binary. Placing configuration in $CONFIG_DIR."
+        fi
+        
+        # Verify if installed, if not, use AppImage fallback
+        if ! command -v lite-xl &> /dev/null; then
+            echo "Package manager installation failed or unavailable. Falling back to AppImage..."
+            mkdir -p ~/.local/bin
+            APPIMAGE_URL="https://github.com/lite-xl/lite-xl/releases/download/v2.1.8/LiteXL-v2.1.8-addons-x86_64.AppImage"
+            if command -v curl &> /dev/null; then
+                curl -L --connect-timeout 15 -o ~/.local/bin/lite-xl "$APPIMAGE_URL"
+            elif command -v wget &> /dev/null; then
+                wget -T 15 -qO ~/.local/bin/lite-xl "$APPIMAGE_URL"
+            fi
+            chmod +x ~/.local/bin/lite-xl
+            # Export to path just for this session, users should have ~/.local/bin in PATH
+            export PATH="$HOME/.local/bin:$PATH"
+            if ! command -v lite-xl &> /dev/null; then
+                echo "WARNING: Could not install Lite-XL binary automatically. Configuration will be placed in $CONFIG_DIR."
+            else
+                echo "[+] Installed Lite-XL AppImage to ~/.local/bin/lite-xl"
+            fi
         fi
     fi
 fi
