@@ -34,7 +34,7 @@ echo [*] Welcome to the LazyLite Installer!
 echo [+] Transforming your Lite-XL into a modern powerhouse...
 if "%UNATTENDED%"=="1" echo [*] Running in unattended auto-setup mode.
 echo ------------------------------------------------------------------
-echo [!] DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required.
+echo [!] Note: AI Sidebar and Auto-Healer default to API mode if Antigravity CLI (agy) is not installed.
 echo ------------------------------------------------------------------
 echo.
 
@@ -90,7 +90,7 @@ if exist "%WINDIR%\Fonts\seguiemj.ttf" (
 )
 
 :: 2. Check Antigravity CLI
-set "INSTALL_AGY_SIDEBAR=true"
+set "AGY_INSTALLED=true"
 where agy >nul 2>nul
 if %errorlevel% neq 0 (
     set "install_agy=y"
@@ -106,8 +106,7 @@ if %errorlevel% neq 0 (
             del "%TEMP%\install_agy.cmd" >nul 2>nul
         )
     ) else (
-        echo Note: AI sidebar will be skipped until Antigravity CLI is installed.
-        set "INSTALL_AGY_SIDEBAR=false"
+        set "AGY_INSTALLED=false"
     )
 )
 
@@ -169,11 +168,7 @@ if not exist "%CONFIG_DIR%\scripts" mkdir "%CONFIG_DIR%\scripts" >nul 2>nul
 :: Copy all plugin files (.lua, .json, .py, .exe)
 for %%f in ("%SRC_DIR%plugins\*.lua" "%SRC_DIR%plugins\*.json" "%SRC_DIR%plugins\*.py" "%SRC_DIR%plugins\*.exe") do (
     if exist "%%f" (
-        if "%%~nxf"=="antigravity_sidebar.lua" (
-            if "!INSTALL_AGY_SIDEBAR!"=="true" copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
-        ) else if "%%~nxf"=="agy_pty_bridge.py" (
-            if "!INSTALL_AGY_SIDEBAR!"=="true" copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
-        ) else if "%%~nxf"=="leetcode.lua" (
+        if "%%~nxf"=="leetcode.lua" (
             if /i "!SETUP_LEETCODE!"=="y" copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
         ) else if "%%~nxf"=="leetcode_assessment.lua" (
             if /i "!SETUP_LEETCODE!"=="y" copy /y "%%f" "%CONFIG_DIR%\plugins\" >nul
@@ -233,6 +228,18 @@ if not exist "%INIT_FILE%" (
         echo [+] Appended LazyLite configuration to init.lua.
     ) else (
         echo [+] LazyLite configuration already present in init.lua.
+    )
+)
+
+if "!AGY_INSTALLED!"=="false" (
+    set "API_FALLBACK_MARKER=-- [[ LazyLite API Fallback ]]"
+    findstr /c:"!API_FALLBACK_MARKER!" "%INIT_FILE%" >nul 2>nul
+    if !errorlevel! neq 0 (
+        echo. >> "%INIT_FILE%"
+        echo !API_FALLBACK_MARKER! >> "%INIT_FILE%"
+        echo config.ai_sidebar = config.ai_sidebar or {} >> "%INIT_FILE%"
+        echo config.ai_sidebar.active_tool = "cloud_api" >> "%INIT_FILE%"
+        echo [+] Configured AI Sidebar to use API Mode (cloud_api) since agy is not installed.
     )
 )
 

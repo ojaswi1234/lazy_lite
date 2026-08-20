@@ -34,7 +34,7 @@ if ($Unattended) {
     Write-Host "[*] Running in unattended auto-setup mode." -ForegroundColor Cyan
 }
 Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
-Write-Host "[!] DISCLAIMER: For the Auto-Healer setup to work, the Antigravity CLI (agy) is required." -ForegroundColor Yellow
+Write-Host "[!] Note: AI Sidebar and Auto-Healer default to API mode if Antigravity CLI (agy) is not installed." -ForegroundColor Yellow
 Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
 
@@ -158,7 +158,7 @@ if (Test-Path -LiteralPath $segoeEmoji) {
 
 # 2. Check Antigravity CLI
 $agyCmd = Get-Command "agy" -ErrorAction SilentlyContinue
-$installAgySidebar = -not $SkipAgy
+$agyInstalled = [bool]$agyCmd
 
 if (-not $agyCmd -and -not $SkipAgy) {
     $installAgy = "Y"
@@ -170,13 +170,10 @@ if (-not $agyCmd -and -not $SkipAgy) {
         Write-Host "Installing Antigravity CLI..."
         try {
             Invoke-RestMethod -Uri https://antigravity.google/cli/install.ps1 | Invoke-Expression
-            $installAgySidebar = $true
+            $agyInstalled = $true
         } catch {
             Write-Host "WARNING: Antigravity CLI installer encountered an error. You can run 'irm https://antigravity.google/cli/install.ps1 | iex' manually later." -ForegroundColor Yellow
-            $installAgySidebar = $true
         }
-    } else {
-        $installAgySidebar = $false
     }
 }
 
@@ -273,10 +270,6 @@ if (Test-Path -LiteralPath "$srcDir\plugins") {
     Get-ChildItem -LiteralPath "$srcDir\plugins" | ForEach-Object {
         if ($_.PSIsContainer) {
             # Subdirectories handled below
-        } elseif ($_.Name -eq "antigravity_sidebar.lua" -and -not $installAgySidebar) {
-            # skip
-        } elseif ($_.Name -eq "agy_pty_bridge.py" -and -not $installAgySidebar) {
-            # skip
         } elseif (($_.Name -eq "leetcode.lua" -or $_.Name -eq "leetcode_assessment.lua" -or $_.Name -eq "company_tags.json" -or $_.Name -eq "problem_tags.json" -or $_.Name -eq "company_scores.json") -and -not $setupLeetcode) {
             # skip
         } elseif ($_.Name -eq "mongodb_explorer.lua" -and -not $setupMongo) {
@@ -362,7 +355,21 @@ if ([string]::IsNullOrWhiteSpace($initContent)) {
 } else {
     Write-Host "[+] LazyLite configuration already present in init.lua" -ForegroundColor Gray
 }
+Write-Host ""
+if (-not $agyInstalled) {
+    $apiFallbackMarker = "-- [[ LazyLite API Fallback ]]"
+    $initContentNew = Get-Content -LiteralPath $initFile -Raw
+    if (-not $initContentNew.Contains($apiFallbackMarker)) {
+        $apiFallbackCode = @"
 
+$apiFallbackMarker
+config.ai_sidebar = config.ai_sidebar or {}
+config.ai_sidebar.active_tool = "cloud_api"
+"@
+        Add-Content -LiteralPath $initFile -Value $apiFallbackCode -Encoding utf8
+        Write-Host "[+] Configured AI Sidebar to use API Mode (cloud_api) since agy is not installed." -ForegroundColor Green
+    }
+}
 Write-Host ""
 Write-Host "==================================================================" -ForegroundColor Green
 Write-Host "  Installation complete! Restart Lite-XL to enjoy LazyLite." -ForegroundColor Green

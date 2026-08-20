@@ -80,7 +80,7 @@ if [ "$UNATTENDED" = true ]; then
     echo -e "⚡ \033[1;34mRunning in unattended auto-setup mode.\033[0m"
 fi
 echo "------------------------------------------------------------------"
-echo -e "⚠️  \033[1;33mDISCLAIMER:\033[0m For the Auto-Healer setup to work, the \033[1mAntigravity CLI (agy)\033[0m is required."
+echo -e "⚠️  \033[1;33mNote:\033[0m AI Sidebar and Auto-Healer default to API mode if \033[1mAntigravity CLI (agy)\033[0m is not installed."
 echo "------------------------------------------------------------------"
 echo ""
 
@@ -287,8 +287,6 @@ if [ -d "$SRC_DIR/plugins" ]; then
     for plugin in "$SRC_DIR"/plugins/*; do
         [ -f "$plugin" ] || continue
         plugin_name=$(basename "$plugin")
-        if [ "$plugin_name" = "antigravity_sidebar.lua" ] && [ "$INSTALL_AGY" = false ]; then continue; fi
-        if [ "$plugin_name" = "agy_pty_bridge.py" ] && [ "$INSTALL_AGY" = false ]; then continue; fi
         if { [ "$plugin_name" = "leetcode.lua" ] || [ "$plugin_name" = "leetcode_assessment.lua" ] || [ "$plugin_name" = "company_tags.json" ] || [ "$plugin_name" = "problem_tags.json" ] || [ "$plugin_name" = "company_scores.json" ]; } && [ "$INSTALL_LEETCODE" = false ]; then continue; fi
         if [ "$plugin_name" = "mongodb_explorer.lua" ] && [ "$INSTALL_MONGO" = false ]; then continue; fi
         cp -f "$plugin" "$CONFIG_DIR/plugins/"
@@ -381,6 +379,19 @@ elif ! grep -qF -- "$MARKER" "$INIT_FILE"; then
     echo "[+] Appended LazyLite configuration to init.lua."
 else
     echo "[+] LazyLite configuration already present in init.lua."
+fi
+
+if ! command -v agy &> /dev/null; then
+    API_FALLBACK_MARKER="-- [[ LazyLite API Fallback ]]"
+    if ! grep -qF -- "$API_FALLBACK_MARKER" "$INIT_FILE"; then
+        cat <<EOF >> "$INIT_FILE"
+
+$API_FALLBACK_MARKER
+config.ai_sidebar = config.ai_sidebar or {}
+config.ai_sidebar.active_tool = "cloud_api"
+EOF
+        echo "[+] Configured AI Sidebar to use API Mode (cloud_api) since agy is not installed."
+    fi
 fi
 
 echo ""
