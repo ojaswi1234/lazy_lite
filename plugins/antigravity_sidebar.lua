@@ -3356,7 +3356,7 @@ function AGView:draw()
           local ux = lx
           
           -- Check hover
-          local mx_mouse, my_mouse = core.active_view:get_mouse() -- get mouse is not always available, but we can check if it's stored or just check hover below
+          local mx_mouse, my_mouse = core.root_view.mouse.x, core.root_view.mouse.y
           local hover_link = false
           if self._usage_links_hover and self._usage_links_hover == url then hover_link = true end
           
