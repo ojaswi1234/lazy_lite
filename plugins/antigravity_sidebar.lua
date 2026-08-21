@@ -1606,8 +1606,10 @@ function AGView:submit(prompt)
       p:wait()
       local parsed_data = {}
       for line in (out .. "\n"):gmatch("([^\r\n]+)\r?\n") do
-        local k, v = line:match("^([^:]+):(.+)$")
+        local k, v = line:match("^([^:]+):%s*(.+)$")
         if k and v then
+          -- Strip any trailing spaces or carriage returns from the value
+          v = v:gsub("%s+$", "")
           parsed_data[k] = v
         end
       end
