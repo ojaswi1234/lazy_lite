@@ -1679,6 +1679,9 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
         end
       end
     end
+  elseif button == "right" then
+    command.perform("terminal:paste")
+    return true
   end
   return false
 end
