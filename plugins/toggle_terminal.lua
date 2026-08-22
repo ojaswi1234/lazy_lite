@@ -626,7 +626,7 @@ function TermView:update()
     end
   end
   if math.abs(self.size.y - dest) > 0.5 then
-    self.size.y = common.lerp(self.size.y, dest, 0.4)
+    self:move_towards(self.size, "y", dest)
     core.redraw = true
   else
     self.size.y = dest
