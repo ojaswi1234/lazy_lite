@@ -2931,16 +2931,16 @@ function AGView:draw()
     -- Cache parsed blocks (invalidated when text or width changes)
     if not sess.blocks or sess._cached_text ~= sess.text or sess._cached_w ~= msg_w then
       local now = os.clock()
-      local is_running = (self:state().status == "running")
-      -- Throttle parsing to 10 FPS during active streaming to prevent UI freezes on massive text
-      if not sess.blocks or sess._cached_w ~= msg_w or not is_running or (now - (sess._last_parse_time or 0)) > 0.1 then
+      -- Strictly throttle all re-parsing (from streaming OR UI width resizing animations) to ~20 FPS.
+      -- This absolutely prevents massive chat logs from pegging the CPU during smooth toggle animations!
+      if not sess.blocks or (now - (sess._last_parse_time or 0)) > 0.05 then
         sess.blocks = parse_blocks(sess.text, style.font, style.code_font, msg_w - 2 * msg_pad)
         sess._cached_text = sess.text
         sess._cached_w = msg_w
         sess._last_parse_time = now
       else
-        -- Request another redraw later to ensure final chunk gets rendered if stream stops without state change
-        core.add_thread(function() coroutine.yield(0.1); core.redraw = true end)
+        -- Request another redraw later to ensure the final frame gets rendered cleanly after the animation or stream finishes
+        core.add_thread(function() coroutine.yield(0.05); core.redraw = true end)
       end
     end
 
