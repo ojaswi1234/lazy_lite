@@ -69,6 +69,8 @@ function ActivityBar:update()
       self.active_id = "leetcode"
     elseif vname == "MongoDB Explorer" or vname == "MongoDB" then
       self.active_id = "mongodb"
+    elseif vname == "YouTube Player" then
+      self.active_id = "yt_player"
     elseif vname == "Antigravity" then
       self.active_id = nil
     end
@@ -244,7 +246,8 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
     
     -- Auth button is drawn at the bottom: from (position.y + size.y - cell) to (position.y + size.y)
     local auth_y_top = self.position.y + self.size.y - cell
-    if y >= auth_y_top and y < self.position.y + self.size.y then
+    local items_bottom_y = self.position.y + (#self.items * cell)
+    if y >= auth_y_top and y < self.position.y + self.size.y and auth_y_top > items_bottom_y then
       local inst = rawget(_G, "_ag_instance")
       local is_authed = inst and inst.auth_status == "logged_in"
       
