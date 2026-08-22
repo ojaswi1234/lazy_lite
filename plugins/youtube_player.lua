@@ -218,18 +218,34 @@ function YTView:draw()
      y = y + th
   end
   
-  renderer.draw_text(font, self.status_msg, x, y, style.dim)
+  local disp_msg = self.status_msg
+  if disp_msg:match("Searching") or disp_msg:match("Loading") then
+    local spinners = {"\xef\x84\x8c", "\xef\x84\x91", "\xef\x84\x90", "\xef\x84\x8d", "\xef\x84\x8e"} -- fa-circle-o-notch equivalents
+    local frame = spinners[math.floor((os.time() * 5) % #spinners) + 1]
+    -- Wait! os.time() is in seconds! We should use system.get_time() for smooth animation!
+    -- Let's just use dots for now, it's safer than font icons which might not match.
+    local dots = string.rep(".", math.floor(system.get_time() * 3) % 4)
+    disp_msg = disp_msg:gsub("%.%.%.", "") .. dots
+    core.redraw = true -- force redraw for animation
+  end
+  renderer.draw_text(font, disp_msg, x, y, style.dim)
   y = y + th + pad
   
   -- Results
+  local mouse_x, mouse_y = core.active_view:get_mouse_xy() if not mouse_x then mouse_x, mouse_y = 0, 0 end
   for i, res in ipairs(self.results) do
-    local ry = y + (i-1) * (th*2 + pad)
+    local ry = y + (i-1) * (th*2 + pad*2)
     if ry > self.position.y + self.size.y then break end
-    renderer.draw_text(font, res.title:sub(1, 45) .. "...", x, ry, style.text)
+    
+    local hovered = mouse_x >= x and mouse_x <= x + w and mouse_y >= ry and mouse_y <= ry + th*2 + pad
+    local bg = hovered and style.background2 or {0,0,0,0}
+    renderer.draw_rect(x, ry, w, th*2 + pad, bg)
+    
+    renderer.draw_text(font, res.title:sub(1, 45) .. (res.title:len() > 45 and "..." or ""), x + pad, ry + pad/2, hovered and style.text or style.accent)
     
     local dur_str = string.format("%02d:%02d", math.floor(res.duration / 60), res.duration % 60)
-    renderer.draw_text(font, dur_str, x, ry + th, style.dim)
-    res.rect = {x, ry, w, th*2}
+    renderer.draw_text(font, dur_str, x + pad, ry + th + pad/2, style.dim)
+    res.rect = {x, ry, w, th*2 + pad}
   end
 end
 
@@ -288,13 +304,22 @@ function YTView:on_text_input(text)
   end
 end
 
-function YTView:on_key_pressed(key)
-  if self.active_input then
-    if key == "backspace" then
-      -- handle utf8 char removal simply
-      self.search_query = self.search_query:sub(1, -2)
+command.add(YTView, {
+  ["youtube-player:backspace"] = function(self)
+    if self.active_input and #self.search_query > 0 then
+      -- simple utf8 backspace
+      local text = self.search_query
+      local len = #text
+      while len > 0 and text:byte(len) >= 0x80 and text:byte(len) < 0xc0 do
+        len = len - 1
+      end
+      self.search_query = text:sub(1, math.max(0, len - 1))
       core.redraw = true
-    elseif key == "return" then
+    end
+  end,
+  
+  ["youtube-player:search"] = function(self)
+    if self.active_input then
       self.status_msg = "Searching..."
       self.results = {}
       self:send({cmd = "search", query = self.search_query})
@@ -302,7 +327,12 @@ function YTView:on_key_pressed(key)
       core.redraw = true
     end
   end
-end
+})
+
+keymap.add {
+  ["backspace"] = "youtube-player:backspace",
+  ["return"] = "youtube-player:search",
+}
 
 local yt_view_instance = nil
 
