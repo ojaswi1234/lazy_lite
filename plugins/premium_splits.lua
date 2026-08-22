@@ -17,35 +17,25 @@ local function is_editor_leaf(node)
   return has_doc
 end
 
-local function get_boundary_leaves(node, split_type, side)
-  if node.type == "leaf" then return {node} end
+local function check_boundary_leaves_editor(node, split_type, side)
+  if node.type == "leaf" then return is_editor_leaf(node) end
   if node.type == split_type then
     if side == "left" or side == "top" then
-      return get_boundary_leaves(node.a, split_type, side)
+      return check_boundary_leaves_editor(node.a, split_type, side)
     else
-      return get_boundary_leaves(node.b, split_type, side)
+      return check_boundary_leaves_editor(node.b, split_type, side)
     end
   else
-    local leaves_a = get_boundary_leaves(node.a, split_type, side)
-    local leaves_b = get_boundary_leaves(node.b, split_type, side)
-    for _, l in ipairs(leaves_b) do table.insert(leaves_a, l) end
-    return leaves_a
+    return check_boundary_leaves_editor(node.a, split_type, side) and check_boundary_leaves_editor(node.b, split_type, side)
   end
 end
 
 local function is_editor_split_boundary(node)
   if node.type == "leaf" then return false end
   local split_type = node.type
-  local leaves_a = get_boundary_leaves(node.a, split_type, split_type == "hsplit" and "right" or "bottom")
-  local leaves_b = get_boundary_leaves(node.b, split_type, split_type == "hsplit" and "left"  or "top")
-  
-  for _, l in ipairs(leaves_a) do
-    if not is_editor_leaf(l) then return false end
-  end
-  for _, l in ipairs(leaves_b) do
-    if not is_editor_leaf(l) then return false end
-  end
-  return true
+  local is_a_editor = check_boundary_leaves_editor(node.a, split_type, split_type == "hsplit" and "right" or "bottom")
+  if not is_a_editor then return false end
+  return check_boundary_leaves_editor(node.b, split_type, split_type == "hsplit" and "left"  or "top")
 end
 
 local GAP_SIZE = 12
