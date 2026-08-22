@@ -2924,7 +2924,13 @@ function AGView:draw()
     local is_user = sess.role == "user"
     local lh      = is_user and lh_f or lh_c
     local msg_pad = 8 * SCALE
-    local msg_w   = w - 2 * pad - 4 * SCALE
+    
+    -- Crucial animation optimization: always wrap text to the TARGET width (e.g. 350px) 
+    -- rather than the current animating width (which changes on every frame). 
+    -- This prevents O(N) word-wrap recalculations during slide-in/slide-out UI transitions!
+    local stable_w = self.target_size or w
+    local msg_w   = stable_w - 2 * pad - 4 * SCALE
+    
     local bg_col  = is_user and P.bg_user_msg or P.bg_ai_msg
     local fg_col  = is_user and P.fg_user or P.fg_ai
 
