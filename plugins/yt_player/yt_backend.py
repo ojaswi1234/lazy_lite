@@ -37,25 +37,56 @@ class YTPlayerBackend:
             text_parts.append(f"[{block['start']:.1f}-{block['start'] + block['duration']:.1f}]: {block['text']}")
         
         full_text = '\n'.join(text_parts)
-        if len(full_text) > 25000:
-            full_text = full_text[:25000]
+        if len(full_text) > 20000:
+            full_text = full_text[:20000]
             
         system_prompt = "You are a YouTube audio editor. Analyze the transcript timestamps and identify only the 'core content' (skip intros, sponsors, generic rambling, and outros). Return a JSON array of start/end arrays to KEEP. Example: [[30.5, 450.0], [480.0, 1200.0]]. Do NOT return markdown, ONLY the JSON array."
         
         try:
-            result = subprocess.run(["agy", "--print", f"{system_prompt}\n\n{full_text}"], capture_output=True, text=True, timeout=30)
-            output = result.stdout
+            # Load Groq API key
+            key_path = r"C:\Users\ojasw\.config\lite-xl\scripts\ai_api_keys.json"
+            api_key = None
+            if os.path.exists(key_path):
+                with open(key_path, 'r') as f:
+                    keys = json.load(f)
+                    api_key = keys.get("groq")
+            
+            if not api_key:
+                self.send({"event": "error", "message": "Groq API key not found in ai_api_keys.json"})
+                return
+
+            req_data = json.dumps({
+                "model": "llama3-70b-8192",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": full_text}
+                ],
+                "temperature": 0.1
+            }).encode('utf-8')
+            
+            req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", data=req_data, headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            })
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                resp_json = json.loads(response.read().decode('utf-8'))
+                output = resp_json['choices'][0]['message']['content']
+                
             import re
-            match = re.search(r'\[.*\]', output.replace('\n', ''))
+            match = re.search(r'\[\s*\[.*?\]\s*\]', output.replace('\n', ''))
+            if not match:
+                match = re.search(r'\[.*\]', output.replace('\n', ''))
+                
             if match:
                 segments = json.loads(match.group(0))
                 self.keep_segments = segments
                 self.current_segment_idx = 0
                 self.send({"event": "skipped_filler", "to": 0})
             else:
-                self.send({"event": "error", "message": "ML analysis failed to produce segments"})
+                self.send({"event": "error", "message": f"ML failed to produce JSON. Output: {output[:100]}"})
         except Exception as e:
-            self.send({"event": "error", "message": str(e)})
+            self.send({"event": "error", "message": f"Groq API error: {str(e)}"})
 
     def send(self, msg):
         sys.stdout.write(json.dumps(msg) + '\n')
