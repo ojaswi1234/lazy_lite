@@ -62,6 +62,14 @@ function YTView:fetch_models()
   end)
 end
 
+function YTView:try_close(do_close)
+  if self.backend_proc then
+    self.backend_proc:kill()
+    self.backend_proc = nil
+  end
+  do_close()
+end
+
 function YTView:start_backend()
   local script_path = USERDIR .. "/plugins/yt_player/yt_backend.py"
   self.backend_proc = process.start({"python", script_path})

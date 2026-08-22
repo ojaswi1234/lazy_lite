@@ -212,10 +212,10 @@ class YTPlayerBackend:
                     self.send({"event": "search_results", "results": res})
                 elif cmd == "play":
                     # Run play in a thread so we don't block stdin
-                    threading.Thread(target=self.play, args=(req.get("video_id"), req.get("ml_concised", False))).start()
+                    threading.Thread(target=self.play, args=(req.get("video_id"), req.get("ml_concised", False)), daemon=True).start()
                 elif cmd == "analyze_ml":
                     transcript_list = req.get("transcript", [])
-                    threading.Thread(target=self.run_ml_analysis, args=(transcript_list,)).start()
+                    threading.Thread(target=self.run_ml_analysis, args=(transcript_list,), daemon=True).start()
                 elif cmd == "set_ml_segments":
                     self.keep_segments = req.get("segments", [])
                     self.current_segment_idx = 0
