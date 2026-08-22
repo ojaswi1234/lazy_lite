@@ -1271,15 +1271,17 @@ function AGView:show_resume_picker_opencode()
     core.redraw = true
     return
   end
-  -- Give it 2s to complete
-  local deadline = os.clock() + 2
-  local out = ""
-  while os.clock() < deadline do
-    local chunk = p2:read_stdout(4096)
-    if chunk and #chunk > 0 then out = out .. chunk end
-    if p2:returncode() ~= nil then break end
-  end
-  local sessions = tool.parse_sessions(out)
+  core.add_thread(function()
+    local deadline = os.clock() + 2
+    local out_tbl = {}
+    while os.clock() < deadline do
+      local chunk = p2:read_stdout(4096)
+      if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
+      if p2:returncode() ~= nil then break end
+      coroutine.yield(0.05)
+    end
+    local out = table.concat(out_tbl)
+    local sessions = tool.parse_sessions(out)
   if #sessions == 0 then
     self:_add_session("ai", "No OpenCode sessions found.")
     self:state().scroll_to_bottom = true
@@ -1314,6 +1316,7 @@ function AGView:show_resume_picker_opencode()
       return res
     end
   })
+  end)
 end
 
 function AGView:show_resume_picker()
@@ -1603,7 +1606,7 @@ function AGView:submit(prompt)
       end
       local chunk = p:read_stdout(4096)
       if chunk and #chunk > 0 then out = out .. chunk end
-      p:wait()
+      while p:running() do coroutine.yield(0.1) end
       local parsed_data = {}
       for line in (out .. "\n"):gmatch("([^\r\n]+)\r?\n") do
         local k, v = line:match("^([^:]+):%s*(.+)$")
@@ -1927,19 +1930,19 @@ function AGView:update()
 
   -- ── Drain model-fetch process (via PTY bridge) ───────────────────────
   if self.model_proc then
-    local buf = ""
+    local buf_tbl = {}
     while true do
       local chunk = self.model_proc:read_stdout(4096)
       if not chunk or #chunk == 0 then break end
-      buf = buf .. chunk
+      table.insert(buf_tbl, chunk)
     end
     while true do
       local chunk = self.model_proc:read_stderr(4096)
       if not chunk or #chunk == 0 then break end
       -- stderr is usually noise, skip
     end
-    if #buf > 0 then
-      self._model_raw = (self._model_raw or "") .. buf
+    if #buf_tbl > 0 then
+      self._model_raw = (self._model_raw or "") .. table.concat(buf_tbl)
     end
 
     local m_elapsed = os.time() - (self.model_started_at or os.time())
@@ -2927,9 +2930,18 @@ function AGView:draw()
 
     -- Cache parsed blocks (invalidated when text or width changes)
     if not sess.blocks or sess._cached_text ~= sess.text or sess._cached_w ~= msg_w then
-      sess.blocks = parse_blocks(sess.text, style.font, style.code_font, msg_w - 2 * msg_pad)
-      sess._cached_text = sess.text
-      sess._cached_w = msg_w
+      local now = os.clock()
+      local is_running = (self:state().status == "running")
+      -- Throttle parsing to 10 FPS during active streaming to prevent UI freezes on massive text
+      if not sess.blocks or sess._cached_w ~= msg_w or not is_running or (now - (sess._last_parse_time or 0)) > 0.1 then
+        sess.blocks = parse_blocks(sess.text, style.font, style.code_font, msg_w - 2 * msg_pad)
+        sess._cached_text = sess.text
+        sess._cached_w = msg_w
+        sess._last_parse_time = now
+      else
+        -- Request another redraw later to ensure final chunk gets rendered if stream stops without state change
+        core.add_thread(function() coroutine.yield(0.1); core.redraw = true end)
+      end
     end
 
     local msg_h = 2 * msg_pad
@@ -4076,10 +4088,10 @@ end
       local config_dir = USERDIR .. "/scripts"
       local cmd = "python " .. config_dir .. "/ai_api_bridge.py --get-history"
       local proc = process.start({ "cmd", "/c", cmd })
-      local out = ""
+      local out_tbl = {}
       while true do
         local chunk = proc:read_stdout(65536)
-        if chunk and #chunk > 0 then out = out .. chunk end
+        if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
         if not proc:running() then break end
         coroutine.yield(0.1)
       end
@@ -4088,8 +4100,10 @@ end
       while true do
         local chunk = proc:read_stdout(65536)
         if not chunk or #chunk == 0 then break end
-        out = out .. chunk
+        table.insert(out_tbl, chunk)
       end
+      
+      local out = table.concat(out_tbl)
       
       -- evaluate lua table safely
       local env = {}
@@ -4197,9 +4211,11 @@ end
     -- -- Primitive Drawing Helpers ----------------------------------
     local function fill_circle(cx, cy, r, color)
         r = math.max(1, math.floor(r))
-        for dy = -r, r do
+        -- Optimize rendering: use larger steps for large radii to prevent O(r) draw_rect calls
+        local step = math.max(1, math.floor(r / 15)) 
+        for dy = -r, r, step do
             local dx = math.floor(math.sqrt(r*r - dy*dy))
-            renderer.draw_rect(cx - dx, cy + dy, dx * 2, 1, color)
+            renderer.draw_rect(cx - dx, cy + dy, dx * 2, step, color)
         end
     end
 
@@ -4937,7 +4953,7 @@ function AGView:_prompt_for_api_key(provider)
         local p = process.start({ "python", bridge, "--provider", provider, "--set-key", text })
         if p then
           core.add_thread(function()
-            p:wait()
+            while p:running() do coroutine.yield(0.1) end
             self:fetch_models(true)
             if self.show_api_view then
               self:submit("/api")
