@@ -289,15 +289,32 @@ function YTView:on_key_pressed(key)
   end
 end
 
+local yt_view_instance = nil
+
 command.add(nil, {
   ["youtube-player:toggle"] = function()
-    local node = core.root_view.root_node:get_node_for_view(YTView)
-    if not node then
-      local instance = YTView()
-      local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
+    local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
+    if yt_view_instance and core.root_view.root_node:get_node_for_view(yt_view_instance) then
+      local node = core.root_view.root_node:get_node_for_view(yt_view_instance)
+      if sidebar and node == sidebar then
+        if sidebar.active_view == yt_view_instance then
+          node:close_view(core.root_view.root_node, yt_view_instance)
+          yt_view_instance = nil
+        else
+          node:set_active_view(yt_view_instance)
+        end
+      else
+        node:set_active_view(yt_view_instance)
+      end
+    else
+      yt_view_instance = YTView()
       if sidebar then
-        sidebar:add_view(instance)
-        sidebar:set_active_view(instance)
+        sidebar:add_view(yt_view_instance)
+        sidebar:set_active_view(yt_view_instance)
+      else
+        local w = core.root_view.size.x
+        local h = core.root_view.size.y
+        core.root_view.root_node:split("right", yt_view_instance, {x = w - 400, y = h}, true)
       end
     end
   end
