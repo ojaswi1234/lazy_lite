@@ -424,3 +424,18 @@ core.add_thread(function()
     end
   end
 end)
+
+
+-- 15. System-Level UI Performance & Smoothness Enhancements
+-- Uncap the engine frame rate for high-refresh-rate monitors (144Hz+)
+config.fps = 144
+
+-- Accelerate the internal spring-physics transition math. 
+-- This makes sidebars, terminals, and menus snap open much faster while keeping the smooth deceleration.
+config.animation_rate = 2.5
+
+-- Tune the Lua Garbage Collector for high-frequency game loop rendering.
+-- A lower pause (110 instead of 200) forces GC to run more frequently in tiny increments,
+-- completely eliminating microscopic frame-drop stutters during heavy text scrolling.
+collectgarbage("setpause", 110)
+collectgarbage("setstepmul", 200)
