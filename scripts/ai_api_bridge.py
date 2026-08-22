@@ -124,10 +124,65 @@ def list_models(provider, keys):
                 m_list = [m.id for m in client.models.list().data if "gpt" in m.id or "o1" in m.id or "o3" in m.id or "o4" in m.id]
                 models.extend([f"openai/{m}" for m in m_list])
             elif p == "ollama":
-                from openai import OpenAI
-                client = OpenAI(base_url="https://ollama.com/v1", api_key=api_key)
-                m_list = [m.id for m in client.models.list().data if "embed" not in m.id.lower()]
-                models.extend([f"ollama/{m}" for m in m_list])
+                import time, json, os, urllib.request, concurrent.futures
+                cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ollama_model_cache.json")
+                cache = {}
+                if os.path.exists(cache_file):
+                    try:
+                        with open(cache_file, "r") as cf: cache = json.load(cf)
+                    except: pass
+                
+                current_time = time.time()
+                valid_models = []
+                
+                # Fetch full model list if cache is missing or older than 24 hours
+                if "_last_fetch" not in cache or (current_time - cache["_last_fetch"]) > 86400:
+                    from openai import OpenAI
+                    try:
+                        client = OpenAI(base_url="https://ollama.com/v1", api_key=api_key)
+                        m_list = [m.id for m in client.models.list().data if "embed" not in m.id.lower()]
+                        cache["_last_fetch"] = current_time
+                        
+                        models_to_check = []
+                        for m in m_list:
+                            if m in cache and (current_time - cache[m].get("time", 0)) < 86400 * 7:
+                                if cache[m].get("is_free"): valid_models.append(m)
+                            else:
+                                models_to_check.append(m)
+                        
+                        if models_to_check:
+                            def check_model(m):
+                                req = urllib.request.Request(
+                                    'https://ollama.com/v1/chat/completions',
+                                    headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                                    data=json.dumps({'model': m, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 1}).encode()
+                                )
+                                try:
+                                    urllib.request.urlopen(req, timeout=3)
+                                    return m, True
+                                except urllib.error.HTTPError as e:
+                                    if e.code == 403: return m, False
+                                    return m, True
+                                except Exception as e:
+                                    return m, True
+                            
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                                results = executor.map(check_model, models_to_check)
+                                for m, is_free in results:
+                                    cache[m] = {"is_free": is_free, "time": current_time}
+                                    if is_free: valid_models.append(m)
+                            
+                        try:
+                            with open(cache_file, "w") as cf: json.dump(cache, cf)
+                        except: pass
+                    except:
+                        # Fallback to cached valid models if network fails
+                        valid_models = [k for k, v in cache.items() if k != "_last_fetch" and isinstance(v, dict) and v.get("is_free")]
+                else:
+                    # Use cache immediately
+                    valid_models = [k for k, v in cache.items() if k != "_last_fetch" and isinstance(v, dict) and v.get("is_free")]
+                
+                models.extend([f"ollama/{m}" for m in valid_models])
             elif p == "anthropic":
                 from anthropic import Anthropic
                 client = Anthropic(api_key=api_key)
@@ -451,10 +506,10 @@ def main():
     parser.add_argument("--validate-keys", action="store_true")
     args = parser.parse_args()
 
+    import re
+    import os
     # Intercept and expand pasted text files directly into the prompt to bypass OS command-line limits
     if args.prompt:
-        import re
-        import os
         def replace_pasted_text(match):
             filepath = match.group(1).strip()
             try:
