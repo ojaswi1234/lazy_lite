@@ -147,21 +147,15 @@ class YTPlayerBackend:
         self.keep_segments = []
         self.current_segment_idx = 0
         
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-            'no_warnings': True,
-        }
         url = f"https://www.youtube.com/watch?v={video_id}"
         
         try:
-            # 1. Fetch stream URL
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                stream_url = info['url']
+            # Let VLC natively parse the YouTube URL to bypass 403 errors on raw stream URLs
+            media = self.instance.media_new(url)
             
-            # 2. Start playback
-            media = self.instance.media_new(stream_url)
+            # Request lowest video resolution to save bandwidth since we're audio only
+            media.add_option(":preferredresolution=144")
+            
             self.player.set_media(media)
             self.player.play()
             
