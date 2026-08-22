@@ -44,7 +44,7 @@ function YTView:fetch_models()
     if chunk then out = out .. chunk end
     
     local new_models = {}
-    for line in out:gmatch("[^\\r\\n]+") do
+    for line in out:gmatch("[^\r\n]+") do
       local prov, name = line:match("^(.-)/(.-)$")
       if prov and name and (prov == "groq" or prov == "ollama") then
         table.insert(new_models, { provider = prov, name = name })
@@ -71,4 +71,4 @@ function YTView:start_backend()
       if self.backend_proc then
         local out = self.backend_proc:read_stdout()
         if out and out ~= "" then
-    for line in out:gmatch("[^\\r\\n]+") do
+    for line in out:gmatch("[^\r\n]+") do
