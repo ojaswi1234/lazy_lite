@@ -167,10 +167,13 @@ local function ensure_api()
       if chunk ~= "" then
         buf = buf .. chunk
       end
+      local parsed_pos = 1
       while true do
-        local line, rest = buf:match("^([^\r\n]+)\r?\n(.*)")
-        if not line then break end
-        buf = rest
+        local nl = buf:find("\n", parsed_pos)
+        if not nl then break end
+        local line = buf:sub(parsed_pos, nl - 1)
+        if line:byte(-1) == 13 then line = line:sub(1, -2) end
+        parsed_pos = nl + 1
         local ok, resp = pcall(json_decode, line)
         if ok and resp and resp.id then
           local cb = pending[resp.id]
@@ -2018,6 +2021,9 @@ command.add(nil, {
           end
         end
       end
+      if parsed_pos > 1 then
+        buf = buf:sub(parsed_pos)
+      end
     end
 
     if not meta or not code then
@@ -2110,6 +2116,9 @@ command.add(nil, {
             end
           end
         end
+      end
+      if parsed_pos > 1 then
+        buf = buf:sub(parsed_pos)
       end
     end
 

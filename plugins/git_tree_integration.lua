@@ -228,12 +228,18 @@ command.map["treeview:open"].perform = function(...)
       
       local p_diff = process.start(cmd_diff, { cwd = p_dir ~= "" and p_dir or nil, stdout = process.REDIRECT_PIPE })
       if p_diff then
-        local diff_out = ""
+        local out_tbl = {}
         while p_diff:returncode() == nil do
-          diff_out = diff_out .. (p_diff:read_stdout(8192) or "")
+          local c = p_diff:read_stdout(8192) or ""
+          if c ~= "" then table.insert(out_tbl, c) end
           coroutine.yield(0.05)
         end
-        while true do local c = p_diff:read_stdout(8192) or ""; if c == "" then break end; diff_out = diff_out .. c end
+        while true do 
+          local c = p_diff:read_stdout(8192) or ""
+          if c == "" then break end
+          table.insert(out_tbl, c)
+        end
+        local diff_out = table.concat(out_tbl)
         
         if diff_out ~= "" then
           local GitDiffView = require "plugins.git_diff_view"

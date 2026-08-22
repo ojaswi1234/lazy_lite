@@ -822,12 +822,18 @@ core.add_thread(function()
                   end
                   local p = process.start(args, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, cwd = p_dir ~= "" and p_dir or nil })
                   if not p then return "" end
-                  local out = ""
+                  local out_tbl = {}
                   while p:returncode() == nil do
-                    out = out .. (p:read_stdout(8192) or "")
+                    local c = p:read_stdout(8192) or ""
+                    if c ~= "" then table.insert(out_tbl, c) end
                     coroutine.yield(0.05)
                   end
-                  while true do local c = p:read_stdout(8192) or ""; if c == "" then break end; out = out .. c end
+                  while true do 
+                    local c = p:read_stdout(8192) or ""
+                    if c == "" then break end
+                    table.insert(out_tbl, c)
+                  end
+                  local out = table.concat(out_tbl)
                   return out:gsub("\x1b%[[%d;]*[a-zA-Z]", "")
                 end
                 

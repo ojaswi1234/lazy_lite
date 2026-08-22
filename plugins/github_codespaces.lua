@@ -266,7 +266,7 @@ local function run_cmd_sync(args, timeout)
   timeout = timeout or 30 -- Default 30 second timeout
   local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV})
   if not p then return false, "Failed to start process" end
-  local out = ""
+  local out_tbl = {}
   local start_time = system.get_time()
   
   local co, is_main = coroutine.running()
@@ -282,12 +282,12 @@ local function run_cmd_sync(args, timeout)
     while true do
       local chunk = p:read_stdout(4096)
       if not chunk or chunk == "" then break end
-      out = out .. chunk
+      table.insert(out_tbl, chunk)
     end
     while true do
       local chunk = p:read_stderr(4096)
       if not chunk or chunk == "" then break end
-      out = out .. chunk
+      table.insert(out_tbl, chunk)
     end
     if can_yield then
       coroutine.yield(0.01) -- 10ms yield to allow 60FPS+ for game loader
@@ -298,14 +298,14 @@ local function run_cmd_sync(args, timeout)
   while true do
     local chunk = p:read_stdout(4096)
     if not chunk or chunk == "" then break end
-    out = out .. chunk
+    table.insert(out_tbl, chunk)
   end
   while true do
     local chunk = p:read_stderr(4096)
     if not chunk or chunk == "" then break end
-    out = out .. chunk
+    table.insert(out_tbl, chunk)
   end
-  return p:returncode() == 0, out
+  return p:returncode() == 0, table.concat(out_tbl)
 end
 
 -- Blocking version of run_cmd_sync — no coroutine.yield, safe to call from
@@ -315,18 +315,18 @@ local function run_cmd_blocking(args, timeout)
   timeout = timeout or 30
   local p = process.start(args, {stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, env = GH_ENV})
   if not p then return false, "Failed to start process" end
-  local out = ""
+  local out_tbl = {}
   local start_time = system.get_time()
   while p:returncode() == nil do
     if system.get_time() - start_time > timeout then
       p:kill()
       return false, "Timeout"
     end
-    out = out .. (p:read_stdout(16384) or "") .. (p:read_stderr(16384) or "")
+    local s1 = p:read_stdout(16384); if s1 and s1 ~= "" then table.insert(out_tbl, s1) end; local s2 = p:read_stderr(16384); if s2 and s2 ~= "" then table.insert(out_tbl, s2) end
     if system.sleep then system.sleep(0.01) end
   end
-  out = out .. (p:read_stdout(65536) or "") .. (p:read_stderr(65536) or "")
-  return p:returncode() == 0, out
+  local s1 = p:read_stdout(65536); if s1 and s1 ~= "" then table.insert(out_tbl, s1) end; local s2 = p:read_stderr(65536); if s2 and s2 ~= "" then table.insert(out_tbl, s2) end
+  return p:returncode() == 0, table.concat(out_tbl)
 end
 
 -- Auto-selects yielding vs blocking based on whether we're in a coroutine.
@@ -1360,7 +1360,7 @@ function core.on_event(type, ...)
             if not p then modal.state = "auth"; core.error("Failed to start gh auth login"); return end
             p:write(modal.token_input .. "\n")
             p:close_stream(process.STREAM_STDIN)
-            local out = ""
+            local out_tbl = {}
             while p:returncode() == nil do
               out = out .. (p:read_stdout(4096) or "")
               out = out .. (p:read_stderr(4096) or "")

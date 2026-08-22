@@ -915,12 +915,18 @@ function GitTimelineView:open_in_editor(item, is_pr)
     local p = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE, cwd = p_dir ~= "" and p_dir or nil })
     if not p then return end
     
-    local out = ""
+    local out_tbl = {}
     while p:returncode() == nil do
-      out = out .. (p:read_stdout(8192) or "")
+      local c = p:read_stdout(8192) or ""
+      if c ~= "" then table.insert(out_tbl, c) end
       coroutine.yield(0.05)
     end
-    while true do local c = p:read_stdout(8192) or ""; if c == "" then break end; out = out .. c end
+    while true do 
+      local c = p:read_stdout(8192) or ""
+      if c == "" then break end
+      table.insert(out_tbl, c)
+    end
+    local out = table.concat(out_tbl)
     
     out = out:gsub("\x1b%[[%d;]*[a-zA-Z]", "")
     if out == "" then out = "Failed to load content." end
@@ -1005,12 +1011,18 @@ function GitTimelineView:on_mouse_pressed(button, mx, my, clicks)
           
           local p_status = process.start(cmd_status, { cwd = p_dir ~= "" and p_dir or nil, stdout = process.REDIRECT_PIPE })
           if p_status then
-            local out = ""
+            local out_tbl = {}
             while p_status:returncode() == nil do
-              out = out .. (p_status:read_stdout(8192) or "")
+              local c = p_status:read_stdout(8192) or ""
+              if c ~= "" then table.insert(out_tbl, c) end
               coroutine.yield(0.05)
             end
-            while true do local c = p_status:read_stdout(8192) or ""; if c == "" then break end; out = out .. c end
+            while true do 
+              local c = p_status:read_stdout(8192) or ""
+              if c == "" then break end
+              table.insert(out_tbl, c)
+            end
+            local out = table.concat(out_tbl)
             
             local status_map = {}
             local diff_files = {}
