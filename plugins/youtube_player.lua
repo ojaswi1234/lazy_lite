@@ -21,17 +21,46 @@ function YTView:new()
   self.status_msg = "Ready"
   self.active_input = false
   self.playing_title = ""
-  self.models = {
-    { provider = "groq", name = "llama-3.1-70b-versatile" },
-    { provider = "groq", name = "llama-3.1-8b-instant" },
-    { provider = "groq", name = "mixtral-8x7b-32768" },
-    { provider = "ollama", name = "llama3:latest" },
-    { provider = "ollama", name = "phi3:latest" }
-  }
+  self.models = { { provider = "loading", name = "Fetching models..." } }
   self.selected_model_idx = 1
+  self:fetch_models()
   
   self.backend_proc = nil
   self:start_backend()
+end
+
+
+function YTView:fetch_models()
+  core.add_thread(function()
+    local script_path = USERDIR .. "/scripts/ai_api_bridge.py"
+    local p = process.start({"python", script_path, "--list-models", "--provider", "all"})
+    local out = ""
+    while p:running() do
+      local chunk = p:read_stdout(4096)
+      if chunk then out = out .. chunk end
+      coroutine.yield(0.1)
+    end
+    local chunk = p:read_stdout(4096)
+    if chunk then out = out .. chunk end
+    
+    local new_models = {}
+    for line in out:gmatch("[^
+]+") do
+      local prov, name = line:match("^(.-)/(.-)$")
+      if prov and name and (prov == "groq" or prov == "ollama") then
+        table.insert(new_models, { provider = prov, name = name })
+      end
+    end
+    
+    if #new_models > 0 then
+      self.models = new_models
+      self.selected_model_idx = 1
+      core.redraw = true
+    else
+      self.models = { { provider = "error", name = "No models found" } }
+      core.redraw = true
+    end
+  end)
 end
 
 function YTView:start_backend()
