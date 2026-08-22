@@ -88,7 +88,7 @@ local function run_ssh_command(cs_name, shell_cmd, timeout)
   )
   if not p then return false, "Failed to start gh process" end
 
-  local out = ""
+  local out_tbl = {}
   local start = system.get_time()
   -- Lua 5.4: coroutine.running() returns (co, isMain). isMain=true means main thread.
   -- Lua 5.1: coroutine.running() returns nil in main thread.
@@ -101,8 +101,7 @@ local function run_ssh_command(cs_name, shell_cmd, timeout)
       p:kill()
       return false, "Timeout after " .. timeout .. "s"
     end
-    out = out .. (p:read_stdout(16384) or "")
-    out = out .. (p:read_stderr(16384)  or "")
+    local s1 = p:read_stdout(16384); if s1 and s1 ~= "" then table.insert(out_tbl, s1) end; local s2 = p:read_stderr(16384); if s2 and s2 ~= "" then table.insert(out_tbl, s2) end
     if in_coro then
       coroutine.yield(0.05) -- 50ms yield (20fps is sufficient for FS ops)
     else
@@ -110,8 +109,8 @@ local function run_ssh_command(cs_name, shell_cmd, timeout)
     end
   end
   -- Drain remaining output
-  out = out .. (p:read_stdout(65536) or "") .. (p:read_stderr(65536) or "")
-  return p:returncode() == 0, out
+  local s3 = p:read_stdout(65536); if s3 and s3 ~= "" then table.insert(out_tbl, s3) end; local s4 = p:read_stderr(65536); if s4 and s4 ~= "" then table.insert(out_tbl, s4) end
+  return p:returncode() == 0, table.concat(out_tbl)
 end
 
 -- ── Public API ───────────────────────────────────────────────────────────────────
