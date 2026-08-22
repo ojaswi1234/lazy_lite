@@ -114,10 +114,71 @@ def list_models(provider, keys):
                 if not m_list: m_list = ["gemini-2.5-pro", "gemini-2.5-flash"]
                 models.extend([f"gemini/{m}" for m in m_list])
             elif p == "groq":
-                from groq import Groq
-                client = Groq(api_key=api_key)
-                m_list = [m.id for m in client.models.list().data if not any(x in m.id.lower() for x in ["whisper", "tts", "embed"])]
-                models.extend([f"groq/{m}" for m in m_list])
+                import time, json, os, urllib.request, concurrent.futures
+                cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "groq_model_cache.json")
+                cache = {}
+                if os.path.exists(cache_file):
+                    try:
+                        with open(cache_file, "r") as cf: cache = json.load(cf)
+                    except: pass
+                
+                current_time = time.time()
+                valid_models = []
+                
+                if "_last_fetch" not in cache or (current_time - cache["_last_fetch"]) > 86400:
+                    from groq import Groq
+                    try:
+                        client = Groq(api_key=api_key)
+                        m_list = [m.id for m in client.models.list().data if not any(x in m.id.lower() for x in ["whisper", "tts", "embed"])]
+                        cache["_last_fetch"] = current_time
+                        
+                        models_to_check = []
+                        for m in m_list:
+                            if m in cache and (current_time - cache[m].get("time", 0)) < 86400 * 7:
+                                if cache[m].get("is_free"): valid_models.append(m)
+                            else:
+                                models_to_check.append(m)
+                        
+                        if models_to_check:
+                            def check_model(m):
+                                tools = [{
+                                    "type": "function",
+                                    "function": {
+                                        "name": "test_tool",
+                                        "description": "A test tool",
+                                        "parameters": {"type": "object", "properties": {}, "required": []}
+                                    }
+                                }]
+                                try:
+                                    client.chat.completions.create(
+                                        model=m,
+                                        messages=[{'role': 'user', 'content': 'hi'}],
+                                        tools=tools,
+                                        max_tokens=1,
+                                        timeout=3
+                                    )
+                                    return m, True
+                                except Exception as e:
+                                    msg = str(e).lower()
+                                    if "terms acceptance" in msg or "tool" in msg or "does not support" in msg or "400" in msg:
+                                        return m, False
+                                    return m, True
+                            
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                                results = executor.map(check_model, models_to_check)
+                                for m, is_free in results:
+                                    cache[m] = {"is_free": is_free, "time": current_time}
+                                    if is_free: valid_models.append(m)
+                            
+                            try:
+                                with open(cache_file, "w") as cf: json.dump(cache, cf)
+                            except: pass
+                    except:
+                        valid_models = [k for k, v in cache.items() if k != "_last_fetch" and isinstance(v, dict) and v.get("is_free")]
+                else:
+                    valid_models = [k for k, v in cache.items() if k != "_last_fetch" and isinstance(v, dict) and v.get("is_free")]
+                
+                models.extend([f"groq/{m}" for m in valid_models])
             elif p == "openai":
                 from openai import OpenAI
                 client = OpenAI(api_key=api_key)
@@ -152,18 +213,21 @@ def list_models(provider, keys):
                         
                         if models_to_check:
                             def check_model(m):
-                                req = urllib.request.Request(
-                                    'https://ollama.com/v1/chat/completions',
-                                    headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-                                    data=json.dumps({'model': m, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 1}).encode()
-                                )
+                                tools = [{
+                                    "type": "function",
+                                    "function": {
+                                        "name": "test_tool",
+                                        "description": "A test tool",
+                                        "parameters": {"type": "object", "properties": {}, "required": []}
+                                    }
+                                }]
                                 try:
-                                    urllib.request.urlopen(req, timeout=3)
-                                    return m, True
-                                except urllib.error.HTTPError as e:
-                                    if e.code == 403: return m, False
+                                    client.chat.completions.create(model=m, messages=[{'role': 'user', 'content': 'hi'}], tools=tools, max_tokens=1, timeout=5)
                                     return m, True
                                 except Exception as e:
+                                    msg = str(e).lower()
+                                    if "terms acceptance" in msg or "tool" in msg or "does not support" in msg or "400" in msg or "subscription" in msg or "403" in msg:
+                                        return m, False
                                     return m, True
                             
                             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
