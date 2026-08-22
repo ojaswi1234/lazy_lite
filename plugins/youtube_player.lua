@@ -63,12 +63,12 @@ end
 
 function YTView:send(data)
   if self.backend_proc then
-    self.backend_proc:write(require("plugins.json").encode(data) .. "\n")
+    self.backend_proc:write(require("plugins.lsp.json").encode(data) .. "\n")
   end
 end
 
 function YTView:handle_backend_msg(line)
-  local ok, msg = pcall(require("plugins.json").decode, line)
+  local ok, msg = pcall(require("plugins.lsp.json").decode, line)
   if not ok then return end
   
   if msg.event == "search_results" then
