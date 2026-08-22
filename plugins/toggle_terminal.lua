@@ -912,7 +912,12 @@ function TermView:draw()
       local cx = text_x
       local cw = style.code_font:get_width("A")
       local total_lines = #s.term.scrollback + s.term.rows
-      for r = 1, total_lines do
+      
+      -- Drastically reduce rendering loop by only calculating visible rows!
+      local start_r = math.max(1, math.floor((out_top - text_y) / lh))
+      local end_r = math.min(total_lines, math.ceil((out_top + out_h - text_y) / lh) + 1)
+      
+      for r = start_r, end_r do
         local cy = text_y + (r - 1) * lh
         if cy + lh > out_top and cy < out_top + out_h then
           local row = s.term:get_absolute_line(r)
