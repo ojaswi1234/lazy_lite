@@ -20,6 +20,7 @@ local function is_sidebar_view(view)
       or name == "MongoDB Explorer"
       or name == "MongoDB"
       or name == "Antigravity"
+      or name == "YouTube Player"
 end
 
 function ActivityBar:new()
@@ -32,6 +33,7 @@ function ActivityBar:new()
     { id = "podman",   icon = "\u{f308}", command = "podman:toggle",    tooltip = "Podman" },
     { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle",   tooltip = "LeetCode" },
     { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb_explorer:toggle", tooltip = "MongoDB" },
+    { id = "yt_player", icon = "\u{f167}", command = "youtube-player:toggle", tooltip = "YouTube Audio" },
   }
   -- Bottom-anchored auth button
   self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "AGY Auth / Toggle AI" }
