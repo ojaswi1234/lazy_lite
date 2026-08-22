@@ -128,6 +128,21 @@ function YTView:get_name()
   return self.name
 end
 
+function YTView:update()
+  YTView.super.update(self)
+  -- The Activity Bar explicitly hides tabs, so this view might be the sole view driving the sidebar width.
+  -- To properly render in a locked resizable node (like the AI sidebar), it needs a target size.
+  self.target_size = self.target_size or (400 * SCALE)
+  self:move_towards(self.size, "x", self.target_size)
+end
+
+function YTView:set_target_size(axis, value)
+  if axis == "x" then
+    self.target_size = value
+    return true
+  end
+end
+
 function YTView:draw()
   self:draw_background(style.background3 or style.background)
   local font = style.font
@@ -293,8 +308,12 @@ local yt_view_instance = nil
 
 command.add(nil, {
   ["youtube-player:toggle"] = function()
+    core.log("[YT] Toggle triggered!")
     local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
+    core.log("[YT] Sidebar node found: " .. tostring(sidebar ~= nil))
+    
     if yt_view_instance and core.root_view.root_node:get_node_for_view(yt_view_instance) then
+      core.log("[YT] View already exists, toggling focus/close")
       local node = core.root_view.root_node:get_node_for_view(yt_view_instance)
       if sidebar and node == sidebar then
         if sidebar.active_view == yt_view_instance then
@@ -302,19 +321,26 @@ command.add(nil, {
           yt_view_instance = nil
         else
           node:set_active_view(yt_view_instance)
+          core.set_active_view(yt_view_instance)
         end
       else
         node:set_active_view(yt_view_instance)
+        core.set_active_view(yt_view_instance)
       end
     else
+      core.log("[YT] Creating new YTView instance")
       yt_view_instance = YTView()
       if sidebar then
+        core.log("[YT] Adding to existing sidebar")
         sidebar:add_view(yt_view_instance)
         sidebar:set_active_view(yt_view_instance)
+        core.set_active_view(yt_view_instance)
       else
+        core.log("[YT] Splitting root node right")
         local w = core.root_view.size.x
         local h = core.root_view.size.y
         core.root_view.root_node:split("right", yt_view_instance, {x = w - 400, y = h}, true)
+        core.set_active_view(yt_view_instance)
       end
     end
   end
