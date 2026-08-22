@@ -43,35 +43,54 @@ class YTPlayerBackend:
         system_prompt = "You are a YouTube audio editor. Analyze the transcript timestamps and identify only the 'core content' (skip intros, sponsors, generic rambling, and outros). Return a JSON array of start/end arrays to KEEP. Example: [[30.5, 450.0], [480.0, 1200.0]]. Do NOT return markdown, ONLY the JSON array."
         
         try:
-            # Load Groq API key
-            key_path = r"C:\Users\ojasw\.config\lite-xl\scripts\ai_api_keys.json"
-            api_key = None
-            if os.path.exists(key_path):
-                with open(key_path, 'r') as f:
-                    keys = json.load(f)
-                    api_key = keys.get("groq")
-            
-            if not api_key:
-                self.send({"event": "error", "message": "Groq API key not found in ai_api_keys.json"})
-                return
-
-            req_data = json.dumps({
-                "model": "llama3-70b-8192",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": full_text}
-                ],
-                "temperature": 0.1
-            }).encode('utf-8')
-            
-            req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", data=req_data, headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            })
-            
-            with urllib.request.urlopen(req, timeout=30) as response:
-                resp_json = json.loads(response.read().decode('utf-8'))
-                output = resp_json['choices'][0]['message']['content']
+            # Determine provider and model
+            provider = "groq"
+            model_name = "llama3-70b-8192"
+            if self.ml_model:
+                provider = self.ml_model.get('provider', 'groq')
+                model_name = self.ml_model.get('name', 'llama3-70b-8192')
+                
+            output = ""
+            if provider == "groq":
+                key_path = r"C:\Users\ojasw\.config\lite-xl\scripts\ai_api_keys.json"
+                api_key = None
+                if os.path.exists(key_path):
+                    with open(key_path, 'r') as f:
+                        keys = json.load(f)
+                        api_key = keys.get("groq")
+                
+                if not api_key:
+                    self.send({"event": "error", "message": "Groq API key not found in ai_api_keys.json"})
+                    return
+                req_data = json.dumps({
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": full_text}
+                    ],
+                    "temperature": 0.1
+                }).encode('utf-8')
+                req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", data=req_data, headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                })
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    resp_json = json.loads(response.read().decode('utf-8'))
+                    output = resp_json['choices'][0]['message']['content']
+                    
+            elif provider == "ollama":
+                req_data = json.dumps({
+                    "model": model_name,
+                    "prompt": system_prompt + "\n\n" + full_text,
+                    "stream": False,
+                    "temperature": 0.1
+                }).encode('utf-8')
+                req = urllib.request.Request("http://localhost:11434/api/generate", data=req_data, headers={
+                    "Content-Type": "application/json"
+                })
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    resp_json = json.loads(response.read().decode('utf-8'))
+                    output = resp_json.get('response', '')
                 
             import re
             match = re.search(r'\[\s*\[.*?\]\s*\]', output.replace('\n', ''))
@@ -122,8 +141,9 @@ class YTPlayerBackend:
             self.send({"event": "error", "message": str(e)})
         return songs
 
-    def play(self, video_id, ml_concised=False):
+    def play(self, video_id, ml_concised=False, ml_model=None):
         self.ml_concised = ml_concised
+        self.ml_model = ml_model
         self.keep_segments = []
         self.current_segment_idx = 0
         

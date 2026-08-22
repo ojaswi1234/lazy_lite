@@ -21,6 +21,14 @@ function YTView:new()
   self.status_msg = "Ready"
   self.active_input = false
   self.playing_title = ""
+  self.models = {
+    { provider = "groq", name = "llama-3.1-70b-versatile" },
+    { provider = "groq", name = "llama-3.1-8b-instant" },
+    { provider = "groq", name = "mixtral-8x7b-32768" },
+    { provider = "ollama", name = "llama3:latest" },
+    { provider = "ollama", name = "phi3:latest" }
+  }
+  self.selected_model_idx = 1
   
   self.backend_proc = nil
   self:start_backend()
@@ -146,6 +154,15 @@ function YTView:draw()
   
   y = y + th + pad*2
   
+  -- Model Selector Button
+  local current_mod = self.models[self.selected_model_idx]
+  local mod_text = current_mod.provider:upper() .. ": " .. current_mod.name
+  renderer.draw_rect(x, y, w, th+pad, style.background2)
+  renderer.draw_text(font, mod_text, x + pad, y + pad/2, style.text)
+  self.btn_model = {x, y, w, th+pad}
+  
+  y = y + th + pad*2
+  
   -- Status & Time
   local time_str = string.format("%02d:%02d / %02d:%02d", 
     math.floor(self.current_time / 60), self.current_time % 60,
@@ -204,12 +221,18 @@ function YTView:on_mouse_pressed(button, x, y, clicks)
     core.redraw = true
     return
   end
+  if self.btn_model and in_rect(table.unpack(self.btn_model)) then
+    self.selected_model_idx = self.selected_model_idx + 1
+    if self.selected_model_idx > #self.models then self.selected_model_idx = 1 end
+    core.redraw = true
+    return
+  end
   
   for _, res in ipairs(self.results) do
     if res.rect and in_rect(table.unpack(res.rect)) then
       self.status_msg = "Loading..."
       self.playing_title = res.title
-      self:send({cmd = "play", video_id = res.id, ml_concised = self.ml_concised})
+      self:send({cmd = "play", video_id = res.id, ml_concised = self.ml_concised, model = self.models[self.selected_model_idx]})
       return
     end
   end
