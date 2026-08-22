@@ -232,7 +232,7 @@ function YTView:draw()
   y = y + th + pad
   
   -- Results
-  local mouse_x, mouse_y = core.active_view:get_mouse_xy() if not mouse_x then mouse_x, mouse_y = 0, 0 end
+  local mouse_x, mouse_y = core.root_view.mouse.x, core.root_view.mouse.y
   for i, res in ipairs(self.results) do
     local ry = y + (i-1) * (th*2 + pad*2)
     if ry > self.position.y + self.size.y then break end
