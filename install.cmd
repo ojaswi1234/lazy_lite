@@ -140,6 +140,8 @@ if %errorlevel% equ 0 (
     if /i "!SETUP_MONGO!"=="y" (
         python -m pip install pymongo --quiet >nul 2>nul
     )
+    echo Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)...
+    python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --quiet >nul 2>nul
 )
 
 if /i "!SETUP_MONGO!"=="y" (

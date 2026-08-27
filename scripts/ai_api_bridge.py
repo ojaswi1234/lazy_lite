@@ -262,297 +262,333 @@ def list_models(provider, keys):
         return ["MISSING_API_KEY:all"]
     return models
 
-def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id):
-    try:
-        from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-        from langgraph.graph import StateGraph, START, END
-        from langgraph.graph.message import add_messages
-        from langchain_core.tools import tool
-        from pydantic import BaseModel, Field
-    except ImportError:
-        print("ERROR: Missing dependencies. Please run:\npip install langchain langgraph langchain-google-genai langchain-groq langchain-openai langchain-anthropic pydantic duckduckgo-search", flush=True)
-        sys.exit(1)
-
-    def is_in_workspace(filepath: str) -> bool:
-        if not workspace: return True # If no workspace provided, allow all
-        abs_workspace = os.path.abspath(workspace)
-        abs_path = os.path.abspath(filepath)
-        return abs_path.startswith(abs_workspace)
-
-    # Define Tools
-    @tool
-    def local_shell(command: str) -> str:
-        """Executes a local shell command. Use this to run scripts, compile code, list directory contents, or check system state."""
-        if read_only:
-            return "ERROR: Read-Only mode is active. Cannot execute shell commands."
-        
-        # Guardrails: Command blacklist
-        blacklist = [
-            "rm -rf", "rm -r", "del /f", "rd /s", "rmdir /s", "remove-item -recurse", "remove-item -force",
-            "format", "mkfs", "diskpart", "vssadmin", "bcdedit", 
-            "reg add", "reg delete", "takeown", "icacls",
-            "shutdown", "restart", "logoff", "stop-process", "set-executionpolicy",
-            "attrib -h -s", "cipher /w"
-        ]
-        for b in blacklist:
-            if b in command.lower():
-                return f"ERROR: Command rejected due to security blacklist ({b})."
-
-        if not autopilot:
-            # Human in the loop pause
-            print(f"\n[HITL_APPROVAL_REQUIRED] Tool: LocalShell\nCommand: {command}\nType 'y' to approve, 'n' to reject: ", end="", flush=True)
-            choice = stdin_queue.get().lower()
-            if choice not in ['y', 'yes', 'approve']:
-                return "ERROR: User rejected this command."
-
-        print(f"\n[EXEC] Running: {command}\n", flush=True)
+def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None):
+    import asyncio
+    async def _run_agent_async():
         try:
-            cwd = workspace if workspace else None
-            proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd, bufsize=1)
-            
-            output_lines = []
-            
-            def reader_thread():
-                for line in proc.stdout:
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
-                    output_lines.append(line)
-            
-            import threading
-            t = threading.Thread(target=reader_thread)
-            t.daemon = True
-            t.start()
-            
-            t.join(timeout=60)
-            if t.is_alive():
-                proc.kill()
-                t.join()
-                output_lines.append("\n[ERROR: Command forcefully terminated after 60s timeout.]")
-            
-            exit_code = proc.wait()
-            
-            full_output = "".join(output_lines)
-            max_chars = 15000
-            if len(full_output) > max_chars:
-                half = max_chars // 2
-                full_output = full_output[:half] + f"\n\n[... {len(full_output) - max_chars} characters truncated ...]\n\n" + full_output[-half:]
-                
-            final_res = f"--- Shell Output (Exit Code: {exit_code}) ---\n"
-            final_res += full_output if full_output.strip() else "(Command executed with no output)"
-            return final_res
-            
-        except Exception as e:
-            return f"ERROR: {str(e)}"
-
-    @tool
-    def read_file(filepath: str, start_line: int = None, end_line: int = None) -> str:
-        """Reads the contents of a local file. Optionally specify start_line and end_line (1-indexed) to read a specific chunk of a long file to save context window."""
-        if not os.path.isabs(filepath) and workspace:
-            filepath = os.path.join(workspace, filepath)
-        
-        if not is_in_workspace(filepath):
-            return "ERROR: Path jail restricted. Cannot access files outside the current workspace."
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            
-            total_lines = len(lines)
-            start_idx = max(0, start_line - 1) if start_line else 0
-            end_idx = min(total_lines, end_line) if end_line else total_lines
-            
-            # Safety truncation for massively bloated files (prevents 100MB log file crashes)
-            # Modern LLMs easily handle 2000 lines (~15k tokens).
-            max_lines = 2000
-            if (end_idx - start_idx) > max_lines:
-                end_idx = start_idx + max_lines
-            
-            if start_idx >= total_lines:
-                return f"ERROR: start_line {start_line} is beyond the end of the file (total lines: {total_lines})."
-                
-            chunk = "".join(lines[start_idx:end_idx])
-            meta = f"--- File: {os.path.basename(filepath)} (Lines {start_idx+1} to {end_idx} of {total_lines}) ---\n"
-            if end_idx < total_lines and not end_line:
-                meta += f"[WARNING: File truncated to {max_lines} lines. Use start_line/end_line to read the rest.]\n"
-            return meta + chunk
-        except Exception as e:
-            return f"ERROR: {str(e)}"
-
-    @tool
-    def write_file(filepath: str, content: str) -> str:
-        """Writes content to a file, completely overwriting it."""
-        if read_only:
-            return "ERROR: Read-Only mode is active. Cannot modify files."
-        
-        if not os.path.isabs(filepath) and workspace:
-            filepath = os.path.join(workspace, filepath)
-        
-        if not is_in_workspace(filepath):
-            return "ERROR: Path jail restricted. Cannot modify files outside the current workspace."
-        
-        if not autopilot:
-            print(f"\n[HITL_APPROVAL_REQUIRED] Tool: WriteFile\nFile: {filepath}\nType 'y' to approve, 'n' to reject: ", end="", flush=True)
-            choice = stdin_queue.get().lower()
-            if choice not in ['y', 'yes', 'approve']:
-                return "ERROR: User rejected this file modification."
-
-        try:
-            os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(content)
-            return f"Successfully wrote to {filepath}"
-        except Exception as e:
-            return f"ERROR: {str(e)}"
-
-    @tool
-    def web_search(query: str) -> str:
-        """Searches the internet for up-to-date information."""
-        try:
-            from duckduckgo_search import DDGS
-            results = DDGS().text(query, max_results=5)
-            if not results: return "No results found."
-            return "\n\n".join([f"Title: {r['title']}\nSnippet: {r['body']}\nURL: {r['href']}" for r in results])
+            from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
+            from langgraph.graph import StateGraph, START, END
+            from langgraph.graph.message import add_messages
+            from langchain_core.tools import tool
+            from pydantic import BaseModel, Field
         except ImportError:
-            return "ERROR: duckduckgo-search package not installed."
-        except Exception as e:
-            return f"ERROR: Web search failed: {str(e)}"
+            print("ERROR: Missing dependencies.", flush=True)
+            sys.exit(1)
 
-    tools = [read_file, web_search]
-    if not read_only:
-        tools.extend([local_shell, write_file])
+        def is_in_workspace(filepath: str) -> bool:
+            if not workspace: return True
+            abs_workspace = os.path.abspath(workspace)
+            abs_path = os.path.abspath(filepath)
+            return abs_path.startswith(abs_workspace)
 
-    # Initialize LLM
-    llm = None
-    if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.2)
-    elif provider == "groq":
-        from langchain_groq import ChatGroq
-        llm = ChatGroq(model_name=model_name, api_key=api_key, temperature=0.2)
-    elif provider == "openai":
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model_name=model_name, api_key=api_key, temperature=0.2)
-    elif provider == "ollama":
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model_name=model_name, api_key=api_key, base_url="https://ollama.com/v1", temperature=0.2)
-    elif provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        llm = ChatAnthropic(model_name=model_name, api_key=api_key, temperature=0.2)
-    
-    if not llm:
-        print(f"ERROR: Unsupported provider {provider}", flush=True)
-        sys.exit(1)
+        @tool
+        def local_shell(command: str) -> str:
+            """Executes a local shell command."""
+            import subprocess, os
+            try:
+                cwd = workspace if workspace else os.getcwd()
+                result = subprocess.run(command, shell=True, capture_output=True, text=True, cwd=cwd, timeout=60)
+                output = result.stdout + result.stderr
+                return output if output else "Command executed successfully (no output)."
+            except Exception as e:
+                return f"Error executing command: {str(e)}"
 
-    llm_with_tools = llm.bind_tools(tools)
+        @tool
+        def read_file(filepath: str, start_line: int = None, end_line: int = None) -> str:
+            """Reads the contents of a file."""
+            import os
+            if not is_in_workspace(filepath):
+                return f"Error: Cannot read file outside of workspace ({workspace})"
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                    
+                if start_line is not None and end_line is not None:
+                    lines = lines[start_line-1:end_line]
+                elif start_line is not None:
+                    lines = lines[start_line-1:]
+                    
+                if len(lines) > 2000:
+                    lines = lines[:2000]
+                    lines.append(f"\n...[FILE TRUNCATED AT 2000 LINES TO PROTECT CONTEXT WINDOW]... Use start_line and end_line parameters to read further.\n")
+                    
+                return "".join(lines)
+            except Exception as e:
+                return f"Error reading file: {str(e)}"
 
-    # Define Graph State
-    class AgentState(TypedDict):
-        messages: Annotated[list, add_messages]
+        @tool
+        def write_file(filepath: str, content: str) -> str:
+            """Writes or overwrites a file."""
+            import os
+            if read_only: return "Error: Read-only mode is enabled."
+            if not is_in_workspace(filepath): return f"Error: Cannot write outside workspace."
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
+                return f"Successfully wrote to {filepath}"
+            except Exception as e:
+                return f"Error writing file: {str(e)}"
 
-    # Graph Nodes
-    def chatbot(state: AgentState):
-        # Inject the system prompt dynamically without saving it in the db every turn
-        messages = [SystemMessage(content=system_prompt)] + state["messages"]
-        try:
-            msg = llm_with_tools.invoke(messages)
-        except Exception as e:
-            if "tool calling" in str(e).lower() or "tools" in str(e).lower() or "invalid_request" in str(e).lower() or "400" in str(e).lower():
-                print("\n[WARNING] This model does not support tool calling. Falling back to chat-only mode.\n", flush=True)
-                msg = llm.invoke(state["messages"])
-            else:
-                raise e
-        return {"messages": [msg]}
+        tools = []
+        if enable_tools:
+            tools.extend([local_shell, read_file, write_file])
 
-    def tool_executor(state: AgentState):
-        last_message = state["messages"][-1]
-        tool_outputs = []
-        for tool_call in last_message.tool_calls:
-            tool_name = tool_call["name"]
-            tool_args = tool_call["args"]
-            print(f"\n[AGENT] Using tool: {tool_name}", flush=True)
+        def create_llm(p_name, m_name, p_key):
+            if p_name == "gemini":
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                return ChatGoogleGenerativeAI(model=m_name, api_key=p_key, temperature=0.2)
+            elif p_name == "groq":
+                from langchain_groq import ChatGroq
+                return ChatGroq(model_name=m_name, api_key=p_key, temperature=0.2)
+            elif p_name == "openai":
+                from langchain_openai import ChatOpenAI
+                return ChatOpenAI(model_name=m_name, api_key=p_key, temperature=0.2)
+            elif p_name == "ollama":
+                from langchain_openai import ChatOpenAI
+                return ChatOpenAI(model_name=m_name, api_key=p_key, base_url="http://127.0.0.1:11434/v1", temperature=0.2)
+            elif p_name == "anthropic":
+                from langchain_anthropic import ChatAnthropic
+                return ChatAnthropic(model_name=m_name, api_key=p_key, temperature=0.2)
+            return None
+
+        llm = create_llm(provider, model_name, api_key)
+        if not llm and not team_config_file:
+            print(f"ERROR: Unsupported provider {provider}", flush=True)
+            import sys
+            sys.exit(1)
             
-            # Find and execute tool
-            matched_tool = next((t for t in tools if t.name == tool_name), None)
-            if matched_tool:
-                try:
-                    result = matched_tool.invoke(tool_args)
-                except Exception as e:
-                    result = f"Error executing tool: {str(e)}"
-            else:
-                result = f"Error: Tool {tool_name} not found."
-                
-            tool_outputs.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
-        return {"messages": tool_outputs}
+        class AgentState(TypedDict):
+            messages: Annotated[list, add_messages]
 
-    def should_continue(state: AgentState):
-        last_message = state["messages"][-1]
-        if last_message.tool_calls:
-            return "tools"
-        return END
-
-    # Build Graph
-    graph_builder = StateGraph(AgentState)
-    graph_builder.add_node("chatbot", chatbot)
-    graph_builder.add_node("tools", tool_executor)
-    
-    graph_builder.add_edge(START, "chatbot")
-    graph_builder.add_conditional_edges("chatbot", should_continue, {"tools": "tools", END: END})
-    graph_builder.add_edge("tools", "chatbot")
-    
-    # Checkpointer Setup
-    config_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(config_dir, "ai_threads.db")
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    memory = SqliteSaver(conn)
-    
-    graph = graph_builder.compile(checkpointer=memory)
-
-    ws_context = f"\nCURRENT WORKSPACE: {workspace}\n" if workspace else "\n"
-
-    system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor. 
+        ws_context = f"\nCURRENT WORKSPACE: {workspace}\n" if workspace else "\n"
+        system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor. 
 You have access to local shell execution, file editing, and web search.{ws_context}
 CRITICAL INSTRUCTIONS:
-1. THINK BEFORE EXECUTING: Always explore the directory structure first (e.g., using `dir` or `ls`) to understand the project architecture before blindly running commands.
-2. IGNORE DEPENDENCY FOLDERS: When exploring, searching, or explaining the codebase, ALWAYS ignore dependency and environment folders (like `venv`, `.venv`, `my_env`, `node_modules`, `.git`, `__pycache__`, `vendor`, `target`). Focus strictly on the user's source code!
-3. ECOSYSTEM AWARENESS & ENVIRONMENTS: Identify the language and framework of the project. ALWAYS respect and utilize isolated environments and local dependency managers:
-   - Python: Look for virtual environments (`venv`, `.venv`, `env`, `my_env`). If found, ACTIVATE them (e.g., `<env>\\Scripts\\activate` on Windows or `source <env>/bin/activate` on Unix) before running `pip` or `python`. NEVER install globally.
-   - Node.js/JS/TS: Look for `package.json` and lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`). Use the correct package manager (`npm`, `yarn`, `pnpm`, `bun`).
-   - Rust: Use `cargo`. Go: Use `go mod`. Ruby: Use `bundle` with `Gemfile`. PHP: Use `composer`. Java: Use `mvn` or `./gradlew`.
-   - C/C++: Look for `CMakeLists.txt` or `Makefile`.
-4. DEPENDENCIES: Always check for dependency manifests (`requirements.txt`, `package.json`, `Cargo.toml`, etc.) and ensure dependencies are installed in the proper environment before attempting to run or build the app.
-5. CONTEXTUAL SEARCHING: You may use `local_shell` with `grep` or `findstr` to *locate* files containing specific keywords. However, once you find the file, DO NOT rely purely on small 10-line snippets to make edits. You MUST read the full file (or massive chunks of it) to understand the global context (imports, class state, variable scoping) before writing fixes.
-6. LARGE FILES: The `read_file` tool automatically truncates files over 2000 lines. Modern LLMs can handle 2000 lines perfectly. Do not waste time reading a standard 500-line file "chunk by chunk" (which adds massive latency); just read the whole thing at once. Only use `start_line` and `end_line` if you hit the 2000-line truncation limit.
-7. Think step-by-step and explain your rationale."""
-    
-    sys_msg = SystemMessage(content=system_prompt)
-    
-    print(f"--- Agent Initialized ({provider}/{model_name}) ---\n", flush=True)
-    
-    # Stream the graph execution
-    try:
-        inputs = {"messages": [HumanMessage(content=prompt)]}
-        config = {"configurable": {"thread_id": thread_id}}
-        # Use stream mode="messages" to stream tokens if supported, otherwise stream node outputs
-        for event in graph.stream(inputs, config=config, stream_mode="messages"):
-            msg, metadata = event
-            if isinstance(msg, AIMessage) and msg.content:
-                # Stream the content chunks
-                sys.stdout.write(msg.content)
-                sys.stdout.flush()
-        print("\n\n--- Finished ---", flush=True)
-    except Exception as e:
-        if "tool calling" in str(e).lower() or "tools" in str(e).lower() or "invalid_request" in str(e).lower() or "400" in str(e).lower():
-            print("\n[WARNING] This model does not support tool calling. Falling back to chat-only mode.\n", flush=True)
-            try:
-                for chunk in llm.stream([sys_msg, HumanMessage(content=prompt)]):
-                    if chunk.content:
-                        sys.stdout.write(chunk.content)
-                        sys.stdout.flush()
-            except Exception as e2:
-                print(f"\nERROR in fallback execution: {str(e2)}", flush=True)
-            print("\n\n--- Finished ---", flush=True)
-        else:
-            print(f"\nERROR in execution: {str(e)}", flush=True)
+1. THINK BEFORE EXECUTING: Always explore the directory structure first.
+2. FILE EDITING: When editing files, ALWAYS write the COMPLETE file content using write_file.
+3. CONTEXTUAL SEARCHING: Use local_shell with grep to locate files."""
 
+        custom_skill_prompt = ""
+        try:
+            if prompt.startswith("/"):
+                cmd = prompt.split()[0][1:]
+                import json, os
+                config_dir = os.path.dirname(os.path.abspath(__file__))
+                skills_file = os.path.join(config_dir, "local_skills.json")
+                if os.path.exists(skills_file):
+                    with open(skills_file, "r") as f:
+                        skills = json.load(f)
+                    for s in skills:
+                        if s.get("id") == cmd:
+                            custom_skill_prompt = f"\n\n[SKILL ACTIVATED: {s.get('title')}]\n{s.get('system_prompt')}"
+                            break
+            elif active_skill:
+                import json, os
+                config_dir = os.path.dirname(os.path.abspath(__file__))
+                skills_file = os.path.join(config_dir, "local_skills.json")
+                if os.path.exists(skills_file):
+                    with open(skills_file, "r") as f:
+                        skills = json.load(f)
+                    for s in skills:
+                        if s.get("id") == active_skill:
+                            custom_skill_prompt = f"\n\n[SKILL ACTIVATED: {s.get('title')}]\n{s.get('system_prompt')}"
+                            break
+        except: pass
+
+        skill_ui_context = ""
+        if active_skill and skill_state:
+            import json
+            try:
+                state_data = json.loads(skill_state)
+                skill_ui_context = "\n\n[SKILL CONFIGURATION STATE]\n"
+                for k, v in state_data.items():
+                    skill_ui_context += f"- {k}: {v}\n"
+            except: pass
+
+        if custom_skill_prompt:
+            system_prompt = custom_skill_prompt.strip() + "\n\n[Note: You have access to tools if you need them. Do not use them unless strictly necessary for your activated skill.]" + skill_ui_context
+        else:
+            system_prompt = system_prompt + skill_ui_context
+
+        # Teams logic
+        team_agents = []
+        if team_config_file:
+            import os, json
+            with open(team_config_file, "r") as f:
+                raw_team = json.load(f)
+            keys_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ai_api_keys.json")
+            all_keys = {}
+            if os.path.exists(keys_file):
+                with open(keys_file, "r") as f: all_keys = json.load(f)
+            for a_def in raw_team:
+                a_key = all_keys.get(a_def["provider"], "")
+                if not a_key and a_def["provider"] == provider: a_key = api_key
+                a_llm = create_llm(a_def["provider"], a_def["model"], a_key)
+                if not a_llm: a_llm = llm
+                team_agents.append({
+                    "id": a_def["id"],
+                    "role": a_def.get("role", "Team Member"),
+                    "llm": a_llm,
+                    "base_llm": a_llm
+                })
+
+        def create_team_node(agent):
+            async def team_node(state: AgentState):
+                print(f"\n[TEAM: {agent['role']}] Thinking...", flush=True)
+                final_sys_prompt = f"You are part of an AI Team. Your role is: {agent['role']}. Evaluate the current state, use tools if needed, and contribute your expertise. If you are the Hunter/Analyzer, end your turn with [REJECT] if the work is flawed, or [APPROVE] if it is perfect.\n\n{system_prompt}"
+                safe_messages = state["messages"]
+                if len(safe_messages) > 40:
+                    safe_messages = safe_messages[-40:]
+                    while safe_messages and (safe_messages[0].type == "tool" or (safe_messages[0].type == "ai" and getattr(safe_messages[0], "tool_calls", None))):
+                        safe_messages = safe_messages[1:]
+                messages = [SystemMessage(content=final_sys_prompt)] + safe_messages
+                try:
+                    msg = await agent["llm"].ainvoke(messages)
+                except Exception as e:
+                    print(f"\n[WARNING] Tool calling unsupported by {agent['id']}, falling back.\n", flush=True)
+                    msg = await agent["base_llm"].ainvoke(messages)
+                if msg.content:
+                    msg.content = f"[{agent['role']}] {msg.content}"
+                return {"messages": [msg]}
+            return team_node
+
+        def team_should_continue(state: AgentState) -> str:
+            last_message = state['messages'][-1]
+            if getattr(last_message, "tool_calls", None): return "tools"
+            return "next"
+
+        def hunter_router(state: AgentState) -> str:
+            last_message = state['messages'][-1]
+            if getattr(last_message, "tool_calls", None): return "tools"
+            if "[REJECT]" in str(last_message.content): return "reject"
+            return END
+
+        def route_tools(state: AgentState):
+            for m in reversed(state["messages"]):
+                if m.type == "ai":
+                    content = m.content or ""
+                    for a in team_agents:
+                        if content.startswith(f"[{a['role']}]"): return a["id"]
+            return team_agents[0]["id"]
+
+        def should_continue(state: AgentState) -> str:
+            messages = state['messages']
+            last_message = messages[-1]
+            if getattr(last_message, "tool_calls", None): return "tools"
+            return END
+
+        async def chatbot(state: AgentState):
+            max_messages = 40
+            safe_messages = state["messages"]
+            if len(safe_messages) > max_messages:
+                safe_messages = safe_messages[-max_messages:]
+                while safe_messages and (safe_messages[0].type == "tool" or (safe_messages[0].type == "ai" and getattr(safe_messages[0], "tool_calls", None))):
+                    safe_messages = safe_messages[1:]
+            messages = [SystemMessage(content=system_prompt)] + safe_messages
+            try:
+                msg = await llm_with_tools.ainvoke(messages)
+            except Exception as e:
+                if "tool calling" in str(e).lower() or "tools" in str(e).lower() or "invalid_request" in str(e).lower() or "400" in str(e).lower():
+                    print(f"\n[WARNING EXCEPTION]: {e}\n[WARNING] This model does not support tool calling. Falling back to chat-only mode.\n", flush=True)
+                    msg = await llm.ainvoke(messages)
+                else:
+                    raise e
+            return {"messages": [msg]}
+
+        async def tool_executor(state: AgentState):
+            last_message = state["messages"][-1]
+            tool_outputs = []
+            for tool_call in last_message.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call["args"]
+                print(f"\n[AGENT] Using tool: {tool_name}", flush=True)
+                matched_tool = next((t for t in tools if t.name == tool_name), None)
+                if matched_tool:
+                    try:
+                        result = await matched_tool.ainvoke(tool_args)
+                    except Exception as e:
+                        result = f"Error executing tool: {str(e)}"
+                else:
+                    result = f"Error: Tool {tool_name} not found."
+                res_str = str(result)
+                if len(res_str) > 4000:
+                    res_str = res_str[:4000] + "\n...[OUTPUT TRUNCATED BY SYSTEM TO PROTECT CONTEXT WINDOW]..."
+                tool_outputs.append(ToolMessage(content=res_str, name=tool_name, tool_call_id=tool_call["id"]))
+            return {"messages": tool_outputs}
+
+        graph_builder = StateGraph(AgentState)
+        if team_config_file and len(team_agents) > 0:
+            for i, agent in enumerate(team_agents):
+                graph_builder.add_node(agent["id"], create_team_node(agent))
+            graph_builder.add_node("tools", tool_executor)
+            graph_builder.add_edge(START, team_agents[0]["id"])
+            for i in range(len(team_agents) - 1):
+                curr_id = team_agents[i]["id"]
+                next_id = team_agents[i+1]["id"]
+                graph_builder.add_conditional_edges(curr_id, team_should_continue, {"tools": "tools", "next": next_id})
+            hunter_id = team_agents[-1]["id"]
+            first_id = team_agents[0]["id"]
+            graph_builder.add_conditional_edges(hunter_id, hunter_router, {"tools": "tools", "reject": first_id, END: END})
+            graph_builder.add_conditional_edges("tools", route_tools)
+        else:
+            graph_builder.add_node("chatbot", chatbot)
+            graph_builder.add_node("tools", tool_executor)
+            graph_builder.add_edge(START, "chatbot")
+            graph_builder.add_conditional_edges("chatbot", should_continue, {"tools": "tools", END: END})
+            graph_builder.add_edge("tools", "chatbot")
+
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        from mcp import StdioServerParameters, ClientSession
+        from mcp.client.stdio import stdio_client
+        from langchain_mcp_adapters.tools import load_mcp_tools
+        from contextlib import AsyncExitStack
+        import json
+
+        config_dir = os.path.dirname(os.path.abspath(__file__))
+        db_path = os.path.join(config_dir, "ai_threads.db")
+
+        async with AsyncExitStack() as stack:
+            mcp_config_path = os.path.join(config_dir, "mcp_config.json")
+            if os.path.exists(mcp_config_path):
+                try:
+                    with open(mcp_config_path, "r") as f:
+                        mcp_data = json.load(f)
+                    for srv_name, srv_conf in mcp_data.get("mcpServers", {}).items():
+                        params = StdioServerParameters(command=srv_conf["command"], args=srv_conf.get("args", []), env=srv_conf.get("env", None))
+                        read, write = await stack.enter_async_context(stdio_client(params))
+                        session = await stack.enter_async_context(ClientSession(read, write))
+                        await session.initialize()
+                        mcp_tools = await load_mcp_tools(session)
+                        tools.extend(mcp_tools)
+                except Exception as e:
+                    print(f"[ERROR Loading MCP]: {e}\n", flush=True)
+
+            if enable_tools:
+                llm_with_tools = llm.bind_tools(tools) if llm else None
+                for a in team_agents:
+                    a["llm"] = a["base_llm"].bind_tools(tools)
+            else:
+                llm_with_tools = llm
+                for a in team_agents:
+                    a["llm"] = a["base_llm"]
+
+            async with AsyncSqliteSaver.from_conn_string(db_path) as memory:
+                graph = graph_builder.compile(checkpointer=memory)
+                
+                try:
+                    inputs = {"messages": [HumanMessage(content=prompt)]}
+                    config = {"configurable": {"thread_id": thread_id}}
+                    async for event in graph.astream(inputs, config=config, stream_mode="messages"):
+                        msg, metadata = event
+                        if isinstance(msg, AIMessage) and msg.content:
+                            sys.stdout.write(msg.content)
+                            sys.stdout.flush()
+                    print("\n\n--- Finished ---", flush=True)
+                except Exception as e:
+                    print(f"\nERROR in execution: {str(e)}", flush=True)
+
+    asyncio.run(_run_agent_async())
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--list-models", action="store_true")
@@ -565,9 +601,16 @@ def main():
     parser.add_argument("--autopilot", action="store_true")
     parser.add_argument("--read-only", action="store_true")
     parser.add_argument("--workspace", type=str)
+    parser.add_argument("--team-config", type=str)
     parser.add_argument("--set-key", type=str)
     parser.add_argument("--delete-key", action="store_true")
     parser.add_argument("--validate-keys", action="store_true")
+    parser.add_argument("--get-marketplace-tools", action="store_true")
+    parser.add_argument("--get-marketplace-skills", action="store_true")
+    parser.add_argument("--get-installed-tools", action="store_true")
+    parser.add_argument("--get-installed-skills", action="store_true")
+    parser.add_argument("--page", type=int, default=1)
+    parser.add_argument("--out-file", type=str)
     args = parser.parse_args()
 
     import re
@@ -672,6 +715,58 @@ def main():
             print("return { error = " + json.dumps(str(e)) + " }")
         sys.exit(0)
 
+
+    if args.get_marketplace_tools or args.get_marketplace_skills or args.get_installed_tools or args.get_installed_skills:
+        import json
+        config_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Comprehensive MCP Marketplace Database
+        mcp_marketplace = [
+            {"id": "graphify", "title": "Graphify (AST Code Map)", "description": "Converts projects into structured knowledge graphs to beat context limits.", "author": "Open Source", "type": "mcp", "tags": ["code", "ast", "memory"]},
+            {"id": "github", "title": "GitHub Connector", "description": "Securely connect to GitHub with OAuth to read/write PRs, issues, and repos.", "author": "GitHub", "type": "mcp", "tags": ["auth", "git", "connector"]},
+            {"id": "canvas", "title": "Canvas LMS Connector", "description": "Live sync and auth with Canvas LMS to manage courses, assignments, and grades.", "author": "Instructure", "type": "mcp", "tags": ["auth", "education", "connector"]},
+            {"id": "slack", "title": "Slack Automator", "description": "Read channels, send messages, and automate Slack workflows via proper OAuth.", "author": "Slack", "type": "mcp", "tags": ["auth", "communication", "connector"]},
+            {"id": "postgres", "title": "Postgres SQL Explorer", "description": "Safely connect to PostgreSQL databases, read schemas, and run queries.", "author": "Community", "type": "mcp", "tags": ["database", "sql"]},
+            {"id": "puppeteer", "title": "Puppeteer Browser", "description": "Headless browser automation for live web scraping and screenshotting.", "author": "Google", "type": "mcp", "tags": ["browser", "web"]},
+            {"id": "gdrive", "title": "Google Drive Connector", "description": "OAuth connector to read and manage Google Docs, Sheets, and Drive files.", "author": "Google", "type": "mcp", "tags": ["auth", "files", "connector"]},
+            {"id": "spotify", "title": "Spotify Controller", "description": "Control playback, read playlists, and analyze listening history via OAuth.", "author": "Spotify", "type": "mcp", "tags": ["auth", "media", "connector"]}
+        ]
+        
+        # Load local skills for installed check and skill marketplace
+        skills_file = os.path.join(config_dir, "local_skills.json")
+        installed_skills = []
+        if os.path.exists(skills_file):
+            try:
+                with open(skills_file, "r", encoding="utf-8") as f:
+                    installed_skills = json.load(f)
+            except: pass
+            
+        mcp_config_file = os.path.join(config_dir, "mcp_config.json")
+        installed_mcp = []
+        if os.path.exists(mcp_config_file):
+            try:
+                with open(mcp_config_file, "r", encoding="utf-8") as f:
+                    mcp_conf = json.load(f)
+                    installed_mcp = [{"id": k, "title": k.title(), "type": "mcp"} for k in mcp_conf.get("mcpServers", {}).keys()]
+            except: pass
+
+        if args.get_marketplace_tools:
+            data = mcp_marketplace
+        elif args.get_installed_tools:
+            data = installed_mcp
+        elif args.get_marketplace_skills:
+            # Fallback to fetch skills from github if needed, or just show installed for now
+            data = installed_skills
+        elif args.get_installed_skills:
+            data = installed_skills
+            
+        if args.out_file:
+            with open(args.out_file, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        else:
+            print(json.dumps(data))
+        sys.exit(0)
+
     keys = load_keys()
 
     if args.validate_keys:
@@ -716,7 +811,8 @@ def main():
             autopilot=args.autopilot,
             read_only=args.read_only,
             workspace=args.workspace,
-            thread_id=args.thread_id
+            thread_id=args.thread_id,
+            team_config_file=args.team_config
         )
 
 if __name__ == "__main__":

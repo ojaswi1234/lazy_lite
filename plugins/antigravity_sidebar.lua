@@ -434,6 +434,8 @@ local function get_palette()
   local bg_input = contrast_bg(base, 0.04)
   local fg       = contrast_fg(bg)
   local fg_muted = muted(fg, 0.55)
+  local fg_dim   = muted(fg, 0.40)
+  local fg_dim   = muted(fg, 0.40)
   local fg_accent= muted(fg, 0.80)
   local bg_user  = contrast_bg(base, 0.18)
   local bg_ai    = contrast_bg(base, 0.06)
@@ -476,6 +478,8 @@ local function get_palette()
     bg_send_hl  = bg_sendhl,
     fg          = fg,
     fg_muted    = fg_muted,
+    fg_dim      = fg_dim,
+    fg_dim      = fg_dim,
     fg_accent   = fg_accent,
     fg_user     = fg_accent,
     fg_ai       = fg,
@@ -510,7 +514,7 @@ config.antigravity = {
     return "agy"
   end)(),
 
-  target_width = 270,
+  target_width = 330,
   auto_skip_permissions = true,
   selected_model = nil,  -- nil means use CLI default
 
@@ -1571,10 +1575,37 @@ function AGView:submit(prompt)
     self:state().has_session = true
     self:state().status = "idle"
     local tool_name = (tool and tool.name) or "Antigravity CLI"
-    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation\n\nActive tool: " .. tool_name .. "\n\n(Type any other prompt to chat with the AI)"
-    table.insert(self:state().sessions, { role = "user", text = prompt })
-    table.insert(self:state().sessions, { role = "ai", text = help_text })
-    core.redraw = true
+    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation"
+    
+    core.add_thread(function()
+      local p = process.start({"python", USERDIR .. "/scripts/ai_api_bridge.py", "--get-installed-skills"})
+      if p then
+          local out = ""
+          while p:running() do
+              local chunk = p:read_stdout()
+              if chunk then out = out .. chunk end
+              coroutine.yield(0.1)
+          end
+          local chunk = p:read_stdout()
+          if chunk then out = out .. chunk end
+          
+          local ok_j, json = pcall(require, "plugins.lsp.json")
+          if ok_j and out and out ~= "" then
+            local ok, skills = pcall(json.decode, out)
+            if ok and type(skills) == "table" and #skills > 0 then
+              help_text = help_text .. "\n\nInstalled AI Personas:\n"
+              for _, s in ipairs(skills) do
+                 help_text = help_text .. "  `/" .. s.id .. "` - " .. (s.title or "Custom Skill") .. "\n"
+              end
+            end
+          end
+      end
+      
+      help_text = help_text .. "\n\nActive tool: " .. tool_name .. "\n\n(Type any other prompt to chat with the AI)"
+      table.insert(self:state().sessions, { role = "user", text = prompt })
+      table.insert(self:state().sessions, { role = "ai", text = help_text })
+      core.redraw = true
+    end)
     return
   elseif prompt == "/clear" then
     self:state().sessions = {}
@@ -1732,6 +1763,11 @@ function AGView:submit(prompt)
 
   -- Add user message to chat
   self:_add_session("user", prompt_text)
+
+  -- Generate a unique thread ID if this is a new conversation
+  if not self:state().cid then
+    self:state().cid = "thread_" .. tostring(os.time()) .. "_" .. tostring(math.random(10000, 99999))
+  end
 
   -- Expand any @pasted_text tokens into absolute file paths
   local tmp_dir = USERDIR .. "/tempfiles"
@@ -2391,6 +2427,142 @@ local function draw_rect_outline(x, y, w, h, col)
   renderer.draw_rect(x+w-1, y,     1, h, col)
 end
 
+function AGView:fetch_marketplace()
+  if self._is_fetching then return end
+  self._is_fetching = true
+  self.marketplace_skills = "loading"
+  core.redraw = true
+  core.add_thread(function()
+      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local arg = ""
+        if self.show_tools_tab then
+            arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
+        else
+            arg = self.show_installed_skills and "--get-installed-skills" or "--get-marketplace-skills"
+        end
+      
+      local tmp_file = USERDIR .. "/scripts/.market_tmp.json"
+      local cmd = {"python", bridge, arg, "--out-file", tmp_file}
+      if not self.show_installed_skills then
+         self.market_page = self.market_page or 1
+         table.insert(cmd, "--page")
+         table.insert(cmd, tostring(self.market_page))
+      end
+      
+      local p, err = process.start(cmd)
+      if not p then
+          local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
+          if df then df:write("PROCESS ERROR: " .. tostring(err) .. "\nCMD: " .. table.concat(cmd, " ")); df:close() end
+      else
+          while p:running() do coroutine.yield(0.1) end
+      end
+      
+      local full = ""
+      local f = io.open(tmp_file, "r")
+      if f then
+          full = f:read("*a")
+          f:close()
+      end
+      
+      local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
+      if df then df:write(tostring(full)); df:close() end
+      
+      local ok_json, json = pcall(require, "plugins.lsp.json")
+      local ok, res = false, nil
+      if ok_json and full and full ~= "" then
+        ok, res = pcall(json.decode, full)
+      end
+      
+      if ok and type(res) == "table" then
+        if self.show_installed_skills then
+          self.marketplace_skills = res
+        else
+          self.marketplace_skills = res.skills or res.data or {}
+          self.market_total_pages = res.total_pages or 1
+        end
+      else
+        self.marketplace_skills = "error"
+      end
+      
+      self._is_fetching = false
+      core.redraw = true
+    end)
+  end
+
+
+function AGView:uninstall_skill(skill_id)
+  core.add_thread(function()
+      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local flag = self.show_tools_tab and "--uninstall-tool" or "--uninstall-skill"
+      local p, err = process.start({"python", bridge, flag, skill_id})
+      if p then
+          while p:running() do coroutine.yield(0.1) end
+          core.log("Uninstalled: " .. skill_id)
+          self:fetch_marketplace()
+          core.redraw = true
+      end
+  end)
+end
+
+function AGView:install_skill(skill_input)
+  local skill_obj = nil
+  if type(skill_input) == "table" then
+    skill_obj = skill_input
+  else
+    for _, s in ipairs(self.marketplace_skills or {}) do
+      if s.id == skill_input then
+        skill_obj = s
+        break
+      end
+    end
+  end
+  if not skill_obj then return end
+  
+  core.add_thread(function()
+    local env_vals = {}
+    if self.show_tools_tab and skill_obj.env_requirements and #skill_obj.env_requirements > 0 then
+      for _, req in ipairs(skill_obj.env_requirements) do
+        local done = false
+        core.command_view:enter("Enter value for " .. req, {
+          submit = function(text)
+            env_vals[req] = text
+            done = true
+          end
+        })
+        while not done do coroutine.yield(0.1) end
+      end
+    end
+
+    local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+    if self.show_tools_tab then
+      local p = process.start({"python", bridge, "--install-tool", skill_obj.id})
+      while p:running() do coroutine.yield(0.1) end
+      
+      -- Send envs to python if any
+      for k, v in pairs(env_vals) do
+        local p2 = process.start({"python", bridge, "--set-tool-env", skill_obj.id, k, v})
+        while p2:running() do coroutine.yield(0.1) end
+      end
+      
+      core.log("Installed MCP Tool: " .. (skill_obj.title or skill_obj.name or skill_obj.id))
+      self:fetch_marketplace()
+    else
+      local ok_json, json = pcall(require, "plugins.lsp.json")
+      if not ok_json then return end
+      local tmp_file = USERDIR .. "/scripts/.tmp_skill.json"
+      local f = io.open(tmp_file, "w")
+      if f then
+        f:write(json.encode(skill_obj))
+        f:close()
+      end
+      local p = process.start({"python", bridge, "--install-skill", "FILE:" .. tmp_file})
+      while p:running() do coroutine.yield(0.1) end
+      core.log("Installed AI Skill: " .. (skill_obj.title or "Custom Skill"))
+      self:fetch_marketplace()
+    end
+  end)
+end
+
 function AGView:draw()
   if self.size.x < 4 then return end
 
@@ -2454,7 +2626,7 @@ function AGView:draw()
   local seg_h = fh1 + 2 * SCALE
   
   -- Status text width
-  local status_str = self:state().status == "running"
+    local status_str = self:state().status == "running"
     and (self:state().warned_slow and "slow..." or "thinking...")
     or  self:state().status == "error" and "error"
     or  "ready"
@@ -2822,10 +2994,56 @@ function AGView:draw()
   local cur_x = x + pad
   local line_start_x = x + pad
 
-  -- Timeline Button (Extreme right of tabs)
+  -- Cloud API injected controls & Timeline Button
+  self._cloud_ctrl_rects = {}
   local h_btn_w = 32 * SCALE
-  local h_btn_x = x + w - pad - h_btn_w
+  local right_bound = x + w - pad
+  local h_btn_x = right_bound - h_btn_w
   local h_btn_y = cur_y + math.floor((tab_h - 30 * SCALE) / 2)
+  
+  -- Inject Tools and Skills to the left of the timeline button
+  local active_id = config.ai_sidebar.active_tool or "agy"
+  if active_id == "cloud_api" then
+    -- Draw separator
+    local sep_x = h_btn_x - 4 * SCALE
+    renderer.draw_rect(sep_x, h_btn_y + 6 * SCALE, 1, 18 * SCALE, P.border)
+    
+    -- Draw + Skill button
+    local skill_txt = "+ Skill"
+    local sw = sf:get_width(skill_txt) + 12 * SCALE
+    local sx = sep_x - 4 * SCALE - sw
+    local col = self.hover_cloud_skill and P.bg_btn_hl or P.bg_btn
+    renderer.draw_rect(sx, h_btn_y, sw, 30 * SCALE, col)
+    draw_rect_outline(sx, h_btn_y, sw, 30 * SCALE, P.border)
+    renderer.draw_text(sf, skill_txt, sx + 6 * SCALE, h_btn_y + math.floor((30 * SCALE - sf:get_height()) / 2), P.fg)
+    table.insert(self._cloud_ctrl_rects, {id="skill", x=sx, y=h_btn_y, w=sw, h=30 * SCALE})
+    
+    -- Draw Tools toggle
+    local tool_txt = self.enable_tools and "Tools: ON" or "Tools: OFF"
+    local tw = sf:get_width(tool_txt) + 12 * SCALE
+    local tx = sx - 4 * SCALE - tw
+    local tcol = self.hover_cloud_tools and P.bg_btn_hl or P.bg_btn
+    renderer.draw_rect(tx, h_btn_y, tw, 30 * SCALE, tcol)
+    draw_rect_outline(tx, h_btn_y, tw, 30 * SCALE, P.border)
+    renderer.draw_text(sf, tool_txt, tx + 6 * SCALE, h_btn_y + math.floor((30 * SCALE - sf:get_height()) / 2), P.fg)
+    table.insert(self._cloud_ctrl_rects, {id="tools", x=tx, y=h_btn_y, w=tw, h=30 * SCALE})
+    
+    -- Draw Team toggle
+    local team_txt = "AI Team"
+    local team_w = sf:get_width(team_txt) + 12 * SCALE
+    local team_x = tx - 4 * SCALE - team_w
+    local team_col = self.hover_cloud_team and P.bg_btn_hl or P.bg_btn
+    renderer.draw_rect(team_x, h_btn_y, team_w, 30 * SCALE, team_col)
+    draw_rect_outline(team_x, h_btn_y, team_w, 30 * SCALE, P.border)
+    renderer.draw_text(sf, team_txt, team_x + 6 * SCALE, h_btn_y + math.floor((30 * SCALE - sf:get_height()) / 2), P.fg)
+    table.insert(self._cloud_ctrl_rects, {id="team", x=team_x, y=h_btn_y, w=team_w, h=30 * SCALE})
+
+    -- Update the wrap boundary
+    right_bound = team_x
+  else
+    right_bound = h_btn_x
+  end
+
   self._hist_toggle_rect = { x = h_btn_x, y = h_btn_y, w = h_btn_w, h = 30 * SCALE }
   local is_hov = self.hover_hist_btn
   renderer.draw_rect(h_btn_x, h_btn_y, h_btn_w, 30 * SCALE, self.show_history_tree and P.fg_accent or (is_hov and P.bg_dark or P.bg))
@@ -2845,7 +3063,7 @@ function AGView:draw()
     local tw = style.font:get_width(label) + 16 * SCALE + stop_w
     
     -- Wrap to next line if exceeds width
-    if cur_x + tw > h_btn_x - 8 * SCALE and cur_x > line_start_x then
+    if cur_x + tw > right_bound - 8 * SCALE and cur_x > line_start_x then
       cur_x = line_start_x
       cur_y = cur_y + tab_h + 4 * SCALE
     end
@@ -3889,6 +4107,37 @@ end
 function AGView:on_mouse_moved(mx, my, ...)
   AGView.super.on_mouse_moved(self, mx, my, ...)
   
+  self.hover_cloud_skill = false
+  self.hover_cloud_tools = false
+  self.hover_cloud_team = false
+  self.hover_market_skill = nil
+  
+  if self.show_skills_modal then
+      for _, r in ipairs(self._market_rects or {}) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+              self.hover_market_skill = r.id
+              system.set_cursor("hand")
+              core.redraw = true
+              return
+          end
+      end
+      -- Stop other hovers if modal is open
+      system.set_cursor("arrow")
+      return
+  end
+  
+  for _, r in ipairs(self._cloud_ctrl_rects or {}) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          if r.id == "skill" then self.hover_cloud_skill = true
+          elseif r.id == "tools" then self.hover_cloud_tools = true
+          elseif r.id == "team" then self.hover_cloud_team = true end
+          system.set_cursor("hand")
+          core.redraw = true
+          return
+      end
+  end
+
+  
   self._usage_links_hover = nil
   if self.show_usage_view and self._usage_links then
     local hovering = false
@@ -4476,10 +4725,347 @@ end
 
 
 
+function AGView:_launch_team_builder()
+  local team = {}
+  
+  local function prompt_model(role, cb)
+    local items = {}
+    if self.model_list then
+      for _, m in ipairs(self.model_list) do
+        if not m.limited then
+          table.insert(items, m.name)
+        end
+      end
+    end
+    
+    if #items == 0 then
+      self:fetch_models()
+      table.insert(items, "gemini/gemini-2.5-pro")
+      table.insert(items, "groq/llama3-70b-8192")
+    end
+    
+    core.command_view:enter("Select Model for " .. role, {
+      submit = function(text, item)
+        local sel = (type(item) == "table" and item.text) or (type(item) == "string" and item) or text
+        local prov = sel:match("^([^/]+)/") or "gemini"
+        local mod = sel:match("^[^/]+/(.+)$") or sel
+        cb(prov, mod)
+      end,
+      suggest = function(text)
+        return common.fuzzy_match(items, text)
+      end
+    })
+  end
+
+  local function build_next_agent()
+    core.command_view:enter("Enter Role (e.g. 'Architect', 'Hunter') or 'done' to finish", {
+      submit = function(role)
+        if role:lower() == "done" or role == "" then
+          if #team > 0 then
+            local p = USERDIR .. "/scripts/.team_config.json"
+            local f = io.open(p, "w")
+            if f then
+              -- basic JSON encode
+              f:write("[")
+              for i, agent in ipairs(team) do
+                f:write('{"id": "agent_'..tostring(i)..'", "provider": "'..agent.provider..'", "model": "'..agent.model..'", "role": "'..agent.role..'"}')
+                if i < #team then f:write(",") end
+              end
+              f:write("]")
+              f:close()
+              self:_add_session("ai", "Team Built successfully! The Hunter is: " .. team[#team].role .. ". Type a prompt to begin the Swarm session.")
+            end
+          else
+            self:_add_session("ai", "Team Builder cancelled.")
+          end
+        else
+          prompt_model(role, function(prov, mod)
+            table.insert(team, {role = role, provider = prov, model = mod})
+            build_next_agent()
+          end)
+        end
+      end
+    })
+  end
+  
+  build_next_agent()
+end
+
 function AGView:on_mouse_pressed(button, mx, my, clicks)
   AGView.super.on_mouse_pressed(self, button, mx, my, clicks)
   core.set_active_view(self)
+  
   if button == "left" then
+    if self._form_rects then
+      for _, r in ipairs(self._form_rects) do
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          if r.type == "toggle" then
+            self.skill_state[r.id] = not self.skill_state[r.id]
+            core.redraw = true
+            return
+          elseif r.type == "file" then
+            core.command_view:enter("File Path for " .. r.id, {
+              submit = function(path)
+                self.skill_state[r.id] = path
+                core.redraw = true
+              end
+            })
+            return
+          elseif r.type == "text" then
+            core.command_view:enter("Value for " .. r.id, {
+              submit = function(text)
+                self.skill_state[r.id] = text
+                core.redraw = true
+              end
+            })
+            return
+          end
+        end
+      end
+    end
+
+    if self.show_skills_modal then
+        if self._market_tab_skills_btn then
+          local btn = self._market_tab_skills_btn
+          if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+            self.show_tools_tab = false
+            self:fetch_marketplace()
+            return true
+          end
+        end
+        if self._market_tab_tools_btn then
+          local btn = self._market_tab_tools_btn
+          if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+            self.show_tools_tab = true
+            self:fetch_marketplace()
+            return true
+          end
+        end
+      if self._market_manage_btn then
+        local btn = self._market_manage_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self.show_installed_skills = not self.show_installed_skills
+          self.market_page = 1
+          self.market_scroll_y = 0
+          self:fetch_marketplace()
+          return
+        end
+      end
+      
+      if self._market_refresh_btn then
+        local btn = self._market_refresh_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self:fetch_marketplace()
+          return
+        end
+      end
+      
+      if self._market_add_btn then
+        local btn = self._market_add_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          if self.show_installed_skills then
+            core.command_view:enter("Custom Skill Title", {
+              submit = function(title)
+                core.command_view:enter("System Prompt Content", {
+                  submit = function(content)
+                    local skill = {
+                      id = "custom_" .. tostring(os.time()),
+                      title = title,
+                      description = "Custom user-defined skill",
+                      system_prompt = content,
+                      author = "You",
+                      domain = "Custom"
+                    }
+                    self:install_skill(skill)
+                  end
+                })
+              end
+            })
+          else
+            core.command_view:enter("Paste GitHub Repo or API URL", {
+              submit = function(url)
+                core.add_thread(function()
+      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local arg = ""
+        if self.show_tools_tab then
+            arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
+        else
+            arg = self.show_installed_skills and "--get-installed-skills" or "--get-marketplace-skills"
+        end
+      
+      local tmp_file = USERDIR .. "/scripts/.market_tmp.json"
+      local cmd = {"python", bridge, arg, "--out-file", tmp_file}
+      if not self.show_installed_skills then
+         self.market_page = self.market_page or 1
+         table.insert(cmd, "--page")
+         table.insert(cmd, tostring(self.market_page))
+      end
+      
+      local p, err = process.start(cmd)
+      if not p then
+          local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
+          if df then df:write("PROCESS ERROR: " .. tostring(err) .. "\nCMD: " .. table.concat(cmd, " ")); df:close() end
+      else
+          while p:running() do coroutine.yield(0.1) end
+      end
+      
+      local full = ""
+      local f = io.open(tmp_file, "r")
+      if f then
+          full = f:read("*a")
+          f:close()
+      end
+      
+      local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
+      if df then df:write(tostring(full)); df:close() end
+      
+      local ok_json, json = pcall(require, "plugins.lsp.json")
+      local ok, res = false, nil
+      if ok_json and full and full ~= "" then
+        ok, res = pcall(json.decode, full)
+      end
+      
+      if ok and type(res) == "table" then
+        if self.show_installed_skills then
+          self.marketplace_skills = res
+        else
+          self.marketplace_skills = res.skills or res.data or {}
+          self.market_total_pages = res.total_pages or 1
+        end
+      else
+        self.marketplace_skills = "error"
+      end
+      
+      self._is_fetching = false
+      core.redraw = true
+    end)
+  end
+            })
+          end
+          return
+        end
+      end
+      
+      if not self.show_installed_skills then
+        if self._market_prev_btn then
+          local b = self._market_prev_btn
+          if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
+            self.market_page = math.max(1, (self.market_page or 1) - 1)
+            self.market_scroll_y = 0
+            self:fetch_marketplace()
+            return
+          end
+        end
+        if self._market_next_btn then
+          local b = self._market_next_btn
+          if mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
+            self.market_page = math.min(self.market_total_pages or 1, (self.market_page or 1) + 1)
+            self.market_scroll_y = 0
+            self:fetch_marketplace()
+            return
+          end
+        end
+      end
+      
+      local cr = self._market_clip_rect
+      local in_clip = cr and (mx >= cr.x and mx <= cr.x + cr.w and my >= cr.y and my <= cr.y + cr.h)
+              if self.active_skill_preview then
+          local mw = self.size.x - 20 * SCALE
+          local mh = self.size.y - 20 * SCALE
+          local modal_x = self.position.x + 10 * SCALE
+          local modal_y = self.position.y + 10 * SCALE
+          
+          local btn_w = math.min(100 * SCALE, (mw - 45 * SCALE) / 2)
+          local btn_h = 30 * SCALE
+          local cx, cy = modal_x + 15 * SCALE, modal_y + mh - 45 * SCALE
+          local ix, iy = modal_x + mw - 15 * SCALE - btn_w, modal_y + mh - 45 * SCALE
+          
+          if mx >= ix and mx <= ix + btn_w and my >= iy and my <= iy + btn_h then
+              self:install_skill(self.active_skill_preview)
+              self.active_skill_preview = nil
+              core.redraw = true
+              return
+          end
+          
+          if mx >= cx and mx <= cx + btn_w and my >= cy and my <= cy + btn_h then
+              self.active_skill_preview = nil
+              self.preview_scroll_y = 0
+              core.redraw = true
+              return
+          end
+          return
+        end
+
+        if in_clip and self.hover_market_skill then
+          if self.show_installed_skills then
+            self:uninstall_skill(self.hover_market_skill)
+          else
+            for _, s in ipairs(self.marketplace_skills) do
+                if s.id == self.hover_market_skill then
+                    self.active_skill_preview = s
+                    break
+                end
+            end
+            if not self.active_skill_preview then return end
+            
+            self.active_skill_preview._preview_md = "Loading SKILL.md from repository...\n(Fetching via shallow clone, this may take a few seconds...)"
+            
+            local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+            local tmp_file = USERDIR .. "/scripts/.tmp_skill.json"
+            local skill_obj = self.active_skill_preview
+            local ok_json, json = pcall(require, "plugins.lsp.json")
+            if ok_json then
+                local f = io.open(tmp_file, "w")
+                if f then f:write(json.encode(skill_obj)); f:close() end
+                core.add_thread(function()
+                    local p = process.start({"python", bridge, "--preview-skill", "FILE:" .. tmp_file})
+                    if p then
+                        local out = {}
+                        while true do
+                            local chunk = p:read_stdout()
+                            if not chunk or chunk == "" then
+                                if not p:running() then break end
+                                coroutine.yield(0.1)
+                            else table.insert(out, chunk) end
+                        end
+                        skill_obj._preview_md = table.concat(out)
+                        core.redraw = true
+                    end
+                end)
+            end
+            core.redraw = true
+          end
+          return
+        end
+      
+      if self._market_modal_rect then
+        local r = self._market_modal_rect
+        if mx < r.x or mx > r.x + r.w or my < r.y or my > r.y + r.h then
+          self.show_skills_modal = false
+          core.redraw = true
+        end
+      end
+      return
+    end
+
+    if self.hover_cloud_tools then
+      self.enable_tools = not self.enable_tools
+      core.redraw = true
+      return
+    end
+    
+    if self.hover_cloud_skill then
+      self.show_skills_modal = true
+      self:fetch_marketplace()
+      core.redraw = true
+      return
+    end
+    
+    if self.hover_cloud_team then
+      self:_launch_team_builder()
+      return
+    end
+
     if self.hover_hist_btn then
       self.show_history_tree = not self.show_history_tree
       if self.show_history_tree then self:fetch_history() end
@@ -4492,6 +5078,9 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         if r.id == self.hover_hist_node then
           core.log("Resuming thread: " .. r.thread)
           self.show_history_tree = false
+          self.show_skills_modal = false
+          self.enable_tools = false
+          self.marketplace_skills = nil
           self:state().thread_id = r.thread
           self:state().sessions = {}
           self:state().has_session = true
@@ -4918,7 +5507,13 @@ function AGView:on_mouse_released(button, mx, my)
 end
 
 function AGView:on_mouse_wheel(dy)
-  if self.show_usage_view then
+  if self.show_skills_modal then
+      if self.active_skill_preview then
+        self.preview_scroll_y = math.max(0, math.min(self.preview_max_scroll or 0, (self.preview_scroll_y or 0) - dy * 45 * SCALE))
+      else
+        self.market_scroll_y = math.max(0, math.min(self.market_max_scroll or 0, (self.market_scroll_y or 0) - dy * 45 * SCALE))
+      end
+  elseif self.show_usage_view then
     local item_h = style.code_font:get_height()
     self.usage_scroll_y = math.max(0, math.min(self.usage_max_scroll or 0, (self.usage_scroll_y or 0) - dy * item_h * 3))
   elseif self.show_model_picker then
@@ -5305,9 +5900,423 @@ end
 
 
 -- -----------------------------------------------------------------------------
+-- SKILLS MARKETPLACE MODAL
+-- -----------------------------------------------------------------------------
+  function AGView:draw_crawler_loader(bx, by, bw, bh)
+    local P = get_palette()
+    local t = system.get_time()
+    
+    local art = {
+        "       .---.       ",
+        "      /     \\      ",
+        "     | O   O |     ",
+        "  /\\_|  ._.  |_/\\  ",
+        " / / |       | \\ \\ ",
+        "/ /  `-------'  \\ \\",
+        "     /       \\     ",
+        "    /         \\    "
+    }
+    
+    local logs = {
+        "> [net] resolving raw.githubusercontent.com...",
+        "> [tls] negotiating certificate exchange...",
+        "> [warn] rate limit exceeded, falling back to git...",
+        "> [git] executing shallow clone of remote registries...",
+        "> [git] extracting tree objects...",
+        "> [ast] parsing markdown ast tables...",
+        "> [mem] sanitizing utf-8 mojibake...",
+        "> [out] committing skills to local json cache..."
+    }
+    
+    local l_idx = (math.floor(t * 1.5) % #logs) + 1
+    
+    local cx = bx + (bw / 2)
+    local cy = by + (bh / 2) - 100 * SCALE
+    
+    for i, line in ipairs(art) do
+        local color = (i % 2 == math.floor(t*2)%2) and P.fg_accent or P.fg_dim
+        local lw = style.font:get_width(line)
+          renderer.draw_text((style.big_font or style.font), line, cx - lw/2, cy + i * (style.big_font or style.font):get_height(), color)
+    end
+    
+    cy = cy + #art * style.font:get_height() + 40 * SCALE
+    
+    local log_text = logs[l_idx]
+    local sw = style.font:get_width(log_text)
+    
+      renderer.draw_text(style.font, log_text, cx - sw/2, cy, P.fg_dim)
+    local spin = {"-", "\\", "|", "/"}
+    local sp = spin[(math.floor(t * 15) % 4) + 1]
+  end
+
+  function AGView:draw_skills_modal(x, y, w, h)
+  local mx_mouse, my_mouse = core.root_view.mouse.x, core.root_view.mouse.y
+  local P = get_palette()
+  local pad = 10 * SCALE
+  
+  -- Overlay bg
+  renderer.draw_rect(x, y, w, h, {P.bg[1], P.bg[2], P.bg[3], 230})
+  
+  local mw = math.min(w * 0.9, 1200 * SCALE)
+  local mh = math.min(h * 0.9, 800 * SCALE)
+  local mx = x + (w - mw) / 2
+  local my = y + (h - mh) / 2
+  
+  self._market_modal_rect = {x = mx, y = my, w = mw, h = mh}
+  
+  -- Modal Window
+  renderer.draw_rect(mx, my, mw, mh, P.bg)
+  renderer.draw_rect(mx, my, mw, mh, {255, 255, 255, 10}) -- subtle border
+  
+    local ty = my + pad
+  -- TABS
+  local t_skills_txt = self.show_installed_skills and "Installed AI Skills" or "AI Skills Marketplace"
+  local t_tools_txt = self.show_installed_skills and "Installed MCP Tools" or "MCP Tools Marketplace"
+  local t_skills_w = (style.big_font or style.font):get_width(t_skills_txt)
+  local t_tools_w = (style.big_font or style.font):get_width(t_tools_txt)
+  
+  local is_hover_tab1 = mx_mouse >= mx + pad and mx_mouse <= mx + pad + t_skills_w and my_mouse >= ty and my_mouse <= ty + 30 * SCALE
+  local is_hover_tab2 = mx_mouse >= mx + pad + t_skills_w + 20*SCALE and mx_mouse <= mx + pad + t_skills_w + 20*SCALE + t_tools_w and my_mouse >= ty and my_mouse <= ty + 30 * SCALE
+  
+  self._market_tab_skills_btn = {x = mx + pad, y = ty, w = t_skills_w, h = 30 * SCALE}
+  self._market_tab_tools_btn = {x = mx + pad + t_skills_w + 20*SCALE, y = ty, w = t_tools_w, h = 30 * SCALE}
+  
+  renderer.draw_text((style.big_font or style.font), t_skills_txt, mx + pad, ty, (not self.show_tools_tab) and P.fg or (is_hover_tab1 and P.fg or P.fg_dim))
+  
+  -- Vertical Divider
+  local div_x = mx + pad + t_skills_w + 10 * SCALE
+  local div_y = ty + 5 * SCALE
+  local div_h = 20 * SCALE
+  renderer.draw_rect(div_x, div_y, 2 * SCALE, div_h, P.fg_dim)
+  
+  renderer.draw_text((style.big_font or style.font), t_tools_txt, mx + pad + t_skills_w + 20*SCALE, ty, self.show_tools_tab and P.fg or (is_hover_tab2 and P.fg or P.fg_dim))
+  
+  -- Manage Skills Button
+  local btn_text = self.show_installed_skills and "View Marketplace" or "Manage Installed"
+  local bw = style.font:get_width(btn_text) + 20 * SCALE
+  local bh = 30 * SCALE
+  local bx = mx + mw - pad - bw
+  local by = ty
+  
+  local is_hover_manage = mx_mouse >= bx and mx_mouse <= bx + bw and my_mouse >= by and my_mouse <= by + bh
+  renderer.draw_rect(bx, by, bw, bh, is_hover_manage and P.bg_btn_hl or P.bg_btn)
+  renderer.draw_text(style.font, btn_text, bx + 10 * SCALE, by + (bh - style.font:get_height())/2, P.fg)
+  self._market_manage_btn = {x = bx, y = by, w = bw, h = bh}
+  
+  -- Refresh Button
+  local ref_text = "Refresh"
+  local rw = style.font:get_width(ref_text) + 20 * SCALE
+  local rx = bx - rw - 10 * SCALE
+  local is_hover_ref = mx_mouse >= rx and mx_mouse <= rx + rw and my_mouse >= by and my_mouse <= by + bh
+  renderer.draw_rect(rx, by, rw, bh, is_hover_ref and P.bg_btn_hl or P.bg_btn)
+  renderer.draw_text(style.font, ref_text, rx + 10 * SCALE, by + (bh - style.font:get_height())/2, P.fg)
+  self._market_refresh_btn = {x = rx, y = by, w = rw, h = bh}
+  
+  local add_text = self.show_installed_skills and "+ Custom plugin" or "+ Resource"
+  local add_w = style.font:get_width(add_text) + 20 * SCALE
+  local add_x = rx - add_w - 10 * SCALE
+  local is_hover_add = mx_mouse >= add_x and mx_mouse <= add_x + add_w and my_mouse >= by and my_mouse <= by + bh
+  renderer.draw_rect(add_x, by, add_w, bh, is_hover_add and P.bg_btn_hl or P.bg_btn)
+  renderer.draw_text(style.font, add_text, add_x + 10 * SCALE, by + (bh - style.font:get_height())/2, P.fg)
+  self._market_add_btn = {x = add_x, y = by, w = add_w, h = bh}
+  
+  ty = ty + math.max((style.big_font or style.font):get_height(), bh) + pad
+  
+  -- Dummy Search & Filter inputs
+  renderer.draw_rect(mx + pad, ty, mw - 2*pad, 25 * SCALE, P.bg_btn)
+  renderer.draw_text(style.font, "Search...", mx + pad + 10 * SCALE, ty + (25*SCALE - style.font:get_height())/2, P.fg_dim)
+  ty = ty + 25 * SCALE + pad
+
+      if type(self.marketplace_skills) == "string" then
+      if self.marketplace_skills == "loading" then
+          self:draw_crawler_loader(mx, ty, mw, mh)
+      else
+          local t = "Failed to load."
+          renderer.draw_text(style.font, t, mx + pad, ty, {200, 50, 50, 255})
+      end
+      core.redraw = true
+      return
+    end
+  
+  self._market_rects = {}
+  
+  if type(self.marketplace_skills) == "table" then
+    local content_y = ty
+    local clip_h = (my + mh - pad) - content_y
+    self._market_clip_rect = {x=mx, y=content_y, w=mw, h=clip_h}
+    core.push_clip_rect(mx, content_y, mw, clip_h)
+    
+    self.market_scroll_y = self.market_scroll_y or 0
+    local scroll_ty = content_y - self.market_scroll_y
+    
+    local cols = mw > 900 and 4 or (mw > 600 and 3 or 2)
+    local col_w = (mw - 2*pad - (cols-1)*15*SCALE) / cols
+    local sh = 130 * SCALE
+    
+    for i, skill in ipairs(self.marketplace_skills) do
+      local row = math.floor((i - 1) / cols)
+      local col = (i - 1) % cols
+      
+      local sx = mx + pad + col * (col_w + 15*SCALE)
+      local sy = scroll_ty + row * (sh + 15*SCALE)
+      
+      local is_hover = self.hover_market_skill == skill.id
+      local bg_color = P.bg_btn
+      if is_hover then
+          bg_color = self.show_installed_skills and {255, 100, 100, 40} or P.bg_btn_hl
+      end
+      renderer.draw_rect(sx, sy, col_w, sh, bg_color)
+      
+      if is_hover then
+          local action_txt = self.show_installed_skills and "Click to Remove" or "Click to Install"
+          local aw = style.font:get_width(action_txt)
+          renderer.draw_text(style.font, action_txt, sx + (col_w - aw)/2, sy + sh - 25 * SCALE, self.show_installed_skills and {255,100,100,255} or P.fg_accent)
+      end
+      
+      -- Skill title (larger font)
+      renderer.draw_text((style.big_font or style.font), skill.title or skill.id, sx + 15 * SCALE, sy + 15 * SCALE, P.fg)
+      
+      -- Skill description (line wrapped)
+      local desc = skill.description or ""
+      local dy_text = sy + 45 * SCALE
+      
+      -- Better naive wrapping for descriptions
+      local current_line = ""
+      for word in desc:gmatch("%S+") do
+          if style.font:get_width(current_line .. word .. " ") > col_w - 30 * SCALE then
+              renderer.draw_text(style.font, current_line, sx + 15 * SCALE, dy_text, P.fg_dim)
+              dy_text = dy_text + style.font:get_height() + 2 * SCALE
+              current_line = word .. " "
+              if dy_text > sy + sh - 40 * SCALE then 
+                  current_line = current_line .. "..."
+                  break 
+              end
+          else
+              current_line = current_line .. word .. " "
+          end
+      end
+      if current_line ~= "" and dy_text <= sy + sh - 20 * SCALE then
+          renderer.draw_text(style.font, current_line, sx + 15 * SCALE, dy_text, P.fg_dim)
+      end
+      
+      -- Skill Domain tag & Author
+      if skill.domain then
+          local tw = style.font:get_width(skill.domain)
+          renderer.draw_text(style.font, skill.domain, sx + col_w - 15 * SCALE - tw, sy + 15 * SCALE, P.fg_accent)
+      end
+      if skill.author then
+        local aw = style.font:get_width(skill.author)
+        renderer.draw_text(style.font, skill.author, sx + col_w - 15 * SCALE - aw, sy + sh - 25 * SCALE, P.fg_muted)
+      end
+      
+      table.insert(self._market_rects, {id = skill.id, x = sx, y = sy, w = col_w, h = sh})
+    end
+    
+    -- Calculate max scroll
+    local total_rows = math.ceil(#self.marketplace_skills / cols)
+    local total_h = total_rows * (sh + 15*SCALE)
+    
+    -- Pagination UI for Marketplace
+    if not self.show_installed_skills and self.market_total_pages and self.market_total_pages > 1 then
+        local p_y = scroll_ty + total_h + 10 * SCALE
+        local p_text = "Page " .. (self.market_page or 1) .. " of " .. self.market_total_pages
+        local p_w = style.font:get_width(p_text)
+        local cx = mx + mw / 2
+        
+        -- Prev button
+        local b_prev = "[ Previous ]"
+        local b_prev_w = style.font:get_width(b_prev)
+        local bx_prev = cx - p_w/2 - 20*SCALE - b_prev_w
+        local is_hover_prev = mx_mouse >= bx_prev and mx_mouse <= bx_prev + b_prev_w and my_mouse >= p_y and my_mouse <= p_y + 20*SCALE
+        self._market_prev_btn = {x = bx_prev, y = p_y, w = b_prev_w, h = 20*SCALE}
+        renderer.draw_text(style.font, b_prev, bx_prev, p_y, is_hover_prev and P.fg_accent or P.fg_dim)
+        
+        -- Center text
+        renderer.draw_text(style.font, p_text, cx - p_w/2, p_y, P.fg)
+        
+        -- Next button
+        local b_next = "[ Next ]"
+        local b_next_w = style.font:get_width(b_next)
+        local bx_next = cx + p_w/2 + 20*SCALE
+        local is_hover_next = mx_mouse >= bx_next and mx_mouse <= bx_next + b_next_w and my_mouse >= p_y and my_mouse <= p_y + 20*SCALE
+        self._market_next_btn = {x = bx_next, y = p_y, w = b_next_w, h = 20*SCALE}
+        renderer.draw_text(style.font, b_next, bx_next, p_y, is_hover_next and P.fg_accent or P.fg_dim)
+        
+        total_h = total_h + 40 * SCALE
+    else
+        self._market_prev_btn = nil
+        self._market_next_btn = nil
+    end
+
+    self.market_max_scroll = math.max(0, total_h - clip_h + 30*SCALE)
+    
+    core.pop_clip_rect()
+    
+    if self.active_skill_preview then
+      local skill = self.active_skill_preview
+      local mw = w - 20 * SCALE
+      local mh = h - 20 * SCALE
+      local modal_x = x + 10 * SCALE
+      local modal_y = y + 10 * SCALE
+      
+      -- Dim background
+      renderer.draw_rect(x, y, w, h, {0,0,0,150})
+      -- Modal window
+      renderer.draw_rect(modal_x, modal_y, mw, mh, P.bg)
+      renderer.draw_rect(modal_x, modal_y, mw, 50 * SCALE, P.bg_btn)
+      
+      local tw = style.font:get_width(skill.domain or "Preview")
+      if mw > 200 * SCALE then
+          renderer.draw_text((style.big_font or style.font), skill.title or skill.id, modal_x + 15 * SCALE, modal_y + 15 * SCALE, P.fg)
+          renderer.draw_text(style.font, skill.domain or "Preview", modal_x + mw - 15 * SCALE - tw, modal_y + 15 * SCALE, P.fg_dim)
+      else
+          renderer.draw_text(style.font, skill.title or skill.id, modal_x + 15 * SCALE, modal_y + 15 * SCALE, P.fg)
+      end
+      
+      local dy = modal_y + 60 * SCALE
+      
+      local function draw_wrapped(txt, font, color, max_w, start_y)
+         local cy = start_y
+         for line in (txt .. "\n"):gmatch("([^\n]*)\n") do
+             local cur = ""
+             for word in line:gmatch("%S+") do
+                 if font:get_width(cur .. " " .. word) > max_w then
+                     if cur ~= "" then 
+                        renderer.draw_text(font, cur, modal_x + 15 * SCALE, cy, color)
+                        cy = cy + font:get_height() + 2 * SCALE
+                     end
+                     cur = word
+                 else
+                     cur = cur == "" and word or (cur .. " " .. word)
+                 end
+             end
+             if cur ~= "" then
+                 renderer.draw_text(font, cur, modal_x + 15 * SCALE, cy, color)
+                 cy = cy + font:get_height() + 2 * SCALE
+             else
+                 cy = cy + font:get_height() + 2 * SCALE
+             end
+         end
+         return cy
+      end
+      
+      dy = draw_wrapped(skill.description or "No description", style.font, P.fg_accent, mw - 30 * SCALE, dy)
+      dy = dy + 15 * SCALE
+      
+      -- Markdown Content
+      local md_h = mh - (dy - modal_y) - 60 * SCALE
+      if md_h > 0 then
+          renderer.draw_rect(modal_x + 15 * SCALE, dy, mw - 30 * SCALE, md_h, P.bg_btn)
+          core.push_clip_rect(modal_x + 15 * SCALE, dy, mw - 30 * SCALE, md_h)
+          local text = skill._preview_md or ""
+          
+          self.preview_scroll_y = self.preview_scroll_y or 0
+          local ldy = dy + 10 * SCALE - self.preview_scroll_y
+          
+          for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+              local cur = ""
+              for word in line:gmatch("%S+") do
+                  if style.font:get_width(cur .. " " .. word) > mw - 50 * SCALE then
+                      if cur ~= "" then
+                          if ldy > dy - style.font:get_height() and ldy < dy + md_h then
+                              renderer.draw_text(style.font, cur, modal_x + 25 * SCALE, ldy, P.fg)
+                          end
+                          ldy = ldy + style.font:get_height() + 2 * SCALE
+                      end
+                      cur = word
+                  else
+                      cur = cur == "" and word or (cur .. " " .. word)
+                  end
+              end
+              if cur ~= "" then
+                  if ldy > dy - style.font:get_height() and ldy < dy + md_h then
+                      renderer.draw_text(style.font, cur, modal_x + 25 * SCALE, ldy, P.fg)
+                  end
+              end
+              ldy = ldy + style.font:get_height() + 2 * SCALE
+          end
+          core.pop_clip_rect()
+          
+          local total_content_h = (ldy + self.preview_scroll_y) - (dy + 10 * SCALE)
+          self.preview_max_scroll = math.max(0, total_content_h - md_h + 20 * SCALE)
+      end
+      
+      -- Buttons
+      local btn_w = math.min(100 * SCALE, (mw - 45 * SCALE) / 2)
+      local btn_h = 30 * SCALE
+      local cx, cy = modal_x + 15 * SCALE, modal_y + mh - 45 * SCALE
+      local ix, iy = modal_x + mw - 15 * SCALE - btn_w, modal_y + mh - 45 * SCALE
+      
+      renderer.draw_rect(cx, cy, btn_w, btn_h, P.bg_btn)
+      local ctxt = "Close"
+      renderer.draw_text(style.font, ctxt, cx + (btn_w - style.font:get_width(ctxt))/2, cy + (btn_h - style.font:get_height())/2, P.fg)
+      
+      renderer.draw_rect(ix, iy, btn_w, btn_h, P.fg_accent)
+      local itxt = "Install"
+      renderer.draw_text(style.font, itxt, ix + (btn_w - style.font:get_width(itxt))/2, iy + (btn_h - style.font:get_height())/2, P.bg)
+    end
+  end
+end
+
+-- ------------------------------------------------------------------------------- -----------------------------------------------------------------------------
 -- SAFE HISTORY TREE INJECTION
 -- -----------------------------------------------------------------------------
 local original_draw = AGView.draw
+function AGView:draw_dynamic_form(x, y, w)
+    local P = get_palette()
+    local pad = 10 * SCALE
+    local ty = y
+    
+    if not self.active_skill or not self.active_skill.ui_manifest then return ty end
+    
+    local manifest = self.active_skill.ui_manifest
+    if type(manifest) ~= "table" then return ty end
+    
+    self.skill_state = self.skill_state or {}
+    self._form_rects = {} -- for click handling
+    
+    -- Draw Header
+    renderer.draw_text((style.big_font or style.font), self.active_skill.title or "Skill Config", x + pad, ty, P.fg_accent)
+    ty = ty + (style.big_font or style.font):get_height() + pad
+    
+    -- Draw Inputs
+    for _, input in ipairs(manifest) do
+        local val = self.skill_state[input.id]
+        if input.type == "toggle" then
+            if val == nil then val = input.default end
+            self.skill_state[input.id] = val
+            
+            local bx = x + pad
+            local bw = 20 * SCALE
+            local bh = 20 * SCALE
+            renderer.draw_rect(bx, ty, bw, bh, val and P.fg_accent or P.bg_btn)
+            renderer.draw_text(style.font, input.name or input.id, bx + bw + 10 * SCALE, ty + (bh - style.font:get_height())/2, P.fg)
+            
+            table.insert(self._form_rects, {type="toggle", id=input.id, x=bx, y=ty, w=w-2*pad, h=bh, val=val})
+            ty = ty + bh + pad
+        elseif input.type == "file_picker" then
+            local display = val and (val:match("[^/\\]+$") or val) or ("Select " .. (input.label or input.name or input.id))
+            local bw = w - 2*pad
+            local bh = 25 * SCALE
+            renderer.draw_rect(x + pad, ty, bw, bh, P.bg_btn)
+            renderer.draw_text(style.font, display, x + pad + 10 * SCALE, ty + (bh - style.font:get_height())/2, P.fg)
+            
+            table.insert(self._form_rects, {type="file", id=input.id, x=x+pad, y=ty, w=bw, h=bh})
+            ty = ty + bh + pad
+        elseif input.type == "secret_input" or input.type == "text" then
+            local display = val and (input.type == "secret_input" and string.rep("*", #val) or val) or ("Enter " .. (input.label or input.name or input.id))
+            local bw = w - 2*pad
+            local bh = 25 * SCALE
+            renderer.draw_rect(x + pad, ty, bw, bh, P.bg_btn)
+            renderer.draw_text(style.font, display, x + pad + 10 * SCALE, ty + (bh - style.font:get_height())/2, P.fg)
+            
+            table.insert(self._form_rects, {type="text", id=input.id, x=x+pad, y=ty, w=bw, h=bh})
+            ty = ty + bh + pad
+        end
+    end
+    return ty
+end
+
 function AGView:draw(...)
   if self.show_history_tree then
     local x, y = self.position.x, self.position.y
@@ -5334,5 +6343,51 @@ function AGView:draw(...)
   
   -- If not in history mode, just call the normal draw!
   original_draw(self, ...)
+  
+  if self.show_skills_modal then
+    self:draw_skills_modal(self.position.x, self.position.y, self.size.x, self.size.y)
+  end
 end
 
+-- ============================================================================
+-- GLOBAL MOUSE EVENT INTERCEPTION FOR FULLSCREEN MODALS
+-- ============================================================================
+local RootView = require "core.rootview"
+
+local old_root_pressed = RootView.on_mouse_pressed
+function RootView:on_mouse_pressed(button, x, y, clicks, ...)
+  local ag = rawget(_G, "AG_INSTANCE")
+  if ag and ag.show_skills_modal then
+    ag:on_mouse_pressed(button, x, y, clicks)
+    return true -- intercept!
+  end
+  return old_root_pressed(self, button, x, y, clicks, ...)
+end
+
+local old_root_moved = RootView.on_mouse_moved
+function RootView:on_mouse_moved(x, y, dx, dy)
+  local ag = rawget(_G, "AG_INSTANCE")
+  if ag and ag.show_skills_modal then
+    ag:on_mouse_moved(x, y, dx, dy)
+    return true
+  end
+  return old_root_moved(self, x, y, dx, dy)
+end
+
+local old_root_wheel = RootView.on_mouse_wheel
+function RootView:on_mouse_wheel(y, x, dx, dy, ...)
+  local ag = rawget(_G, "AG_INSTANCE")
+  if ag and ag.show_skills_modal then
+    ag:on_mouse_wheel(y)
+    return true
+  end
+  return old_root_wheel(self, y, x, dx, dy, ...)
+end
+
+-- Save instance globally for the rootview to access
+local old_ag_new = AGView.new
+function AGView:new(...)
+  old_ag_new(self, ...)
+  rawset(_G, "AG_INSTANCE", self)
+end
+if instance then rawset(_G, "AG_INSTANCE", instance) end

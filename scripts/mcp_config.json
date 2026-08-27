@@ -1,0 +1,12 @@
+{
+    "mcpServers":  {
+                       "graphify":  {
+                                        "args":  [
+                                                     "-m",
+                                                     "graphifyy",
+                                                     "mcp"
+                                                 ],
+                                        "command":  "python"
+                                    }
+                   }
+}

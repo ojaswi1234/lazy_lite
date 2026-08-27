@@ -232,6 +232,9 @@ M.REGISTRY = {
       if config.ai_sidebar and config.ai_sidebar.autopilot then
         a[#a+1] = "--autopilot"
       end
+      if cfg.enable_tools then
+        a[#a+1] = "--enable-tools"
+      end
       if config.ai_sidebar and config.ai_sidebar.read_only then
         a[#a+1] = "--read-only"
       end
@@ -239,6 +242,17 @@ M.REGISTRY = {
       local pdir = (require "core").project_dir or (os.getenv("PWD") or os.getenv("CD") or "")
       if pdir ~= "" then
         a[#a+1] = "--workspace"; a[#a+1] = pdir
+      end
+      
+      if cfg.session_id then
+        a[#a+1] = "--thread-id"; a[#a+1] = cfg.session_id
+      end
+      
+      local team_cfg = USERDIR .. "/scripts/.team_config.json"
+      local tf = io.open(team_cfg, "r")
+      if tf then
+        tf:close()
+        a[#a+1] = "--team-config"; a[#a+1] = team_cfg
       end
 
       a[#a+1] = "--prompt"; a[#a+1] = cfg.prompt
