@@ -388,9 +388,7 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
             except Exception as e:
                 return f"Error writing file: {str(e)}"
 
-        tools = []
-        if enable_tools:
-            tools.extend([local_shell, read_file, write_file])
+        tools = [local_shell, read_file, write_file]
 
         def create_llm(p_name, m_name, p_key):
             if p_name == "gemini":
@@ -704,17 +702,12 @@ CRITICAL INSTRUCTIONS:
                     except Exception as e:
                         print(f"[ERROR Loading MCP '{srv_name}']: {e}", flush=True)
 
-            if enable_tools:
-                if len(tools) > 125:
-                    print(f"\n[WARNING] Too many tools ({len(tools)}). Truncating to 125 to avoid provider limits.", flush=True)
-                    tools = tools[:125]
-                llm_with_tools = llm.bind_tools(tools) if llm else None
-                for a in team_agents:
-                    a["llm"] = a["base_llm"].bind_tools(tools)
-            else:
-                llm_with_tools = llm
-                for a in team_agents:
-                    a["llm"] = a["base_llm"]
+            if len(tools) > 125:
+                print(f"\n[WARNING] Too many tools ({len(tools)}). Truncating to 125 to avoid provider limits.", flush=True)
+                tools = tools[:125]
+            llm_with_tools = llm.bind_tools(tools) if llm else None
+            for a in team_agents:
+                a["llm"] = a["base_llm"].bind_tools(tools)
 
             async with AsyncSqliteSaver.from_conn_string(db_path) as memory:
                 graph = graph_builder.compile(checkpointer=memory)

@@ -3056,7 +3056,7 @@ function AGView:draw()
     table.insert(self._cloud_ctrl_rects, {id="skill", x=sx, y=h_btn_y, w=sw, h=30 * SCALE})
     
     -- Draw Tools toggle
-    local tool_txt = self.enable_tools and "Tools: ON" or "Tools: OFF"
+    local tool_txt = self.enable_tools and "MCP: ON" or "MCP: OFF"
     local tw = sf:get_width(tool_txt) + 12 * SCALE
     local tx = sx - 4 * SCALE - tw
     local tcol = self.hover_cloud_tools and P.bg_btn_hl or P.bg_btn
