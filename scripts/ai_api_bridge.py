@@ -60,7 +60,7 @@ def load_keys():
 
 def validate_keys(keys):
     status = {}
-    providers = ["gemini", "groq", "openai", "anthropic", "ollama"]
+    providers = ["gemini", "groq", "openai", "anthropic", "ollama", "omniroute"]
     for p in providers:
         api_key = keys.get(p, "")
         if not api_key:
@@ -80,6 +80,15 @@ def validate_keys(keys):
             elif p == "openai":
                 from openai import OpenAI
                 client = OpenAI(api_key=api_key)
+                client.models.list()
+                status[p] = "valid"
+            elif p == "omniroute":
+                from openai import OpenAI
+                base = "http://127.0.0.1:20128/v1"
+                key = api_key if api_key else "dummy"
+                if api_key and "|" in api_key:
+                    base, key = api_key.split("|", 1)
+                client = OpenAI(base_url=base, api_key=key)
                 client.models.list()
                 status[p] = "valid"
             elif p == "ollama":
@@ -121,7 +130,7 @@ def validate_keys(keys):
 
 def list_models(provider, keys):
     models = []
-    providers = ["gemini", "groq", "openai", "anthropic", "ollama"] if provider == "all" else [provider]
+    providers = ["gemini", "groq", "openai", "anthropic", "ollama", "omniroute"] if provider == "all" else [provider]
     
     for p in providers:
         api_key = keys.get(p, "")
@@ -207,6 +216,18 @@ def list_models(provider, keys):
                 client = OpenAI(api_key=api_key)
                 m_list = [m.id for m in client.models.list().data if "gpt" in m.id or "o1" in m.id or "o3" in m.id or "o4" in m.id]
                 models.extend([f"openai/{m}" for m in m_list])
+            elif p == "omniroute":
+                from openai import OpenAI
+                try:
+                    base = "http://127.0.0.1:20128/v1"
+                    key = api_key if api_key else "dummy"
+                    if api_key and "|" in api_key:
+                        base, key = api_key.split("|", 1)
+                    client = OpenAI(base_url=base, api_key=key)
+                    m_list = [m.id for m in client.models.list().data if "embed" not in m.id.lower()]
+                    models.extend([f"omniroute/{m}" for m in m_list])
+                except Exception as e:
+                    models.extend([f"omniroute/{m}" for m in ["gpt-4o", "claude-3-5-sonnet-latest", "gemini-2.5-pro", "llama3.3-70b", "deepseek-coder"]])
             elif p == "ollama":
                 import time, urllib.request, concurrent.futures
                 cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ollama_model_cache.json")
@@ -381,6 +402,13 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
             elif p_name == "openai":
                 from langchain_openai import ChatOpenAI
                 return ChatOpenAI(model_name=m_name, api_key=p_key, temperature=0.2)
+            elif p_name == "omniroute":
+                from langchain_openai import ChatOpenAI
+                base = "http://127.0.0.1:20128/v1"
+                key = p_key if p_key else "dummy_key"
+                if p_key and "|" in p_key:
+                    base, key = p_key.split("|", 1)
+                return ChatOpenAI(model_name=m_name, api_key=key, base_url=base, temperature=0.2)
             elif p_name == "ollama":
                 from langchain_openai import ChatOpenAI
                 base = "http://127.0.0.1:11434/v1"
