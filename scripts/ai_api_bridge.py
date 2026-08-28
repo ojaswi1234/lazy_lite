@@ -741,6 +741,8 @@ def main():
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--thread-id", type=str, default="default_thread")
     parser.add_argument("--get-history", action="store_true")
+    parser.add_argument("--enable-tools", action="store_true")
+    parser.add_argument("--disable-tools", action="store_true")
     parser.add_argument("--autopilot", action="store_true")
     parser.add_argument("--read-only", action="store_true")
     parser.add_argument("--workspace", type=str)
@@ -1159,6 +1161,11 @@ def main():
         sys.exit(0)
     
     if args.chat:
+        # Default to True, unless explicitly disabled or enable-tools is explicitly tracked
+        enable_t = True
+        if args.disable_tools: enable_t = False
+        elif not args.enable_tools: enable_t = False
+        
         run_agent(
             provider=args.provider,
             model_name=args.model,
@@ -1168,6 +1175,7 @@ def main():
             read_only=args.read_only,
             workspace=args.workspace,
             thread_id=args.thread_id,
+            enable_tools=enable_t,
             team_config_file=args.team_config
         )
 
