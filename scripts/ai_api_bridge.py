@@ -737,7 +737,7 @@ CRITICAL INSTRUCTIONS:
                 
                 try:
                     inputs = {"messages": [HumanMessage(content=prompt)]}
-                    config = {"configurable": {"thread_id": thread_id}}
+                    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 15}
                     async for event in graph.astream(inputs, config=config, stream_mode="messages"):
                         msg, metadata = event
                         if isinstance(msg, AIMessage) and msg.content:
