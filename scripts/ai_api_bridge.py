@@ -737,7 +737,7 @@ CRITICAL INSTRUCTIONS:
                 
                 try:
                     inputs = {"messages": [HumanMessage(content=prompt)]}
-                    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 15}
+                    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 100000}
                     async for event in graph.astream(inputs, config=config, stream_mode="messages"):
                         msg, metadata = event
                         if isinstance(msg, AIMessage) and msg.content:
@@ -747,7 +747,7 @@ CRITICAL INSTRUCTIONS:
                 except Exception as e:
                     err_str = str(e)
                     if "recursion limit" in err_str.lower():
-                        print(f"\n\n**Agent Execution Stopped:** I hit the maximum number of consecutive tool loops (15) without returning a final answer. This usually happens if a command is repeatedly failing or I get stuck in a logic loop. Please check the tool logs above to see where I got stuck!", flush=True)
+                        print(f"\n\n**Agent Execution Stopped:** I hit the maximum number of consecutive tool loops (100,000) without returning a final answer. This usually happens if a command is repeatedly failing or I get stuck in a logic loop. Please check the tool logs above to see where I got stuck!", flush=True)
                     else:
                         import traceback; print(f"\n\n**Execution Error:**\n```python\n{traceback.format_exc()}\n```", flush=True)
 
