@@ -338,9 +338,15 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         def local_shell(command: str) -> str:
             """Executes a local shell command."""
             import subprocess
+            
+            cmd_lower = command.lower()
+            if read_only:
+                ro_danger = [" > ", " >> ", "rm ", "del ", "mkdir ", "touch ", "mv ", "cp ", "chmod ", "chown "]
+                if any(p in cmd_lower for p in ro_danger):
+                    return "Error: Read-only mode is enabled. Cannot execute mutating commands."
+                    
             # SECURITY: Guardrail against highly destructive commands
             danger_patterns = ["del /f /s /q c:\\", "format c:", "rd /s /q c:\\", "rm -rf /", "powershell -enc", "mklink /j"]
-            cmd_lower = command.lower()
             if any(p in cmd_lower for p in danger_patterns):
                 return "SECURITY EXCEPTION: Command blocked by safety guardrails."
             try:
@@ -388,7 +394,18 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
             except Exception as e:
                 return f"Error writing file: {str(e)}"
 
-        tools = [local_shell, read_file, write_file]
+        @tool
+        def web_search(query: str) -> str:
+            """Searches the web for the given query using DuckDuckGo."""
+            try:
+                from duckduckgo_search import DDGS
+                results = DDGS().text(query, max_results=5)
+                if not results: return "No results found."
+                return "\n".join([f"Title: {r['title']}\nSnippet: {r['body']}\nURL: {r['href']}\n" for r in results])
+            except Exception as e:
+                return f"Web search error: {str(e)}"
+                
+        tools = [local_shell, read_file, write_file, web_search]
 
         def create_llm(p_name, m_name, p_key):
             if p_name == "gemini":
