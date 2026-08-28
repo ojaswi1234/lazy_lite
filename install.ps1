@@ -263,7 +263,8 @@ $dirsToCreate = @(
     "$configDir\plugins",
     "$configDir\colors",
     "$configDir\fonts",
-    "$configDir\scripts"
+    "$configDir\scripts",
+    "$configDir\attachments"
 )
 foreach ($d in $dirsToCreate) {
     if (-not (Test-Path -LiteralPath $d)) {

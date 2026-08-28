@@ -298,7 +298,7 @@ fi
 animate_progress "Installing Lite-XL Mossy Configuration & Plugins..."
 
 # Create target directories
-mkdir -p "$CONFIG_DIR/plugins" "$CONFIG_DIR/colors" "$CONFIG_DIR/scripts" "$CONFIG_DIR/fonts"
+mkdir -p "$CONFIG_DIR/plugins" "$CONFIG_DIR/colors" "$CONFIG_DIR/scripts" "$CONFIG_DIR/fonts" "$CONFIG_DIR/attachments"
 
 # Copy main plugins (.lua, .json, .py, .exe)
 if [ -d "$SRC_DIR/plugins" ]; then

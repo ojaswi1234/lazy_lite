@@ -1575,8 +1575,7 @@ function AGView:submit(prompt)
     self:state().has_session = true
     self:state().status = "idle"
     local tool_name = (tool and tool.name) or "Antigravity CLI"
-    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation"
-    
+    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history & active swarm\n  `/api` - Manage API Keys & MCP Tools\n  `/team clear` - Disband active swarm (keeps chat history)\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation"
     core.add_thread(function()
       local p = process.start({"python", USERDIR .. "/scripts/ai_api_bridge.py", "--get-installed-skills"})
       if p then
@@ -1612,11 +1611,18 @@ function AGView:submit(prompt)
     self:state().has_session = false
     self:state().status = "idle"
     self:state().cid = nil
+    self.active_skill = nil
+    os.remove(USERDIR .. "/scripts/.team_config.json")
+    core.redraw = true
+    return
+  elseif prompt == "/team clear" then
+    os.remove(USERDIR .. "/scripts/.team_config.json")
+    self:_add_session("ai", "Active team swarm disbanded successfully. You are now speaking to the single base model.")
     core.redraw = true
     return
   elseif prompt == "/api" then
     if tool_id ~= "cloud_api" then
-      core.error("/api is only available in Cloud AI (API) mode")
+      core.log("/api is only available in Cloud AI (API) mode")
       return
     end
     self.show_api_view = true
@@ -1766,7 +1772,10 @@ function AGView:submit(prompt)
 
   -- Generate a unique thread ID if this is a new conversation
   if not self:state().cid then
-    self:state().cid = "thread_" .. tostring(os.time()) .. "_" .. tostring(math.random(10000, 99999))
+    local count = rawget(_G, "_ag_cid_counter") or 0
+    count = count + 1
+    rawset(_G, "_ag_cid_counter", count)
+    self:state().cid = "thread_" .. tostring(os.time()) .. "_" .. tostring(math.floor(os.clock()*10000)) .. "_" .. tostring(count)
   end
 
   -- Expand any @pasted_text tokens into absolute file paths
@@ -2135,7 +2144,7 @@ function AGView:update()
           
           tab._ai_buf = fix_msg
           dirty = true
-          core.error("[Antigravity] CLI timed out — agy install may be required.")
+          core.log("[Antigravity] CLI timed out — agy install may be required.")
           core.redraw = true
         end
       end
@@ -2449,6 +2458,10 @@ function AGView:fetch_marketplace()
          table.insert(cmd, tostring(self.market_page))
       end
       
+      if self.market_search_query and self.market_search_query ~= "" then
+          table.insert(cmd, "--search")
+          table.insert(cmd, self.market_search_query)
+      end
       local p, err = process.start(cmd)
       if not p then
           local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
@@ -2527,8 +2540,9 @@ function AGView:install_skill(skill_input)
           submit = function(text)
             env_vals[req] = text
             done = true
-          end
-        })
+          end,
+            cancel = function() done = true end
+          })
         while not done do coroutine.yield(0.1) end
       end
     end
@@ -2536,9 +2550,32 @@ function AGView:install_skill(skill_input)
     local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
     if self.show_tools_tab then
       local p = process.start({"python", bridge, "--install-tool", skill_obj.id})
-      while p:running() do coroutine.yield(0.1) end
+      local out_text = ""
+      while p:running() do 
+        local chunk = p:read_stdout(4096)
+        if chunk and #chunk > 0 then out_text = out_text .. chunk end
+        coroutine.yield(0.1) 
+      end
+      local chunk = p:read_stdout(4096)
+      if chunk and #chunk > 0 then out_text = out_text .. chunk end
       
-      -- Send envs to python if any
+      for env_key in out_text:gmatch("%[REQUIRED_ENV%]%s*(%S+)") do
+         local done = false
+         core.command_view:enter("Required API Key (" .. env_key .. ") for " .. skill_obj.id, {
+             submit = function(val)
+                 if val and val ~= "" then
+                     local p2 = process.start({"python", bridge, "--set-tool-env", skill_obj.id, env_key, val})
+                     while p2:running() do coroutine.yield(0.1) end
+                     core.log("Saved " .. env_key .. " for " .. skill_obj.id)
+                 end
+                 done = true
+             end,
+               cancel = function() done = true end
+           })
+         while not done do coroutine.yield(0.1) end
+      end
+      
+      -- Send fallback envs if any (from UI if manually defined)
       for k, v in pairs(env_vals) do
         local p2 = process.start({"python", bridge, "--set-tool-env", skill_obj.id, k, v})
         while p2:running() do coroutine.yield(0.1) end
@@ -3658,9 +3695,21 @@ function AGView:draw()
       renderer.draw_text(style.font, "Error: " .. tostring(self.api_key_status.err), mx + pad, ty, {255, 100, 100, 255})
     else
       local providers = { "gemini", "groq", "openai", "anthropic", "ollama" }
+      local seen = {}
+      for _, p in ipairs(providers) do seen[p] = true end
+      for p, _ in pairs(self.api_key_status.data) do
+         if not seen[p] then
+             table.insert(providers, p)
+         end
+      end
+      
       for _, p in ipairs(providers) do
         local stat = self.api_key_status.data[p] or "missing"
         local p_name = p:sub(1,1):upper() .. p:sub(2)
+        if p:find("MCP::") then
+           local srv_name, ek = p:match("MCP::(.-)::(.*)")
+           p_name = "[MCP:" .. (srv_name or "unknown") .. "] " .. (ek or "Key")
+        end
         
         renderer.draw_text(style.font, p_name, mx + pad, ty, P.fg)
         local status_x = mx + pad + 100 * SCALE
@@ -3674,7 +3723,7 @@ function AGView:draw()
         local btn_w = 60 * SCALE
         local btn_x = mx + mw - pad - btn_w
         
-        local btn_text = (stat == "missing" or stat == "expired") and "Set Key" or "Delete"
+        local btn_text = (stat == "missing" or stat == "expired") and "Set Key" or (p == "ollama" and "URL/Key" or "Delete")
         local is_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == btn_text
         local btn_bg = is_hover and P.bg_btn_hl or P.bg_btn
         renderer.draw_rect(btn_x, ty, btn_w, lh, btn_bg)
@@ -4773,6 +4822,7 @@ function AGView:_launch_team_builder()
               end
               f:write("]")
               f:close()
+              config.ai_sidebar.active_tool = "cloud_api"
               self:_add_session("ai", "Team Built successfully! The Hunter is: " .. team[#team].role .. ". Type a prompt to begin the Swarm session.")
             end
           else
@@ -4860,6 +4910,30 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         end
       end
       
+      if self._market_search_clear_btn then
+        local btn = self._market_search_clear_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self.market_search_query = ""
+          self.market_page = 1
+          self:fetch_marketplace()
+          return
+        end
+      end
+      
+      if self._market_search_btn then
+        local btn = self._market_search_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          core.command_view:enter("Search Marketplace", {
+            submit = function(text)
+              self.market_search_query = text
+              self.market_page = 1
+              self:fetch_marketplace()
+            end
+          })
+          return
+        end
+      end
+
       if self._market_add_btn then
         local btn = self._market_add_btn
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
@@ -4901,6 +4975,10 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
          table.insert(cmd, tostring(self.market_page))
       end
       
+      if self.market_search_query and self.market_search_query ~= "" then
+          table.insert(cmd, "--search")
+          table.insert(cmd, self.market_search_query)
+      end
       local p, err = process.start(cmd)
       if not p then
           local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
@@ -5443,7 +5521,9 @@ function AGView:on_mouse_released(button, mx, my)
               process.start({ "python", bridge, "--provider", btn.p, "--delete-key" }):wait()
               self:submit("/api") -- refresh
             end)
-          elseif btn.action == "Use" then
+          elseif btn.action == "URL/Key" then
+              self:_prompt_for_api_key(btn.p)
+            elseif btn.action == "Use" then
             -- Set provider as active by picking its first model
             if self.tool_model_lists and self.tool_model_lists["cloud_api"] then
               for _, m in ipairs(self.tool_model_lists["cloud_api"]) do
@@ -5538,14 +5618,14 @@ function AGView:_prompt_for_api_key(provider)
         if text == "gemini" or text == "groq" or text == "openai" or text == "anthropic" then
           self:_prompt_for_api_key(text)
         else
-          core.error("Invalid provider: " .. text)
+          core.log("Invalid provider: " .. text)
         end
       end
     })
     return
   end
 
-  core.command_view:enter("Enter API Key for " .. provider, {
+  core.command_view:enter(provider == "ollama" and "Enter URL or URL|Key (e.g. https://api:11434)" or "Enter API Key for " .. provider, {
     submit = function(text)
       text = text:match("^%s*(.-)%s*$")
       if text and #text > 0 then
@@ -5567,48 +5647,89 @@ function AGView:_prompt_for_api_key(provider)
 end
 
 function AGView:open_artifacts_popup()
-  local cid = self:state().cid
-  if not cid then
-    core.log("No active conversation to find artifacts.")
-    return
-  end
-  
-  local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
-  local artifacts_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. cid
-  
-  local files = system.list_dir(artifacts_path)
-  if not files or #files == 0 then
-    core.log("No artifacts found for this conversation.")
-    return
-  end
-  
-  local items = {}
-  for _, f in ipairs(files) do
-    if not f:match("^%.") then -- skip hidden
-      local path = artifacts_path .. "/" .. f
-      local info = system.get_file_info(path)
-      if info and info.type == "file" then
-        table.insert(items, { text = f, path = path })
+    local cid = self:state().cid
+    if not cid then
+      core.log("No active conversation to find artifacts.")
+      return
+    end
+    
+    local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
+    local artifacts_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. cid
+    
+    local items = {}
+    local seen = {}
+    
+    local function scan_dir(dir, prefix)
+      local files = system.list_dir(dir)
+      if not files then return end
+      for _, f in ipairs(files) do
+        if not f:match("^%.") then
+          local path = dir .. "/" .. f
+          local info = system.get_file_info(path)
+          if info then
+            if info.type == "file" then
+              if not seen[path] then
+                table.insert(items, { text = prefix .. f, path = path })
+                seen[path] = true
+              end
+            elseif info.type == "dir" and f == "scratch" then
+              scan_dir(path, prefix .. f .. "/")
+            end
+          end
+        end
       end
     end
-  end
-  
-  if #items == 0 then
-    core.log("No artifact files found.")
-    return
-  end
-  
-  core.command_view:enter("Open Artifact", {
-    submit = function(text, item)
-      if item and item.path then
-        core.root_view:open_doc(core.open_doc(item.path))
+    
+    scan_dir(artifacts_path, "")
+    
+    if core.project_dir then
+      local ws_files = system.list_dir(core.project_dir)
+      if ws_files then
+        for _, f in ipairs(ws_files) do
+          if not f:match("^%.") then
+            local ext = f:match("%.([^%.]+)$")
+            ext = ext and ext:lower() or ""
+            if ext == "docx" or ext == "pdf" or ext == "pptx" or ext == "xlsx" or ext == "csv" then
+              local path = core.project_dir .. "/" .. f
+              if not seen[path] then
+                table.insert(items, { text = "[Workspace] " .. f, path = path })
+                seen[path] = true
+              end
+            end
+          end
+        end
       end
-    end,
-    suggest = function(text)
-      return common.fuzzy_match(items, text)
     end
-  })
-end
+    
+    if #items == 0 then
+      core.log("No artifact files found.")
+      return
+    end
+    
+    core.command_view:enter("Open Artifact", {
+      submit = function(text, item)
+        if item and item.path then
+          local ext = item.path:match("%.([^%.]+)$")
+          ext = ext and ext:lower() or ""
+          if ext == "docx" or ext == "pdf" or ext == "png" or ext == "jpg" or ext == "xlsx" or ext == "pptx" then
+            if PLATFORM == "Windows" then
+              system.exec("start \"\" \"" .. item.path .. "\"")
+            elseif PLATFORM == "Mac OS X" then
+              system.exec("open \"" .. item.path .. "\"")
+            else
+              system.exec("xdg-open \"" .. item.path .. "\"")
+            end
+          else
+            core.root_view:open_doc(core.open_doc(item.path))
+          end
+        end
+      end,
+      suggest = function(text)
+        return common.fuzzy_match(items, text)
+      end
+    })
+  end
+
 
 -- ── Commands ──────────────────────────────────────────────────────────────────
 command.add(nil, {
@@ -6022,9 +6143,21 @@ end
   
   ty = ty + math.max((style.big_font or style.font):get_height(), bh) + pad
   
-  -- Dummy Search & Filter inputs
-  renderer.draw_rect(mx + pad, ty, mw - 2*pad, 25 * SCALE, P.bg_btn)
-  renderer.draw_text(style.font, "Search...", mx + pad + 10 * SCALE, ty + (25*SCALE - style.font:get_height())/2, P.fg_dim)
+  -- Interactive Search Input
+  self._market_search_btn = {x = mx + pad, y = ty, w = mw - 2*pad, h = 25 * SCALE}
+  renderer.draw_rect(self._market_search_btn.x, self._market_search_btn.y, self._market_search_btn.w, self._market_search_btn.h, P.bg_btn)
+  
+  local search_text = (self.market_search_query and self.market_search_query ~= "") and self.market_search_query or "Search..."
+  local text_color = (self.market_search_query and self.market_search_query ~= "") and P.fg or P.fg_dim
+  renderer.draw_text(style.font, search_text, self._market_search_btn.x + 10 * SCALE, ty + (25*SCALE - style.font:get_height())/2, text_color)
+  
+  if self.market_search_query and self.market_search_query ~= "" then
+      local cw = style.font:get_width("X")
+      self._market_search_clear_btn = {x = self._market_search_btn.x + self._market_search_btn.w - cw - 15*SCALE, y = self._market_search_btn.y, w = cw + 10*SCALE, h = self._market_search_btn.h}
+      renderer.draw_text(style.font, "X", self._market_search_clear_btn.x + 5*SCALE, ty + (25*SCALE - style.font:get_height())/2, {200, 100, 100, 255})
+  else
+      self._market_search_clear_btn = nil
+  end
   ty = ty + 25 * SCALE + pad
 
       if type(self.marketplace_skills) == "string" then
@@ -6391,3 +6524,5 @@ function AGView:new(...)
   rawset(_G, "AG_INSTANCE", self)
 end
 if instance then rawset(_G, "AG_INSTANCE", instance) end
+
+

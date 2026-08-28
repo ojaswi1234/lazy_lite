@@ -22,7 +22,13 @@ local function parse_plain_models(raw)
       and not line:lower():match("%-%-%-%-")
     then
       seen[line] = true
-      table.insert(models, { name = line, limited = false })
+      local limited = false
+      if line:lower():match("%(exhausted%)") or line:lower():match("%(locked%)") or line:lower():match("usage 100%%") then
+        limited = true
+      end
+      -- Trim annotations for actual internal model name
+      local actual_name = line:gsub("%s*%(.-%)$", "")
+      table.insert(models, { name = actual_name, limited = limited, raw = line })
     end
   end
   return models
@@ -272,7 +278,12 @@ M.REGISTRY = {
         end
         line = line:match("^%s*(.-)%s*$")
         if #line > 2 then
-          table.insert(models, { name = line, limited = false })
+          local limited = false
+          if line:lower():match("%(exhausted%)") or line:lower():match("%(locked%)") or line:lower():match("usage 100%%") then
+            limited = true
+          end
+          local actual_name = line:gsub("%s*%(.-%)$", "")
+          table.insert(models, { name = actual_name, limited = limited, raw = line })
         end
       end
       return models
