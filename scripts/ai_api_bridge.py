@@ -405,7 +405,7 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
             except Exception as e:
                 return f"Web search error: {str(e)}"
                 
-        tools = [local_shell, read_file, write_file, web_search]
+        tools = [] if read_only else [local_shell, read_file, write_file, web_search]
 
         def create_llm(p_name, m_name, p_key):
             if p_name == "gemini":
@@ -677,7 +677,7 @@ CRITICAL INSTRUCTIONS:
 
         async with AsyncExitStack() as stack:
             mcp_config_path = os.path.join(config_dir, "mcp_config.json")
-            if enable_tools and os.path.exists(mcp_config_path):
+            if enable_tools and not read_only and os.path.exists(mcp_config_path):
                 try:
                     with open(mcp_config_path, "r") as f:
                         mcp_data = json.load(f)
@@ -722,9 +722,15 @@ CRITICAL INSTRUCTIONS:
             if len(tools) > 125:
                 print(f"\n[WARNING] Too many tools ({len(tools)}). Truncating to 125 to avoid provider limits.", flush=True)
                 tools = tools[:125]
-            llm_with_tools = llm.bind_tools(tools) if llm else None
-            for a in team_agents:
-                a["llm"] = a["base_llm"].bind_tools(tools)
+                
+            if tools:
+                llm_with_tools = llm.bind_tools(tools) if llm else None
+                for a in team_agents:
+                    a["llm"] = a["base_llm"].bind_tools(tools)
+            else:
+                llm_with_tools = llm
+                for a in team_agents:
+                    a["llm"] = a["base_llm"]
 
             async with AsyncSqliteSaver.from_conn_string(db_path) as memory:
                 graph = graph_builder.compile(checkpointer=memory)
