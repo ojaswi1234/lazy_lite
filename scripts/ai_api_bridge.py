@@ -660,7 +660,7 @@ CRITICAL INSTRUCTIONS:
 
         async with AsyncExitStack() as stack:
             mcp_config_path = os.path.join(config_dir, "mcp_config.json")
-            if os.path.exists(mcp_config_path):
+            if enable_tools and os.path.exists(mcp_config_path):
                 try:
                     with open(mcp_config_path, "r") as f:
                         mcp_data = json.load(f)
