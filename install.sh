@@ -399,17 +399,15 @@ else
     echo "[+] LazyLite configuration already present in init.lua."
 fi
 
-if ! command -v agy &> /dev/null; then
-    API_FALLBACK_MARKER="-- [[ LazyLite API Fallback ]]"
-    if ! grep -qF -- "$API_FALLBACK_MARKER" "$INIT_FILE"; then
-        cat <<EOF >> "$INIT_FILE"
+API_FALLBACK_MARKER="-- [[ LazyLite API Fallback ]]"
+if ! grep -qF -- "$API_FALLBACK_MARKER" "$INIT_FILE"; then
+    cat <<EOF >> "$INIT_FILE"
 
 $API_FALLBACK_MARKER
 config.ai_sidebar = config.ai_sidebar or {}
 config.ai_sidebar.active_tool = "cloud_api"
 EOF
-        echo "[+] Configured AI Sidebar to use API Mode (cloud_api) since agy is not installed."
-    fi
+    echo "[+] Configured AI Sidebar to default to API Mode (cloud_api)."
 fi
 
 echo ""

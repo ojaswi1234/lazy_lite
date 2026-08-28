@@ -363,19 +363,17 @@ if ([string]::IsNullOrWhiteSpace($initContent)) {
     Write-Host "[+] LazyLite configuration already present in init.lua" -ForegroundColor Gray
 }
 Write-Host ""
-if (-not $agyInstalled) {
-    $apiFallbackMarker = "-- [[ LazyLite API Fallback ]]"
-    $initContentNew = Get-Content -LiteralPath $initFile -Raw
-    if (-not $initContentNew.Contains($apiFallbackMarker)) {
-        $apiFallbackCode = @"
+$apiFallbackMarker = "-- [[ LazyLite API Fallback ]]"
+$initContentNew = Get-Content -LiteralPath $initFile -Raw
+if (-not $initContentNew.Contains($apiFallbackMarker)) {
+    $apiFallbackCode = @"
 
 $apiFallbackMarker
 config.ai_sidebar = config.ai_sidebar or {}
 config.ai_sidebar.active_tool = "cloud_api"
 "@
-        Add-Content -LiteralPath $initFile -Value $apiFallbackCode -Encoding utf8
-        Write-Host "[+] Configured AI Sidebar to use API Mode (cloud_api) since agy is not installed." -ForegroundColor Green
-    }
+    Add-Content -LiteralPath $initFile -Value $apiFallbackCode -Encoding utf8
+    Write-Host "[+] Configured AI Sidebar to default to API Mode (cloud_api)." -ForegroundColor Green
 }
 Write-Host ""
 Write-Host "==================================================================" -ForegroundColor Green

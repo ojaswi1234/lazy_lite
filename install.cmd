@@ -241,16 +241,14 @@ if not exist "%INIT_FILE%" (
     )
 )
 
-if "!AGY_INSTALLED!"=="false" (
-    set "API_FALLBACK_MARKER=-- [[ LazyLite API Fallback ]]"
-    findstr /c:"!API_FALLBACK_MARKER!" "%INIT_FILE%" >nul 2>nul
-    if !errorlevel! neq 0 (
-        echo. >> "%INIT_FILE%"
-        echo !API_FALLBACK_MARKER! >> "%INIT_FILE%"
-        echo config.ai_sidebar = config.ai_sidebar or {} >> "%INIT_FILE%"
-        echo config.ai_sidebar.active_tool = "cloud_api" >> "%INIT_FILE%"
-        echo [+] Configured AI Sidebar to use API Mode (cloud_api) since agy is not installed.
-    )
+set "API_FALLBACK_MARKER=-- [[ LazyLite API Fallback ]]"
+findstr /c:"!API_FALLBACK_MARKER!" "%INIT_FILE%" >nul 2>nul
+if !errorlevel! neq 0 (
+    echo. >> "%INIT_FILE%"
+    echo !API_FALLBACK_MARKER! >> "%INIT_FILE%"
+    echo config.ai_sidebar = config.ai_sidebar or {} >> "%INIT_FILE%"
+    echo config.ai_sidebar.active_tool = "cloud_api" >> "%INIT_FILE%"
+    echo [+] Configured AI Sidebar to default to API Mode (cloud_api).
 )
 
 echo.
