@@ -1043,9 +1043,13 @@ def main():
                         env_name = re_env.sub(r'(?<!^)(?=[A-Z])', '_', k).upper()
                         print(f"[REQUIRED_ENV] {env_name}", flush=True)
                 else:
+                    print(f"[INFO] Auto-launching browser auth flow for {target}...")
                     if os.name == 'nt':
-                        print(f"[INFO] Auto-launching browser auth flow for {target}...")
                         os.system(f'start "Smithery Auth - {target}" cmd /c "echo Launching Smithery Auth for {target}... && echo Please complete any browser login that opens. && echo Once you are connected, you may CLOSE this window. && echo. && npx -y @smithery/cli run {target}"')
+                    elif sys.platform == "darwin":
+                        os.system(f'osascript -e \'tell application "Terminal" to do script "echo Launching Smithery Auth for {target}... && echo Please complete any browser login that opens. && echo Once you are connected, you may CLOSE this window. && echo. && npx -y @smithery/cli run {target}"\'')
+                    else:
+                        os.system(f'x-terminal-emulator -e \'bash -c "echo Launching Smithery Auth for {target}... && echo Please complete any browser login that opens. && echo Once you are connected, you may CLOSE this window. && echo. && npx -y @smithery/cli run {target}"\' &')
 
         except Exception as e:
             pass
