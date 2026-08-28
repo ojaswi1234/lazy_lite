@@ -556,11 +556,28 @@ CRITICAL INSTRUCTIONS:
             try:
                 msg = await llm_with_tools.ainvoke(messages)
             except Exception as e:
-                if "tool calling" in str(e).lower() or "tools" in str(e).lower() or "invalid_request" in str(e).lower() or "400" in str(e).lower():
-                    print(f"\n[WARNING EXCEPTION]: {e}\n[WARNING] This model does not support tool calling. Falling back to chat-only mode.\n", flush=True)
-                    msg = await llm.ainvoke(messages)
+                err_str = str(e).lower()
+                if any(k in err_str for k in ["tool calling", "tools", "invalid_request", "400", "413", "too large", "tpm", "rate_limit_exceeded"]):
+                    print(f"\n[WARNING EXCEPTION]: {e}\n[WARNING] Model rejected tool payload (too large or unsupported). Falling back to chat-only mode.\n", flush=True)
+                    
+                    from langchain_core.messages import AIMessage, HumanMessage
+                    clean_msgs = []
+                    for m in messages:
+                        if m.type == "ai":
+                            clean_msgs.append(AIMessage(content=m.content or ""))
+                        elif m.type == "tool":
+                            clean_msgs.append(HumanMessage(content=f"Tool Output: {m.content}"))
+                        else:
+                            clean_msgs.append(m)
+                    
+                    try:
+                        msg = await llm.ainvoke(clean_msgs)
+                    except Exception as fallback_e:
+                        msg = AIMessage(content=f"**API Error:** Failed to execute request.\n\n```\n{str(e)}\n```\n\n**Fallback Error:**\n```\n{str(fallback_e)}\n```\n\n*Please check your provider limits or model compatibility.*")
                 else:
-                    raise e
+                    from langchain_core.messages import AIMessage
+                    msg = AIMessage(content=f"**API Error:** Execution failed.\n\n```\n{str(e)}\n```")
+
             return {"messages": [msg]}
 
         async def tool_executor(state: AgentState):
