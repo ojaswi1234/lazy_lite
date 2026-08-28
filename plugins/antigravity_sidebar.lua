@@ -3694,7 +3694,7 @@ function AGView:draw()
     elseif self.api_key_status.status == "error" then
       renderer.draw_text(style.font, "Error: " .. tostring(self.api_key_status.err), mx + pad, ty, {255, 100, 100, 255})
     else
-      local providers = { "gemini", "groq", "openai", "anthropic", "ollama" }
+      local providers = { "gemini", "groq", "openai", "anthropic", "ollama", "omniroute" }
       local seen = {}
       for _, p in ipairs(providers) do seen[p] = true end
       for p, _ in pairs(self.api_key_status.data) do
