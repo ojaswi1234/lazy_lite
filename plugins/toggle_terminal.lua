@@ -128,6 +128,15 @@ end
 
 local shells = {}
 if PLATFORM == "Windows" then
+  local wsl_distro = nil
+  if core.project_dir then
+    wsl_distro = core.project_dir:match("^\\\\wsl%.localhost\\([^\\]+)") or core.project_dir:match("^\\\\wsl%$\\([^\\]+)")
+  end
+
+  if wsl_distro then
+    table.insert(shells, { name = "WSL (" .. wsl_distro .. ")", cmd = {"wsl.exe", "-d", wsl_distro}, prompt_prefix = "" })
+  end
+
   table.insert(shells, { name = "PowerShell", cmd = {"powershell.exe", "-NoProfile"}, prompt_prefix = "" })
   table.insert(shells, { name = "Command Prompt", cmd = {"cmd.exe"}, prompt_prefix = "" })
 
@@ -135,7 +144,7 @@ if PLATFORM == "Windows" then
   if sys.get_file_info("C:\\Program Files\\Git\\bin\\bash.exe") then
     table.insert(shells, { name = "Git Bash", cmd = {"C:\\Program Files\\Git\\bin\\bash.exe", "--login", "-i"}, prompt_prefix = "" })
   end
-  if sys.get_file_info("C:\\Windows\\System32\\wsl.exe") then
+  if not wsl_distro and sys.get_file_info("C:\\Windows\\System32\\wsl.exe") then
     table.insert(shells, { name = "WSL", cmd = {"C:\\Windows\\System32\\wsl.exe", "-e", "bash"}, prompt_prefix = "" })
   end
 else

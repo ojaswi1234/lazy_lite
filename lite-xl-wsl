@@ -1,0 +1,35 @@
+#!/bin/bash
+# Wrapper for Lite XL in WSL
+
+LITEXL_EXE="lite-xl.exe"
+
+# If lite-xl.exe isn't in PATH (sometimes WSL doesn't append it correctly), try absolute paths
+if ! command -v "$LITEXL_EXE" &> /dev/null; then
+    if [ -f "/mnt/c/Program Files/Lite XL/lite-xl.exe" ]; then
+        LITEXL_EXE="/mnt/c/Program Files/Lite XL/lite-xl.exe"
+    elif [ -f "/mnt/c/Program Files (x86)/Lite XL/lite-xl.exe" ]; then
+        LITEXL_EXE="/mnt/c/Program Files (x86)/Lite XL/lite-xl.exe"
+    else
+        echo "Error: lite-xl.exe not found in PATH or standard Program Files directories."
+        exit 1
+    fi
+fi
+
+args=()
+
+# Process arguments to translate WSL paths to Windows paths
+if [ $# -eq 0 ]; then
+    # Default to current directory if no args provided
+    args+=("$(wslpath -w .)")
+else
+    for arg in "$@"; do
+        if [ -e "$arg" ]; then
+            args+=("$(wslpath -w "$arg")")
+        else
+            args+=("$arg")
+        fi
+    done
+fi
+
+# Execute Lite XL in the background and detach
+"$LITEXL_EXE" "${args[@]}" >/dev/null 2>&1 &
