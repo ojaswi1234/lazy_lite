@@ -24,10 +24,14 @@ function common.fuzzy_match(haystack, needle, files)
   return orig_fuzzy_match(haystack, needle, files)
 end
 
--- Strictly disable LSP auto-starting on startup or document loading.
--- LSP will ONLY start when manually toggled on via keyboard shortcut.
-config.plugins.lsp.autostart_server = false
-config.plugins.lsp.is_enabled = false
+-- [OFFICIAL LITE-XL BEHAVIOR]
+-- Automatically start language servers on document load.
+config.plugins.lsp.autostart_server = true
+config.plugins.lsp.is_enabled = true
+
+-- Troubleshooting & Logging for Language Servers
+-- Enables verbose stderr logging (fixes silent crashes on Windows due to cmd.exe wrapper)
+config.plugins.lsp.log_server_stderr = true
 
 -- Enhanced Autocomplete & Inline Diagnostics Configuration
 config.plugins.autocomplete.min_len = 1        -- Trigger suggestions instantly on 1st character (like VS Code)
@@ -89,11 +93,26 @@ command.add(nil, {
   end
 })
 
--- Bind Keyboard Shortcuts
+-- Official Lite XL LSP Keybindings (As requested from documentation)
 keymap.add { 
-  ["ctrl+alt+l"] = "lsp:toggle-servers",
-  ["alt+l"]      = "lsp:toggle-servers",
-  ["f12"]        = "lsp:goto-definition",
-  ["shift+f12"]  = "lsp:find-references",
-  ["ctrl+space"] = "lsp:complete"
+  -- Inline Diagnostics & Troubleshooting
+  ["shift+alt+e"] = "lsp:toggle-diagnostics",
+  ["alt+e"]       = "lsp:view-doc-diagnostics",
+  ["ctrl+alt+e"]  = "lsp:view-all-diagnostics",
+  
+  -- Symbol Search
+  ["alt+s"]       = "lsp:view-document-symbols",
+  ["shift+alt+s"] = "lsp:find-workspace-symbol",
+  
+  -- Navigation
+  ["alt+d"]       = "lsp:goto-definition",
+  ["alt+f"]       = "lsp:find-references",
+  
+  -- Document Formatting
+  ["alt+shift+f"] = "lsp:format",
+  
+  -- Custom Quality of Life additions
+  ["ctrl+alt+l"]  = "lsp:toggle-servers",
+  ["alt+l"]       = "lsp:toggle-servers",
+  ["ctrl+space"]  = "lsp:complete"
 }
