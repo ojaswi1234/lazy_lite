@@ -162,7 +162,7 @@ end
 ---@return string
 function util.touri(file_path)
   local function char_escape(char)
-    if string.match(char, "[_.~-:]") then return char end
+    if string.match(char, "[_.~-]") then return char end
     if char == "/" then return char end
     if char == "\\" and PLATFORM == "Windows" then return "/" end
     return string.format("%%%02X", string.byte(char))

@@ -592,10 +592,8 @@ local function draw_lens_underline(x, y, width, color)
 end
 
 local function get_or_default(t, index, default)
-  if type(t) == "table" and t[index] ~= nil then
+  if t ~= nil and t[index] ~= nil then
     return t[index]
-  elseif type(t) == "boolean" then
-    return t
   else
     return default
   end
@@ -607,7 +605,6 @@ function DocView:draw_line_text(idx, x, y)
 
   local lp = self.doc.__lintplus
   if lp == nil then return line_height end
-  if self.doc.filename == nil then return line_height end
 
   local yy = get_underline_y(self, idx)
   local file_messages = lint.messages[core.project_absolute_path(self.doc.filename)]
@@ -634,16 +631,6 @@ function DocView:draw_line_text(idx, x, y)
   end
 
   local msg_x = x + underline_x + font:get_width(line_right)
-  
-  -- Prevent overlap with active ghost text autocompletion
-  local gt = package.loaded["plugins.ghost_text"]
-  if gt and gt.get_ghost then
-    local g = gt.get_ghost()
-    if g and g.active and g.doc == self.doc and g.line == idx and g.lines and g.lines[1] then
-      msg_x = msg_x + font:get_width(g.lines[1]) + w * 2
-    end
-  end
-
   local text_y = y + self:get_line_text_y_offset()
   local first_message = true
   for i, msg in ipairs(messages) do

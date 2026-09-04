@@ -80,30 +80,11 @@ local mt = { __tostring = function(t) return t.text end }
 -- Private functions
 --------------------------------------------------------------------------------
 
-local CommandView_ok, CommandView = pcall(require, "core.commandview")
-
 ---@return core.docview | nil
 local function get_active_view()
-  if core.command_view and core.active_view == core.command_view then
-    return nil
+  if getmetatable(core.active_view) == DocView then
+    return core.active_view
   end
-  if CommandView_ok and core.active_view and core.active_view:is(CommandView) then
-    return nil
-  end
-  local av = core.active_view
-  if av and (getmetatable(av) == DocView or av:is(DocView)) then
-    local doc = av.doc
-    if doc then
-      if core.command_view and doc == core.command_view.doc then
-        return nil
-      end
-      for _, d in ipairs(core.docs or {}) do
-        if d == doc then return av end
-      end
-      if doc.filename ~= nil then return av end
-    end
-  end
-  return nil
 end
 
 ---@param active_view core.docview
