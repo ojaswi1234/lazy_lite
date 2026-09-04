@@ -520,159 +520,70 @@ local SNIPPET_PACKS = {
 table.insert(SNIPPET_PACKS, {
   files = { "%.js$", "%.ts$", "%.jsx$", "%.tsx$", "%.mjs$", "%.cjs$" },
   snippets = {
-    { trigger = "for", desc = "For Loop", template = "for (let ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {
-  const ${3:element} = ${2:array}[${1:i}];
-  $0
-}" },
-    { trigger = "forin", desc = "For-In Loop", template = "for (const ${1:key} in ${2:object}) {
-  if (Object.hasOwnProperty.call(${2:object}, ${1:key})) {
-    const ${3:element} = ${2:object}[${1:key}];
-    $0
-  }
-}" },
-    { trigger = "forof", desc = "For-Of Loop", template = "for (const ${1:iterator} of ${2:object}) {
-  $0
-}" },
-    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {
-  $0
-}" },
-    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {
-  $0
-}" },
-    { trigger = "ifelse", desc = "If-Else Statement", template = "if (${1:condition}) {
-  $2
-} else {
-  $0
-}" },
-    { trigger = "try", desc = "Try-Catch Statement", template = "try {
-  $1
-} catch (${2:error}) {
-  $0
-}" },
-    { trigger = "switch", desc = "Switch Statement", template = "switch (${1:key}) {
-  case ${2:value}:
-    $0
-    break;
-  default:
-    break;
-}" }
+    { trigger = "for", desc = "For Loop", template = "for (let ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {\n  const ${3:element} = ${2:array}[${1:i}];\n  $0\n}" },
+    { trigger = "forin", desc = "For-In Loop", template = "for (const ${1:key} in ${2:object}) {\n  if (Object.hasOwnProperty.call(${2:object}, ${1:key})) {\n    const ${3:element} = ${2:object}[${1:key}];\n    $0\n  }\n}" },
+    { trigger = "forof", desc = "For-Of Loop", template = "for (const ${1:iterator} of ${2:object}) {\n  $0\n}" },
+    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {\n  $0\n}" },
+    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {\n  $0\n}" },
+    { trigger = "ifelse", desc = "If-Else Statement", template = "if (${1:condition}) {\n  $2\n} else {\n  $0\n}" },
+    { trigger = "try", desc = "Try-Catch Statement", template = "try {\n  $1\n} catch (${2:error}) {\n  $0\n}" },
+    { trigger = "switch", desc = "Switch Statement", template = "switch (${1:key}) {\n  case ${2:value}:\n    $0\n    break;\n  default:\n    break;\n}" }
   }
 })
 
 table.insert(SNIPPET_PACKS, {
   files = { "%.py$", "%.pyw$" },
   snippets = {
-    { trigger = "for", desc = "For Loop", template = "for ${1:item} in ${2:iterable}:
-    $0" },
-    { trigger = "while", desc = "While Loop", template = "while ${1:condition}:
-    $0" },
-    { trigger = "if", desc = "If Statement", template = "if ${1:condition}:
-    $0" },
-    { trigger = "ifelse", desc = "If-Else Statement", template = "if ${1:condition}:
-    $2
-else:
-    $0" },
-    { trigger = "try", desc = "Try-Except Statement", template = "try:
-    $1
-except ${2:Exception} as ${3:e}:
-    $0" },
-    { trigger = "def", desc = "Function Definition", template = "def ${1:function_name}(${2:args}):
-    ${3:pass}
-    $0" },
-    { trigger = "class", desc = "Class Definition", template = "class ${1:ClassName}:
-    def __init__(self, ${2:args}):
-        ${3:pass}
-        $0" }
+    { trigger = "for", desc = "For Loop", template = "for ${1:item} in ${2:iterable}:\n    $0" },
+    { trigger = "while", desc = "While Loop", template = "while ${1:condition}:\n    $0" },
+    { trigger = "if", desc = "If Statement", template = "if ${1:condition}:\n    $0" },
+    { trigger = "ifelse", desc = "If-Else Statement", template = "if ${1:condition}:\n    $2\nelse:\n    $0" },
+    { trigger = "try", desc = "Try-Except Statement", template = "try:\n    $1\nexcept ${2:Exception} as ${3:e}:\n    $0" },
+    { trigger = "def", desc = "Function Definition", template = "def ${1:function_name}(${2:args}):\n    ${3:pass}\n    $0" },
+    { trigger = "class", desc = "Class Definition", template = "class ${1:ClassName}:\n    def __init__(self, ${2:args}):\n        ${3:pass}\n        $0" }
   }
 })
 
 table.insert(SNIPPET_PACKS, {
   files = { "%.java$" },
   snippets = {
-    { trigger = "for", desc = "For Loop", template = "for (int ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {
-    $0
-}" },
-    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {
-    $0
-}" },
-    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {
-    $0
-}" },
-    { trigger = "ifelse", desc = "If-Else Statement", template = "if (${1:condition}) {
-    $2
-} else {
-    $0
-}" },
-    { trigger = "switch", desc = "Switch Statement", template = "switch (${1:key}) {
-    case ${2:value}:
-        $0
-        break;
-    default:
-        break;
-}" },
-    { trigger = "try", desc = "Try-Catch Statement", template = "try {
-    $1
-} catch (${2:Exception} e) {
-    $0
-}" }
+    { trigger = "for", desc = "For Loop", template = "for (int ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {\n    $0\n}" },
+    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {\n    $0\n}" },
+    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {\n    $0\n}" },
+    { trigger = "ifelse", desc = "If-Else Statement", template = "if (${1:condition}) {\n    $2\n} else {\n    $0\n}" },
+    { trigger = "switch", desc = "Switch Statement", template = "switch (${1:key}) {\n    case ${2:value}:\n        $0\n        break;\n    default:\n        break;\n}" },
+    { trigger = "try", desc = "Try-Catch Statement", template = "try {\n    $1\n} catch (${2:Exception} e) {\n    $0\n}" }
   }
 })
 
 table.insert(SNIPPET_PACKS, {
   files = { "%.go$" },
   snippets = {
-    { trigger = "for", desc = "For Loop", template = "for ${1:i} := 0; ${1:i} < ${2:count}; ${1:i}++ {
-	$0
-}" },
-    { trigger = "if", desc = "If Statement", template = "if ${1:condition} {
-	$0
-}" },
-    { trigger = "switch", desc = "Switch Statement", template = "switch ${1:var} {
-case ${2:value}:
-	$0
-default:
-}" }
+    { trigger = "for", desc = "For Loop", template = "for ${1:i} := 0; ${1:i} < ${2:count}; ${1:i}++ {\n\t$0\n}" },
+    { trigger = "if", desc = "If Statement", template = "if ${1:condition} {\n\t$0\n}" },
+    { trigger = "switch", desc = "Switch Statement", template = "switch ${1:var} {\ncase ${2:value}:\n\t$0\ndefault:\n}" }
   }
 })
 
 table.insert(SNIPPET_PACKS, {
   files = { "%.c$", "%.cpp$", "%.h$", "%.hpp$", "%.cc$", "%.cxx$" },
   snippets = {
-    { trigger = "for", desc = "For Loop", template = "for (int ${1:i} = 0; ${1:i} < ${2:count}; ${1:i}++) {
-    $0
-}" },
-    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {
-    $0
-}" },
-    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {
-    $0
-}" }
+    { trigger = "for", desc = "For Loop", template = "for (int ${1:i} = 0; ${1:i} < ${2:count}; ${1:i}++) {\n    $0\n}" },
+    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {\n    $0\n}" },
+    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {\n    $0\n}" }
   }
 })
 
 table.insert(SNIPPET_PACKS, {
   files = { "%.rs$" },
   snippets = {
-    { trigger = "for", desc = "For Loop", template = "for ${1:i} in ${2:0..10} {
-    $0
-}" },
-    { trigger = "while", desc = "While Loop", template = "while ${1:condition} {
-    $0
-}" },
-    { trigger = "if", desc = "If Statement", template = "if ${1:condition} {
-    $0
-}" },
-    { trigger = "loop", desc = "Infinite Loop", template = "loop {
-    $0
-}" },
-    { trigger = "match", desc = "Match Pattern", template = "match ${1:variable} {
-    ${2:pattern} => ${3:result},
-    _ => $0
-}" }
+    { trigger = "for", desc = "For Loop", template = "for ${1:i} in ${2:0..10} {\n    $0\n}" },
+    { trigger = "while", desc = "While Loop", template = "while ${1:condition} {\n    $0\n}" },
+    { trigger = "if", desc = "If Statement", template = "if ${1:condition} {\n    $0\n}" },
+    { trigger = "loop", desc = "Infinite Loop", template = "loop {\n    $0\n}" },
+    { trigger = "match", desc = "Match Pattern", template = "match ${1:variable} {\n    ${2:pattern} => ${3:result},\n    _ => $0\n}" }
   }
 })
-
--- Load all snippets into engine (KEEP THIS UNCHANGED)
 
 -- ==========================================================================
 -- FRIENDLY-SNIPPETS (VS CODE COMMUNITY SNIPPETS)
