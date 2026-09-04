@@ -235,10 +235,35 @@ local function matches_filter(filename, syntax_name, pattern)
     end
     return false
   end
+  
+  -- 1. Check exact regex pattern match on the filename
   if filename and filename ~= "" and filename:find(pattern) then return true end
+  
+  -- 2. Check syntax names safely to prevent cross-language contamination
+  -- e.g. "%.c$" stripping to "c" and matching "JavaScript" or "CSS"
   if syntax_name and syntax_name ~= "" then
-    local p_clean = pattern:gsub("[%^%%%$%.%*%+%-%?%[%]]", ""):lower()
-    if syntax_name:lower():find(p_clean) then return true end
+    local syn = syntax_name:lower()
+    local pat = pattern:lower()
+    
+    -- Map common file extensions directly to their strict syntax names
+    if pat:find("html") and syn == "html" then return true end
+    if pat:find("css") and syn == "css" then return true end
+    if (pat:find("js") or pat:find("javascript")) and syn == "javascript" then return true end
+    if (pat:find("ts") or pat:find("typescript")) and syn == "typescript" then return true end
+    if pat:find("vue") and syn == "vue" then return true end
+    if pat:find("svelte") and syn == "svelte" then return true end
+    if pat:find("java") and syn == "java" then return true end
+    if pat:find("py") and syn == "python" then return true end
+    if pat:find("go") and syn == "go" then return true end
+    if pat:find("rs") and syn == "rust" then return true end
+    if pat:find("sql") and syn == "sql" then return true end
+    if pat:find("docker") and syn == "docker" then return true end
+    if pat:find("ya?ml") and syn == "yaml" then return true end
+    if pat:find("%.c$") and (syn == "c" or syn == "c++") then return true end
+    if pat:find("%.h$") and (syn == "c" or syn == "c++") then return true end
+    if pat:find("cpp") and (syn == "c" or syn == "c++") then return true end
+    if pat:find("jsx") and (syn == "javascript" or syn == "javascriptreact") then return true end
+    if pat:find("tsx") and (syn == "typescript" or syn == "typescriptreact") then return true end
   end
   return false
 end
