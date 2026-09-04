@@ -335,7 +335,19 @@ local function update_suggestions()
       end
     end
 
-    for _, it in ipairs(exact) do table.insert(filtered, it) end
+    
+      local function sort_snippets_first(a, b)
+        local a_is_snip = (a.info == "Snippet" or a.info == "Tailwind") and 1 or 0
+        local b_is_snip = (b.info == "Snippet" or b.info == "Tailwind") and 1 or 0
+        if a_is_snip ~= b_is_snip then return a_is_snip > b_is_snip end
+        return tostring(a.text):lower() < tostring(b.text):lower()
+      end
+      
+      table.sort(exact, sort_snippets_first)
+      table.sort(prefix, sort_snippets_first)
+      table.sort(substr, sort_snippets_first)
+      
+      for _, it in ipairs(exact) do table.insert(filtered, it) end
     for _, it in ipairs(prefix) do table.insert(filtered, it) end
     for _, it in ipairs(substr) do table.insert(filtered, it) end
 
