@@ -281,13 +281,45 @@ function core.error(fmt, ...)
   end
 
   -- Prevent infinite loops and ignore non-critical warnings
-  -- (these checks are BEFORE debug.traceback to avoid expensive stack walks on benign errors)
-  if err_str:find("Too many files in project directory") then _healer_in_error = false; return ret end
-  if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then _healer_in_error = false; return ret end
-  if err_str:find("auto_healer") then _healer_in_error = false; return ret end
-  if is_duplicate(err_str) then _healer_in_error = false; return ret end
+    -- (these checks are BEFORE debug.traceback to avoid expensive stack walks on benign errors)
+    
+    -- Comprehensive filter for network, server, and expected operational errors that aren't Lua bugs
+    local ignore_list = {
+      -- Network & Database Connection Failures
+      "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "ENOTFOUND", 
+      "%[MongoDB%]", "MongoNetworkError",
+      
+      -- Language Server Protocol (LSP) crashes or timeouts
+      "%[LSP%]", "LSP server", "Language server",
+      
+      -- Generic Network / Sockets
+      "Network error", "Connection refused", "Connection reset by peer", "timeout",
+      
+      -- Missing Executables / Command Line Tool failures
+      "command not found", "is not recognized as an internal or external command",
+      "No such file or directory", "ENOENT",
+      
+      -- Permissions
+      "Permission denied", "EACCES", "EPERM",
+      
+      -- Git / External Tool outputs
+      "fatal: not a git repository",
+      
+      -- Safe / Benign Warnings
+      "Too many files in project directory"
+    }
+    for _, pattern in ipairs(ignore_list) do
+      if err_str:find(pattern) then
+        _healer_in_error = false
+        return ret
+      end
+    end
 
-  local trace = debug.traceback("", 2)
+    if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then _healer_in_error = false; return ret end
+    if err_str:find("auto_healer") then _healer_in_error = false; return ret end
+    if is_duplicate(err_str) then _healer_in_error = false; return ret end
+
+    local trace = debug.traceback("", 2)
 
   core.add_thread(function()
     coroutine.yield(0.1)
