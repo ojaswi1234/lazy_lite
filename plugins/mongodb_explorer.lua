@@ -9,6 +9,24 @@
 ]]
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 40, 40, 40, 255 }
+local _COLOR_CACHE_1 = { 35, 140, 75, 255 }
+local _COLOR_CACHE_2 = { 230, 230, 230, 255 }
+local _COLOR_CACHE_3 = { 70, 215, 120, 255 }
+local _COLOR_CACHE_4 = { 110, 110, 110, 255 }
+local _COLOR_CACHE_5 = { 45, 125, 185, 255 }
+local _COLOR_CACHE_6 = { 190, 120, 10, 255 }
+local _COLOR_CACHE_7 = { 30, 30, 30, 255 }
+local _COLOR_CACHE_8 = { 205, 45, 45, 255 }
+local _COLOR_CACHE_9 = { 80, 170, 240, 255 }
+local _COLOR_CACHE_10 = { 245, 185, 45, 255 }
+local _COLOR_CACHE_11 = { 255, 255, 255, 255 }
+local _COLOR_CACHE_12 = { 0, 0, 0, 255 }
+local _COLOR_CACHE_13 = { 245, 85, 85, 255 }
+local _COLOR_CACHE_14 = { 128, 128, 128, 255 }
+local _COLOR_CACHE_15 = { 150, 150, 150, 255 }
 local common = require "core.common"
 local command = require "core.command"
 local config = require "core.config"
@@ -107,7 +125,7 @@ local function get_luminance(col)
 end
 
 local function blend_color(c1, c2, t)
-  if type(c1) ~= "table" then return c2 or { 128, 128, 128, 255 } end
+  if type(c1) ~= "table" then return c2 or _COLOR_CACHE_14 end
   if type(c2) ~= "table" then return c1 end
   return {
     math.floor((c1[1] or 0) * (1 - t) + (c2[1] or 0) * t),
@@ -134,14 +152,14 @@ local function format_number(n)
 end
 
 local function get_theme_palette()
-  local bg = style.background or { 30, 30, 30, 255 }
+  local bg = style.background or _COLOR_CACHE_7
   local lum = get_luminance(bg)
   local is_light = lum > 135
 
   -- Inherit base tokens safely
-  local base_text = (style.mossy and style.mossy.sidebar_text) or style.text or (is_light and { 40, 40, 40, 255 } or { 230, 230, 230, 255 })
-  local base_dim = (style.mossy and style.mossy.sidebar_muted) or style.dim or (is_light and { 110, 110, 110, 255 } or { 150, 150, 150, 255 })
-  local accent = style.accent or (is_light and { 45, 125, 185, 255 } or { 80, 170, 240, 255 })
+  local base_text = (style.mossy and style.mossy.sidebar_text) or style.text or (is_light and _COLOR_CACHE_0 or _COLOR_CACHE_2)
+  local base_dim = (style.mossy and style.mossy.sidebar_muted) or style.dim or (is_light and _COLOR_CACHE_4 or _COLOR_CACHE_15)
+  local accent = style.accent or (is_light and _COLOR_CACHE_5 or _COLOR_CACHE_9)
   local divider = style.divider or (style.mossy and style.mossy.border) or with_alpha(base_dim, is_light and 45 or 40)
 
   -- Adaptive backgrounds
@@ -149,12 +167,12 @@ local function get_theme_palette()
   if style.mossy and style.mossy.sidebar_bg then
     sidebar_bg = style.mossy.sidebar_bg
   elseif is_light then
-    sidebar_bg = blend_color(bg, { 0, 0, 0, 255 }, 0.035)
+    sidebar_bg = blend_color(bg, _COLOR_CACHE_12, 0.035)
   else
-    sidebar_bg = blend_color(bg, { 255, 255, 255, 255 }, 0.025)
+    sidebar_bg = blend_color(bg, _COLOR_CACHE_11, 0.025)
   end
 
-  local header_bg = (style.mossy and style.mossy.activity_bg) or style.background3 or blend_color(sidebar_bg, is_light and { 0, 0, 0, 255 } or { 255, 255, 255, 255 }, 0.05)
+  local header_bg = (style.mossy and style.mossy.activity_bg) or style.background3 or blend_color(sidebar_bg, is_light and _COLOR_CACHE_12 or _COLOR_CACHE_11, 0.05)
   local footer_bg = header_bg
 
   -- Row highlights
@@ -163,27 +181,27 @@ local function get_theme_palette()
   local row_selected_text = (style.mossy and style.mossy.active_row_text) or base_text
 
   -- Search box styling
-  local search_bg = is_light and blend_color(header_bg, { 255, 255, 255, 255 }, 0.7) or blend_color(header_bg, { 0, 0, 0, 255 }, 0.4)
+  local search_bg = is_light and blend_color(header_bg, _COLOR_CACHE_11, 0.7) or blend_color(header_bg, _COLOR_CACHE_12, 0.4)
   local search_border = with_alpha(divider, is_light and 90 or 80)
   local search_text = base_text
   local search_placeholder = with_alpha(base_dim, is_light and 180 or 150)
 
   -- Pill Badges
   local badge_bg = is_light and with_alpha(accent, 22) or with_alpha(accent, 35)
-  local badge_text = is_light and blend_color(accent, { 0, 0, 0, 255 }, 0.25) or blend_color(accent, { 255, 255, 255, 255 }, 0.4)
+  local badge_text = is_light and blend_color(accent, _COLOR_CACHE_12, 0.25) or blend_color(accent, _COLOR_CACHE_11, 0.4)
   local badge_border = with_alpha(accent, is_light and 45 or 55)
 
   -- Status Colors
-  local status_connected = is_light and { 35, 140, 75, 255 } or { 70, 215, 120, 255 }
-  local status_connecting = is_light and { 190, 120, 10, 255 } or { 245, 185, 45, 255 }
-  local status_error = is_light and { 205, 45, 45, 255 } or { 245, 85, 85, 255 }
+  local status_connected = is_light and _COLOR_CACHE_1 or _COLOR_CACHE_3
+  local status_connecting = is_light and _COLOR_CACHE_6 or _COLOR_CACHE_10
+  local status_error = is_light and _COLOR_CACHE_8 or _COLOR_CACHE_13
   local status_disconnected = base_dim
 
   -- Button tokens
-  local btn_bg = is_light and blend_color(sidebar_bg, { 255, 255, 255, 255 }, 0.5) or blend_color(sidebar_bg, { 255, 255, 255, 255 }, 0.08)
+  local btn_bg = is_light and blend_color(sidebar_bg, _COLOR_CACHE_11, 0.5) or blend_color(sidebar_bg, _COLOR_CACHE_11, 0.08)
   local btn_hover = with_alpha(accent, is_light and 35 or 50)
   local btn_text = base_text
-  local btn_hover_text = is_light and blend_color(accent, { 0, 0, 0, 255 }, 0.3) or { 255, 255, 255, 255 }
+  local btn_hover_text = is_light and blend_color(accent, _COLOR_CACHE_12, 0.3) or _COLOR_CACHE_11
   local btn_border = with_alpha(divider, is_light and 90 or 75)
 
   -- Indent guide line color

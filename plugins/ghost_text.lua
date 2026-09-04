@@ -8,6 +8,9 @@
 --
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 140, 140, 140, 160 }
 local common = require "core.common"
 local config = require "core.config"
 local style = require "core.style"
@@ -263,7 +266,7 @@ function DocView:draw_overlay()
       local font = self:get_font()
       local lh = self:get_line_height()
       local y_off = self.get_line_text_y_offset and self:get_line_text_y_offset() or 0
-      local ghost_color = config.plugins.ghost_text.color or style.syntax["comment"] or { 140, 140, 140, 160 }
+      local ghost_color = config.plugins.ghost_text.color or style.syntax["comment"] or _COLOR_CACHE_0
       
       -- Position of the first ghost segment (immediately after cursor)
       local sx, sy = self:get_line_screen_position(ghost.line, ghost.col)

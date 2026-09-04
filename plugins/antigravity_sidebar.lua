@@ -1,3 +1,39 @@
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {142, 186, 43, 255}
+local _COLOR_CACHE_1 = { 200, 60, 60, 255 }
+local _COLOR_CACHE_2 = { 80, 80, 80, 255 }
+local _COLOR_CACHE_3 = { 95, 140, 50, 255 }
+local _COLOR_CACHE_4 = { 170, 56, 59, 255 }
+local _COLOR_CACHE_5 = {255, 100, 100, 40}
+local _COLOR_CACHE_6 = { 180, 180, 180, 255 }
+local _COLOR_CACHE_7 = { 160, 80, 80, 180 }
+local _COLOR_CACHE_8 = { 100, 150, 255, 255 }
+local _COLOR_CACHE_9 = {0,0,0,180}
+local _COLOR_CACHE_10 = {255, 255, 255, 10}
+local _COLOR_CACHE_11 = { 120, 120, 120, 110 }
+local _COLOR_CACHE_12 = {255,100,100,255}
+local _COLOR_CACHE_13 = {0,0,0,255}
+local _COLOR_CACHE_14 = {255, 100, 100, 255}
+local _COLOR_CACHE_15 = { 100, 255, 100, 255 }
+local _COLOR_CACHE_16 = { 70, 140, 220, 255 }
+local _COLOR_CACHE_17 = { 60, 110, 180, 90 }
+local _COLOR_CACHE_18 = {200, 100, 100, 255}
+local _COLOR_CACHE_19 = { 95, 185, 85, 255 }
+local _COLOR_CACHE_20 = { 255,255,255,255 }
+local _COLOR_CACHE_21 = { 0,0,0,255 }
+local _COLOR_CACHE_22 = {0,0,0,0}
+local _COLOR_CACHE_23 = {0,0,0,150}
+local _COLOR_CACHE_24 = {200,200,200,255}
+local _COLOR_CACHE_25 = { 255, 100, 100, 255 }
+local _COLOR_CACHE_26 = {220,60,60,255}
+local _COLOR_CACHE_27 = { 255, 255, 255, 255 }
+local _COLOR_CACHE_28 = {200, 50, 50, 255}
+local _COLOR_CACHE_29 = { 0, 50, 150, 255 }
+local _COLOR_CACHE_30 = {84, 52, 20, 255}
+local _COLOR_CACHE_31 = {112, 150, 30, 255}
+local _COLOR_CACHE_32 = { 0, 0, 0, 255 }
+local _COLOR_CACHE_33 = {255,255,255,255}
 -- mod-version:3
 -- Antigravity AI Sidebar — modern chat UI, Ctrl+Shift+A
 -- Size-animation toggle (same pattern as built-in treeview).
@@ -403,7 +439,7 @@ local function contrast_bg(base, pct)
 end
 
 local function contrast_fg(bg)
-  if type(bg) ~= "table" then return { 0,0,0,255 } end
+  if type(bg) ~= "table" then return _COLOR_CACHE_21 end
   local r,g,b = bg[1],bg[2],bg[3]
   if lum(r,g,b) > 128 then
     -- light bg → near-black tinted text
@@ -423,7 +459,7 @@ end
 local _pal_cache = nil
 local _pal_sig   = nil
 local function get_palette()
-  local base = style.background or { 255,255,255,255 }
+  local base = style.background or _COLOR_CACHE_20
   local sig  = base[1] .. "," .. base[2] .. "," .. base[3] .. (style.mossy and "M" or "")
   if sig == _pal_sig and _pal_cache then return _pal_cache end
   _pal_sig = sig
@@ -489,8 +525,8 @@ local function get_palette()
     border      = border,
     border_input= bg_btnhl,
     dot_idle    = fg_muted,
-    dot_run     = { 95, 140, 50, 255 },
-    dot_err     = { 170, 56, 59, 255 },
+    dot_run     = _COLOR_CACHE_3,
+    dot_err     = _COLOR_CACHE_4,
     scrollbar   = border,
   }
   return _pal_cache
@@ -2627,9 +2663,9 @@ function AGView:draw()
   renderer.draw_rect(x, cur_y + hdr_h - 1, w, 1, P.border)
 
   -- Left status-colored accent strip
-  local acol = self:state().status == "running" and { 95, 185, 85, 255 }
-            or self:state().status == "error"   and { 200, 60, 60, 255 }
-            or { 70, 140, 220, 255 }
+  local acol = self:state().status == "running" and _COLOR_CACHE_19
+            or self:state().status == "error"   and _COLOR_CACHE_1
+            or _COLOR_CACHE_16
   renderer.draw_rect(x, cur_y, accent_w, hdr_h, acol)
 
   local sf   = style.font
@@ -2855,7 +2891,7 @@ function AGView:draw()
   else
     -- Draw selection highlight
     if sel_from and sel_to and sel_from < sel_to then
-      local sel_color = style.selection or { 60, 110, 180, 90 }
+      local sel_color = style.selection or _COLOR_CACHE_17
       for l_idx, line_info in ipairs(visual_lines) do
         local l_start = line_info.start_byte - 1
         local l_end   = line_info.end_byte - 1
@@ -2925,7 +2961,7 @@ function AGView:draw()
 
   -- Attachment Button
   local attach_w = 28 * SCALE
-  local attach_bg = self.hover_attach and P.bg_btn_hl or {0,0,0,0}
+  local attach_bg = self.hover_attach and P.bg_btn_hl or _COLOR_CACHE_22
   renderer.draw_rect(inp_x + c_pad, act_y, attach_w, action_row_h, attach_bg)
   local attach_icon = "f" -- Maps to file icon in Lite XL's style.icon_font
   renderer.draw_text(style.icon_font, attach_icon,
@@ -2971,21 +3007,21 @@ function AGView:draw()
   local mx = inp_x + c_pad + attach_w + 4 * SCALE
   local my = act_y + math.floor((action_row_h - mh) / 2)
 
-  local m_bg = self.hover_model_btn and P.bg_btn_hl or {0,0,0,0}
+  local m_bg = self.hover_model_btn and P.bg_btn_hl or _COLOR_CACHE_22
   renderer.draw_rect(mx, my, mw, mh, m_bg)
   renderer.draw_text(small_font, model_lbl, mx + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2),
     self.hover_model_btn and P.fg_accent or P.fg_muted)
   self._model_rect = { x = mx, y = my, w = mw, h = mh }
 
   -- Draw Autopilot
-  local auto_bg = config.ai_sidebar.autopilot and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_auto_btn and P.bg_btn_hl or {0,0,0,0})
+  local auto_bg = config.ai_sidebar.autopilot and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
   local auto_fg = config.ai_sidebar.autopilot and P.fg_accent or P.fg_muted
   renderer.draw_rect(auto_x, my, auto_w, mh, auto_bg)
   renderer.draw_text(small_font, auto_lbl, auto_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), auto_fg)
   self._auto_rect = { x = auto_x, y = my, w = auto_w, h = mh }
 
   -- Draw Read-Only
-  local ro_bg = config.ai_sidebar.read_only and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_ro_btn and P.bg_btn_hl or {0,0,0,0})
+  local ro_bg = config.ai_sidebar.read_only and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_ro_btn and P.bg_btn_hl or _COLOR_CACHE_22)
   local ro_fg = config.ai_sidebar.read_only and P.fg_accent or P.fg_muted
   renderer.draw_rect(ro_x, my, ro_w, mh, ro_bg)
   renderer.draw_text(small_font, ro_lbl, ro_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ro_fg)
@@ -3011,7 +3047,7 @@ function AGView:draw()
     -- Stop icon (Square block)
     local ix = send_x + math.floor((send_w - 8 * SCALE) / 2)
     local iy = send_y + math.floor((send_h - 8 * SCALE) / 2)
-    renderer.draw_rect(ix, iy, 8 * SCALE, 8 * SCALE, {255,255,255,255})
+    renderer.draw_rect(ix, iy, 8 * SCALE, 8 * SCALE, _COLOR_CACHE_33)
   else
     -- Send icon (Chevron right)
     local s_icon = ">"
@@ -3528,7 +3564,7 @@ function AGView:draw()
           local is_limited = m.limited
           local fg
           if is_limited then
-            fg = { 120, 120, 120, 110 }
+            fg = _COLOR_CACHE_11
           elseif is_sel then
             fg = P.fg_accent
           elseif is_hov then
@@ -3541,7 +3577,7 @@ function AGView:draw()
 
           -- Right side: usage counter OR checkmark for selected
           if m.usage then
-            local ufg = is_limited and { 160, 80, 80, 180 } or P.fg_muted
+            local ufg = is_limited and _COLOR_CACHE_7 or P.fg_muted
             local disp_usage = m.usage
             if is_limited then disp_usage = disp_usage .. " [No Quota]" end
             renderer.draw_text(mf, disp_usage,
@@ -3553,7 +3589,7 @@ function AGView:draw()
             renderer.draw_text(mf, tag,
               x + w - pad - mf:get_width(tag),
               ry + math.floor((item_h - mf:get_height()) / 2),
-              { 160, 80, 80, 180 })
+              _COLOR_CACHE_7)
           elseif is_sel and not m.usage then
             renderer.draw_text(mf, "[v]",
               x + w - pad - mf:get_width("[v]"),
@@ -3570,7 +3606,7 @@ function AGView:draw()
   -- USAGE MODAL VIEW
   if self.show_usage_view then
     -- dim bg
-    renderer.draw_rect(x, y, w, h, {0,0,0,150})
+    renderer.draw_rect(x, y, w, h, _COLOR_CACHE_23)
     
     local mw = w - 40 * SCALE
     local mh = h - 60 * SCALE
@@ -3635,8 +3671,8 @@ function AGView:draw()
           local hover_link = false
           if self._usage_links_hover and self._usage_links_hover == url then hover_link = true end
           
-          lx = renderer.draw_text(active_font, url, lx, ty, hover_link and P.fg_accent or { 100, 150, 255, 255 })
-          renderer.draw_rect(ux, ty + lh - 2 * SCALE, lx - ux, 1 * SCALE, hover_link and P.fg_accent or { 100, 150, 255, 255 })
+          lx = renderer.draw_text(active_font, url, lx, ty, hover_link and P.fg_accent or _COLOR_CACHE_8)
+          renderer.draw_rect(ux, ty + lh - 2 * SCALE, lx - ux, 1 * SCALE, hover_link and P.fg_accent or _COLOR_CACHE_8)
           
           renderer.draw_text(active_font, post, lx, ty, P.fg)
           
@@ -3659,7 +3695,7 @@ function AGView:draw()
   -- API MANAGEMENT VIEW
   if self.show_api_view then
     -- dim bg
-    renderer.draw_rect(x, y, w, h, {0,0,0,150})
+    renderer.draw_rect(x, y, w, h, _COLOR_CACHE_23)
     
     local mw = w - 40 * SCALE
     local mh = h - 60 * SCALE
@@ -3692,7 +3728,7 @@ function AGView:draw()
     if not self.api_key_status or self.api_key_status.status == "loading" then
       renderer.draw_text(style.font, "Validating API Keys...", mx + pad, ty, P.fg_muted)
     elseif self.api_key_status.status == "error" then
-      renderer.draw_text(style.font, "Error: " .. tostring(self.api_key_status.err), mx + pad, ty, {255, 100, 100, 255})
+      renderer.draw_text(style.font, "Error: " .. tostring(self.api_key_status.err), mx + pad, ty, _COLOR_CACHE_14)
     else
       local providers = { "gemini", "groq", "openai", "anthropic", "ollama", "omniroute" }
       local seen = {}
@@ -3715,8 +3751,8 @@ function AGView:draw()
         local status_x = mx + pad + 100 * SCALE
         
         local stat_color = P.fg_muted
-        if stat == "valid" then stat_color = { 100, 255, 100, 255 }
-        elseif stat == "expired" then stat_color = { 255, 100, 100, 255 } end
+        if stat == "valid" then stat_color = _COLOR_CACHE_15
+        elseif stat == "expired" then stat_color = _COLOR_CACHE_25 end
         
         renderer.draw_text(style.font, stat:upper(), status_x, ty, stat_color)
         
@@ -4489,10 +4525,10 @@ end
     end
 
     local P       = get_palette()
-    local C_TR    = {84, 52, 20, 255}    -- Trunk dark brown
-    local C_LEAF  = {142, 186, 43, 255}  -- Light green leaf
-    local C_LEAF_D= {112, 150, 30, 255}  -- Darker green leaf
-    local C_YEAR  = {142, 186, 43, 255}  -- Year green
+    local C_TR    = _COLOR_CACHE_30    -- Trunk dark brown
+    local C_LEAF  = _COLOR_CACHE_0  -- Light green leaf
+    local C_LEAF_D= _COLOR_CACHE_31  -- Darker green leaf
+    local C_YEAR  = _COLOR_CACHE_0  -- Year green
     local C_TEXT  = P.fg_muted
     local f       = style.font
     local fh      = f:get_height()
@@ -4504,7 +4540,7 @@ end
       renderer.draw_text(f, "Growing tree...", x + 20, y + 20, C_LEAF)
       core.pop_clip_rect(); return
     elseif self.history_state == "error" then
-      renderer.draw_text(f, "Error loading timeline.", x + 20, y + 20, {220,60,60,255})
+      renderer.draw_text(f, "Error loading timeline.", x + 20, y + 20, _COLOR_CACHE_26)
       core.pop_clip_rect(); return
     end
     if not self.history_nodes or #self.history_nodes == 0 then
@@ -4665,7 +4701,7 @@ end
       local th = tf:get_height()
       local ty = canopy_cy - 10*SCALE - th/2
       -- Draw shadow/outline for readability
-      renderer.draw_text(tf, title_str, trunk_cx - tw/2 + 2, ty + 2, {0,0,0,180})
+      renderer.draw_text(tf, title_str, trunk_cx - tw/2 + 2, ty + 2, _COLOR_CACHE_9)
       renderer.draw_text(tf, title_str, trunk_cx - tw/2, ty, P.bg)
     end
 
@@ -4753,7 +4789,7 @@ end
            end
            
            local current_y = t_y
-           draw_aligned(m_str, f, current_y, P.fg_accent or {200,200,200,255}, true) -- Bold & brighter!
+           draw_aligned(m_str, f, current_y, P.fg_accent or _COLOR_CACHE_24, true) -- Bold & brighter!
            current_y = current_y + fh + 2*SCALE
            
            for _, line in ipairs(n._lines) do
@@ -5891,17 +5927,17 @@ function StatusView:draw(...)
   local old_dim = style.dim
   local old_accent = style.accent
 
-  local bg = style.background2 or {0,0,0,255}
+  local bg = style.background2 or _COLOR_CACHE_13
   
   -- If background is light, force text to very dark colors
   if lum(bg[1], bg[2], bg[3]) > 128 then
-    style.text = { 0, 0, 0, 255 }
-    style.dim = { 80, 80, 80, 255 }
-    style.accent = { 0, 50, 150, 255 }
+    style.text = _COLOR_CACHE_32
+    style.dim = _COLOR_CACHE_2
+    style.accent = _COLOR_CACHE_29
   -- If background is dark, force text to very light colors
   else
-    style.text = { 255, 255, 255, 255 }
-    style.dim = { 180, 180, 180, 255 }
+    style.text = _COLOR_CACHE_27
+    style.dim = _COLOR_CACHE_6
   end
 
   old_sv_draw(self, ...)
@@ -6087,7 +6123,7 @@ end
   
   -- Modal Window
   renderer.draw_rect(mx, my, mw, mh, P.bg)
-  renderer.draw_rect(mx, my, mw, mh, {255, 255, 255, 10}) -- subtle border
+  renderer.draw_rect(mx, my, mw, mh, _COLOR_CACHE_10) -- subtle border
   
     local ty = my + pad
   -- TABS
@@ -6154,7 +6190,7 @@ end
   if self.market_search_query and self.market_search_query ~= "" then
       local cw = style.font:get_width("X")
       self._market_search_clear_btn = {x = self._market_search_btn.x + self._market_search_btn.w - cw - 15*SCALE, y = self._market_search_btn.y, w = cw + 10*SCALE, h = self._market_search_btn.h}
-      renderer.draw_text(style.font, "X", self._market_search_clear_btn.x + 5*SCALE, ty + (25*SCALE - style.font:get_height())/2, {200, 100, 100, 255})
+      renderer.draw_text(style.font, "X", self._market_search_clear_btn.x + 5*SCALE, ty + (25*SCALE - style.font:get_height())/2, _COLOR_CACHE_18)
   else
       self._market_search_clear_btn = nil
   end
@@ -6165,7 +6201,7 @@ end
           self:draw_crawler_loader(mx, ty, mw, mh)
       else
           local t = "Failed to load."
-          renderer.draw_text(style.font, t, mx + pad, ty, {200, 50, 50, 255})
+          renderer.draw_text(style.font, t, mx + pad, ty, _COLOR_CACHE_28)
       end
       core.redraw = true
       return
@@ -6196,14 +6232,14 @@ end
       local is_hover = self.hover_market_skill == skill.id
       local bg_color = P.bg_btn
       if is_hover then
-          bg_color = self.show_installed_skills and {255, 100, 100, 40} or P.bg_btn_hl
+          bg_color = self.show_installed_skills and _COLOR_CACHE_5 or P.bg_btn_hl
       end
       renderer.draw_rect(sx, sy, col_w, sh, bg_color)
       
       if is_hover then
           local action_txt = self.show_installed_skills and "Click to Remove" or "Click to Install"
           local aw = style.font:get_width(action_txt)
-          renderer.draw_text(style.font, action_txt, sx + (col_w - aw)/2, sy + sh - 25 * SCALE, self.show_installed_skills and {255,100,100,255} or P.fg_accent)
+          renderer.draw_text(style.font, action_txt, sx + (col_w - aw)/2, sy + sh - 25 * SCALE, self.show_installed_skills and _COLOR_CACHE_12 or P.fg_accent)
       end
       
       -- Skill title (larger font)
@@ -6293,7 +6329,7 @@ end
       local modal_y = y + 10 * SCALE
       
       -- Dim background
-      renderer.draw_rect(x, y, w, h, {0,0,0,150})
+      renderer.draw_rect(x, y, w, h, _COLOR_CACHE_23)
       -- Modal window
       renderer.draw_rect(modal_x, modal_y, mw, mh, P.bg)
       renderer.draw_rect(modal_x, modal_y, mw, 50 * SCALE, P.bg_btn)

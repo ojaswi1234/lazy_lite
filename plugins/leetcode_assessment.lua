@@ -4,6 +4,12 @@
 -- Onsite Loops, Live Timers, Question Switchers, and Comprehensive Scorecards.
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 44, 187, 93 }
+local _COLOR_CACHE_1 = { 104, 193, 113 }
+local _COLOR_CACHE_2 = { 255, 55, 95 }
+local _COLOR_CACHE_3 = { 255, 192, 30 }
 local common = require "core.common"
 local style = require "core.style"
 
@@ -445,19 +451,19 @@ function assessment.finish_session()
   local verdict, verdict_color, verdict_desc
   if final_score >= 90 then
     verdict = "Strong Hire"
-    verdict_color = { 44, 187, 93 } -- Green
+    verdict_color = _COLOR_CACHE_0 -- Green
     verdict_desc = "Outstanding performance! All test cases passed with optimal complexity and fast completion time."
   elseif final_score >= 75 then
     verdict = "Hire"
-    verdict_color = { 104, 193, 113 } -- Soft Green
+    verdict_color = _COLOR_CACHE_1 -- Soft Green
     verdict_desc = "Solid engineering demonstration. Clean problem-solving with high accuracy."
   elseif final_score >= 60 then
     verdict = "Lean Hire / Borderline"
-    verdict_color = { 255, 192, 30 } -- Amber
+    verdict_color = _COLOR_CACHE_3 -- Amber
     verdict_desc = "Good effort with partial test passes or minor penalties. Recommend further practice under time limits."
   else
     verdict = "No Hire / Needs Practice"
-    verdict_color = { 255, 55, 95 } -- Red
+    verdict_color = _COLOR_CACHE_2 -- Red
     verdict_desc = "Multiple unsolved edge cases or time elapsed. Revisit algorithmic patterns and time management."
   end
 

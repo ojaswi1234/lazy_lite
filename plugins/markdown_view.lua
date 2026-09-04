@@ -1,5 +1,9 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {255, 100, 100, 255}
+local _COLOR_CACHE_1 = {100, 180, 255, 255}
 local command = require "core.command"
 local keymap = require "core.keymap"
 local View = require "core.view"
@@ -168,7 +172,7 @@ local function draw_inline_markdown(self, line, x, y, fonts, def_color, x_start,
         url = url
       })
       
-      local color = style.accent or {100, 180, 255, 255}
+      local color = style.accent or _COLOR_CACHE_1
       x, y = draw_text_wrapped(fonts.normal, chunk, x, y, x_start, max_x, color)
       pos = p_end + 1
     end
@@ -308,7 +312,7 @@ function MarkdownView:draw()
         end
         y = y + self.fonts.normal:get_height() + 10
       elseif type(img_data) == "table" and img_data.error then
-        renderer.draw_text(self.fonts.normal, "[!] Failed to load image: " .. (img_data.error), x_start, y, {255, 100, 100, 255})
+        renderer.draw_text(self.fonts.normal, "[!] Failed to load image: " .. (img_data.error), x_start, y, _COLOR_CACHE_0)
         y = y + self.fonts.normal:get_height()
       end
       goto continue
@@ -330,7 +334,7 @@ function MarkdownView:draw()
       local is_chat_header = (line:match("ago%s*$") or line:match("edited.*$")) and #line < 60
       if is_chat_header then
         font = self.fonts.bold
-        color = style.accent or {100, 180, 255, 255}
+        color = style.accent or _COLOR_CACHE_1
         renderer.draw_rect(x_start, y - 4, max_w, 1, style.dim)
         y = y + 8
       end

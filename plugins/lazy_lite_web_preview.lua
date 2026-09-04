@@ -3,6 +3,13 @@
 -- A Web Preview Plugin for Lite-XL (lazy-lite suite)
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 8080, 8000, 3000 }
+local _COLOR_CACHE_1 = { 5000, 5001, 8000, 8080 }
+local _COLOR_CACHE_2 = { 3000, 3001, 3002, 3003 }
+local _COLOR_CACHE_3 = { 8000, 8001, 8080 }
+local _COLOR_CACHE_4 = { 3000, 3001, 3002, 8080 }
 local command = require "core.command"
 local keymap = require "core.keymap"
 local config = require "core.config"
@@ -163,12 +170,12 @@ end
 -- Port ranges to scan per framework (in priority order)
 local FRAMEWORK_PORT_RANGES = {
   vite    = { 5173, 5174, 5175, 5176, 5177, 4173, 4174 },
-  next    = { 3000, 3001, 3002, 3003 },
-  react   = { 3000, 3001, 3002, 8080 },
-  django  = { 8000, 8001, 8080 },
-  fastapi = { 8000, 8001, 8080 },
-  flask   = { 5000, 5001, 8000, 8080 },
-  go      = { 8080, 8000, 3000 },
+  next    = _COLOR_CACHE_2,
+  react   = _COLOR_CACHE_4,
+  django  = _COLOR_CACHE_3,
+  fastapi = _COLOR_CACHE_3,
+  flask   = _COLOR_CACHE_1,
+  go      = _COLOR_CACHE_0,
 }
 
 -- Find the first bound port for a framework type. Returns (url, port) or nil.

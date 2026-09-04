@@ -4,6 +4,12 @@
 -- It allows developers to spawn background SSH tunnels or similar port-forwarding processes and easily start or stop them.
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {60, 140, 200}
+local _COLOR_CACHE_1 = {255, 255, 255, 255}
+local _COLOR_CACHE_2 = {80, 200, 80}
+local _COLOR_CACHE_3 = {200, 80, 80}
 local command = require "core.command"
 local keymap = require "core.keymap"
 local style = require "core.style"
@@ -479,14 +485,14 @@ function PortForwardView:draw()
   -- Add Rule Button
   local btn_text = "+ Add Rule"
   self.add_btn_rect = { x = x + 300, y = y, w = style.font:get_width(btn_text) + 20, h = lh * 1.5 }
-  renderer.draw_rect(self.add_btn_rect.x, self.add_btn_rect.y, self.add_btn_rect.w, self.add_btn_rect.h, style.accent or {200, 80, 80})
-  renderer.draw_text(style.font, btn_text, self.add_btn_rect.x + 10, self.add_btn_rect.y + math.floor((self.add_btn_rect.h - style.font:get_height())/2), {255, 255, 255, 255})
+  renderer.draw_rect(self.add_btn_rect.x, self.add_btn_rect.y, self.add_btn_rect.w, self.add_btn_rect.h, style.accent or _COLOR_CACHE_3)
+  renderer.draw_text(style.font, btn_text, self.add_btn_rect.x + 10, self.add_btn_rect.y + math.floor((self.add_btn_rect.h - style.font:get_height())/2), _COLOR_CACHE_1)
   
   -- Add Public Tunnel Button
   local lt_btn_text = "+ Add Public Tunnel"
   self.lt_btn_rect = { x = self.add_btn_rect.x + self.add_btn_rect.w + 10, y = y, w = style.font:get_width(lt_btn_text) + 20, h = lh * 1.5 }
-  renderer.draw_rect(self.lt_btn_rect.x, self.lt_btn_rect.y, self.lt_btn_rect.w, self.lt_btn_rect.h, {80, 200, 80})
-  renderer.draw_text(style.font, lt_btn_text, self.lt_btn_rect.x + 10, self.lt_btn_rect.y + math.floor((self.lt_btn_rect.h - style.font:get_height())/2), {255, 255, 255, 255})
+  renderer.draw_rect(self.lt_btn_rect.x, self.lt_btn_rect.y, self.lt_btn_rect.w, self.lt_btn_rect.h, _COLOR_CACHE_2)
+  renderer.draw_text(style.font, lt_btn_text, self.lt_btn_rect.x + 10, self.lt_btn_rect.y + math.floor((self.lt_btn_rect.h - style.font:get_height())/2), _COLOR_CACHE_1)
   
   y = y + (style.big_font and style.big_font:get_height() or lh) + style.padding.y
   
@@ -519,8 +525,8 @@ function PortForwardView:draw()
     
     local visit_btn_text = "Monitor Visitors"
     self.visit_btn_rect = { x = x + 300, y = log_y - 10, w = style.font:get_width(visit_btn_text) + 20, h = lh * 1.5 }
-    renderer.draw_rect(self.visit_btn_rect.x, self.visit_btn_rect.y, self.visit_btn_rect.w, self.visit_btn_rect.h, {60, 140, 200})
-    renderer.draw_text(style.font, visit_btn_text, self.visit_btn_rect.x + 10, self.visit_btn_rect.y + math.floor((self.visit_btn_rect.h - style.font:get_height())/2), {255, 255, 255, 255})
+    renderer.draw_rect(self.visit_btn_rect.x, self.visit_btn_rect.y, self.visit_btn_rect.w, self.visit_btn_rect.h, _COLOR_CACHE_0)
+    renderer.draw_text(style.font, visit_btn_text, self.visit_btn_rect.x + 10, self.visit_btn_rect.y + math.floor((self.visit_btn_rect.h - style.font:get_height())/2), _COLOR_CACHE_1)
     
     log_y = log_y + lh + style.padding.y
     

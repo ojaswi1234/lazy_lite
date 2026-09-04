@@ -1,3 +1,9 @@
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 100, 220, 100, 255 }
+local _COLOR_CACHE_1 = {255, 255, 255, 180}
+local _COLOR_CACHE_2 = { 220, 180, 80, 255 }
+local _COLOR_CACHE_3 = { 220, 100, 100, 255 }
 -- mod-version:3
 -- Mossy green styled tree view with Nerd Font file icons
 
@@ -67,13 +73,13 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
     local badge_color = style.text
     if item.git_status == "added" then
       badge = "A"
-      badge_color = { 100, 220, 100, 255 }
+      badge_color = _COLOR_CACHE_0
     elseif item.git_status == "deleted" then
       badge = "D"
-      badge_color = { 220, 100, 100, 255 }
+      badge_color = _COLOR_CACHE_3
     elseif item.git_status == "modified" then
       badge = "M"
-      badge_color = { 220, 180, 80, 255 }
+      badge_color = _COLOR_CACHE_2
     end
     
     if badge ~= "" then
@@ -102,11 +108,11 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
   local name_x     = icon_x + ifont:get_width(icon_str) + 4 * SCALE
   
   if item.git_status == "added" then
-    text_color = { 100, 220, 100, 255 }
+    text_color = _COLOR_CACHE_0
   elseif item.git_status == "deleted" then
-    text_color = { 220, 100, 100, 255 }
+    text_color = _COLOR_CACHE_3
   elseif item.git_status == "modified" then
-    text_color = { 220, 180, 80, 255 }
+    text_color = _COLOR_CACHE_2
   end
 
   renderer.draw_text(
@@ -189,7 +195,7 @@ function TreeView:draw()
     local ifont2 = style.icon_font or style.font
     local icon_str2 = icons.get(self.dnd_item.name, self.dnd_item.type == "dir", false)
     local mx, my = core.root_view.mouse.x, core.root_view.mouse.y
-    local c_alpha = {255, 255, 255, 180}
+    local c_alpha = _COLOR_CACHE_1
     renderer.draw_text(ifont2, icon_str2, mx + 10, my + 10, c_alpha)
     renderer.draw_text(style.font, self.dnd_item.name, mx + 10 + ifont2:get_width(icon_str2) + 4, my + 10, c_alpha)
   end

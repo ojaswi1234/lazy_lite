@@ -1,6 +1,21 @@
 -- mod-version:3
 -- Premium Autocomplete, LSP, Snippets & Tailwind IntelliSense Engine for Lite XL
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 255, 255, 255, 120 }
+local _COLOR_CACHE_1 = { 45, 212, 191 }
+local _COLOR_CACHE_2 = { 245, 158, 11 }
+local _COLOR_CACHE_3 = { 35, 45, 38 }
+local _COLOR_CACHE_4 = { 244, 63, 94 }
+local _COLOR_CACHE_5 = { 24, 32, 26 }
+local _COLOR_CACHE_6 = { 104, 193, 113 }
+local _COLOR_CACHE_7 = { 110, 210, 160 }
+local _COLOR_CACHE_8 = { 32, 42, 35 }
+local _COLOR_CACHE_9 = { 56, 189, 248 }
+local _COLOR_CACHE_10 = { 100, 180, 110 }
+local _COLOR_CACHE_11 = { 80, 110, 85 }
+local _COLOR_CACHE_12 = { 48, 65, 50 }
 local common = require "core.common"
 local config = require "core.config"
 local command = require "core.command"
@@ -480,8 +495,8 @@ local function draw_description_box(text, av, sx, sy, sw, sh)
   end
 
   local height = #lines * font:get_height()
-  local bg_color = style.background2 or style.background3 or { 35, 45, 38 }
-  local border_color = style.divider or { 80, 110, 85 }
+  local bg_color = style.background2 or style.background3 or _COLOR_CACHE_3
+  local border_color = style.divider or _COLOR_CACHE_11
 
   renderer.draw_rect(x - 1, sy - 1, width + (style.padding.x * 2) + 2, height + (style.padding.y * 2) + 2, border_color)
   renderer.draw_rect(x, sy, width + (style.padding.x * 2), height + (style.padding.y * 2), bg_color)
@@ -500,8 +515,8 @@ local function draw_suggestions_box(av)
 
   local ah = config.plugins.autocomplete.max_height or 9
   local rx, ry, rw, rh = get_suggestions_rect(av)
-  local bg_color = style.background3 or { 32, 42, 35 }
-  local border_color = style.divider or style.accent or { 100, 180, 110 }
+  local bg_color = style.background3 or _COLOR_CACHE_8
+  local border_color = style.divider or style.accent or _COLOR_CACHE_10
 
   -- Drop shadow & card container
   renderer.draw_rect(rx - 1, ry - 1, rw + 2, rh + 2, border_color)
@@ -519,12 +534,12 @@ local function draw_suggestions_box(av)
     local info_text = s.info or ""
     local info_size = #info_text > 0 and (style.font:get_width(info_text) + style.padding.x * 2) or style.padding.x
     local is_selected = (i == suggestions_idx)
-    local color = is_selected and (style.accent or { 104, 193, 113 }) or style.text
+    local color = is_selected and (style.accent or _COLOR_CACHE_6) or style.text
 
     if is_selected then
-      local hl_color = style.line_highlight or style.background or { 48, 65, 50 }
+      local hl_color = style.line_highlight or style.background or _COLOR_CACHE_12
       renderer.draw_rect(rx, y, rw, lh, hl_color)
-      renderer.draw_rect(rx, y, 3 * SCALE, lh, style.accent or { 104, 193, 113 })
+      renderer.draw_rect(rx, y, 3 * SCALE, lh, style.accent or _COLOR_CACHE_6)
     end
 
     local item_start_x = rx + style.padding.x + (is_selected and 3 * SCALE or 0)
@@ -533,7 +548,7 @@ local function draw_suggestions_box(av)
     if s.color then
       local swatch_size = 11 * SCALE
       local swatch_y = y + (lh - swatch_size) / 2
-      renderer.draw_rect(item_start_x - 1, swatch_y - 1, swatch_size + 2, swatch_size + 2, { 255, 255, 255, 120 })
+      renderer.draw_rect(item_start_x - 1, swatch_y - 1, swatch_size + 2, swatch_size + 2, _COLOR_CACHE_0)
       renderer.draw_rect(item_start_x, swatch_y, swatch_size, swatch_size, s.color)
       item_start_x = item_start_x + swatch_size + 6 * SCALE
     end
@@ -552,15 +567,15 @@ local function draw_suggestions_box(av)
     if #info_text > 0 then
       local badge_color = style.dim
       if info_text:lower():find("snippet") then
-        badge_color = is_selected and (style.accent or { 104, 193, 113 }) or { 110, 210, 160 }
+        badge_color = is_selected and (style.accent or _COLOR_CACHE_6) or _COLOR_CACHE_7
       elseif info_text:lower():find("tailwind") or info_text:lower():find("color") then
-        badge_color = { 56, 189, 248 }
+        badge_color = _COLOR_CACHE_9
       elseif info_text:lower():find("func") or info_text:lower():find("method") then
-        badge_color = { 245, 158, 11 }
+        badge_color = _COLOR_CACHE_2
       elseif info_text:lower():find("keyword") then
-        badge_color = { 244, 63, 94 }
+        badge_color = _COLOR_CACHE_4
       elseif info_text:lower():find("type") or info_text:lower():find("struct") then
-        badge_color = { 45, 212, 191 }
+        badge_color = _COLOR_CACHE_1
       end
       common.draw_text(style.font, badge_color, info_text, "right", rx, y, rw - style.padding.x, lh)
     end
@@ -580,11 +595,11 @@ local function draw_suggestions_box(av)
 
   -- Status Footer
   renderer.draw_rect(rx, y, rw, 1, style.caret or style.accent)
-  renderer.draw_rect(rx, y + 1, rw, lh, style.background or { 24, 32, 26 })
-  common.draw_text(style.font, style.accent or { 104, 193, 113 }, "Suggestions", "left", rx + style.padding.x, y + 1, rw, lh)
+  renderer.draw_rect(rx, y + 1, rw, lh, style.background or _COLOR_CACHE_5)
+  common.draw_text(style.font, style.accent or _COLOR_CACHE_6, "Suggestions", "left", rx + style.padding.x, y + 1, rw, lh)
   common.draw_text(
     style.font,
-    style.accent or { 104, 193, 113 },
+    style.accent or _COLOR_CACHE_6,
     tostring(suggestions_idx) .. "/" .. tostring(#suggestions),
     "right",
     rx, y + 1, rw - style.padding.x, lh

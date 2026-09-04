@@ -1,3 +1,8 @@
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 255, 255, 255, 255 }
+local _COLOR_CACHE_1 = { 160, 160, 170, 255 }
+local _COLOR_CACHE_2 = { 25, 25, 30, 240 }
 -- mod-version:3
 -- Auto-Healer plugin: Intercepts editor errors and delegates them to the Antigravity AI sidebar.
 -- Also detects specific known failure patterns (e.g. agy CLI not set up) and auto-heals them.
@@ -46,7 +51,7 @@ function core.root_view:draw()
     local y = self.size.y - h - 50 * SCALE -- Bottom center
 
     -- Draw main background (dark glass)
-    renderer.draw_rect(x, y, w, h, { 25, 25, 30, 240 })
+    renderer.draw_rect(x, y, w, h, _COLOR_CACHE_2)
 
     -- Pulse effect for the border (Neon Purple/Cyan)
     local pulse = (math.sin(t * 4) + 1) / 2
@@ -65,10 +70,10 @@ function core.root_view:draw()
     
     -- Title
     local title_font = style.big_font or font
-    renderer.draw_text(title_font, "AI Auto-Healer Working", x + 40 * SCALE, y + 15 * SCALE, { 255, 255, 255, 255 })
+    renderer.draw_text(title_font, "AI Auto-Healer Working", x + 40 * SCALE, y + 15 * SCALE, _COLOR_CACHE_0)
     
     -- Error preview (muted)
-    renderer.draw_text(font, _G.auto_healer_toast.error_msg, x + 15 * SCALE, y + 42 * SCALE, { 160, 160, 170, 255 })
+    renderer.draw_text(font, _G.auto_healer_toast.error_msg, x + 15 * SCALE, y + 42 * SCALE, _COLOR_CACHE_1)
 
     -- Fake progress bar (asymptotic to 99%)
     local progress = 0.99 * (1 - math.exp(-elapsed / 4))

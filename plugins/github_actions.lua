@@ -1,3 +1,25 @@
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {220, 100, 220, 255}
+local _COLOR_CACHE_1 = {220, 80,  80, 255}
+local _COLOR_CACHE_2 = {100, 220, 100, 255}
+local _COLOR_CACHE_3 = {255,255,255,30}
+local _COLOR_CACHE_4 = {100, 180, 255, 255}
+local _COLOR_CACHE_5 = {255, 255, 255, 10}
+local _COLOR_CACHE_6 = {255, 200, 60, 255}
+local _COLOR_CACHE_7 = {220,80,80,255}
+local _COLOR_CACHE_8 = {100,180,255,255}
+local _COLOR_CACHE_9 = {220, 80, 80, 255}
+local _COLOR_CACHE_10 = {80, 200, 120, 255}
+local _COLOR_CACHE_11 = {255,255,255,10}
+local _COLOR_CACHE_12 = {160, 160, 160, 255}
+local _COLOR_CACHE_13 = {255,255,255,15}
+local _COLOR_CACHE_14 = {255, 180,  50, 255}
+local _COLOR_CACHE_15 = {100, 200, 255, 255}
+local _COLOR_CACHE_16 = {120, 120, 120, 200}
+local _COLOR_CACHE_17 = {255, 120, 120, 255}
+local _COLOR_CACHE_18 = {30,30,30,255}
+local _COLOR_CACHE_19 = {255,255,255,255}
 -- mod-version:3
 -- GitHub Actions & Insights panels — injected into the terminal bottom sheet
 -- Adds "Actions" and "Insights" tabs alongside the existing terminal sessions.
@@ -258,13 +280,13 @@ local function conclusion_color(conclusion, status)
   status     = (status or ""):lower()
   conclusion = (conclusion or ""):lower()
   if status == "in_progress" or status == "queued" or status == "waiting" then
-    return {255, 200, 60, 255}   -- yellow: running
+    return _COLOR_CACHE_6   -- yellow: running
   end
-  if conclusion == "success"   then return {80, 200, 120, 255}  end  -- green
-  if conclusion == "failure"   then return {220, 80,  80, 255}  end  -- red
-  if conclusion == "cancelled" then return {160, 160, 160, 255} end  -- grey
-  if conclusion == "skipped"   then return {120, 120, 120, 200} end
-  return style.dim or {160, 160, 160, 255}
+  if conclusion == "success"   then return _COLOR_CACHE_10  end  -- green
+  if conclusion == "failure"   then return _COLOR_CACHE_1  end  -- red
+  if conclusion == "cancelled" then return _COLOR_CACHE_12 end  -- grey
+  if conclusion == "skipped"   then return _COLOR_CACHE_16 end
+  return style.dim or _COLOR_CACHE_12
 end
 
 local function status_icon(conclusion, status)
@@ -289,14 +311,14 @@ local function draw_run_details(x, y, w, h)
   local sf = get_sf()
   local fh = math.floor(sf:get_height())
   local pad = 10 * SCALE
-  local base = style.background or {30,30,30,255}
+  local base = style.background or _COLOR_CACHE_18
   local bg = contrast_bg(base)
   
   renderer.draw_rect(x, y, w, h, bg)
   
   -- Header
   local hdr_h = fh + pad * 2
-  renderer.draw_rect(x, y, w, hdr_h, {255, 255, 255, 10})
+  renderer.draw_rect(x, y, w, hdr_h, _COLOR_CACHE_5)
   renderer.draw_text(sf, "← Back to Runs  |  Run #" .. tostring(gh_state.run_details_id), x + pad, math.floor(y + pad), style.text)
   
   y = y + hdr_h
@@ -320,8 +342,8 @@ local function draw_run_details(x, y, w, h)
     
     local c = style.text
     if line:match("^#") then c = style.accent end
-    if line:match("%[x%]") or line:match("Failed") then c = {220, 80, 80, 255} end
-    if line:match("%[%+%]") then c = {80, 200, 120, 255} end
+    if line:match("%[x%]") or line:match("Failed") then c = _COLOR_CACHE_9 end
+    if line:match("%[%+%]") then c = _COLOR_CACHE_10 end
     
     renderer.draw_text(sf, line, x + pad, ry, c)
     ::skip::
@@ -338,7 +360,7 @@ local function draw_actions_panel(x, y, w, h)
   local fh   = math.floor(sf:get_height())
   local row_h= math.floor(fh * 1.8 + 4*SCALE)
   local pad  = 10*SCALE
-  local base = style.background or {30,30,30,255}
+  local base = style.background or _COLOR_CACHE_18
   local bg   = contrast_bg(base)
   local hdr_bg = contrast_bg(bg)
 
@@ -354,7 +376,7 @@ local function draw_actions_panel(x, y, w, h)
     return
   end
   if gh_state.actions_error then
-    renderer.draw_text(sf, "Error: " .. gh_state.actions_error, x+pad, y+pad, {220,80,80,255})
+    renderer.draw_text(sf, "Error: " .. gh_state.actions_error, x+pad, y+pad, _COLOR_CACHE_7)
     renderer.draw_text(sf, "(Is gh authenticated? Run: gh auth login)", x+pad, y+pad+fh+4*SCALE, style.dim)
     return
   end
@@ -375,12 +397,12 @@ local function draw_actions_panel(x, y, w, h)
 
     -- row bg on hover
     if gh_state.actions_hover == i then
-      renderer.draw_rect(x, ry, w, row_h, {255,255,255,10})
+      renderer.draw_rect(x, ry, w, row_h, _COLOR_CACHE_11)
     end
 
     -- divider
     if i > 1 then
-      renderer.draw_rect(x+pad, ry, w-pad*2, math.ceil(SCALE), {255,255,255,15})
+      renderer.draw_rect(x+pad, ry, w-pad*2, math.ceil(SCALE), _COLOR_CACHE_13)
     end
 
     -- Status icon + color
@@ -444,7 +466,7 @@ local function draw_actions_panel(x, y, w, h)
 end
 
 local function draw_stat_card(x, y, w, h, label, value, color, sf, fh)
-  local bg = contrast_bg(contrast_bg(style.background or {30,30,30,255}))
+  local bg = contrast_bg(contrast_bg(style.background or _COLOR_CACHE_18))
   renderer.draw_rect(math.floor(x), math.floor(y), math.ceil(w), math.ceil(h), bg)
   -- top accent bar
   renderer.draw_rect(math.floor(x), math.floor(y), math.ceil(w), math.ceil(3*SCALE), color)
@@ -467,7 +489,7 @@ local function draw_insights_panel(x, y, w, h)
   local sf  = get_sf()
   local fh  = math.floor(sf:get_height())
   local pad = 10*SCALE
-  local base= style.background or {30,30,30,255}
+  local base= style.background or _COLOR_CACHE_18
   local bg  = contrast_bg(base)
 
   renderer.draw_rect(x, y, w, h, bg)
@@ -477,7 +499,7 @@ local function draw_insights_panel(x, y, w, h)
     return
   end
   if gh_state.insights_error then
-    renderer.draw_text(sf, "Error: " .. gh_state.insights_error, x+pad, y+pad, {220,80,80,255})
+    renderer.draw_text(sf, "Error: " .. gh_state.insights_error, x+pad, y+pad, _COLOR_CACHE_7)
     renderer.draw_text(sf, "(Run: gh auth login)", x+pad, y+pad+fh+4*SCALE, style.dim)
     return
   end
@@ -524,11 +546,11 @@ local function draw_insights_panel(x, y, w, h)
   local card_w    = math.floor((w - pad*2 - card_gap*(n_cards-1)) / n_cards)
   local card_h    = math.floor(fh * 3.5)
   local colors    = {
-    {100, 200, 255, 255},  -- stars: blue
-    {100, 220, 100, 255},  -- forks: green
-    {255, 180,  50, 255},  -- watchers: orange
-    {220, 100, 220, 255},  -- issues: purple
-    {255, 120, 120, 255},  -- prs: red
+    _COLOR_CACHE_15,  -- stars: blue
+    _COLOR_CACHE_2,  -- forks: green
+    _COLOR_CACHE_14,  -- watchers: orange
+    _COLOR_CACHE_0,  -- issues: purple
+    _COLOR_CACHE_17,  -- prs: red
   }
   local cards = {
     {label="Stars",      value=info.stars},
@@ -568,7 +590,7 @@ local function draw_insights_panel(x, y, w, h)
     local name_w = math.floor(w * 0.28)
     local count_w= math.floor(w * 0.12)
     local bar_max= w - pad*2 - name_w - count_w - 8*SCALE
-    local bar_color = style.accent or {100, 180, 255, 255}
+    local bar_color = style.accent or _COLOR_CACHE_4
 
     for _, c in ipairs(contribs) do
       if cy > y + h then break end
@@ -643,7 +665,7 @@ core.add_thread(function()
       if self.size.y < 2 then return end
 
       -- Inject extra tabs into the header strip
-      local base   = style.background or {255,255,255,255}
+      local base   = style.background or _COLOR_CACHE_19
       local hdr_bg = base -- Match the newly updated terminal header!
       local bg     = contrast_bg(base)
       local hdr_h  = 26 * SCALE
@@ -667,7 +689,7 @@ core.add_thread(function()
       local sep_x = tabs_end_x
       renderer.draw_rect(math.floor(sep_x), y + 2*SCALE + 4*SCALE,
                          math.ceil(SCALE), math.ceil(hdr_h - 8*SCALE),
-                         {255,255,255,30})
+                         _COLOR_CACHE_3)
       local cur_x = sep_x + 4*SCALE
 
       self._gh_extra_tab_rects = {}
@@ -697,7 +719,7 @@ core.add_thread(function()
         
         -- Draw active underline (no background box!)
         if is_active then
-          local ac = style.accent or {100,180,255,255}
+          local ac = style.accent or _COLOR_CACHE_8
           renderer.draw_rect(math.floor(cur_x), y + hdr_h - 2*SCALE, math.ceil(lbl_w), math.ceil(2*SCALE), ac)
         end
         

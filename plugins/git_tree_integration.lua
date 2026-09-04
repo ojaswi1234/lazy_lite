@@ -1,5 +1,10 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 100, 220, 100, 255 }
+local _COLOR_CACHE_1 = { 220, 180, 80, 255 }
+local _COLOR_CACHE_2 = { 220, 100, 100, 255 }
 local style = require "core.style"
 local common = require "core.common"
 local treeview = require "plugins.treeview"
@@ -39,11 +44,11 @@ end
 function treeview:get_item_text(item, active, hovered)
   local text, font, color = old_get_item_text(self, item, active, hovered)
   if item.git_status == "added" then
-    color = { 100, 220, 100, 255 } -- Green
+    color = _COLOR_CACHE_0 -- Green
   elseif item.git_status == "deleted" then
-    color = { 220, 100, 100, 255 } -- Red
+    color = _COLOR_CACHE_2 -- Red
   elseif item.git_status == "modified" then
-    color = { 220, 180, 80, 255 } -- Yellow
+    color = _COLOR_CACHE_1 -- Yellow
   end
   return text, font, color
 end
@@ -56,13 +61,13 @@ function treeview:draw_item_text(item, active, hovered, x, y, w, h)
     local badge_color = style.text
     if item.git_status == "added" then
       badge = "A"
-      badge_color = { 100, 220, 100, 255 }
+      badge_color = _COLOR_CACHE_0
     elseif item.git_status == "deleted" then
       badge = "D"
-      badge_color = { 220, 100, 100, 255 }
+      badge_color = _COLOR_CACHE_2
     elseif item.git_status == "modified" then
       badge = "M"
-      badge_color = { 220, 180, 80, 255 }
+      badge_color = _COLOR_CACHE_1
     end
     
     if badge ~= "" then

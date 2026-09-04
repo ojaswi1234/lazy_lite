@@ -1,5 +1,8 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {0,0,0,0}
 local style = require "core.style"
 local Node = require "core.node"
 local DocView = require "core.docview"
@@ -84,7 +87,7 @@ function Node:draw(...)
 
   local old_div = style.divider
   if is_editor_split then
-    style.divider = style.background or {0,0,0,0}
+    style.divider = style.background or _COLOR_CACHE_0
   end
   
   old_draw(self, ...)

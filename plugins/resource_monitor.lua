@@ -1,6 +1,9 @@
 -- mod-version:3
 -- A miniature, highly optimized CPU & RAM resource monitor in the titlebar.
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 100, 255, 100, 255 }
 local style = require "core.style"
 local common = require "core.common"
 local config = require "core.config"
@@ -189,7 +192,7 @@ function TitleView:draw()
     local txt = string.format("CS UPTIME: %02d:%02d", mins, secs)
     local tw = style.font:get_width(txt)
     current_x = current_x - tw
-    renderer.draw_text(style.font, txt, current_x, y, { 100, 255, 100, 255 })
+    renderer.draw_text(style.font, txt, current_x, y, _COLOR_CACHE_0)
   end
 end
 

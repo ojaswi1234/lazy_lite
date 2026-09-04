@@ -1,3 +1,8 @@
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {255, 50, 50, 255}
+local _COLOR_CACHE_1 = { 0,0,0,255 }
+local _COLOR_CACHE_2 = {255, 255, 255, 255}
 -- mod-version:3
 -- Terminal bottom sheet (Ctrl+`)
 -- Uses size animation (like treeview) for hide/show — no node removal needed.
@@ -180,7 +185,7 @@ local function get_contrast_bg(base)
 end
 
 local function get_contrast_fg(bg)
-  if type(bg) ~= "table" then return { 0,0,0,255 } end
+  if type(bg) ~= "table" then return _COLOR_CACHE_1 end
   local r, g, b = bg[1], bg[2], bg[3]
   -- If bg is light → use dark text; if bg is dark → use light text
   if luminance(r, g, b) > 128 then
@@ -1196,14 +1201,14 @@ function TermView:draw_port_manager(x, y, w, h)
   local kill_sel_x = ref_x - kill_sel_w - 10*SCALE
   s.kill_sel_btn_rect = { x = kill_sel_x, y = cy, w = kill_sel_w, h = ref_h }
   renderer.draw_rect(kill_sel_x, cy, kill_sel_w, ref_h, {common.color "#FB4934"})
-  renderer.draw_text(style.font, "Kill Selected", kill_sel_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), {255, 255, 255, 255})
+  renderer.draw_text(style.font, "Kill Selected", kill_sel_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), _COLOR_CACHE_2)
   
   -- Port Forwarding button
   local pf_btn_w = style.font:get_width("Port Forwarding") + 20*SCALE
   local pf_btn_x = kill_sel_x - pf_btn_w - 10*SCALE
   s.pf_btn_rect = { x = pf_btn_x, y = cy, w = pf_btn_w, h = ref_h }
   renderer.draw_rect(pf_btn_x, cy, pf_btn_w, ref_h, style.accent or {common.color "#E67E80"})
-  renderer.draw_text(style.font, "Port Forwarding", pf_btn_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), {255, 255, 255, 255})
+  renderer.draw_text(style.font, "Port Forwarding", pf_btn_x + 10*SCALE, cy + math.floor((ref_h - style.font:get_height())/2), _COLOR_CACHE_2)
   
   cy = cy + 40*SCALE
   
@@ -1311,7 +1316,7 @@ function TermView:draw_port_manager(x, y, w, h)
       table.insert(s.port_buttons, { x = btn_x, y = btn_y, w = btn_w, h = btn_h, pid = p.pid, pids = p.pids, port = p.port })
       
       renderer.draw_rect(btn_x, btn_y, btn_w, btn_h, {common.color "#FB4934"})
-      renderer.draw_text(style.font, "KILL", btn_x + 8*SCALE, btn_y + math.floor((btn_h - style.font:get_height())/2), {255, 255, 255, 255})
+      renderer.draw_text(style.font, "KILL", btn_x + 8*SCALE, btn_y + math.floor((btn_h - style.font:get_height())/2), _COLOR_CACHE_2)
     end
     item_y = item_y + lh
   end
@@ -2000,7 +2005,8 @@ function TermView:update(...)
   s.last_scan_time = now
 
   if s.lines and #s.lines > last_scanned_line then
-    for i = last_scanned_line + 1, #s.lines do
+    local scan_limit = math.min(#s.lines, last_scanned_line + 200)
+    for i = last_scanned_line + 1, scan_limit do
       local line_text = s.lines[i].text
       if line_text then
         local file, lnum
@@ -2063,7 +2069,7 @@ function DocView:draw_line_gutter(line, x, y, width)
   local res = old_draw_line_gutter(self, line, x, y, width)
   local abs = self.doc.abs_filename
   if abs and terminal_errors[abs] and terminal_errors[abs][line] then
-    local color = style.error or {255, 50, 50, 255}
+    local color = style.error or _COLOR_CACHE_0
     local icon = "" -- Warning/Error icon in Nerd Font
     -- Draw next to the line number
     renderer.draw_text(style.icon_font, icon, x + math.max(0, width - 15 * SCALE), y, color)

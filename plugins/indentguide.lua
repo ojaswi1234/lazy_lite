@@ -4,6 +4,9 @@
 -- for all functions, loops, conditions, and bracketed blocks with active scope illumination.
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {227, 239, 206}
 local common = require "core.common"
 local config = require "core.config"
 local style = require "core.style"
@@ -180,7 +183,7 @@ end
 
 -- Helper to get palette-aware subtle colors
 local function get_guide_colors()
-  local bg = style.background or {227, 239, 206}
+  local bg = style.background or _COLOR_CACHE_0
   local is_dark = (bg[1] + bg[2] + bg[3]) < (128 * 3)
   local norm_op = (config.plugins.indentguide.normal_opacity or 10) / 100
   local act_op  = (config.plugins.indentguide.active_opacity or 38) / 100

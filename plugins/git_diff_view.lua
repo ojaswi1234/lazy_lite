@@ -1,5 +1,14 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {150, 255, 150, 255}
+local _COLOR_CACHE_1 = { 40, 120, 40, 50 }
+local _COLOR_CACHE_2 = { 250, 80, 80, 255 }
+local _COLOR_CACHE_3 = {255, 150, 150, 255}
+local _COLOR_CACHE_4 = { 180, 40, 40, 50 }
+local _COLOR_CACHE_5 = { 80, 200, 80, 255 }
+local _COLOR_CACHE_6 = { 40, 80, 180, 40 }
 local style = require "core.style"
 local common = require "core.common"
 local DocView = require "core.docview"
@@ -101,11 +110,11 @@ function GitDiffView:draw_line_body(line, x, y)
   if st then
     local status = st.status
     if status == "added" then
-      renderer.draw_rect(0, y, self.size.x, self:get_line_height(), { 40, 120, 40, 50 })
+      renderer.draw_rect(0, y, self.size.x, self:get_line_height(), _COLOR_CACHE_1)
     elseif status == "deleted" then
-      renderer.draw_rect(0, y, self.size.x, self:get_line_height(), { 180, 40, 40, 50 })
+      renderer.draw_rect(0, y, self.size.x, self:get_line_height(), _COLOR_CACHE_4)
     elseif status == "header" then
-      renderer.draw_rect(0, y, self.size.x, self:get_line_height(), { 40, 80, 180, 40 })
+      renderer.draw_rect(0, y, self.size.x, self:get_line_height(), _COLOR_CACHE_6)
     end
   end
   GitDiffView.super.draw_line_body(self, line, x, y)
@@ -122,18 +131,18 @@ function GitDiffView:draw_line_gutter(line, x, y, width)
 
   local status = st.status
   if status == "added" then
-    renderer.draw_rect(x, y, width, self:get_line_height(), { 40, 120, 40, 50 })
-    renderer.draw_rect(x + width - 4 * SCALE, y, 4 * SCALE, self:get_line_height(), { 80, 200, 80, 255 })
+    renderer.draw_rect(x, y, width, self:get_line_height(), _COLOR_CACHE_1)
+    renderer.draw_rect(x + width - 4 * SCALE, y, 4 * SCALE, self:get_line_height(), _COLOR_CACHE_5)
   elseif status == "deleted" then
-    renderer.draw_rect(x, y, width, self:get_line_height(), { 180, 40, 40, 50 })
-    renderer.draw_rect(x + width - 4 * SCALE, y, 4 * SCALE, self:get_line_height(), { 250, 80, 80, 255 })
+    renderer.draw_rect(x, y, width, self:get_line_height(), _COLOR_CACHE_4)
+    renderer.draw_rect(x + width - 4 * SCALE, y, 4 * SCALE, self:get_line_height(), _COLOR_CACHE_2)
   elseif status == "header" then
-    renderer.draw_rect(x, y, width, self:get_line_height(), { 40, 80, 180, 40 })
+    renderer.draw_rect(x, y, width, self:get_line_height(), _COLOR_CACHE_6)
   end
 
   local color = style.dim
-  if status == "added" then color = {150, 255, 150, 255}
-  elseif status == "deleted" then color = {255, 150, 150, 255} end
+  if status == "added" then color = _COLOR_CACHE_0
+  elseif status == "deleted" then color = _COLOR_CACHE_3 end
 
   local old_text = st.old or ""
   local new_text = st.new or ""

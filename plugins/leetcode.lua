@@ -1,3 +1,18 @@
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {255, 255, 255, 80}
+local _COLOR_CACHE_1 = {40, 180, 100, 40}
+local _COLOR_CACHE_2 = {0, 0, 0, 185}
+local _COLOR_CACHE_3 = {242, 201, 76}
+local _COLOR_CACHE_4 = {22, 26, 36, 230}
+local _COLOR_CACHE_5 = {30, 30, 42, 210}
+local _COLOR_CACHE_6 = {60, 60, 80, 60}
+local _COLOR_CACHE_7 = {20, 22, 30, 252}
+local _COLOR_CACHE_8 = {235, 87, 87}
+local _COLOR_CACHE_9 = {39, 174, 96}
+local _COLOR_CACHE_10 = {0, 0, 0, 195}
+local _COLOR_CACHE_11 = {30,40,60,200}
+local _COLOR_CACHE_12 = {70, 80, 110, 45}
 -- mod-version:3
 local core    = require "core"
 local common  = require "core.common"
@@ -2413,7 +2428,7 @@ local function draw_wrapped_line(font, text, left_x, current_y, max_w, default_c
   local cx = indent_x or left_x
   local cy = current_y
   local right_limit = left_x + max_w
-  local code_bg = {30, 30, 42, 210}
+  local code_bg = _COLOR_CACHE_5
   local code_fg = LC_COLORS.easy
   local scale = SCALE or 1
 
@@ -2514,7 +2529,7 @@ local function draw_rich_content(font, text, x, y, max_w, scroll_offset)
       in_code_block = not in_code_block
       cy = cy + lh * 0.25
     elseif in_code_block then
-      local block_bg = {22, 26, 36, 230}
+      local block_bg = _COLOR_CACHE_4
       local line_h = clh
       renderer.draw_rect(cx, cy, max_w, line_h, block_bg)
       renderer.draw_rect(cx, cy, 2 * SCALE, line_h, style.accent)
@@ -2609,7 +2624,7 @@ local function draw_rich_content(font, text, x, y, max_w, scroll_offset)
       local img_url = line:match("^%[Image:(.-)%]")
       if img_url and lc_view then
         local label = "   View diagram  "
-        renderer.draw_rect(cx, cy, max_w, lh + 4*SCALE, {30,40,60,200})
+        renderer.draw_rect(cx, cy, max_w, lh + 4*SCALE, _COLOR_CACHE_11)
         renderer.draw_text(font, label, cx + 8*SCALE, cy + 2*SCALE, LC_COLORS.accepted)
         table.insert(lc_view.image_links, {x=cx, y=cy, w=max_w, h=lh+4*SCALE, url=img_url})
       end
@@ -3510,7 +3525,7 @@ end
 
 function LeetCodeView:draw_company_modal(x, y, w, h)
   -- 1. Dark Backdrop
-  renderer.draw_rect(x, y, w, h, {0, 0, 0, 185})
+  renderer.draw_rect(x, y, w, h, _COLOR_CACHE_2)
 
   -- 2. Modal Box in middle of screen
   local mw = math.min(w - 32*SCALE, 580 * SCALE)
@@ -3668,7 +3683,7 @@ end
 
 function LeetCodeView:draw_pattern_modal(x, y, w, h)
   -- 1. Dark Backdrop
-  renderer.draw_rect(x, y, w, h, {0, 0, 0, 195})
+  renderer.draw_rect(x, y, w, h, _COLOR_CACHE_10)
 
   -- 2. Modal Dialog Window - Spacious and Responsive
   local mw = math.min(w - 24*SCALE, 760 * SCALE)
@@ -4211,9 +4226,9 @@ function LeetCodeView:draw_assessment_loading(cx, cy, cw, ch)
   local tbar_h = 24 * SCALE
   renderer.draw_rect(cx, cy, cw, tbar_h, style.background3)
   -- Simulated macOS dots
-  renderer.draw_rect(cx + 8 * SCALE, cy + 7 * SCALE, 8 * SCALE, 8 * SCALE, {235, 87, 87})
-  renderer.draw_rect(cx + 20 * SCALE, cy + 7 * SCALE, 8 * SCALE, 8 * SCALE, {242, 201, 76})
-  renderer.draw_rect(cx + 32 * SCALE, cy + 7 * SCALE, 8 * SCALE, 8 * SCALE, {39, 174, 96})
+  renderer.draw_rect(cx + 8 * SCALE, cy + 7 * SCALE, 8 * SCALE, 8 * SCALE, _COLOR_CACHE_8)
+  renderer.draw_rect(cx + 20 * SCALE, cy + 7 * SCALE, 8 * SCALE, 8 * SCALE, _COLOR_CACHE_3)
+  renderer.draw_rect(cx + 32 * SCALE, cy + 7 * SCALE, 8 * SCALE, 8 * SCALE, _COLOR_CACHE_9)
 
   local elapsed = os.clock() - (ldr.start_time or os.clock())
   local el_str = string.format("Elapsed: %.1fs", elapsed)
@@ -5013,7 +5028,7 @@ function LeetCodeView:draw()
       else
         local toast_h = 22*SCALE
         local tw = math.min(cw, style.font:get_width(self.update_result) + 20*SCALE)
-        renderer.draw_rect(cx, cy, tw, toast_h, {40, 180, 100, 40})
+        renderer.draw_rect(cx, cy, tw, toast_h, _COLOR_CACHE_1)
         renderer.draw_rect(cx, cy, tw, 1*SCALE, LC_COLORS.accepted or style.accent)
         renderer.draw_text(style.font, self.update_result, cx + 8*SCALE, cy + 3*SCALE, LC_COLORS.accepted or style.accent)
         cy = cy + toast_h + 8*SCALE
@@ -5262,7 +5277,7 @@ function LeetCodeView:draw()
           cpx = cx
           cy = cy + 22*SCALE
         end
-        renderer.draw_rect(cpx, cy, tog_w, 18*SCALE, {60, 60, 80, 60})
+        renderer.draw_rect(cpx, cy, tog_w, 18*SCALE, _COLOR_CACHE_6)
         renderer.draw_text(style.font, tog_lbl, cpx + 6*SCALE, cy + 2*SCALE, style.accent)
         table.insert(self.company_pill_rects, {x=cpx, y=cy, w=tog_w, h=18*SCALE, _is_toggle=true})
       end
@@ -5286,7 +5301,7 @@ function LeetCodeView:draw()
           tpx = cx
           cy = cy + 22*SCALE
         end
-        renderer.draw_rect(tpx, cy, tw_pill, 18*SCALE, {70, 80, 110, 45})
+        renderer.draw_rect(tpx, cy, tw_pill, 18*SCALE, _COLOR_CACHE_12)
         renderer.draw_text(style.font, tag, tpx + 6*SCALE, cy + 2*SCALE, style.text)
         tpx = tpx + tw_pill + 6*SCALE
       end
@@ -5299,7 +5314,7 @@ function LeetCodeView:draw()
           tpx = cx
           cy = cy + 22*SCALE
         end
-        renderer.draw_rect(tpx, cy, tog_w, 18*SCALE, {60, 60, 80, 60})
+        renderer.draw_rect(tpx, cy, tog_w, 18*SCALE, _COLOR_CACHE_6)
         renderer.draw_text(style.font, tog_lbl, tpx + 6*SCALE, cy + 2*SCALE, style.accent)
         table.insert(self.topic_pill_rects, {x=tpx, y=cy, w=tog_w, h=18*SCALE, _is_toggle=true})
       end
@@ -5341,7 +5356,7 @@ function LeetCodeView:draw()
         lx = cx
         cy = cy + 22*SCALE
       end
-      renderer.draw_rect(lx, cy, tog_w, 20*SCALE, {60, 60, 80, 60})
+      renderer.draw_rect(lx, cy, tog_w, 20*SCALE, _COLOR_CACHE_6)
       renderer.draw_text(style.font, tog_lbl, lx + 6*SCALE, cy + 2*SCALE, style.accent)
       table.insert(self.lang_buttons, {x=lx, y=cy, w=tog_w, h=20*SCALE, _is_toggle=true})
     end
@@ -5473,7 +5488,7 @@ function LeetCodeView:draw()
         {style.accent[1], style.accent[2], style.accent[3], 220})
       -- shimmer at leading edge
       renderer.draw_rect(bar_x + fill_w - 4*SCALE, bar_y, 4*SCALE, bar_h,
-        {255, 255, 255, 80})
+        _COLOR_CACHE_0)
     end
     -- percentage text
     renderer.draw_text(style.font, pct_str,
@@ -5507,7 +5522,7 @@ function LeetCodeView:draw()
     self.trend_panel_rect = {x=panel_x, y=panel_y, w=panel_w, h=panel_h}
 
     -- backdrop
-    renderer.draw_rect(panel_x, panel_y, panel_w, panel_h, {20, 22, 30, 252})
+    renderer.draw_rect(panel_x, panel_y, panel_w, panel_h, _COLOR_CACHE_7)
     renderer.draw_rect(panel_x, panel_y, 1*SCALE, panel_h, style.accent)
 
     local px = panel_x + 14*SCALE

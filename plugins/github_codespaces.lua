@@ -1,5 +1,19 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 100, 200, 150, 255 }
+local _COLOR_CACHE_1 = {100, 255, 100, 255}
+local _COLOR_CACHE_2 = { 150, 150, 160, 255 }
+local _COLOR_CACHE_3 = { 255, 150, 50, 255 }
+local _COLOR_CACHE_4 = { 255, 80, 80, 255 }
+local _COLOR_CACHE_5 = {255, 100, 100, 255}
+local _COLOR_CACHE_6 = {100, 100, 110, 255}
+local _COLOR_CACHE_7 = { 10, 10, 15, 180 }
+local _COLOR_CACHE_8 = { 100, 255, 100, 255 }
+local _COLOR_CACHE_9 = {20, 20, 25, 255}
+local _COLOR_CACHE_10 = { 150, 150, 150, 255 }
+local _COLOR_CACHE_11 = {255, 255, 255, 255}
 local command = require "core.command"
 local common = require "core.common"
 local style = require "core.style"
@@ -894,7 +908,7 @@ if status_view then
     name = "codespaces",
     alignment = status_view.Item.RIGHT,
     get_item = function()
-      local color = core.active_codespace and {100, 255, 100, 255} or (modal.active and style.accent or style.text)
+      local color = core.active_codespace and _COLOR_CACHE_1 or (modal.active and style.accent or style.text)
       local text = core.active_codespace and (" " .. core.active_codespace.name) or " GitHub Codespaces"
       
       if core.active_codespace then
@@ -908,7 +922,7 @@ if status_view then
           local alpha = 155 + math.floor(100 * math.sin(system.get_time() * 4))
           dot_color = {100, 255, 100, alpha}
         else
-          dot_color = {255, 100, 100, 255}
+          dot_color = _COLOR_CACHE_5
         end
         return { color, style.icon_font, "", style.font, text, dot_color, style.font, " ●" }
       end
@@ -952,11 +966,11 @@ function core.root_view:draw()
   local x = (self.size.x - w) / 2
   local y = (self.size.y - h) / 2
   
-  renderer.draw_rect(0, 0, self.size.x, self.size.y, { 10, 10, 15, 180 })
+  renderer.draw_rect(0, 0, self.size.x, self.size.y, _COLOR_CACHE_7)
   renderer.draw_rect(x, y, w, h, style.background)
   
   local border = 2 * SCALE
-  local accent = { 100, 200, 150, 255 }
+  local accent = _COLOR_CACHE_0
   renderer.draw_rect(x, y, w, border, accent)
   renderer.draw_rect(x, y + h - border, w, border, accent)
   renderer.draw_rect(x, y, border, h, accent)
@@ -985,13 +999,13 @@ function core.root_view:draw()
     local iw = w - 60 * SCALE
     local ix = x + 30 * SCALE
     local iy = y + 100 * SCALE
-    renderer.draw_rect(ix, iy, iw, 35 * SCALE, style.background2 or {20, 20, 25, 255})
+    renderer.draw_rect(ix, iy, iw, 35 * SCALE, style.background2 or _COLOR_CACHE_9)
     renderer.draw_rect(ix, iy, iw, 1 * SCALE, style.dim)
     
     local display = #modal.token_input > 0 and string.rep("*", #modal.token_input) or "Paste Personal Access Token here..."
-    local color = #modal.token_input > 0 and {255, 255, 255, 255} or {100, 100, 110, 255}
+    local color = #modal.token_input > 0 and _COLOR_CACHE_11 or _COLOR_CACHE_6
     renderer.draw_text(style.font, display, ix + 10 * SCALE, iy + 10 * SCALE, color)
-    renderer.draw_text(style.font, "Press ENTER to login or ESC to cancel.", ix, iy + 50 * SCALE, { 150, 150, 160, 255 })
+    renderer.draw_text(style.font, "Press ENTER to login or ESC to cancel.", ix, iy + 50 * SCALE, _COLOR_CACHE_2)
   
   elseif modal.state == "list" then
     renderer.draw_text(style.font, "Select a Codespace to connect:", x + 30 * SCALE, y + 60 * SCALE, style.dim)
@@ -1002,20 +1016,20 @@ function core.root_view:draw()
       renderer.draw_text(style.font, cs.name .. " (" .. cs.repo .. ")", x + 40 * SCALE, iy + 10 * SCALE, style.text)
       
       local state_text = cs.state
-      local state_color = (state_text == "Available") and { 100, 255, 100, 255 } or { 150, 150, 150, 255 }
+      local state_color = (state_text == "Available") and _COLOR_CACHE_8 or _COLOR_CACHE_10
       
       local icon_font = style.icon_font or style.font
       local stop_icon = ""
       local stop_w = icon_font:get_width(stop_icon)
       local stop_x = x + w - 40 * SCALE - stop_w
-      renderer.draw_text(icon_font, stop_icon, stop_x, iy + 10 * SCALE, { 255, 80, 80, 255 })
+      renderer.draw_text(icon_font, stop_icon, stop_x, iy + 10 * SCALE, _COLOR_CACHE_4)
       
       local state_x = stop_x - style.font:get_width(state_text) - 15 * SCALE
       renderer.draw_text(style.font, state_text, state_x, iy + 10 * SCALE, state_color)
       
       -- Add connection status indicator if connected
       if core.active_codespace and core.active_codespace.name == cs.name then
-        local conn_color = state.metrics.offline_mode and { 255, 150, 50, 255 } or { 100, 255, 100, 255 }
+        local conn_color = state.metrics.offline_mode and _COLOR_CACHE_3 or _COLOR_CACHE_8
         local conn_text = state.metrics.offline_mode and "OFFLINE" or "CONNECTED"
         local conn_x = state_x - style.font:get_width(conn_text) - 15 * SCALE
         renderer.draw_text(style.font, conn_text, conn_x, iy + 10 * SCALE, conn_color)

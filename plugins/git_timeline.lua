@@ -1,5 +1,25 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {255, 100, 100}
+local _COLOR_CACHE_1 = {210,  90, 220}
+local _COLOR_CACHE_2 = {255, 170,  50}
+local _COLOR_CACHE_3 = { 80, 210, 210}
+local _COLOR_CACHE_4 = {255, 215,  80}
+local _COLOR_CACHE_5 = {180,  80,  80, 255}
+local _COLOR_CACHE_6 = {255,255,255,20}
+local _COLOR_CACHE_7 = {255, 100, 100, 255}
+local _COLOR_CACHE_8 = {100, 180, 255}
+local _COLOR_CACHE_9 = {150, 100, 220, 255}
+local _COLOR_CACHE_10 = {0, 0, 0}
+local _COLOR_CACHE_11 = {255,255,255,15}
+local _COLOR_CACHE_12 = {100, 180, 255, 255}
+local _COLOR_CACHE_13 = {220,80,80,255}
+local _COLOR_CACHE_14 = {255, 255, 255, 255}
+local _COLOR_CACHE_15 = {255, 255, 255, 10}
+local _COLOR_CACHE_16 = {100, 220, 100}
+local _COLOR_CACHE_17 = {100, 210, 100, 255}
 local command = require "core.command"
 local style = require "core.style"
 local View = require "core.view"
@@ -51,13 +71,13 @@ local config = {
   date_min_w     = 60,   -- minimum width reserved for date column (pre-scale)
   author_min_w   = 60,   -- minimum width reserved for author column (pre-scale)
   branch_colors  = {
-    {100, 180, 255},  -- blue  (main/master)
-    {100, 220, 100},  -- green
-    {255, 170,  50},  -- orange
-    {210,  90, 220},  -- purple
-    {255, 100, 100},  -- red
-    { 80, 210, 210},  -- cyan
-    {255, 215,  80},  -- yellow
+    _COLOR_CACHE_8,  -- blue  (main/master)
+    _COLOR_CACHE_16,  -- green
+    _COLOR_CACHE_2,  -- orange
+    _COLOR_CACHE_1,  -- purple
+    _COLOR_CACHE_0,  -- red
+    _COLOR_CACHE_3,  -- cyan
+    _COLOR_CACHE_4,  -- yellow
   },
 }
 
@@ -106,9 +126,9 @@ end
 
 local function status_color(state)
   state = (state or ""):lower()
-  if state == "open"   then return {100, 210, 100, 255} end
-  if state == "closed" then return {180,  80,  80, 255} end
-  if state == "merged" then return {150, 100, 220, 255} end
+  if state == "open"   then return _COLOR_CACHE_17 end
+  if state == "closed" then return _COLOR_CACHE_5 end
+  if state == "merged" then return _COLOR_CACHE_9 end
   return style.text
 end
 
@@ -145,7 +165,7 @@ function GitTimelineView:new()
   self.sf = small_font()
   self.small_font = self.sf
   self.row_height = math.floor(self.sf:get_height() * SCALE * 1.5 + 4 * SCALE)
-  self.scroll_pos = {0, 0, 0}
+  self.scroll_pos = _COLOR_CACHE_10
   
   self.size.y = 300 * SCALE
 
@@ -318,7 +338,7 @@ function GitTimelineView:update_commits()
           message = "Uncommitted Changes",
           author = "You",
           date = "now",
-          color = {255, 255, 255, 255},
+          color = _COLOR_CACHE_14,
           row_index = 1,
           column = 0
         })
@@ -580,7 +600,7 @@ function GitTimelineView:draw()
     local tab_fg = is_active and style.text or style.dim
     renderer.draw_rect(math.floor(tx), tab_y, math.ceil(tw), tab_h, tab_bg)
     if is_active then
-      local accent = style.accent or {100, 180, 255, 255}
+      local accent = style.accent or _COLOR_CACHE_12
       renderer.draw_rect(math.floor(tx), tab_y + tab_h - 2*SCALE, math.ceil(tw), math.ceil(2*SCALE), accent)
     end
     renderer.draw_text(sf, label, math.floor(tx + 8*SCALE), tab_y + math.floor((tab_h - sf:get_height()*SCALE) * 0.5), tab_fg)
@@ -601,7 +621,7 @@ function GitTimelineView:draw()
     if self.loading then
       renderer.draw_text(sf, "Loading commits...", x + config.margin_left * SCALE, content_y + config.margin_top * SCALE, style.text)
     elseif self.error_msg then
-      renderer.draw_text(sf, self.error_msg, x + config.margin_left * SCALE, content_y + config.margin_top * SCALE, {255, 100, 100, 255})
+      renderer.draw_text(sf, self.error_msg, x + config.margin_left * SCALE, content_y + config.margin_top * SCALE, _COLOR_CACHE_7)
     elseif #self.commits == 0 then
       renderer.draw_text(sf, "No commits found.", x + config.margin_left * SCALE, content_y + config.margin_top * SCALE, style.dim)
     else
@@ -616,7 +636,7 @@ function GitTimelineView:draw()
     if self.gh_loading[gh_idx] then
       renderer.draw_text(sf, "Loading...", x + 12*SCALE, content_y + 12*SCALE, style.dim)
     elseif self.gh_error[gh_idx] then
-      renderer.draw_text(sf, "Error:", x + 12*SCALE, content_y + 10*SCALE, {220,80,80,255})
+      renderer.draw_text(sf, "Error:", x + 12*SCALE, content_y + 10*SCALE, _COLOR_CACHE_13)
       renderer.draw_text(sf, self.gh_error[gh_idx], x + 12*SCALE, content_y + 10*SCALE + sf:get_height()*SCALE + 4*SCALE, style.dim)
     else
       local items = self.gh_items[gh_idx]
@@ -644,10 +664,10 @@ function GitTimelineView:draw_gh_items(items, gh_idx, x, content_y, w, content_h
     if iy + row_h < content_y or iy > content_y + content_h then goto skip end
 
     if self.gh_hovered == i then
-      renderer.draw_rect(x, iy, w, row_h, style.line_highlight or {255,255,255,15})
+      renderer.draw_rect(x, iy, w, row_h, style.line_highlight or _COLOR_CACHE_11)
     end
     if i > 1 then
-      renderer.draw_rect(x + pad, iy, w - pad*2, math.ceil(SCALE), style.divider or {255,255,255,20})
+      renderer.draw_rect(x + pad, iy, w - pad*2, math.ceil(SCALE), style.divider or _COLOR_CACHE_6)
     end
 
     local state = item.state or "open"
@@ -749,7 +769,7 @@ function GitTimelineView:draw_commits(start_y, layout)
 
     -- "?"? ACTIVE COMMIT HIGHLIGHT "?"?
     if core.git_active_commit == commit.hash then
-      local hl_bg = (style.mossy and style.mossy.hover_row) or style.line_highlight or {255, 255, 255, 10}
+      local hl_bg = (style.mossy and style.mossy.hover_row) or style.line_highlight or _COLOR_CACHE_15
       renderer.draw_rect(self.position.x, cy - rh * 0.5, self.size.x, rh, hl_bg)
     end
 
@@ -802,7 +822,7 @@ function GitTimelineView:draw_commits(start_y, layout)
                          math.ceil(badge_w), badge_h, bg)
       renderer.draw_text(sf, label,
                          math.floor(tx + config.pad_h * 0.5 * SCALE),
-                         ty, {255, 255, 255, 255})
+                         ty, _COLOR_CACHE_14)
       tx = tx + badge_w + math.floor(ph * 0.5)
     end
 

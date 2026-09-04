@@ -5,6 +5,31 @@
 -- as the user types a single character.
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 0, 0, 0, 35 }
+local _COLOR_CACHE_1 = { 140, 215, 160 }
+local _COLOR_CACHE_2 = { 0, 0, 0, 14 }
+local _COLOR_CACHE_3 = { 255, 255, 255, 22 }
+local _COLOR_CACHE_4 = { 90, 110, 100, 180 }
+local _COLOR_CACHE_5 = { 0, 0, 0, 18 }
+local _COLOR_CACHE_6 = { 245, 250, 245, 230 }
+local _COLOR_CACHE_7 = { 40, 110, 70 }
+local _COLOR_CACHE_8 = { 40, 55, 45, 230 }
+local _COLOR_CACHE_9 = { 45, 115, 75 }
+local _COLOR_CACHE_10 = { 65, 80, 70, 190 }
+local _COLOR_CACHE_11 = { 255, 255, 255, 18 }
+local _COLOR_CACHE_12 = { 110, 130, 120, 150 }
+local _COLOR_CACHE_13 = { 30, 45, 35, 240 }
+local _COLOR_CACHE_14 = { 160, 180, 170, 150 }
+local _COLOR_CACHE_15 = { 0, 0, 0, 25 }
+local _COLOR_CACHE_16 = { 140, 160, 150, 130 }
+local _COLOR_CACHE_17 = { 235, 245, 240, 220 }
+local _COLOR_CACHE_18 = { 255, 255, 255, 25 }
+local _COLOR_CACHE_19 = { 30, 30, 30 }
+local _COLOR_CACHE_20 = { 255, 255, 255, 45 }
+local _COLOR_CACHE_21 = { 200, 215, 205, 160 }
+local _COLOR_CACHE_22 = { 130, 205, 150 }
 local common = require "core.common"
 local style = require "core.style"
 local DocView = require "core.docview"
@@ -300,42 +325,42 @@ local function is_leetcode_doc(doc)
 end
 
 local function get_theme_palette()
-  local bg = style.background or { 30, 30, 30 }
+  local bg = style.background or _COLOR_CACHE_19
   local lum = 0.299 * (bg[1] or 0) + 0.587 * (bg[2] or 0) + 0.114 * (bg[3] or 0)
   local is_dark = lum < 128
 
   if is_dark then
     return {
       card_bg      = { math.max(0, bg[1] - 4), math.max(0, bg[2] - 4), math.max(0, bg[3] - 4), 220 },
-      border_col   = { 255, 255, 255, 25 },
+      border_col   = _COLOR_CACHE_18,
       badge_bg     = { (style.accent and style.accent[1] or 104), (style.accent and style.accent[2] or 193), (style.accent and style.accent[3] or 113), 35 },
-      badge_text   = style.accent or { 140, 215, 160 },
-      title_col    = { 235, 245, 240, 220 },
-      desc_col     = { 160, 180, 170, 150 },
-      sec_hdr_col  = style.accent or { 130, 205, 150 },
-      key_bg       = { 255, 255, 255, 22 },
-      key_border   = { 255, 255, 255, 45 },
-      key_text     = { 245, 250, 245, 230 },
-      label_col    = { 200, 215, 205, 160 },
-      hint_col     = { 140, 160, 150, 130 },
-      divider_col  = { 255, 255, 255, 18 }
+      badge_text   = style.accent or _COLOR_CACHE_1,
+      title_col    = _COLOR_CACHE_17,
+      desc_col     = _COLOR_CACHE_14,
+      sec_hdr_col  = style.accent or _COLOR_CACHE_22,
+      key_bg       = _COLOR_CACHE_3,
+      key_border   = _COLOR_CACHE_20,
+      key_text     = _COLOR_CACHE_6,
+      label_col    = _COLOR_CACHE_21,
+      hint_col     = _COLOR_CACHE_16,
+      divider_col  = _COLOR_CACHE_11
     }
   else
     -- Light Theme
     return {
       card_bg      = { math.min(255, bg[1] + 6), math.min(255, bg[2] + 6), math.min(255, bg[3] + 6), 230 },
-      border_col   = { 0, 0, 0, 25 },
+      border_col   = _COLOR_CACHE_15,
       badge_bg     = { (style.accent and style.accent[1] or 60), (style.accent and style.accent[2] or 130), (style.accent and style.accent[3] or 90), 30 },
-      badge_text   = style.accent or { 40, 110, 70 },
-      title_col    = { 40, 55, 45, 230 },
-      desc_col     = { 90, 110, 100, 180 },
-      sec_hdr_col  = style.accent or { 45, 115, 75 },
-      key_bg       = { 0, 0, 0, 14 },
-      key_border   = { 0, 0, 0, 35 },
-      key_text     = { 30, 45, 35, 240 },
-      label_col    = { 65, 80, 70, 190 },
-      hint_col     = { 110, 130, 120, 150 },
-      divider_col  = { 0, 0, 0, 18 }
+      badge_text   = style.accent or _COLOR_CACHE_7,
+      title_col    = _COLOR_CACHE_8,
+      desc_col     = _COLOR_CACHE_4,
+      sec_hdr_col  = style.accent or _COLOR_CACHE_9,
+      key_bg       = _COLOR_CACHE_2,
+      key_border   = _COLOR_CACHE_0,
+      key_text     = _COLOR_CACHE_13,
+      label_col    = _COLOR_CACHE_10,
+      hint_col     = _COLOR_CACHE_12,
+      divider_col  = _COLOR_CACHE_5
     }
   end
 end

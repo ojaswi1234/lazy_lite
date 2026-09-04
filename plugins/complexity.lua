@@ -1,5 +1,20 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {255, 165, 0, 255}
+local _COLOR_CACHE_1 = {18, 22, 34, 235}
+local _COLOR_CACHE_2 = {100, 255, 100, 255}
+local _COLOR_CACHE_3 = {115, 205, 255, 255}
+local _COLOR_CACHE_4 = {55, 75, 110, 220}
+local _COLOR_CACHE_5 = {255, 255, 0, 255}
+local _COLOR_CACHE_6 = {255, 0, 255, 255}
+local _COLOR_CACHE_7 = {120, 245, 170, 255}
+local _COLOR_CACHE_8 = {255, 110, 110, 255}
+local _COLOR_CACHE_9 = {150, 150, 160, 255}
+local _COLOR_CACHE_10 = {255, 210, 90, 255}
+local _COLOR_CACHE_11 = {255, 50, 50, 255}
+local _COLOR_CACHE_12 = {0, 255, 0, 255}
 local command = require "core.command"
 local style = require "core.style"
 local keymap = require "core.keymap"
@@ -246,9 +261,9 @@ DocView.draw = function(self, ...)
     local sep = " | "
     local sc_label = "SC: " .. sc_str
 
-    local tc_col = (tc_str:match("O%(1%)") or tc_str:match("log") or tc_str:match("O%(N%)")) and {120, 245, 170, 255}
-      or (tc_str:match("O%(N log N%)") and {255, 210, 90, 255} or {255, 110, 110, 255})
-    local sc_col = {115, 205, 255, 255}
+    local tc_col = (tc_str:match("O%(1%)") or tc_str:match("log") or tc_str:match("O%(N%)")) and _COLOR_CACHE_7
+      or (tc_str:match("O%(N log N%)") and _COLOR_CACHE_10 or _COLOR_CACHE_8)
+    local sc_col = _COLOR_CACHE_3
 
     local w_tc = font:get_width(tc_label)
     local w_sep = font:get_width(sep)
@@ -263,18 +278,18 @@ DocView.draw = function(self, ...)
     local by = self.position.y + 6 * scale
 
     -- Outer pill background & border
-    renderer.draw_rect(bx, by, bw, bh, {18, 22, 34, 235})
-    renderer.draw_rect(bx, by, bw, 1 * scale, {55, 75, 110, 220})
-    renderer.draw_rect(bx, by + bh - 1 * scale, bw, 1 * scale, {55, 75, 110, 220})
-    renderer.draw_rect(bx, by, 1 * scale, bh, {55, 75, 110, 220})
-    renderer.draw_rect(bx + bw - 1 * scale, by, 1 * scale, bh, {55, 75, 110, 220})
+    renderer.draw_rect(bx, by, bw, bh, _COLOR_CACHE_1)
+    renderer.draw_rect(bx, by, bw, 1 * scale, _COLOR_CACHE_4)
+    renderer.draw_rect(bx, by + bh - 1 * scale, bw, 1 * scale, _COLOR_CACHE_4)
+    renderer.draw_rect(bx, by, 1 * scale, bh, _COLOR_CACHE_4)
+    renderer.draw_rect(bx + bw - 1 * scale, by, 1 * scale, bh, _COLOR_CACHE_4)
 
     -- Text rendering
     local tx = bx + pad_x
     local ty = by + pad_y
     renderer.draw_text(font, tc_label, tx, ty, tc_col)
     tx = tx + w_tc
-    renderer.draw_text(font, sep, tx, ty, style.dim or {150, 150, 160, 255})
+    renderer.draw_text(font, sep, tx, ty, style.dim or _COLOR_CACHE_9)
     tx = tx + w_sep
     renderer.draw_text(font, sc_label, tx, ty, sc_col)
   end
@@ -295,12 +310,12 @@ local function draw_graph(cx, cy, w, h, user_tc)
   local max_y = 400
   
   local curves = {
-    { label = "O(1)",       func = function(n) return 10 end, color = {0, 255, 0, 255} },
-    { label = "O(log N)",   func = function(n) return math.log(n + 1) * 20 end, color = {100, 255, 100, 255} },
-    { label = "O(N)",       func = function(n) return n * 15 end, color = {255, 255, 0, 255} },
-    { label = "O(N log N)", func = function(n) return n * math.log(n + 1) * 5 end, color = {255, 165, 0, 255} },
-    { label = "O(N^2)",     func = function(n) return n * n end, color = {255, 50, 50, 255} },
-    { label = "O(2^N)",     func = function(n) return (2 ^ (n / 2)) * 2 end, color = {255, 0, 255, 255} }
+    { label = "O(1)",       func = function(n) return 10 end, color = _COLOR_CACHE_12 },
+    { label = "O(log N)",   func = function(n) return math.log(n + 1) * 20 end, color = _COLOR_CACHE_2 },
+    { label = "O(N)",       func = function(n) return n * 15 end, color = _COLOR_CACHE_5 },
+    { label = "O(N log N)", func = function(n) return n * math.log(n + 1) * 5 end, color = _COLOR_CACHE_0 },
+    { label = "O(N^2)",     func = function(n) return n * n end, color = _COLOR_CACHE_11 },
+    { label = "O(2^N)",     func = function(n) return (2 ^ (n / 2)) * 2 end, color = _COLOR_CACHE_6 }
   }
   
   local colors = {

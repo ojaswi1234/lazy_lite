@@ -1,6 +1,12 @@
 -- mod-version:3
 -- VS Code style Activity Bar for Lite XL
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {100, 180, 255, 255}
+local _COLOR_CACHE_1 = { 255, 255, 255, 15 }
+local _COLOR_CACHE_2 = { 255, 255, 255, 30 }
+local _COLOR_CACHE_3 = {255, 255, 255, 255}
 local config = require "core.config"
 local command = require "core.command"
 local keymap = require "core.keymap"
@@ -132,7 +138,7 @@ function ActivityBar:draw()
       renderer.draw_rect(x, item_y, 2 * SCALE, cell, style.accent)
     end
     if hovered then
-      renderer.draw_rect(x, item_y, self.size.x, cell, { 255, 255, 255, 15 })
+      renderer.draw_rect(x, item_y, self.size.x, cell, _COLOR_CACHE_1)
     end
     
     local icon_w = style.icon_font:get_width(item.icon)
@@ -152,10 +158,10 @@ function ActivityBar:draw()
     local hovered = self.mouse_y and self.mouse_y >= auth_y and self.mouse_y < auth_y + cell
 
     -- Subtle separator line above auth button
-    renderer.draw_rect(x + 8 * SCALE, auth_y, self.size.x - 16 * SCALE, math.max(1, SCALE), { 255, 255, 255, 30 })
+    renderer.draw_rect(x + 8 * SCALE, auth_y, self.size.x - 16 * SCALE, math.max(1, SCALE), _COLOR_CACHE_2)
 
     if hovered then
-      renderer.draw_rect(x, auth_y, self.size.x, cell, { 255, 255, 255, 15 })
+      renderer.draw_rect(x, auth_y, self.size.x, cell, _COLOR_CACHE_1)
     end
 
     local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
@@ -200,7 +206,7 @@ function ActivityBar:draw()
       local ax = x + (self.size.x - avatar_size) / 2
       local ay = auth_y + (cell - avatar_size) / 2
       local r = 6 * SCALE  -- corner clip radius
-      local accent = style.accent or {100, 180, 255, 255}
+      local accent = style.accent or _COLOR_CACHE_0
 
       -- Main filled square
       renderer.draw_rect(ax, ay, avatar_size, avatar_size, accent)
@@ -216,7 +222,7 @@ function ActivityBar:draw()
       local fh = style.font:get_height()
       local lx = ax + (avatar_size - fw) / 2
       local ly = ay + (avatar_size - fh) / 2
-      renderer.draw_text(style.font, initial, lx, ly, {255, 255, 255, 255})
+      renderer.draw_text(style.font, initial, lx, ly, _COLOR_CACHE_3)
     else
       -- Not logged in: show key icon
       local auth_color = hovered and style.text or style.dim

@@ -8,6 +8,33 @@
 -- 5. Complete internal containment - strictly inside Lite XL (zero external browser popups)
 
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = { 60, 80, 65 }
+local _COLOR_CACHE_1 = { 230, 235, 230 }
+local _COLOR_CACHE_2 = { 255, 170, 0, 230 }
+local _COLOR_CACHE_3 = { 104, 193, 113 }
+local _COLOR_CACHE_4 = { 30, 120, 255, 180 }
+local _COLOR_CACHE_5 = { 24, 30, 26 }
+local _COLOR_CACHE_6 = { 25, 30, 26 }
+local _COLOR_CACHE_7 = { 104, 193, 113, 60 }
+local _COLOR_CACHE_8 = { 140, 150, 145 }
+local _COLOR_CACHE_9 = { 255, 175, 0, 220 }
+local _COLOR_CACHE_10 = { 255, 255, 255 }
+local _COLOR_CACHE_11 = { 240, 245, 240 }
+local _COLOR_CACHE_12 = { 160, 175, 165 }
+local _COLOR_CACHE_13 = { 35, 45, 38 }
+local _COLOR_CACHE_14 = { 255, 220, 0, 110 }
+local _COLOR_CACHE_15 = { 245, 245, 245 }
+local _COLOR_CACHE_16 = { 20, 26, 22 }
+local _COLOR_CACHE_17 = { 70, 90, 75 }
+local _COLOR_CACHE_18 = { 50, 65, 55 }
+local _COLOR_CACHE_19 = { 235, 100, 100 }
+local _COLOR_CACHE_20 = { 70, 140, 255, 160 }
+local _COLOR_CACHE_21 = { 100, 120, 105 }
+local _COLOR_CACHE_22 = { 255, 225, 50, 120 }
+local _COLOR_CACHE_23 = { 0, 0, 0, 140 }
+local _COLOR_CACHE_24 = { 51, 153, 255, 110 }
 local common = require "core.common"
 local config = require "core.config"
 local command = require "core.command"
@@ -533,8 +560,8 @@ function PdfView:draw_toolbar()
   local h = self.toolbar_h
   
   -- Toolbar background
-  local bg = style.background3 or { 24, 30, 26 }
-  local border = style.divider or { 50, 65, 55 }
+  local bg = style.background3 or _COLOR_CACHE_5
+  local border = style.divider or _COLOR_CACHE_18
   renderer.draw_rect(x, y, w, h, bg)
   renderer.draw_rect(x, y + h - 1, w, 1, border)
   
@@ -546,10 +573,10 @@ function PdfView:draw_toolbar()
   local function draw_btn(id, label, active, bw)
     bw = bw or (style.font:get_width(label) + 16 * SCALE)
     local is_hover = self.hovered_btn == id
-    local btn_bg = active and (style.accent or { 104, 193, 113 })
-                    or (is_hover and (style.background2 or { 35, 45, 38 }) or bg)
-    local btn_fg = active and (style.background or { 20, 26, 22 })
-                    or (is_hover and (style.text or { 240, 245, 240 }) or (style.dim or { 160, 175, 165 }))
+    local btn_bg = active and (style.accent or _COLOR_CACHE_3)
+                    or (is_hover and (style.background2 or _COLOR_CACHE_13) or bg)
+    local btn_fg = active and (style.background or _COLOR_CACHE_16)
+                    or (is_hover and (style.text or _COLOR_CACHE_11) or (style.dim or _COLOR_CACHE_12))
     
     renderer.draw_rect(bx, by, bw, bh, btn_bg)
     renderer.draw_rect(bx, by, bw, bh, border)
@@ -592,16 +619,16 @@ function PdfView:draw_toolbar()
   local sw = style.font:get_width(search_lbl) + 18 * SCALE
   local sx = x + w - sw - 12 * SCALE
   local s_hover = self.hovered_btn == "search"
-  renderer.draw_rect(sx, by, sw, bh, s_hover and (style.background2 or { 35, 45, 38 }) or bg)
+  renderer.draw_rect(sx, by, sw, bh, s_hover and (style.background2 or _COLOR_CACHE_13) or bg)
   renderer.draw_rect(sx, by, sw, bh, border)
-  common.draw_text(style.font, self.search_query and (style.accent or { 104, 193, 113 }) or style.dim, search_lbl, "center", sx, by, sw, bh)
+  common.draw_text(style.font, self.search_query and (style.accent or _COLOR_CACHE_3) or style.dim, search_lbl, "center", sx, by, sw, bh)
   table.insert(self.toolbar_buttons, { id = "search", x = sx, y = by, w = sw, h = bh })
 end
 
 function PdfView:draw_browsh_page(page_data, cx, cy)
   local cols = page_data.cols or 110
   local rows = page_data.rows or 60
-  local raw_bg = page_data.bg or { 255, 255, 255 }
+  local raw_bg = page_data.bg or _COLOR_CACHE_10
   local page_bg = invert_color(raw_bg, self.inverted)
   local font = self.font
   local char_w = math.max(6, font:get_width(" ")) * self.zoom
@@ -611,8 +638,8 @@ function PdfView:draw_browsh_page(page_data, cx, cy)
   local ph = rows * lh
   
   -- Card Drop Shadow & Border
-  renderer.draw_rect(cx - 6, cy - 6, pw + 12, ph + 12, { 0, 0, 0, 140 })
-  renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or { 70, 90, 75 })
+  renderer.draw_rect(cx - 6, cy - 6, pw + 12, ph + 12, _COLOR_CACHE_23)
+  renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or _COLOR_CACHE_17)
   -- Clean Paper Canvas
   renderer.draw_rect(cx, cy, pw, ph, page_bg)
   
@@ -644,7 +671,7 @@ function PdfView:draw_browsh_page(page_data, cx, cy)
     local r = line[1]
     local col = line[2]
     local str = line[3]
-    local raw_fg = line[4] or { 25, 30, 26 }
+    local raw_fg = line[4] or _COLOR_CACHE_6
     local fg = invert_color(raw_fg, self.inverted)
     
     local ry = cy + r * lh
@@ -689,8 +716,8 @@ function PdfView:draw_browsh_page(page_data, cx, cy)
         local rh = math.max(4, match.rect[4] * ph)
         
         if ry + rh >= view_top and ry <= view_bot then
-          renderer.draw_rect(rx - 2, ry - 1, rw + 4, rh + 2, { 255, 220, 0, 110 })
-          renderer.draw_rect(rx - 2, ry - 1, rw + 4, rh + 2, { 255, 170, 0, 230 })
+          renderer.draw_rect(rx - 2, ry - 1, rw + 4, rh + 2, _COLOR_CACHE_14)
+          renderer.draw_rect(rx - 2, ry - 1, rw + 4, rh + 2, _COLOR_CACHE_2)
         end
       end
     end
@@ -699,12 +726,12 @@ end
 
 function PdfView:draw_hd_page(page_data, cx, cy)
   local pw, ph, scale_x, scale_y = self:get_page_dimensions(page_data)
-  local raw_bg = page_data.bg or { 255, 255, 255 }
+  local raw_bg = page_data.bg or _COLOR_CACHE_10
   local page_bg = invert_color(raw_bg, self.inverted)
   
   -- Elegant Paper Card Drop Shadow & Border
-  renderer.draw_rect(cx - 6 * SCALE, cy - 6 * SCALE, pw + 12 * SCALE, ph + 12 * SCALE, { 0, 0, 0, 140 })
-  renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or { 70, 90, 75 })
+  renderer.draw_rect(cx - 6 * SCALE, cy - 6 * SCALE, pw + 12 * SCALE, ph + 12 * SCALE, _COLOR_CACHE_23)
+  renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or _COLOR_CACHE_17)
   renderer.draw_rect(cx, cy, pw, ph, page_bg)
   
   local view_top = self.position.y + self.toolbar_h
@@ -768,10 +795,10 @@ function PdfView:draw_hd_page(page_data, cx, cy)
     if ly + lh >= view_top and ly <= view_bot then
       local is_hover = self.hovered_link and self.hovered_link.url == link.url
       if is_hover then
-        renderer.draw_rect(lx - 2, ly - 1, lw + 4, lh + 2, { 104, 193, 113, 60 })
-        renderer.draw_rect(lx, ly + lh - 1, lw, 2 * SCALE, style.accent or { 104, 193, 113 })
+        renderer.draw_rect(lx - 2, ly - 1, lw + 4, lh + 2, _COLOR_CACHE_7)
+        renderer.draw_rect(lx, ly + lh - 1, lw, 2 * SCALE, style.accent or _COLOR_CACHE_3)
       else
-        renderer.draw_rect(lx, ly + lh - 1, lw, 1 * SCALE, { 70, 140, 255, 160 })
+        renderer.draw_rect(lx, ly + lh - 1, lw, 1 * SCALE, _COLOR_CACHE_20)
       end
     end
   end
@@ -794,8 +821,8 @@ function PdfView:draw_hd_page(page_data, cx, cy)
         -- Intersection test with selection rectangle
         if wx + ww >= x1 and wx <= x2 and wy + wh >= y1 and wy <= y2 then
           if wy + wh >= view_top and wy <= view_bot then
-            renderer.draw_rect(wx - 2, wy - 1, ww + 4, wh + 2, { 51, 153, 255, 110 })
-            renderer.draw_rect(wx - 2, wy - 1, ww + 4, wh + 2, { 30, 120, 255, 180 })
+            renderer.draw_rect(wx - 2, wy - 1, ww + 4, wh + 2, _COLOR_CACHE_24)
+            renderer.draw_rect(wx - 2, wy - 1, ww + 4, wh + 2, _COLOR_CACHE_4)
           end
         end
       end
@@ -813,8 +840,8 @@ function PdfView:draw_hd_page(page_data, cx, cy)
         
         if ry + rh >= view_top and ry <= view_bot then
           -- Translucent yellow highlight box
-          renderer.draw_rect(rx - 2, ry - 2, rw + 4, rh + 4, { 255, 225, 50, 120 })
-          renderer.draw_rect(rx - 2, ry - 2, rw + 4, rh + 4, { 255, 175, 0, 220 })
+          renderer.draw_rect(rx - 2, ry - 2, rw + 4, rh + 4, _COLOR_CACHE_22)
+          renderer.draw_rect(rx - 2, ry - 2, rw + 4, rh + 4, _COLOR_CACHE_9)
         end
       end
     end
@@ -831,12 +858,12 @@ function PdfView:draw_text_page(page_data, cx, cy)
   local view_top = self.position.y + self.toolbar_h
   local view_bot = self.position.y + self.size.y
   
-  local doc_bg = self.inverted and (style.background or { 20, 26, 22 }) or { 245, 245, 245 }
-  local text_fg = self.inverted and (style.text or { 230, 235, 230 }) or { 25, 30, 26 }
-  local num_fg = self.inverted and (style.dim or { 100, 120, 105 }) or { 140, 150, 145 }
+  local doc_bg = self.inverted and (style.background or _COLOR_CACHE_16) or _COLOR_CACHE_15
+  local text_fg = self.inverted and (style.text or _COLOR_CACHE_1) or _COLOR_CACHE_6
+  local num_fg = self.inverted and (style.dim or _COLOR_CACHE_21) or _COLOR_CACHE_8
   
   renderer.draw_rect(cx - 10 * SCALE, cy, pw + 20 * SCALE, self:get_scrollable_size(), doc_bg)
-  renderer.draw_rect(cx - 10 * SCALE, cy, pw + 20 * SCALE, 1, style.divider or { 60, 80, 65 })
+  renderer.draw_rect(cx - 10 * SCALE, cy, pw + 20 * SCALE, 1, style.divider or _COLOR_CACHE_0)
   
   local line_num = 1
   for line in (text .. "\n"):gmatch("(.-)\n") do
@@ -851,7 +878,7 @@ function PdfView:draw_text_page(page_data, cx, cy)
 end
 
 function PdfView:draw()
-  self:draw_background(style.background or { 20, 26, 22 })
+  self:draw_background(style.background or _COLOR_CACHE_16)
   
   local tx = self.position.x
   local ty = self.position.y
@@ -871,11 +898,11 @@ function PdfView:draw()
     local frame_idx = math.floor(system.get_time() * 6) % 4 + 1
     local spinner = spinner_frames[frame_idx]
     local display_text = spinner .. "  " .. msg
-    common.draw_text(style.font, style.accent or { 104, 193, 113 }, display_text, "center", tx, ty + th / 2 - 20, tw, lh)
+    common.draw_text(style.font, style.accent or _COLOR_CACHE_3, display_text, "center", tx, ty + th / 2 - 20, tw, lh)
     core.redraw = true
   elseif self.error_msg then
     local lh = style.font:get_height()
-    common.draw_text(style.font, { 235, 100, 100 }, "Error: " .. self.error_msg, "center", tx, ty + th / 2 - 20, tw, lh)
+    common.draw_text(style.font, _COLOR_CACHE_19, "Error: " .. self.error_msg, "center", tx, ty + th / 2 - 20, tw, lh)
   elseif page_data then
     local pw = self:get_page_dimensions(page_data)
     local cx = math.max(tx + 20 * SCALE, tx + (tw - pw) / 2)

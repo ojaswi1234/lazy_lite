@@ -1,3 +1,7 @@
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {100, 255, 100, 255}
+local _COLOR_CACHE_1 = {255, 100, 100, 255}
 -- mod-version:3
 -- Unified Podman, Compose, and Kubernetes Manager for Lite XL
 local core    = require "core"
@@ -8,8 +12,8 @@ local process = require "process"
 local system  = require "system"
 
 local PODMAN_COLORS = {
-  up = {100, 255, 100, 255},
-  exited = {255, 100, 100, 255},
+  up = _COLOR_CACHE_0,
+  exited = _COLOR_CACHE_1,
   header = style.accent,
 }
 
