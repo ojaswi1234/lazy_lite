@@ -592,168 +592,168 @@ table.insert(SNIPPET_PACKS, {
 table.insert(SNIPPET_PACKS, {
   files = { "%.html$" },
   snippets = {
-    { trigger = "!", desc = "HTML - Defines a template for a html5 document", template = "<!DOCTYPE html>\n<html lang=\"$1en\">\n<head>\n	<meta charset=\"UTF-8\">\n	<meta name=\"viewport\" content=\"width=${2:device-width}, initial-scale=${3:1.0}\">\n	<title>${5:Document}</title>\n</head>\n<body>\n	${6}\n</body>\n</html>" }
-    { trigger = "doctype", desc = "HTML - Defines the document type", template = "<!DOCTYPE>\n$1" }
-    { trigger = "a", desc = "HTML - Defines a hyperlink", template = "<a href=\"$1\">$2</a>$3" }
-    { trigger = "abbr", desc = "HTML - Defines an abbreviation", template = "<abbr title=\"$1\">$2</abbr>$3" }
-    { trigger = "address", desc = "HTML - Defines an address element", template = "<address>\n$1\n</address>" }
-    { trigger = "area", desc = "HTML - Defines an area inside an image map", template = "<area shape=\"$1\" coords=\"$2\" href=\"$3\" alt=\"$4\">$5" }
-    { trigger = "article", desc = "HTML - Defines an article", template = "<article>\n	$1\n</article>" }
-    { trigger = "aside", desc = "HTML - Defines content aside from the page content", template = "<aside>\n	$1\n</aside>$2" }
-    { trigger = "audio", desc = "HTML - Defines sounds content", template = "<audio controls>\n	$1\n</audio>" }
-    { trigger = "b", desc = "HTML - Defines bold text", template = "<b>$1</b>$2" }
-    { trigger = "base", desc = "HTML - Defines a base URL for all the links in a page", template = "<base href=\"$1\" target=\"$2\">$3" }
-    { trigger = "bdi", desc = "HTML - Used to isolate text that is of unknown directionality", template = "<bdi>$1</bdi>$2" }
-    { trigger = "bdo", desc = "HTML - Defines the direction of text display", template = "<bdo dir=\"$1\">\n$2\n</bdo>" }
-    { trigger = "big", desc = "HTML - Used to make text bigger", template = "<big>$1</big>$2" }
-    { trigger = "blockquote", desc = "HTML - Defines a long quotation", template = "<blockquote cite=\"$2\">\n	$1\n</blockquote>" }
-    { trigger = "body", desc = "HTML - Defines the body element", template = "<body>\n	$0\n</body>" }
-    { trigger = "br", desc = "HTML - Inserts a single line break", template = "<br>" }
-    { trigger = "button", desc = "HTML - Defines a push button", template = "<button type=\"$1\">$2</button>$3" }
-    { trigger = "canvas", desc = "HTML - Defines graphics", template = "<canvas id=\"$1\">$2</canvas>$3" }
-    { trigger = "caption", desc = "HTML - Defines a table caption", template = "<caption>$1</caption>$2" }
-    { trigger = "cite", desc = "HTML - Defines a citation", template = "<cite>$1</cite>$2" }
-    { trigger = "code", desc = "HTML - Defines computer code text", template = "<code>$1</code>$2" }
-    { trigger = "col", desc = "HTML - Defines attributes for table columns", template = "<col>$2" }
-    { trigger = "colgroup", desc = "HTML - Defines group of table columns", template = "<colgroup>\n	$1\n</colgroup>" }
-    { trigger = "command", desc = "HTML - Defines a command button [not supported]", template = "<command>$1</command>$2" }
-    { trigger = "datalist", desc = "HTML - Defines a dropdown list", template = "<datalist>\n	$1\n</datalist>" }
-    { trigger = "dd", desc = "HTML - Defines a definition description", template = "<dd>$1</dd>$2" }
-    { trigger = "del", desc = "HTML - Defines deleted text", template = "<del>$1</del>$2" }
-    { trigger = "details", desc = "HTML - Defines details of an element", template = "<details>\n	$1\n</details>" }
-    { trigger = "dialog", desc = "HTML - Defines a dialog (conversation)", template = "<dialog>$1</dialog>$2" }
-    { trigger = "dfn", desc = "HTML - Defines a definition term", template = "<dfn>$1</dfn>$2" }
-    { trigger = "div", desc = "HTML - Defines a section in a document", template = "<div>\n	$1\n</div>" }
-    { trigger = "dl", desc = "HTML - Defines a definition list", template = "<dl>\n	$1\n</dl>" }
-    { trigger = "dt", desc = "HTML - Defines a definition term", template = "<dt>$1</dt>$2" }
-    { trigger = "em", desc = "HTML - Defines emphasized text", template = "<em>$1</em>$2" }
-    { trigger = "embed", desc = "HTML - Defines external interactive content ot plugin", template = "<embed src=\"$1\">$2" }
-    { trigger = "fieldset", desc = "HTML - Defines a fieldset", template = "<fieldset>\n	$1\n</fieldset>" }
-    { trigger = "figcaption", desc = "HTML - Defines a caption for a figure", template = "<figcaption>$1</figcaption>$2" }
-    { trigger = "figure", desc = "HTML - Defines a group of media content, and their caption", template = "<figure>\n	$1\n</figure>" }
-    { trigger = "footer", desc = "HTML - Defines a footer for a section or page", template = "<footer>\n	$1\n</footer>" }
-    { trigger = "form", desc = "HTML - Defines a form", template = "<form>\n	$1\n</form>" }
-    { trigger = "h1", desc = "HTML - Defines header 1", template = "<h1>$1</h1>$2" }
-    { trigger = "h2", desc = "HTML - Defines header 2", template = "<h2>$1</h2>$2" }
-    { trigger = "h3", desc = "HTML - Defines header 3", template = "<h3>$1</h3>$2" }
-    { trigger = "h4", desc = "HTML - Defines header 4", template = "<h4>$1</h4>$2" }
-    { trigger = "h5", desc = "HTML - Defines header 5", template = "<h5>$1</h5>$2" }
-    { trigger = "h6", desc = "HTML - Defines header 6", template = "<h6>$1</h6>$2" }
-    { trigger = "head", desc = "HTML - Defines information about the document", template = "<head>\n	$1\n</head>" }
-    { trigger = "header", desc = "HTML - Defines a header for a section of page", template = "<header>\n	$1\n</header>" }
-    { trigger = "hgroup", desc = "HTML - Defines information about a section in a document", template = "<hgroup>\n	$1\n</hgroup>" }
+    { trigger = "!", desc = "HTML - Defines a template for a html5 document", template = "<!DOCTYPE html>\n<html lang=\"$1en\">\n<head>\n	<meta charset=\"UTF-8\">\n	<meta name=\"viewport\" content=\"width=${2:device-width}, initial-scale=${3:1.0}\">\n	<title>${5:Document}</title>\n</head>\n<body>\n	${6}\n</body>\n</html>" },
+    { trigger = "doctype", desc = "HTML - Defines the document type", template = "<!DOCTYPE>\n$1" },
+    { trigger = "a", desc = "HTML - Defines a hyperlink", template = "<a href=\"$1\">$2</a>$3" },
+    { trigger = "abbr", desc = "HTML - Defines an abbreviation", template = "<abbr title=\"$1\">$2</abbr>$3" },
+    { trigger = "address", desc = "HTML - Defines an address element", template = "<address>\n$1\n</address>" },
+    { trigger = "area", desc = "HTML - Defines an area inside an image map", template = "<area shape=\"$1\" coords=\"$2\" href=\"$3\" alt=\"$4\">$5" },
+    { trigger = "article", desc = "HTML - Defines an article", template = "<article>\n	$1\n</article>" },
+    { trigger = "aside", desc = "HTML - Defines content aside from the page content", template = "<aside>\n	$1\n</aside>$2" },
+    { trigger = "audio", desc = "HTML - Defines sounds content", template = "<audio controls>\n	$1\n</audio>" },
+    { trigger = "b", desc = "HTML - Defines bold text", template = "<b>$1</b>$2" },
+    { trigger = "base", desc = "HTML - Defines a base URL for all the links in a page", template = "<base href=\"$1\" target=\"$2\">$3" },
+    { trigger = "bdi", desc = "HTML - Used to isolate text that is of unknown directionality", template = "<bdi>$1</bdi>$2" },
+    { trigger = "bdo", desc = "HTML - Defines the direction of text display", template = "<bdo dir=\"$1\">\n$2\n</bdo>" },
+    { trigger = "big", desc = "HTML - Used to make text bigger", template = "<big>$1</big>$2" },
+    { trigger = "blockquote", desc = "HTML - Defines a long quotation", template = "<blockquote cite=\"$2\">\n	$1\n</blockquote>" },
+    { trigger = "body", desc = "HTML - Defines the body element", template = "<body>\n	$0\n</body>" },
+    { trigger = "br", desc = "HTML - Inserts a single line break", template = "<br>" },
+    { trigger = "button", desc = "HTML - Defines a push button", template = "<button type=\"$1\">$2</button>$3" },
+    { trigger = "canvas", desc = "HTML - Defines graphics", template = "<canvas id=\"$1\">$2</canvas>$3" },
+    { trigger = "caption", desc = "HTML - Defines a table caption", template = "<caption>$1</caption>$2" },
+    { trigger = "cite", desc = "HTML - Defines a citation", template = "<cite>$1</cite>$2" },
+    { trigger = "code", desc = "HTML - Defines computer code text", template = "<code>$1</code>$2" },
+    { trigger = "col", desc = "HTML - Defines attributes for table columns", template = "<col>$2" },
+    { trigger = "colgroup", desc = "HTML - Defines group of table columns", template = "<colgroup>\n	$1\n</colgroup>" },
+    { trigger = "command", desc = "HTML - Defines a command button [not supported]", template = "<command>$1</command>$2" },
+    { trigger = "datalist", desc = "HTML - Defines a dropdown list", template = "<datalist>\n	$1\n</datalist>" },
+    { trigger = "dd", desc = "HTML - Defines a definition description", template = "<dd>$1</dd>$2" },
+    { trigger = "del", desc = "HTML - Defines deleted text", template = "<del>$1</del>$2" },
+    { trigger = "details", desc = "HTML - Defines details of an element", template = "<details>\n	$1\n</details>" },
+    { trigger = "dialog", desc = "HTML - Defines a dialog (conversation)", template = "<dialog>$1</dialog>$2" },
+    { trigger = "dfn", desc = "HTML - Defines a definition term", template = "<dfn>$1</dfn>$2" },
+    { trigger = "div", desc = "HTML - Defines a section in a document", template = "<div>\n	$1\n</div>" },
+    { trigger = "dl", desc = "HTML - Defines a definition list", template = "<dl>\n	$1\n</dl>" },
+    { trigger = "dt", desc = "HTML - Defines a definition term", template = "<dt>$1</dt>$2" },
+    { trigger = "em", desc = "HTML - Defines emphasized text", template = "<em>$1</em>$2" },
+    { trigger = "embed", desc = "HTML - Defines external interactive content ot plugin", template = "<embed src=\"$1\">$2" },
+    { trigger = "fieldset", desc = "HTML - Defines a fieldset", template = "<fieldset>\n	$1\n</fieldset>" },
+    { trigger = "figcaption", desc = "HTML - Defines a caption for a figure", template = "<figcaption>$1</figcaption>$2" },
+    { trigger = "figure", desc = "HTML - Defines a group of media content, and their caption", template = "<figure>\n	$1\n</figure>" },
+    { trigger = "footer", desc = "HTML - Defines a footer for a section or page", template = "<footer>\n	$1\n</footer>" },
+    { trigger = "form", desc = "HTML - Defines a form", template = "<form>\n	$1\n</form>" },
+    { trigger = "h1", desc = "HTML - Defines header 1", template = "<h1>$1</h1>$2" },
+    { trigger = "h2", desc = "HTML - Defines header 2", template = "<h2>$1</h2>$2" },
+    { trigger = "h3", desc = "HTML - Defines header 3", template = "<h3>$1</h3>$2" },
+    { trigger = "h4", desc = "HTML - Defines header 4", template = "<h4>$1</h4>$2" },
+    { trigger = "h5", desc = "HTML - Defines header 5", template = "<h5>$1</h5>$2" },
+    { trigger = "h6", desc = "HTML - Defines header 6", template = "<h6>$1</h6>$2" },
+    { trigger = "head", desc = "HTML - Defines information about the document", template = "<head>\n	$1\n</head>" },
+    { trigger = "header", desc = "HTML - Defines a header for a section of page", template = "<header>\n	$1\n</header>" },
+    { trigger = "hgroup", desc = "HTML - Defines information about a section in a document", template = "<hgroup>\n	$1\n</hgroup>" },
   }
 })
 
 table.insert(SNIPPET_PACKS, {
   files = { "%.css$" },
   snippets = {
-    { trigger = "ai", desc = "initial value: stretch", template = "align-items: ${1|flex-start,flex-end,center,baseline,stretch,start,end,self-start,self-end|};" }
-    { trigger = "aib", desc = "align-items: baseline", template = "align-items: baseline;" }
-    { trigger = "aic", desc = "align-items: center", template = "align-items: center;" }
-    { trigger = "aifs", desc = "align-items: flex-start", template = "align-items: flex-start;" }
-    { trigger = "aife", desc = "align-items: flex-end", template = "align-items: flex-end;" }
-    { trigger = "ais", desc = "align-items: stretch", template = "align-items: stretch;" }
-    { trigger = "as", desc = "initial value: auto", template = "align-items: ${1|flex-start,flex-end,center,baseline,stretch,auto|};" }
-    { trigger = "ani", desc = "animation: name duration timing-function delay direction count fill-mode play-state", template = "animation: ${1:name} ${2:1s} ${3|linear,ease-in-out,ease,ease-in,ease-out,step-start,step-end,steps,cubic-bezier|};" }
-    { trigger = "anide", desc = "animation-delay", template = "animation-delay: ${0:1s};" }
-    { trigger = "anidi", desc = "initial value: normal", template = "animation-direction: ${1|alternate,alternate-reverse,reverse,normal|};" }
-    { trigger = "anidu", desc = "animation-duratuion", template = "animation-duration: ${0:1s};" }
-    { trigger = "anifm", desc = "initial value: none", template = "animation-fill-mode: ${1|forwards,backwards,both,none|};" }
-    { trigger = "aniic", desc = "initial value: 1", template = "animation-iteration-count: ${0:infinite};" }
-    { trigger = "anin", desc = "animation-name", template = "animation-name: ${0:name};" }
-    { trigger = "anips", desc = "initial value: running", template = "animation-play-state: ${1|paused,running|};" }
-    { trigger = "anitf", desc = "initial value: ease", template = "animation-timing-function: ${1|linear,ease,ease-in-out,ease-in,ease-out,step-start,step-end,steps,cubic-bezier|};" }
-    { trigger = "bg", desc = "background: image position/size repeat attachment box box", template = "background: ${0:#fff};" }
-    { trigger = "bga", desc = "initial value: scroll", template = "background-attachment: ${1|fixed,scroll,local|};" }
-    { trigger = "bgc", desc = "background-color", template = "background-color: ${0:#fff};" }
-    { trigger = "bgcl", desc = "initial value: border-box", template = "background-clip: ${1|border-box,padding-box,content-box,text|};" }
-    { trigger = "bgi", desc = "background-image", template = "background-image: url('${0:background.jpg}');" }
-    { trigger = "bgo", desc = "initial value: padding-box", template = "background-origin: ${1|border-box,padding-box,content-box|};" }
-    { trigger = "bgp", desc = "background-position", template = "background-position: ${1:left} ${2:top};" }
-    { trigger = "bgr", desc = "initial value: repeat", template = "background-repeat: ${1|no-repeat,repeat-x,repeat-y,repeat,space,round|};" }
-    { trigger = "bgrr", desc = "background-repeat: repeat", template = "background-repeat: repeat;" }
-    { trigger = "bgrx", desc = "background-repeat: repeat-x", template = "background-repeat: repeat-x;" }
-    { trigger = "bgry", desc = "background-repeat: repeat-y", template = "background-repeat: repeat-y;" }
-    { trigger = "bgrn", desc = "background-repeat: no-repeat", template = "background-repeat: no-repeat;" }
-    { trigger = "bgs", desc = "background-size", template = "background-size: ${0:cover};" }
-    { trigger = "bor", desc = "border", template = "border: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" }
-    { trigger = "born", desc = "border: none", template = "border: none;" }
-    { trigger = "borc", desc = "border-color", template = "border-color: ${0:#000};" }
-    { trigger = "bors", desc = "border-style", template = "border-style: ${1|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|};" }
-    { trigger = "borw", desc = "border-width", template = "border-width: ${0:1px};" }
-    { trigger = "borb", desc = "border-bottom", template = "border-bottom: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" }
-    { trigger = "borl", desc = "border-left", template = "border-left: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" }
-    { trigger = "borr", desc = "border-right", template = "border-right: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" }
-    { trigger = "bort", desc = "border-top", template = "border-top: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" }
-    { trigger = "br", desc = "border-radius", template = "border-radius: ${0:2px};" }
-    { trigger = "bot", desc = "bottom", template = "bottom: ${0:0};" }
-    { trigger = "bos", desc = "box-shadow: x-offset y-offset blur spread color", template = "box-shadow: ${1:1px} ${2:1px} ${3:1px} ${4:1px} ${0:rgba(0, 0, 0, .5)};" }
-    { trigger = "boz", desc = "initial value: content-box", template = "box-sizing: ${1|border-box,content-box|};" }
-    { trigger = "clr", desc = "clear", template = "clear: ${1|both,left,right,none|};" }
-    { trigger = "col", desc = "color", template = "color: ${0:#000};" }
-    { trigger = "con", desc = "content", template = "content: '$0';" }
-    { trigger = "cur", desc = "initial value: auto", template = "cursor: ${1|auto,default,alias,cell,copy,crosshair,context-menu,help,grab,grabbing,move,none,no-drop,not-allowed,pointer,progress,e-resize,all-scroll,text,wait,vertical-text,zoom-in,zoom-out|};" }
-    { trigger = "curp", desc = "cursor: pointer", template = "cursor: pointer;" }
-    { trigger = "curd", desc = "cursor: default", template = "cursor: default;" }
-    { trigger = "dis", desc = "display", template = "display: ${1|none,block,inline,inline-block,flex,inline-flex,list-item,table,inline-table,table-caption,table-cell,table-row,table-row-group,table-column|};" }
-    { trigger = "disb", desc = "display: block", template = "display: block;" }
+    { trigger = "ai", desc = "initial value: stretch", template = "align-items: ${1|flex-start,flex-end,center,baseline,stretch,start,end,self-start,self-end|};" },
+    { trigger = "aib", desc = "align-items: baseline", template = "align-items: baseline;" },
+    { trigger = "aic", desc = "align-items: center", template = "align-items: center;" },
+    { trigger = "aifs", desc = "align-items: flex-start", template = "align-items: flex-start;" },
+    { trigger = "aife", desc = "align-items: flex-end", template = "align-items: flex-end;" },
+    { trigger = "ais", desc = "align-items: stretch", template = "align-items: stretch;" },
+    { trigger = "as", desc = "initial value: auto", template = "align-items: ${1|flex-start,flex-end,center,baseline,stretch,auto|};" },
+    { trigger = "ani", desc = "animation: name duration timing-function delay direction count fill-mode play-state", template = "animation: ${1:name} ${2:1s} ${3|linear,ease-in-out,ease,ease-in,ease-out,step-start,step-end,steps,cubic-bezier|};" },
+    { trigger = "anide", desc = "animation-delay", template = "animation-delay: ${0:1s};" },
+    { trigger = "anidi", desc = "initial value: normal", template = "animation-direction: ${1|alternate,alternate-reverse,reverse,normal|};" },
+    { trigger = "anidu", desc = "animation-duratuion", template = "animation-duration: ${0:1s};" },
+    { trigger = "anifm", desc = "initial value: none", template = "animation-fill-mode: ${1|forwards,backwards,both,none|};" },
+    { trigger = "aniic", desc = "initial value: 1", template = "animation-iteration-count: ${0:infinite};" },
+    { trigger = "anin", desc = "animation-name", template = "animation-name: ${0:name};" },
+    { trigger = "anips", desc = "initial value: running", template = "animation-play-state: ${1|paused,running|};" },
+    { trigger = "anitf", desc = "initial value: ease", template = "animation-timing-function: ${1|linear,ease,ease-in-out,ease-in,ease-out,step-start,step-end,steps,cubic-bezier|};" },
+    { trigger = "bg", desc = "background: image position/size repeat attachment box box", template = "background: ${0:#fff};" },
+    { trigger = "bga", desc = "initial value: scroll", template = "background-attachment: ${1|fixed,scroll,local|};" },
+    { trigger = "bgc", desc = "background-color", template = "background-color: ${0:#fff};" },
+    { trigger = "bgcl", desc = "initial value: border-box", template = "background-clip: ${1|border-box,padding-box,content-box,text|};" },
+    { trigger = "bgi", desc = "background-image", template = "background-image: url('${0:background.jpg}');" },
+    { trigger = "bgo", desc = "initial value: padding-box", template = "background-origin: ${1|border-box,padding-box,content-box|};" },
+    { trigger = "bgp", desc = "background-position", template = "background-position: ${1:left} ${2:top};" },
+    { trigger = "bgr", desc = "initial value: repeat", template = "background-repeat: ${1|no-repeat,repeat-x,repeat-y,repeat,space,round|};" },
+    { trigger = "bgrr", desc = "background-repeat: repeat", template = "background-repeat: repeat;" },
+    { trigger = "bgrx", desc = "background-repeat: repeat-x", template = "background-repeat: repeat-x;" },
+    { trigger = "bgry", desc = "background-repeat: repeat-y", template = "background-repeat: repeat-y;" },
+    { trigger = "bgrn", desc = "background-repeat: no-repeat", template = "background-repeat: no-repeat;" },
+    { trigger = "bgs", desc = "background-size", template = "background-size: ${0:cover};" },
+    { trigger = "bor", desc = "border", template = "border: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" },
+    { trigger = "born", desc = "border: none", template = "border: none;" },
+    { trigger = "borc", desc = "border-color", template = "border-color: ${0:#000};" },
+    { trigger = "bors", desc = "border-style", template = "border-style: ${1|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|};" },
+    { trigger = "borw", desc = "border-width", template = "border-width: ${0:1px};" },
+    { trigger = "borb", desc = "border-bottom", template = "border-bottom: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" },
+    { trigger = "borl", desc = "border-left", template = "border-left: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" },
+    { trigger = "borr", desc = "border-right", template = "border-right: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" },
+    { trigger = "bort", desc = "border-top", template = "border-top: ${1:1px} ${2|solid,dashed,dotted,double,groove,ridge,inset,outset,none,hidden|} ${0:#000};" },
+    { trigger = "br", desc = "border-radius", template = "border-radius: ${0:2px};" },
+    { trigger = "bot", desc = "bottom", template = "bottom: ${0:0};" },
+    { trigger = "bos", desc = "box-shadow: x-offset y-offset blur spread color", template = "box-shadow: ${1:1px} ${2:1px} ${3:1px} ${4:1px} ${0:rgba(0, 0, 0, .5)};" },
+    { trigger = "boz", desc = "initial value: content-box", template = "box-sizing: ${1|border-box,content-box|};" },
+    { trigger = "clr", desc = "clear", template = "clear: ${1|both,left,right,none|};" },
+    { trigger = "col", desc = "color", template = "color: ${0:#000};" },
+    { trigger = "con", desc = "content", template = "content: '$0';" },
+    { trigger = "cur", desc = "initial value: auto", template = "cursor: ${1|auto,default,alias,cell,copy,crosshair,context-menu,help,grab,grabbing,move,none,no-drop,not-allowed,pointer,progress,e-resize,all-scroll,text,wait,vertical-text,zoom-in,zoom-out|};" },
+    { trigger = "curp", desc = "cursor: pointer", template = "cursor: pointer;" },
+    { trigger = "curd", desc = "cursor: default", template = "cursor: default;" },
+    { trigger = "dis", desc = "display", template = "display: ${1|none,block,inline,inline-block,flex,inline-flex,list-item,table,inline-table,table-caption,table-cell,table-row,table-row-group,table-column|};" },
+    { trigger = "disb", desc = "display: block", template = "display: block;" },
   }
 })
 
 table.insert(SNIPPET_PACKS, {
   files = { "%.go$" },
   snippets = {
-    { trigger = "im", desc = "Snippet for import statement", template = "import \"${1:package}\"" }
-    { trigger = "ims", desc = "Snippet for a import block", template = "import (\n	\"${1:package}\"\n)" }
-    { trigger = "co", desc = "Snippet for a constant", template = "const ${1:name} = ${2:value}" }
-    { trigger = "cos", desc = "Snippet for a constant block", template = "const (\n	${1:name} = ${2:value}\n)" }
-    { trigger = "tyf", desc = "Snippet for a type function declaration", template = "type ${1:name} func($3) $4" }
-    { trigger = "tyi", desc = "Snippet for a type interface", template = "type ${1:name} interface {\n	$0\n}" }
-    { trigger = "tys", desc = "Snippet for a struct declaration", template = "type ${1:name} struct {\n	$0\n}" }
-    { trigger = "pkgm", desc = "Snippet for main package & function", template = "package main\n\nfunc main() {\n	$0\n}" }
-    { trigger = "func", desc = "Snippet for function declaration", template = "func $1($2) $3 {\n	$0\n}" }
-    { trigger = "var", desc = "Snippet for a variable", template = "var ${1:name} ${2:type}" }
-    { trigger = "vars", desc = "Snippet for a variable", template = "var (\n	${1:name} ${2:type} = ${3:value}\n)" }
-    { trigger = "switch", desc = "Snippet for switch statement", template = "switch ${1:expression} {\ncase ${2:condition}:\n	$0\n}" }
-    { trigger = "sel", desc = "Snippet for select statement", template = "select {\ncase ${1:condition}:\n	$0\n}" }
-    { trigger = "cs", desc = "Snippet for case clause", template = "case ${1:condition}:$0" }
-    { trigger = "for", desc = "Snippet for a pure for loop", template = "for ${1}{\n	$0\n}" }
-    { trigger = "fori", desc = "Snippet for a for loop", template = "for ${1:i} := ${2:0}; $1 < ${3:count}; $1${4:++} {\n	$0\n}" }
-    { trigger = "forr", desc = "Snippet for a for range loop", template = "for ${1:_, }${2:v} := range ${3:v} {\n	$0\n}" }
-    { trigger = "ch", desc = "Snippet for a channel", template = "chan ${1:type}" }
-    { trigger = "map", desc = "Snippet for a map", template = "map[${1:type}]${2:type}" }
-    { trigger = "in", desc = "Snippet for empty interface", template = "interface{}" }
-    { trigger = "if", desc = "Snippet for if statement", template = "if ${1:condition} {\n	$0\n}" }
-    { trigger = "el", desc = "Snippet for else branch", template = "else {\n	$0\n}" }
-    { trigger = "ife", desc = "Snippet for if else", template = "if ${1:condition} {\n	$2\n} else {\n	$0\n}" }
-    { trigger = "ir", desc = "Snippet for if err != nil", template = "if err != nil {\n	return ${1:nil}, ${2:err}\n}" }
-    { trigger = "fp", desc = "Snippet for fmt.Println()", template = "fmt.Println(\"$1\")" }
-    { trigger = "ff", desc = "Snippet for fmt.Printf()", template = "fmt.Printf(\"$1\", ${2:var})" }
-    { trigger = "lp", desc = "Snippet for log.Println()", template = "log.Println(\"$1\")" }
-    { trigger = "lf", desc = "Snippet for log.Printf()", template = "log.Printf(\"$1\", ${2:var})" }
-    { trigger = "lv", desc = "Snippet for log.Printf() with variable content", template = "log.Printf(\"${1:var}: %#+v\\\\n\", ${1:var})" }
-    { trigger = "tl", desc = "Snippet for t.Log()", template = "t.Log(\"$1\")" }
-    { trigger = "tlf", desc = "Snippet for t.Logf()", template = "t.Logf(\"$1\", ${2:var})" }
-    { trigger = "tlv", desc = "Snippet for t.Logf() with variable content", template = "t.Logf(\"${1:var}: %#+v\\\\n\", ${1:var})" }
-    { trigger = "make", desc = "Snippet for make statement", template = "make(${1:type}, ${2:0})" }
-    { trigger = "new", desc = "Snippet for new statement", template = "new(${1:type})" }
-    { trigger = "pn", desc = "Snippet for panic", template = "panic(\"$0\")" }
-    { trigger = "wr", desc = "Snippet for http Response", template = "${1:w} http.ResponseWriter, ${2:r} *http.Request" }
-    { trigger = "hf", desc = "Snippet for http.HandleFunc()", template = "${1:http}.HandleFunc(\"${2:/}\", ${3:handler})" }
-    { trigger = "hand", desc = "Snippet for http handler declaration", template = "func $1(${2:w} http.ResponseWriter, ${3:r} *http.Request) {\n	$0\n}" }
-    { trigger = "rd", desc = "Snippet for http.Redirect()", template = "http.Redirect(${1:w}, ${2:r}, \"${3:/}\", ${4:http.StatusFound})" }
-    { trigger = "herr", desc = "Snippet for http.Error()", template = "http.Error(${1:w}, ${2:err}.Error(), ${3:http.StatusInternalServerError})" }
-    { trigger = "las", desc = "Snippet for http.ListenAndServe", template = "http.ListenAndServe(\"${1::8080}\", ${2:nil})" }
-    { trigger = "sv", desc = "Snippet for http.Serve", template = "http.Serve(\"${1::8080}\", ${2:nil})" }
-    { trigger = "go", desc = "Snippet for anonymous goroutine declaration", template = "go func($1) {\n	$0\n}($2)" }
-    { trigger = "gf", desc = "Snippet for goroutine declaration", template = "go ${1:func}($0)" }
-    { trigger = "df", desc = "Snippet for defer statement", template = "defer ${1:func}($0)" }
-    { trigger = "tf", desc = "Snippet for Test function", template = "func Test$1(t *testing.T) {\n	$0\n}" }
-    { trigger = "tm", desc = "Snippet for TestMain function", template = "func TestMain(m *testing.M) {\n	$1\n\n	os.Exit(m.Run())\n}" }
-    { trigger = "bf", desc = "Snippet for Benchmark function", template = "func Benchmark$1(b *testing.B) {\n	for ${2:i} := 0; ${2:i} < b.N; ${2:i}++ {\n		$0\n	}\n}" }
-    { trigger = "ef", desc = "Snippet for Example function", template = "func Example$1() {\n	$2\n	//Output:\n	$3\n}" }
-    { trigger = "tdt", desc = "Snippet for table driven test", template = "func Test$1(t *testing.T) {\n	testCases := []struct {\n		desc	string\n		$2\n	}{\n		{\n			desc: \"$3\",\n			$4\n		},\n	}\n	for _, tC := range testCases {\n		t.Run(tC.desc, func(t *testing.T) {\n			$0\n		})\n	}\n}" }
+    { trigger = "im", desc = "Snippet for import statement", template = "import \"${1:package}\"" },
+    { trigger = "ims", desc = "Snippet for a import block", template = "import (\n	\"${1:package}\"\n)" },
+    { trigger = "co", desc = "Snippet for a constant", template = "const ${1:name} = ${2:value}" },
+    { trigger = "cos", desc = "Snippet for a constant block", template = "const (\n	${1:name} = ${2:value}\n)" },
+    { trigger = "tyf", desc = "Snippet for a type function declaration", template = "type ${1:name} func($3) $4" },
+    { trigger = "tyi", desc = "Snippet for a type interface", template = "type ${1:name} interface {\n	$0\n}" },
+    { trigger = "tys", desc = "Snippet for a struct declaration", template = "type ${1:name} struct {\n	$0\n}" },
+    { trigger = "pkgm", desc = "Snippet for main package & function", template = "package main\n\nfunc main() {\n	$0\n}" },
+    { trigger = "func", desc = "Snippet for function declaration", template = "func $1($2) $3 {\n	$0\n}" },
+    { trigger = "var", desc = "Snippet for a variable", template = "var ${1:name} ${2:type}" },
+    { trigger = "vars", desc = "Snippet for a variable", template = "var (\n	${1:name} ${2:type} = ${3:value}\n)" },
+    { trigger = "switch", desc = "Snippet for switch statement", template = "switch ${1:expression} {\ncase ${2:condition}:\n	$0\n}" },
+    { trigger = "sel", desc = "Snippet for select statement", template = "select {\ncase ${1:condition}:\n	$0\n}" },
+    { trigger = "cs", desc = "Snippet for case clause", template = "case ${1:condition}:$0" },
+    { trigger = "for", desc = "Snippet for a pure for loop", template = "for ${1}{\n	$0\n}" },
+    { trigger = "fori", desc = "Snippet for a for loop", template = "for ${1:i} := ${2:0}; $1 < ${3:count}; $1${4:++} {\n	$0\n}" },
+    { trigger = "forr", desc = "Snippet for a for range loop", template = "for ${1:_, }${2:v} := range ${3:v} {\n	$0\n}" },
+    { trigger = "ch", desc = "Snippet for a channel", template = "chan ${1:type}" },
+    { trigger = "map", desc = "Snippet for a map", template = "map[${1:type}]${2:type}" },
+    { trigger = "in", desc = "Snippet for empty interface", template = "interface{}" },
+    { trigger = "if", desc = "Snippet for if statement", template = "if ${1:condition} {\n	$0\n}" },
+    { trigger = "el", desc = "Snippet for else branch", template = "else {\n	$0\n}" },
+    { trigger = "ife", desc = "Snippet for if else", template = "if ${1:condition} {\n	$2\n} else {\n	$0\n}" },
+    { trigger = "ir", desc = "Snippet for if err != nil", template = "if err != nil {\n	return ${1:nil}, ${2:err}\n}" },
+    { trigger = "fp", desc = "Snippet for fmt.Println()", template = "fmt.Println(\"$1\")" },
+    { trigger = "ff", desc = "Snippet for fmt.Printf()", template = "fmt.Printf(\"$1\", ${2:var})" },
+    { trigger = "lp", desc = "Snippet for log.Println()", template = "log.Println(\"$1\")" },
+    { trigger = "lf", desc = "Snippet for log.Printf()", template = "log.Printf(\"$1\", ${2:var})" },
+    { trigger = "lv", desc = "Snippet for log.Printf() with variable content", template = "log.Printf(\"${1:var}: %#+v\\\\n\", ${1:var})" },
+    { trigger = "tl", desc = "Snippet for t.Log()", template = "t.Log(\"$1\")" },
+    { trigger = "tlf", desc = "Snippet for t.Logf()", template = "t.Logf(\"$1\", ${2:var})" },
+    { trigger = "tlv", desc = "Snippet for t.Logf() with variable content", template = "t.Logf(\"${1:var}: %#+v\\\\n\", ${1:var})" },
+    { trigger = "make", desc = "Snippet for make statement", template = "make(${1:type}, ${2:0})" },
+    { trigger = "new", desc = "Snippet for new statement", template = "new(${1:type})" },
+    { trigger = "pn", desc = "Snippet for panic", template = "panic(\"$0\")" },
+    { trigger = "wr", desc = "Snippet for http Response", template = "${1:w} http.ResponseWriter, ${2:r} *http.Request" },
+    { trigger = "hf", desc = "Snippet for http.HandleFunc()", template = "${1:http}.HandleFunc(\"${2:/}\", ${3:handler})" },
+    { trigger = "hand", desc = "Snippet for http handler declaration", template = "func $1(${2:w} http.ResponseWriter, ${3:r} *http.Request) {\n	$0\n}" },
+    { trigger = "rd", desc = "Snippet for http.Redirect()", template = "http.Redirect(${1:w}, ${2:r}, \"${3:/}\", ${4:http.StatusFound})" },
+    { trigger = "herr", desc = "Snippet for http.Error()", template = "http.Error(${1:w}, ${2:err}.Error(), ${3:http.StatusInternalServerError})" },
+    { trigger = "las", desc = "Snippet for http.ListenAndServe", template = "http.ListenAndServe(\"${1::8080}\", ${2:nil})" },
+    { trigger = "sv", desc = "Snippet for http.Serve", template = "http.Serve(\"${1::8080}\", ${2:nil})" },
+    { trigger = "go", desc = "Snippet for anonymous goroutine declaration", template = "go func($1) {\n	$0\n}($2)" },
+    { trigger = "gf", desc = "Snippet for goroutine declaration", template = "go ${1:func}($0)" },
+    { trigger = "df", desc = "Snippet for defer statement", template = "defer ${1:func}($0)" },
+    { trigger = "tf", desc = "Snippet for Test function", template = "func Test$1(t *testing.T) {\n	$0\n}" },
+    { trigger = "tm", desc = "Snippet for TestMain function", template = "func TestMain(m *testing.M) {\n	$1\n\n	os.Exit(m.Run())\n}" },
+    { trigger = "bf", desc = "Snippet for Benchmark function", template = "func Benchmark$1(b *testing.B) {\n	for ${2:i} := 0; ${2:i} < b.N; ${2:i}++ {\n		$0\n	}\n}" },
+    { trigger = "ef", desc = "Snippet for Example function", template = "func Example$1() {\n	$2\n	//Output:\n	$3\n}" },
+    { trigger = "tdt", desc = "Snippet for table driven test", template = "func Test$1(t *testing.T) {\n	testCases := []struct {\n		desc	string\n		$2\n	}{\n		{\n			desc: \"$3\",\n			$4\n		},\n	}\n	for _, tC := range testCases {\n		t.Run(tC.desc, func(t *testing.T) {\n			$0\n		})\n	}\n}" },
   }
 })
 
