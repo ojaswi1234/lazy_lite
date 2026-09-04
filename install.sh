@@ -264,6 +264,15 @@ if [ "$INSTALL_LEETCODE" = true ]; then
         if [[ "$prompt_lc" =~ ^[Nn]$ ]]; then INSTALL_LEETCODE=false; fi
     fi
     if [ "$INSTALL_LEETCODE" = true ] && command -v python3 &> /dev/null; then
+        
+    if command -v python3 &> /dev/null; then
+        echo "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..."
+        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --break-system-packages --quiet 2>/dev/null ||         python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --user --quiet 2>/dev/null ||         python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --quiet 2>/dev/null || true
+        
+        echo "Installing PDF Engine Dependencies..."
+        python3 -m pip install pypdfium2 pypdf Pillow --break-system-packages --quiet 2>/dev/null ||         python3 -m pip install pypdfium2 pypdf Pillow --user --quiet 2>/dev/null ||         python3 -m pip install pypdfium2 pypdf Pillow --quiet 2>/dev/null || true
+    fi
+
         echo "Installing Python dependencies for LeetCode API & ranking engine..."
         python3 -m pip install requests --break-system-packages --quiet 2>/dev/null || \
         python3 -m pip install requests --user --quiet 2>/dev/null || \

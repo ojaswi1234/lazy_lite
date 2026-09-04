@@ -253,6 +253,7 @@ if ($setupMongo) {
 
 if ($realPython) {
     Write-Host "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..." -ForegroundColor Cyan
+    try { & python -m pip install pypdfium2 pypdf Pillow --quiet 2>$null } catch {}
     try { & python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --quiet 2>$null } catch {}
 }
 

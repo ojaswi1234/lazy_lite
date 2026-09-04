@@ -141,6 +141,7 @@ if %errorlevel% equ 0 (
         python -m pip install pymongo --quiet >nul 2>nul
     )
     echo Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)...
+    python -m pip install pypdfium2 pypdf Pillow --quiet >nul 2>nul
     python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --quiet >nul 2>nul
 )
 
