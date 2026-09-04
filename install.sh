@@ -133,7 +133,17 @@ if [ ! -d "$SRC_DIR/plugins" ]; then
 fi
 
 # 1. Check Lite-XL Installation
-if ! command -v lite-xl &> /dev/null && [ "$INSTALL_LITE" = true ]; then
+IS_WSL=false
+if grep -qi microsoft /proc/version 2>/dev/null; then IS_WSL=true; fi
+
+if [ "$IS_WSL" = true ]; then
+    echo "[+] WSL environment detected. Installing Windows interop wrapper for lite-xl..."
+    if [ -f "$SRC_DIR/lite-xl-wsl/lite-xl-wsl-wrapper" ]; then
+        $SUDO cp -f "$SRC_DIR/lite-xl-wsl/lite-xl-wsl-wrapper" /usr/local/bin/lite-xl 2>/dev/null || cp -f "$SRC_DIR/lite-xl-wsl/lite-xl-wsl-wrapper" ~/.local/bin/lite-xl 2>/dev/null
+        $SUDO chmod +x /usr/local/bin/lite-xl 2>/dev/null || chmod +x ~/.local/bin/lite-xl 2>/dev/null
+        echo "[+] Installed WSL lite-xl wrapper successfully."
+    fi
+elif ! command -v lite-xl &> /dev/null && [ "$INSTALL_LITE" = true ]; then
     do_install="y"
     if [ "$UNATTENDED" = false ]; then
         read -p "Lite-XL is not installed. Do you want to install it automatically? (y/n) [default: y]: " prompt_lite || prompt_lite="y"

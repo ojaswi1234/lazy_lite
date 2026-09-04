@@ -211,6 +211,20 @@ if exist "%SRC_DIR%plugins\tunnel_monitor" xcopy /e /i /y /q "%SRC_DIR%plugins\t
 if exist "%SRC_DIR%plugins\python_runtime" xcopy /e /i /y /q "%SRC_DIR%plugins\python_runtime" "%CONFIG_DIR%\plugins\python_runtime\" >nul 2>nul
 echo [+] Copied plugins, scripts, fonts, and color schemes.
 
+:: Install WSL Wrapper if WSL is present
+wsl.exe -l >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    if exist "%SRC_DIR%lite-xl-wsl\lite-xl-wsl-wrapper" (
+        echo Installing WSL interop wrapper...
+        type "%SRC_DIR%lite-xl-wsl\lite-xl-wsl-wrapper" | wsl -u root bash -c "cat > /usr/local/bin/lite-xl && chmod +x /usr/local/bin/lite-xl"
+        if !ERRORLEVEL! equ 0 (
+            echo [+] WSL wrapper for lite-xl installed successfully.
+        ) else (
+            echo [-] Could not automatically install WSL wrapper.
+        )
+    )
+)
+
 :: Copy Antigravity custom skills
 set "GEMINI_CONFIG_DIR=%USERPROFILE%\.gemini\config"
 if exist "%SRC_DIR%skills" (

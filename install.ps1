@@ -328,6 +328,23 @@ foreach ($sub in $subDirs) {
 }
 Write-Host "[+] Copied plugins, scripts, fonts, and color schemes." -ForegroundColor Green
 
+# Install WSL Wrapper if WSL is present
+if (Get-Command "wsl" -ErrorAction SilentlyContinue) {
+    if (Test-Path -LiteralPath "$srcDir\lite-xl-wsl\lite-xl-wsl-wrapper") {
+        Write-Host "Installing WSL interop wrapper..." -ForegroundColor Cyan
+        try {
+            $wslPath = ($srcDir -replace '\', '/') -replace '^([A-Za-z]):', '/mnt/$1'
+            $wslPath = $wslPath.ToLower().Insert(5, $wslPath[5].ToString().ToLower()).Remove(6, 1) # basic c: -> /mnt/c conversion hack, or just use wsl to read the literal path
+            # Actually, much safer to just pipe the file contents into wsl
+            cat -Raw "$srcDir\lite-xl-wsl\lite-xl-wsl-wrapper" | wsl -u root bash -c "cat > /usr/local/bin/lite-xl && chmod +x /usr/local/bin/lite-xl"
+            Write-Host "[+] WSL wrapper for lite-xl installed successfully." -ForegroundColor Green
+        } catch {
+            Write-Host "[-] Could not automatically install WSL wrapper. You may need to run install.sh from inside WSL." -ForegroundColor Yellow
+        }
+    }
+}
+
+
 # Copy custom agent skills
 $geminiConfigDir = "$env:USERPROFILE\.gemini\config"
 if (Test-Path -LiteralPath "$srcDir\skills") {
