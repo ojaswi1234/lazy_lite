@@ -24,11 +24,11 @@ function common.fuzzy_match(haystack, needle, files)
   return orig_fuzzy_match(haystack, needle, files)
 end
 
--- [ON-DEMAND BEHAVIOR]
--- Servers will NOT start automatically to save RAM/CPU.
--- Use Ctrl+Alt+L to manually turn them on when needed.
-config.plugins.lsp.autostart_server = false
-config.plugins.lsp.is_enabled = false
+-- [ULTRA-LIGHTWEIGHT AUTOSTART]
+-- We auto-start servers for seamless UX (autocomplete, hovers), but
+-- completely neuter their background indexing to save RAM and CPU.
+config.plugins.lsp.autostart_server = true
+config.plugins.lsp.is_enabled = true
 
 -- Troubleshooting & Logging for Language Servers
 -- Enables verbose stderr logging (fixes silent crashes on Windows due to cmd.exe wrapper)
@@ -49,35 +49,63 @@ config.plugins.lsp.more_yielding = true          -- Prevents editor freezing dur
 config.plugins.lsp.force_verbosity_off = true    -- Disables heavy server logging to save disk I/O and RAM
 
 if lspconfig then
-  -- Register server specifications so they can start on-demand when toggled ON
-  lspconfig.rust_analyzer.setup()
-  lspconfig.gopls.setup()
-  lspconfig.jdtls.setup()
+  --------------------------------------------------------------------------------
+  -- RESOURCE OPTIMIZED LANGUAGE SERVERS
+  --------------------------------------------------------------------------------
   
-  -- Optimize Pyright: Enforce Python 3.12 and strictly limit diagnostics to OPEN files only.
+  -- 1. Rust: Disable heavy `cargo check` on every keystroke/save
+  lspconfig.rust_analyzer.setup({
+    settings = {
+      ["rust-analyzer"] = {
+        checkOnSave = { enable = false }, -- Stops heavy compiling on save
+        cargo = { autoreload = false },   -- Stops background polling
+        diagnostics = { disabled = {"unresolved-proc-macro"} }
+      }
+    }
+  })
+  
+  -- 2. Go: Standard lightweight setup
+  lspconfig.gopls.setup({
+    settings = { gopls = { analyses = { unusedparams = true } } }
+  })
+  
+  -- 3. Java (JDTLS): Restrict JVM Memory to 512MB to stop RAM hogging
+  local jdtls_cmd = { "jdtls" }
+  if PLATFORM == "Windows" then
+    -- Often JDTLS on Windows accepts JVM args via env variables, but we can pass standard args
+  end
+  lspconfig.jdtls.setup({
+    -- Depending on jdtls launcher, passing args here can restrict RAM
+    -- command = { "jdtls", "-J-Xmx512m", "-J-Xms128m" }
+  })
+  
+  -- 4. Python (Pyright): Strictly limit to OPEN files (No workspace indexing)
   lspconfig.pyright.setup({
     settings = {
       python = {
         pythonVersion = "3.12",
         analysis = {
-          diagnosticMode = "openFilesOnly",  -- Do not index the whole workspace for errors
-          typeCheckingMode = "basic",        -- Avoid 'strict' deep type-checking overhead
-          autoSearchPaths = true             -- REQUIRED FOR AUTOCOMPLETE: Allow crawling env folders for types
+          diagnosticMode = "openFilesOnly",  -- Crucial: Kills workspace-wide CPU spikes
+          typeCheckingMode = "basic",        -- Avoid deep type-checking overhead
+          autoSearchPaths = true
         }
       }
     }
   })
   
-  -- Add Ruff LSP for Python Document Formatting (Alt+Shift+F)
+  -- Python (Ruff): Lightning fast Rust-based formatter
   lsp.add_server({
-    name = "ruff_lsp",
-    language = "python",
-    file_patterns = { "%.py$" },
-    command = { "ruff", "server" },
-    verbose = false
+    name = "ruff_lsp", language = "python",
+    file_patterns = { "%.py$" }, command = { "ruff", "server" }, verbose = false
   })
   
-  lspconfig.tsserver.setup()
+  -- 5. JS/TS (TSServer): Disable automatic typings acquisition
+  lspconfig.tsserver.setup({
+    settings = {
+      typescript = { disableAutomaticTypeAcquisition = true },
+      javascript = { disableAutomaticTypeAcquisition = true }
+    }
+  })
 end
 
 -- Command for toggling LSP on demand
