@@ -34,6 +34,13 @@ except ImportError:
 
 ASCII_RAMP = " .:-=+*#%@"
 
+def escape_lua_string(text):
+    if not text: return "''"
+    level = 3
+    while f"]{'='*level}]" in text:
+        level += 1
+    return f"[{'='*level}[" + text + f"]{'='*level}]"
+
 def get_pdf_info(pdf_path, out_file):
     try:
         if not pdfium and not pypdf:
@@ -82,7 +89,7 @@ def get_pdf_info(pdf_path, out_file):
     except Exception as e:
         with open(out_file, "w", encoding="utf-8") as f:
             f.write("return {\n")
-            f.write(f"  error = [===[{str(e)}]===]\n")
+            f.write(f"  error = {escape_lua_string(str(e))}\n")
             f.write("}\n")
 
 def render_page_browsh(pdf, page_idx, cols=110):
@@ -301,13 +308,8 @@ def render_page_hd(pdf, page_idx, target_width=1300):
                 norm_y = round((orig_h - top) / orig_h, 4)
                 norm_w = round((right - left) / orig_w, 4)
                 norm_h = round((top - bottom) / orig_h, 4)
-                words.append({
-                    "text": word_str,
-                    "x": norm_x,
-                    "y": norm_y,
-                    "w": norm_w,
-                    "h": norm_h
-                })
+                clean_w = word_str.replace('\\', '\\\\').replace('"', '\\"')
+                words.append(f'    {{ text="{clean_w}", x={norm_x}, y={norm_y}, w={norm_w}, h={norm_h} }}')
                 curr_word = []
                 curr_box = None
             continue
@@ -327,13 +329,8 @@ def render_page_hd(pdf, page_idx, target_width=1300):
         norm_y = round((orig_h - top) / orig_h, 4)
         norm_w = round((right - left) / orig_w, 4)
         norm_h = round((top - bottom) / orig_h, 4)
-        words.append({
-            "text": word_str,
-            "x": norm_x,
-            "y": norm_y,
-            "w": norm_w,
-            "h": norm_h
-        })
+        clean_w = word_str.replace('\\', '\\\\').replace('"', '\\"')
+        words.append(f'    {{ text="{clean_w}", x={norm_x}, y={norm_y}, w={norm_w}, h={norm_h} }}')
 
     # Comprehensive Hyperlink Extraction (PDFium WebLinks + Link Annotations + Text regex)
     links = []
@@ -348,13 +345,8 @@ def render_page_hd(pdf, page_idx, target_width=1300):
         key = (url_clean, round(nx, 3), round(ny, 3))
         if key not in seen_links:
             seen_links.add(key)
-            links.append({
-                "url": url_clean,
-                "x": nx,
-                "y": ny,
-                "w": nw,
-                "h": nh
-            })
+            clean_u = url_clean.replace('\\', '\\\\').replace('"', '\\"')
+            links.append(f'    {{ url="{clean_u}", x={nx}, y={ny}, w={nw}, h={nh} }}')
 
     # A. PDFium native web link detection
     try:
@@ -441,7 +433,7 @@ def render_page(pdf_path, page_idx, out_file, width=110, mode="browsh"):
                 f.write(f"  w = {w},\n  h = {h},\n")
                 f.write(f"  orig_w = {int(orig_w)},\n  orig_h = {int(orig_h)},\n")
                 f.write(f"  bg = {{{page_bg[0]}, {page_bg[1]}, {page_bg[2]}}},\n")
-                f.write("  text = [===[" + text + "]===],\n")
+                f.write(f"  text = {escape_lua_string(text)},\n")
                 f.write("  words = {\n")
                 f.write(",\n".join(words))
                 f.write("\n  },\n")
@@ -460,7 +452,7 @@ def render_page(pdf_path, page_idx, out_file, width=110, mode="browsh"):
                 f.write("return {\n")
                 f.write("  mode = 'text',\n")
                 f.write(f"  w = {int(orig_w)},\n  h = {int(orig_h)},\n")
-                f.write("  text = [===[" + text + "]===]\n}\n")
+                f.write(f"  text = {escape_lua_string(text)}\n}}\n")
         else: # Browsh character sub-pixel mode
             cols = int(width) if width else 110
             cols, rows, page_bg, graphic_runs, text_lines, text = render_page_browsh(pdf, page_idx, cols=cols)
@@ -469,7 +461,7 @@ def render_page(pdf_path, page_idx, out_file, width=110, mode="browsh"):
                 f.write("  mode = 'browsh',\n")
                 f.write(f"  cols = {cols},\n  rows = {rows},\n")
                 f.write(f"  bg = {{{page_bg[0]}, {page_bg[1]}, {page_bg[2]}}},\n")
-                f.write("  text = [===[" + text + "]===],\n")
+                f.write(f"  text = {escape_lua_string(text)},\n")
                 f.write("  graphic_runs = {\n")
                 for gr in graphic_runs:
                     f.write("    " + gr + ",\n")
@@ -483,7 +475,7 @@ def render_page(pdf_path, page_idx, out_file, width=110, mode="browsh"):
     except Exception as e:
         with open(out_file, "w", encoding="utf-8") as f:
             f.write("return {\n")
-            f.write(f"  error = [===[{str(e)}]===]\n")
+            f.write(f"  error = {escape_lua_string(str(e))}\n")
             f.write("}\n")
 
 def search_pdf(pdf_path, query, out_file):
@@ -547,7 +539,7 @@ def search_pdf(pdf_path, query, out_file):
     except Exception as e:
         with open(out_file, "w", encoding="utf-8") as f:
             f.write("return {\n")
-            f.write(f"  error = [===[{str(e)}]===]\n")
+            f.write(f"  error = {escape_lua_string(str(e))}\n")
             f.write("}\n")
 
 if __name__ == "__main__":
