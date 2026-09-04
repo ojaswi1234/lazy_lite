@@ -143,5 +143,5 @@ keymap.add {
   -- Custom Quality of Life additions
   ["ctrl+alt+l"]  = "lsp:toggle-servers",
   ["alt+l"]       = "lsp:toggle-servers",
-  ["ctrl+space"]  = "lsp:complete"
+  ["ctrl+space"]  = "autocomplete:trigger"
 }

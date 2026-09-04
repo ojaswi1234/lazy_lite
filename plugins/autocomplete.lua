@@ -780,6 +780,20 @@ local function predicate()
   return av ~= nil and #suggestions > 0 and not is_command_view_active(), av
 end
 
+
+command.add(nil, {
+  ["autocomplete:trigger"] = function()
+    autocomplete.open()
+    local av = core.active_view
+    if av and av.doc then
+      -- If LSP is installed, explicitly command it to fetch and append its items to the menu
+      if command.is_valid("lsp:complete") then
+        command.perform("lsp:complete")
+      end
+    end
+  end
+})
+
 command.add(predicate, {
   ["autocomplete:complete"] = function(dv)
     local doc = dv.doc
@@ -842,6 +856,7 @@ command.add(predicate, {
 })
 
 keymap.add {
+  ["ctrl+space"] = "autocomplete:trigger",
   ["tab"]    = "autocomplete:complete",
   ["return"] = "autocomplete:complete",
   ["up"]     = "autocomplete:previous",
