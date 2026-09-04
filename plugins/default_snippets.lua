@@ -513,7 +513,168 @@ local SNIPPET_PACKS = {
 }
 
 -- Register All Snippets using native LSP Snippet parser with interactive tabstops
+
+-- ==========================================================================
+-- VS CODE EQUIVALENT CONTROL FLOW SNIPPETS
+-- ==========================================================================
+table.insert(SNIPPET_PACKS, {
+  files = { "%.js$", "%.ts$", "%.jsx$", "%.tsx$", "%.mjs$", "%.cjs$" },
+  snippets = {
+    { trigger = "for", desc = "For Loop", template = "for (let ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {
+  const ${3:element} = ${2:array}[${1:i}];
+  $0
+}" },
+    { trigger = "forin", desc = "For-In Loop", template = "for (const ${1:key} in ${2:object}) {
+  if (Object.hasOwnProperty.call(${2:object}, ${1:key})) {
+    const ${3:element} = ${2:object}[${1:key}];
+    $0
+  }
+}" },
+    { trigger = "forof", desc = "For-Of Loop", template = "for (const ${1:iterator} of ${2:object}) {
+  $0
+}" },
+    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {
+  $0
+}" },
+    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {
+  $0
+}" },
+    { trigger = "ifelse", desc = "If-Else Statement", template = "if (${1:condition}) {
+  $2
+} else {
+  $0
+}" },
+    { trigger = "try", desc = "Try-Catch Statement", template = "try {
+  $1
+} catch (${2:error}) {
+  $0
+}" },
+    { trigger = "switch", desc = "Switch Statement", template = "switch (${1:key}) {
+  case ${2:value}:
+    $0
+    break;
+  default:
+    break;
+}" }
+  }
+})
+
+table.insert(SNIPPET_PACKS, {
+  files = { "%.py$", "%.pyw$" },
+  snippets = {
+    { trigger = "for", desc = "For Loop", template = "for ${1:item} in ${2:iterable}:
+    $0" },
+    { trigger = "while", desc = "While Loop", template = "while ${1:condition}:
+    $0" },
+    { trigger = "if", desc = "If Statement", template = "if ${1:condition}:
+    $0" },
+    { trigger = "ifelse", desc = "If-Else Statement", template = "if ${1:condition}:
+    $2
+else:
+    $0" },
+    { trigger = "try", desc = "Try-Except Statement", template = "try:
+    $1
+except ${2:Exception} as ${3:e}:
+    $0" },
+    { trigger = "def", desc = "Function Definition", template = "def ${1:function_name}(${2:args}):
+    ${3:pass}
+    $0" },
+    { trigger = "class", desc = "Class Definition", template = "class ${1:ClassName}:
+    def __init__(self, ${2:args}):
+        ${3:pass}
+        $0" }
+  }
+})
+
+table.insert(SNIPPET_PACKS, {
+  files = { "%.java$" },
+  snippets = {
+    { trigger = "for", desc = "For Loop", template = "for (int ${1:i} = 0; ${1:i} < ${2:array}.length; ${1:i}++) {
+    $0
+}" },
+    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {
+    $0
+}" },
+    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {
+    $0
+}" },
+    { trigger = "ifelse", desc = "If-Else Statement", template = "if (${1:condition}) {
+    $2
+} else {
+    $0
+}" },
+    { trigger = "switch", desc = "Switch Statement", template = "switch (${1:key}) {
+    case ${2:value}:
+        $0
+        break;
+    default:
+        break;
+}" },
+    { trigger = "try", desc = "Try-Catch Statement", template = "try {
+    $1
+} catch (${2:Exception} e) {
+    $0
+}" }
+  }
+})
+
+table.insert(SNIPPET_PACKS, {
+  files = { "%.go$" },
+  snippets = {
+    { trigger = "for", desc = "For Loop", template = "for ${1:i} := 0; ${1:i} < ${2:count}; ${1:i}++ {
+	$0
+}" },
+    { trigger = "if", desc = "If Statement", template = "if ${1:condition} {
+	$0
+}" },
+    { trigger = "switch", desc = "Switch Statement", template = "switch ${1:var} {
+case ${2:value}:
+	$0
+default:
+}" }
+  }
+})
+
+table.insert(SNIPPET_PACKS, {
+  files = { "%.c$", "%.cpp$", "%.h$", "%.hpp$", "%.cc$", "%.cxx$" },
+  snippets = {
+    { trigger = "for", desc = "For Loop", template = "for (int ${1:i} = 0; ${1:i} < ${2:count}; ${1:i}++) {
+    $0
+}" },
+    { trigger = "while", desc = "While Loop", template = "while (${1:condition}) {
+    $0
+}" },
+    { trigger = "if", desc = "If Statement", template = "if (${1:condition}) {
+    $0
+}" }
+  }
+})
+
+table.insert(SNIPPET_PACKS, {
+  files = { "%.rs$" },
+  snippets = {
+    { trigger = "for", desc = "For Loop", template = "for ${1:i} in ${2:0..10} {
+    $0
+}" },
+    { trigger = "while", desc = "While Loop", template = "while ${1:condition} {
+    $0
+}" },
+    { trigger = "if", desc = "If Statement", template = "if ${1:condition} {
+    $0
+}" },
+    { trigger = "loop", desc = "Infinite Loop", template = "loop {
+    $0
+}" },
+    { trigger = "match", desc = "Match Pattern", template = "match ${1:variable} {
+    ${2:pattern} => ${3:result},
+    _ => $0
+}" }
+  }
+})
+
+-- Load all snippets into engine (KEEP THIS UNCHANGED)
 for _, pack in ipairs(SNIPPET_PACKS) do
+
   for _, snip in ipairs(pack.snippets) do
     snippets.add {
       trigger = snip.trigger,
