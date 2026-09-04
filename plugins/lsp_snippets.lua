@@ -41,12 +41,13 @@ local variables = {
 	TM_CURRENT_LINE          = function(ctx) return ctx.doc.lines[ctx.line] end,
 	TM_CURRENT_WORD          = function(ctx) return ctx.partial end,
 	TM_LINE_INDEX            = function(ctx) return ctx.line - 1 end,
-	TM_FILENAME              = function(ctx) local f = ctx.doc and (ctx.doc.filename or ctx.doc.new_file); return f and (f:match('[^/%\\]*$') or f) or 'Untitled' end,
-	TM_FILENAME_BASE         = function(ctx) local f = ctx.doc and (ctx.doc.filename or ctx.doc.new_file); if f then local b = f:match('([^/%\\]*)%.%w*$') or f:match('([^/%\\]*)$'); if b and #b > 0 and b ~= 'Untitled' and not b:find('^Unsaved') then local p = b:gsub('[-_](%w)', function(c) return c:upper() end); return p:sub(1,1):upper() .. p:sub(2) end end; return 'ComponentName' end,
-	TM_DIRECTORY             = function(ctx) local f = ctx.doc and (ctx.doc.filename or ctx.doc.abs_filename); return f and (f:match('([^/%\\]*)[/%\\].*$') or '') or '' end,
-	TM_FILEPATH              = function(ctx) local f = ctx.doc and (ctx.doc.abs_filename or ctx.doc.filename); return f and (common.dirname(f) or '') or '' end,
+	TM_LINE_NUMBER           = function(ctx) return ctx.line end,
+	TM_FILENAME              = function(ctx) return ctx.doc.filename:match('[^/%\\]*$') or '' end,
+	TM_FILENAME_BASE         = function(ctx) return ctx.doc.filename:match('([^/%\\]*)%.%w*$') or ctx.doc.filename end,
+	TM_DIRECTORY             = function(ctx) return ctx.doc.filename:match('([^/%\\]*)[/%\\].*$') or '' end,
+	TM_FILEPATH              = function(ctx) return common.dirname(ctx.doc.abs_filename) or '' end,
 	-- VSCode
-	RELATIVE_FILEPATH        = function(ctx) local f = ctx.doc and ctx.doc.filename; return f and core.normalize_to_project_dir(f) or '' end,
+	RELATIVE_FILEPATH        = function(ctx) return core.normalize_to_project_dir(ctx.doc.filename) end,
 	CLIPBOARD                = function()    return system.get_clipboard() end,
 	-- https://github.com/lite-xl/lite-xl/pull/1455
 	WORKSPACE_NAME           = function(ctx) return end,
