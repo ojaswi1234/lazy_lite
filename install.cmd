@@ -175,6 +175,10 @@ if not exist "%CONFIG_DIR%\colors"  mkdir "%CONFIG_DIR%\colors"  >nul 2>nul
 if not exist "%CONFIG_DIR%\fonts"   mkdir "%CONFIG_DIR%\fonts"   >nul 2>nul
 if not exist "%CONFIG_DIR%\scripts" mkdir "%CONFIG_DIR%\scripts" >nul 2>nul
 if not exist "%CONFIG_DIR%\attachments" mkdir "%CONFIG_DIR%\attachments" >nul 2>nul
+if not exist "%CONFIG_DIR%\libraries" mkdir "%CONFIG_DIR%\libraries" >nul 2>nul
+
+:: Copy libraries
+if exist "%SRC_DIR%libraries\" xcopy /y /e /q "%SRC_DIR%libraries\*" "%CONFIG_DIR%\libraries\" >nul 2>nul
 
 :: Copy all plugin files (.lua, .json, .py, .exe)
 for %%f in ("%SRC_DIR%plugins\*.lua" "%SRC_DIR%plugins\*.json" "%SRC_DIR%plugins\*.py" "%SRC_DIR%plugins\*.exe") do (
