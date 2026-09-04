@@ -351,6 +351,7 @@ local ignore_procs = {
 }
 
 function TermView:refresh_ports(s)
+  if s.fetching then return end
   s.fetching = true
   s.ports = {}
   s.port_buttons = {}
@@ -362,6 +363,7 @@ function TermView:refresh_ports(s)
     local p_names = {}
     if PLATFORM == "Windows" then
       local p1 = process.start({"tasklist", "/FO", "CSV", "/NH"}, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_DISCARD })
+      s.proc_p1 = p1
       if p1 then
         local out = ""
         local deadline = system.get_time() + 3
@@ -390,6 +392,7 @@ function TermView:refresh_ports(s)
       end
       
       local p2 = process.start({"cmd.exe", "/c", "netstat -ano | findstr LISTENING"}, { stdout = process.REDIRECT_PIPE })
+      s.proc_p2 = p2
       if p2 then
         local out = ""
         local deadline = system.get_time() + 4
@@ -1533,12 +1536,14 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
   
         local url = self:get_url_at(x, y)
         if url then
+          -- SECURITY: Strip shell metacharacters to prevent injection
+          local safe_url = url:gsub('"', ''):gsub('&', ''):gsub(';', ''):gsub('|', '')
           if PLATFORM == "Windows" then
-            os.execute('start "" "' .. url .. '"')
+            os.execute('start "" "' .. safe_url .. '"')
           elseif PLATFORM == "Mac OS X" then
-            os.execute('open "' .. url .. '"')
+            os.execute('open "' .. safe_url .. '"')
           else
-            os.execute('xdg-open "' .. url .. '"')
+            os.execute('xdg-open "' .. safe_url .. '"')
           end
           return true
         end
