@@ -24,10 +24,11 @@ function common.fuzzy_match(haystack, needle, files)
   return orig_fuzzy_match(haystack, needle, files)
 end
 
--- [OFFICIAL LITE-XL BEHAVIOR]
--- Automatically start language servers on document load.
-config.plugins.lsp.autostart_server = true
-config.plugins.lsp.is_enabled = true
+-- [ON-DEMAND BEHAVIOR]
+-- Servers will NOT start automatically to save RAM/CPU.
+-- Use Ctrl+Alt+L to manually turn them on when needed.
+config.plugins.lsp.autostart_server = false
+config.plugins.lsp.is_enabled = false
 
 -- Troubleshooting & Logging for Language Servers
 -- Enables verbose stderr logging (fixes silent crashes on Windows due to cmd.exe wrapper)
