@@ -1,5 +1,6 @@
 -- mod-version: 3
 local core = require "core"
+local common = require "core.common"
 
 -- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
 local _COLOR_CACHE_0 = {0,0,0,0}
