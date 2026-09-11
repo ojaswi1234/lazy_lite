@@ -439,3 +439,11 @@ config.animation_rate = 2.5
 -- completely eliminating microscopic frame-drop stutters during heavy text scrolling.
 collectgarbage("setpause", 110)
 collectgarbage("setstepmul", 200)
+
+-- Disable LSP autostart
+if not config.plugins.lsp then config.plugins.lsp = {} end
+config.plugins.lsp.autostart_server = false
+
+-- [[ LazyLite API Fallback ]]
+config.ai_sidebar = config.ai_sidebar or {}
+config.ai_sidebar.active_tool = "cloud_api"
