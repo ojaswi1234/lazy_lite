@@ -161,10 +161,20 @@ function FontDialog:new(font, options)
 end
 
 function FontDialog:update_preview()
+  -- Caching font loader to prevent massive memory leak
+  self._font_cache = self._font_cache or {}
+  local load_font_cached = function(fpath, fsize, fopts)
+      local key = fpath .. "_" .. fsize
+      if not self._font_cache[key] then
+          self._font_cache[key] = renderer.font.load(fpath, fsize, fopts)
+      end
+      return self._font_cache[key]
+  end
+
   local options = self:get_options()
 
   if self.fontdata and self.fontdata.path then
-    self.preview.font = renderer.font.load(
+    self.preview.font = load_font_cached(
       self.fontdata.path, options.size * SCALE, options
     )
     local fontmeta = renderer.font.get_metadata and renderer.font.get_metadata(self.fontdata.path) or {}
@@ -173,11 +183,7 @@ function FontDialog:update_preview()
       self.preview:set_label(preview)
     end
   else
-    self.preview.font = renderer.font.load(
-      DATADIR .. "/fonts/FiraSans-Regular.ttf",
-      options.size * SCALE,
-      options
-    )
+    self.preview.font = load_font_cached(DATADIR .. "/fonts/FiraSans-Regular.ttf", options.size * SCALE, options)
   end
 
   collectgarbage "step"

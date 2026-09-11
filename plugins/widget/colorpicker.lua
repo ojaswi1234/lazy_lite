@@ -6,6 +6,17 @@
 -- http://axonflux.com/handy-rgb-to-hsl-and-rgb-to-hsv-color-model-c
 --
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {0, 0, 255, 255}
+local _COLOR_CACHE_1 = {255, 255, 0, 255}
+local _COLOR_CACHE_2 = {255, 0, 255, 255}
+local _COLOR_CACHE_3 = {0, 0, 0, 255}
+local _COLOR_CACHE_4 = {0, 255 ,0, 255}
+local _COLOR_CACHE_5 = {255, 0, 0, 255}
+local _COLOR_CACHE_6 = {0, 255, 255, 255}
+local _COLOR_CACHE_7 = {0, 255, 0, 255}
+local _COLOR_CACHE_8 = {255, 255, 255, 255}
 local style = require "core.style"
 local common = require "core.common"
 local Widget = require "libraries.widget"
@@ -21,24 +32,24 @@ local HUE_COLOR_SEGMENT = 100 / 6
 ---@type widget.colorpicker.colorrange[]
 local HUE_COLOR_RANGES = {
   -- red -> yellow
-  { {255, 0, 0, 255}, {255, 255, 0, 255} },
+  { _COLOR_CACHE_5, _COLOR_CACHE_1 },
   -- yellow -> green
-  { {255, 255, 0, 255}, {0, 255, 0, 255} },
+  { _COLOR_CACHE_1, _COLOR_CACHE_7 },
   -- green -> cyan
-  { {0, 255 ,0, 255}, {0, 255, 255, 255} },
+  { _COLOR_CACHE_4, _COLOR_CACHE_6 },
   -- cyan -> blue
-  { {0, 255, 255, 255}, {0, 0, 255, 255} },
+  { _COLOR_CACHE_6, _COLOR_CACHE_0 },
   -- blue -> purple
-  { {0, 0, 255, 255}, {255, 0, 255, 255} },
+  { _COLOR_CACHE_0, _COLOR_CACHE_2 },
   -- purple -> red
-  { {255, 0, 255, 255}, {255, 0, 0, 255} }
+  { _COLOR_CACHE_2, _COLOR_CACHE_5 }
 }
 
 ---@type renderer.color
-local COLOR_BLACK = {0, 0, 0, 255}
+local COLOR_BLACK = _COLOR_CACHE_3
 
 ---@type renderer.color
-local COLOR_WHITE = {255, 255, 255, 255}
+local COLOR_WHITE = _COLOR_CACHE_8
 
 ---@class widget.colorpicker : widget
 ---@overload fun(parent:widget?, color?:renderer.color|string):widget.colorpicker
@@ -115,7 +126,7 @@ function ColorPicker:new(parent, color)
     end
   end
 
-  self:set_color(color or {255, 0, 0, 255})
+  self:set_color(color or _COLOR_CACHE_5)
 
   -- set initial child positions and size
   self:update_size()
@@ -403,7 +414,7 @@ function ColorPicker:set_color(color, skip_html, skip_rgba)
       color = ColorPicker.color_from_string(color)
     end
 
-    if not color then color = {255, 0, 0, 255} end
+    if not color then color = _COLOR_CACHE_5 end
 
     local hsva = ColorPicker.rgb_to_hsv(color)
 

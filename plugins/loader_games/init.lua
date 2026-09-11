@@ -1,5 +1,9 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {20, 20, 25, 255}
+local _COLOR_CACHE_1 = {255, 100, 100, 255}
 local style = require "core.style"
 local system = require "system"
 
@@ -70,7 +74,7 @@ function loader.on_keypressed(key)
   -- global loader toggle
   if key == "?" or key == "shift+/" then
     loader.show_tooltip = not loader.show_tooltip
-    core.redraw = true
+    if self.active then core.redraw = true end
     return true
   end
   
@@ -103,7 +107,7 @@ function loader.draw(x, y, w, h)
   
   if loader.error_msg then
     local err_w = style.font:get_width(loader.error_msg)
-    renderer.draw_text(style.font, loader.error_msg, x + (w - err_w)/2, y + (game_h)/2, {255, 100, 100, 255})
+    renderer.draw_text(style.font, loader.error_msg, x + (w - err_w)/2, y + (game_h)/2, _COLOR_CACHE_1)
   elseif loader.current_game then
     if loader.current_game.update then
       loader.current_game.update(dt)
@@ -115,7 +119,7 @@ function loader.draw(x, y, w, h)
   
   -- draw persistent progress bar / info strip at the bottom
   local strip_y = y + h - status_h
-  renderer.draw_rect(x, strip_y, w, status_h, {20, 20, 25, 255})
+  renderer.draw_rect(x, strip_y, w, status_h, _COLOR_CACHE_0)
   
   local elapsed = math.floor(t - loader.start_time)
   local mins = math.floor(elapsed / 60)
@@ -135,7 +139,7 @@ function loader.draw(x, y, w, h)
   renderer.draw_text(style.font, status_text, x + (w - st_w)/2, strip_y + (status_h - font_h)/2, style.accent)
   
   -- force continuous redraw since games are animating
-  core.redraw = true
+  if self.active then core.redraw = true end
 end
 
 return loader

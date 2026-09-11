@@ -1,5 +1,9 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {255, 50, 50, 100}
+local _COLOR_CACHE_1 = {30, 30, 35, 150}
 local style = require "core.style"
 local system = require "system"
 
@@ -46,7 +50,7 @@ function typing.draw(x, y, w, h)
   local cy = y + h / 2 - 20 * SCALE
   
   -- draw token background flash on error
-  local bg_color = typing.error_flash > 0 and {255, 50, 50, 100} or {30, 30, 35, 150}
+  local bg_color = typing.error_flash > 0 and _COLOR_CACHE_0 or _COLOR_CACHE_1
   renderer.draw_rect(cx - 10 * SCALE, cy - 5 * SCALE, c_w + 20 * SCALE, display_font:get_height() + 10 * SCALE, bg_color)
   
   -- draw characters

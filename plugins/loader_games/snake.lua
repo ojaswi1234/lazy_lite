@@ -1,5 +1,8 @@
 -- mod-version:3
 local core = require "core"
+
+-- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
+local _COLOR_CACHE_0 = {255,100,100,255}
 local style = require "core.style"
 
 local snake = {}
@@ -108,7 +111,7 @@ function snake.draw(x, y, w, h)
   if snake.dead then
     local msg = "Game Over! Press any key to restart"
     local mw = style.font:get_width(msg)
-    renderer.draw_text(style.font, msg, x + (w - mw)/2, y + (h - style.font:get_height())/2, {255,100,100,255})
+    renderer.draw_text(style.font, msg, x + (w - mw)/2, y + (h - style.font:get_height())/2, _COLOR_CACHE_0)
   end
 end
 

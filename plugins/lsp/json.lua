@@ -530,3 +530,16 @@ end
 
 
 return json
+
+
+-- Crash Defuser
+local orig_encode = json.encode
+json.encode = function(v)
+  local ok, res = pcall(orig_encode, v)
+  return ok and res or "{}"
+end
+local orig_decode = json.decode
+json.decode = function(str)
+  local ok, res = pcall(orig_decode, str)
+  return ok and res or {}
+end
