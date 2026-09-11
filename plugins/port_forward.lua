@@ -24,7 +24,7 @@ local process = has_process and process_module or _G.process
 
 local forwards = {}
 
-local config_path = USERDIR .. "/plugins/tunnel_monitor/rules.lua"
+local config_path = USERDIR .. PATHSEP .. "plugins/tunnel_monitor/rules.lua"
 
 local function save_rules()
   local f = io.open(config_path, "w")
@@ -565,7 +565,7 @@ command.add(nil, {
         
         -- Automatically patch Vite configs to prevent "Blocked request" host errors!
         for _, ext in ipairs({"ts", "js"}) do
-          local path = core.project_dir .. "/vite.config." .. ext
+          local path = core.project_dir .. PATHSEP .. "vite.config." .. ext
           local f = io.open(path, "r")
           if f then
             local content = f:read("*a")
@@ -614,7 +614,7 @@ command.add(nil, {
           -- we'll check the most common Django project structure: core/settings.py, config/settings.py, backend/settings.py or just settings.py
           local django_paths = {"settings.py", "core/settings.py", "config/settings.py", "backend/settings.py", "app/settings.py", "project/settings.py"}
           for _, dp in ipairs(django_paths) do
-            local path = core.project_dir .. "/" .. dp
+            local path = core.project_dir .. PATHSEP .. dp
             local f = io.open(path, "r")
             if f then
               local content = f:read("*a")
@@ -658,7 +658,7 @@ command.add(nil, {
   end,
 
   ["port_forward:show-visitors"] = function()
-    local path = USERDIR .. "/plugins/tunnel_monitor/visitors.json"
+    local path = USERDIR .. PATHSEP .. "plugins/tunnel_monitor/visitors.json"
     
     local view = TunnelVisitorView(path)
     core.root_view:get_primary_node():add_view(view)

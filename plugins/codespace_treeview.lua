@@ -118,7 +118,7 @@ function TreeView:draw(x, y, w, h)
     if not entries then return end
     
     for _, entry in ipairs(entries) do
-      local child_path = path .. "/" .. entry.name
+      local child_path = path .. PATHSEP .. entry.name
       
       if entry.type == "dir" and self.expanded[child_path] then
         if draw_item(child_path, depth + 1, x, current_y, w, line_h) then
@@ -161,7 +161,7 @@ function TreeView:on_mouse_pressed(button, x, y, clicks)
       if not entries then return current_y, false end
       
       for _, entry in ipairs(entries) do
-        local child_path = path .. "/" .. entry.name
+        local child_path = path .. PATHSEP .. entry.name
         current_y = current_y + line_h
         
         if y >= current_y and y < current_y + line_h then

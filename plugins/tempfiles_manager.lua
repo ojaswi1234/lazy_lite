@@ -63,11 +63,11 @@ command.add(nil, {
   ["tempfiles:open-folder"] = function()
     local path = tmp_dir
     if PLATFORM == "Windows" then
-      os.execute('explorer "' .. path:gsub("/", "\\") .. '"')
+      require("process").start({"explorer", path:gsub("/", "\\")})
     elseif PLATFORM == "Mac OS X" then
-      os.execute('open "' .. path .. '"')
+      require("process").start({"open", path})
     else
-      os.execute('xdg-open "' .. path .. '"')
+      require("process").start({"xdg-open", path})
     end
   end
 })

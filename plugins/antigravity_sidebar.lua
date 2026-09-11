@@ -59,10 +59,10 @@ local syntax  = require "core.syntax"
 
 -- Auto-cleanup orphaned pasted text files from previous sessions
 pcall(function()
-  local tmp_dir = USERDIR .. "/tempfiles"
+  local tmp_dir = USERDIR .. PATHSEP .. "tempfiles"
   for _, file in ipairs(system.list_dir(tmp_dir) or {}) do
     if file:match("^pasted_text_.*%.txt$") then
-      os.remove(tmp_dir .. "/" .. file)
+      os.remove(tmp_dir .. PATHSEP .. file)
     end
   end
 end)
@@ -103,7 +103,7 @@ local function get_emoji_font()
     if not _emoji_font then
       local candidates = {}
       -- First priority: bundled font in user's Lite XL config dir (installed by setup script)
-      local user_bundled = USERDIR .. "/fonts/NotoColorEmoji.ttf"
+      local user_bundled = USERDIR .. PATHSEP .. "fonts/NotoColorEmoji.ttf"
       table.insert(candidates, user_bundled)
       if PLATFORM == "Windows" then
         local windir = os.getenv("WINDIR") or "C:\\Windows"
@@ -539,9 +539,9 @@ config.antigravity = {
     local applocal = os.getenv("LOCALAPPDATA") or ""
     local home     = os.getenv("HOME") or os.getenv("USERPROFILE") or ""
     for _, p in ipairs({
-      applocal .. "/agy/bin/agy.exe",
+      applocal .. PATHSEP .. "agy/bin/agy.exe",
       applocal .. "\\agy\\bin\\agy.exe",
-      home .. "/.local/bin/agy",
+      home .. PATHSEP .. ".local/bin/agy",
       "agy",
     }) do
       local f = io.open(p, "rb")
@@ -599,8 +599,8 @@ end)
 -- (Python pywinpty / pty module) so it produces output, then pipe from Python.
 local function get_pty_bridge()
   -- The bridge lives alongside this plugin file
-  local plugin_dir = USERDIR .. "/plugins"
-  local bridge = plugin_dir .. "/agy_pty_bridge.py"
+  local plugin_dir = USERDIR .. PATHSEP .. "plugins"
+  local bridge = plugin_dir .. PATHSEP .. "agy_pty_bridge.py"
   local f = io.open(bridge, "r")
   if f then f:close(); return bridge end
   return nil
@@ -682,7 +682,7 @@ local function get_mention_suggestions(query)
     if f:lower():find(search_term, 1, true) then
       local info = system.get_file_info(abs_dir .. f)
       if info and info.type == "dir" then
-        table.insert(folders, { type = "dir", full_path = target_dir .. f .. "/", name = f .. "/", badge = "[DIR]", display = "[DIR]  " .. f .. "/" })
+        table.insert(folders, { type = "dir", full_path = target_dir .. f .. PATHSEP, name = f .. PATHSEP, badge = "[DIR]", display = "[DIR]  " .. f .. PATHSEP })
       else
         local ext = f:match("%.([%w_]+)$")
         local badge = ext and ("[" .. ext:lower():sub(1, 4) .. "]") or "[FILE]"
@@ -1028,7 +1028,7 @@ local function parse_pty_model_list(raw)
       local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
       if base_name and u1 and u2 then
         name = base_name
-        usage = u1 .. "/" .. u2
+        usage = u1 .. PATHSEP .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
         local base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
@@ -1043,7 +1043,7 @@ local function parse_pty_model_list(raw)
           base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
           if base_name and u1 and u2 then
             name = base_name
-            usage = u1 .. "/" .. u2
+            usage = u1 .. PATHSEP .. u2
             limited = (tonumber(u1) >= tonumber(u2))
           elseif line:lower():match("%(locked%)") or line:lower():match("%(pro tier%)") or line:lower():match("%(exhausted%)") or line:lower():match("%(requires pro%)") then
             limited = true
@@ -1361,7 +1361,7 @@ end
 
 function AGView:show_resume_picker()
   local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
-  local brain_path = base_dir .. "/.gemini/antigravity-cli/brain"
+  local brain_path = base_dir .. PATHSEP .. ".gemini/antigravity-cli/brain"
   
   local files = system.list_dir(brain_path)
   if not files then
@@ -1372,7 +1372,7 @@ function AGView:show_resume_picker()
   end
   
   -- Parse conversation metadata for accurate titles, steps, and agents
-  local cache_path = base_dir .. "/.gemini/antigravity-cli/cache/conversation_metadata.json"
+  local cache_path = base_dir .. PATHSEP .. ".gemini/antigravity-cli/cache/conversation_metadata.json"
   local cache_f = io.open(cache_path, "r")
   local meta = {}
   if cache_f then
@@ -1399,7 +1399,7 @@ function AGView:show_resume_picker()
   local results = {}
   local active_cid = self:state().cid
 
-  local pinned_path = base_dir .. "/.gemini/antigravity-cli/pinned_cids.txt"
+  local pinned_path = base_dir .. PATHSEP .. ".gemini/antigravity-cli/pinned_cids.txt"
   local pinned = {}
   local pf = io.open(pinned_path, "r")
   if pf then
@@ -1413,7 +1413,7 @@ function AGView:show_resume_picker()
   for _, name in ipairs(files) do
     local cid = name:match("^(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)$")
     if cid then
-      local path = brain_path .. "/" .. cid .. "/.system_generated/logs/transcript.jsonl"
+      local path = brain_path .. PATHSEP .. cid .. PATHSEP .. ".system_generated/logs/transcript.jsonl"
       local tf = io.open(path, "r")
       if tf then
         local title = ""
@@ -1613,7 +1613,7 @@ function AGView:submit(prompt)
     local tool_name = (tool and tool.name) or "Antigravity CLI"
     local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history & active swarm\n  `/api` - Manage API Keys & MCP Tools\n  `/team clear` - Disband active swarm (keeps chat history)\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation"
     core.add_thread(function()
-      local p = process.start({"python", USERDIR .. "/scripts/ai_api_bridge.py", "--get-installed-skills"})
+      local p = process.start({"python", USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py", "--get-installed-skills"})
       if p then
           local out = ""
           while p:running() do
@@ -1648,11 +1648,11 @@ function AGView:submit(prompt)
     self:state().status = "idle"
     self:state().cid = nil
     self.active_skill = nil
-    os.remove(USERDIR .. "/scripts/.team_config.json")
+    os.remove(USERDIR .. PATHSEP .. "scripts/.team_config.json")
     core.redraw = true
     return
   elseif prompt == "/team clear" then
-    os.remove(USERDIR .. "/scripts/.team_config.json")
+    os.remove(USERDIR .. PATHSEP .. "scripts/.team_config.json")
     self:_add_session("ai", "Active team swarm disbanded successfully. You are now speaking to the single base model.")
     core.redraw = true
     return
@@ -1664,7 +1664,7 @@ function AGView:submit(prompt)
     self.show_api_view = true
     self.api_key_status = { status = "loading" }
     
-    local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
     core.add_thread(function()
       local p, err = process.start({ "python", bridge, "--validate-keys" })
       if not p then
@@ -1815,9 +1815,9 @@ function AGView:submit(prompt)
   end
 
   -- Expand any @pasted_text tokens into absolute file paths
-  local tmp_dir = USERDIR .. "/tempfiles"
+  local tmp_dir = USERDIR .. PATHSEP .. "tempfiles"
   local expanded_prompt = prompt_text:gsub("@(pasted_text[%w_%-%.]+%.txt)", function(f)
-    local fp = (tmp_dir .. "/" .. f):gsub("\\", "/")
+    local fp = (tmp_dir .. PATHSEP .. f):gsub("\\", "/")
     return string.format(" [Read this pasted text from file: %s] ", fp)
   end)
 
@@ -1907,7 +1907,7 @@ function AGView:submit(prompt)
   end
 
   -- Debug log
-  local log = io.open(USERDIR .. "/antigravity_debug.log", "a")
+  local log = io.open(USERDIR .. PATHSEP .. "antigravity_debug.log", "a")
   if log then
     log:write(os.date() .. "  TOOL:" .. tool_id .. "  ARGV: " .. table.concat(final_argv, " | ") .. "\n")
     log:close()
@@ -1941,7 +1941,7 @@ command.add(is_resume_picker, {
     local item = core.command_view.suggestions[core.command_view.suggestion_idx]
     if item and item.cid then
       local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
-      local brain_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. item.cid
+      local brain_path = base_dir .. PATHSEP .. ".gemini/antigravity-cli/brain/" .. item.cid
       if PLATFORM == "Windows" then
         os.execute('rmdir /S /Q "' .. brain_path:gsub("/", "\\") .. '"')
       else
@@ -1960,7 +1960,7 @@ command.add(is_resume_picker, {
     local item = core.command_view.suggestions[core.command_view.suggestion_idx]
     if item and item.cid then
       local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
-      local pinned_path = base_dir .. "/.gemini/antigravity-cli/pinned_cids.txt"
+      local pinned_path = base_dir .. PATHSEP .. ".gemini/antigravity-cli/pinned_cids.txt"
       local pinned = {}
       local f = io.open(pinned_path, "r")
       if f then
@@ -2208,7 +2208,7 @@ function AGView:update()
 end
 
 -- ── Model list disk cache ─────────────────────────────────────────────────────
-local MODEL_CACHE_PATH = USERDIR .. "/model_cache.json"
+local MODEL_CACHE_PATH = USERDIR .. PATHSEP .. "model_cache.json"
 local MODEL_CACHE_TTL  = 86400  -- 24 hours
 
 local function _model_cache_read()
@@ -2379,7 +2379,7 @@ function parse_pty_model_list(raw)
       local base_name, u1, u2 = line:match("^(.-)%s*[%-]?%s*[%[%(]?(%d+)/(%d+)[^%]%)]*[%]%)]?%s*$")
       if base_name and u1 and u2 then
         name = base_name
-        usage = u1 .. "/" .. u2
+        usage = u1 .. PATHSEP .. u2
         limited = (tonumber(u1) >= tonumber(u2))
       else
         local base_name2, pct = line:match("^(.-)%s*[%-]?%s*[%[%(]?weekly usage (%d+)%%[^%]%)]*[%]%)]?%s*$")
@@ -2395,7 +2395,7 @@ function parse_pty_model_list(raw)
           base_name, u1, u2 = line:match("^(.-)%s+(%d+)%s*/%s*(%d+)%s*$")
           if base_name and u1 and u2 then
             name = base_name
-            usage = u1 .. "/" .. u2
+            usage = u1 .. PATHSEP .. u2
             limited = (tonumber(u1) >= tonumber(u2))
           end
         end
@@ -2411,7 +2411,7 @@ function AGView:_load_models_from_settings()
   local home = os.getenv("HOME") or os.getenv("USERPROFILE") or ""
   local settings_paths = {
     home .. "\\.gemini\\antigravity-cli\\settings.json",
-    home .. "/.gemini/antigravity-cli/settings.json",
+    home .. PATHSEP .. ".gemini/antigravity-cli/settings.json",
   }
   local current_model = nil
   for _, path in ipairs(settings_paths) do
@@ -2478,7 +2478,7 @@ function AGView:fetch_marketplace()
   self.marketplace_skills = "loading"
   core.redraw = true
   core.add_thread(function()
-      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
       local arg = ""
         if self.show_tools_tab then
             arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
@@ -2486,7 +2486,7 @@ function AGView:fetch_marketplace()
             arg = self.show_installed_skills and "--get-installed-skills" or "--get-marketplace-skills"
         end
       
-      local tmp_file = USERDIR .. "/scripts/.market_tmp.json"
+      local tmp_file = USERDIR .. PATHSEP .. "scripts/.market_tmp.json"
       local cmd = {"python", bridge, arg, "--out-file", tmp_file}
       if not self.show_installed_skills then
          self.market_page = self.market_page or 1
@@ -2541,7 +2541,7 @@ function AGView:fetch_marketplace()
 
 function AGView:uninstall_skill(skill_id)
   core.add_thread(function()
-      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
       local flag = self.show_tools_tab and "--uninstall-tool" or "--uninstall-skill"
       local p, err = process.start({"python", bridge, flag, skill_id})
       if p then
@@ -2583,7 +2583,7 @@ function AGView:install_skill(skill_input)
       end
     end
 
-    local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
     if self.show_tools_tab then
       local p = process.start({"python", bridge, "--install-tool", skill_obj.id})
       local out_text = ""
@@ -2622,7 +2622,7 @@ function AGView:install_skill(skill_input)
     else
       local ok_json, json = pcall(require, "plugins.lsp.json")
       if not ok_json then return end
-      local tmp_file = USERDIR .. "/scripts/.tmp_skill.json"
+      local tmp_file = USERDIR .. PATHSEP .. "scripts/.tmp_skill.json"
       local f = io.open(tmp_file, "w")
       if f then
         f:write(json.encode(skill_obj))
@@ -3805,11 +3805,11 @@ function AGView:on_paste(text)
   local is_long = #clean > 200 or select(2, clean:gsub("\n", "")) >= 2
   local paste_txt = clean
   if is_long then
-    local tmp_dir = USERDIR .. "/tempfiles"
+    local tmp_dir = USERDIR .. PATHSEP .. "tempfiles"
     pcall(system.mkdir, tmp_dir)
     os.execute('mkdir "' .. tmp_dir:gsub("/", "\\") .. '" 2>nul')
     local filename = os.date("pasted_text_%Y%m%d_%H%M%S.txt")
-    local filepath = tmp_dir .. "/" .. filename
+    local filepath = tmp_dir .. PATHSEP .. filename
     local f = io.open(filepath, "wb")
     if f then
       f:write(clean)
@@ -4425,8 +4425,8 @@ end
     self.history_state = "loading"
     core.redraw = true
     core.add_thread(function()
-      local config_dir = USERDIR .. "/scripts"
-      local cmd = "python " .. config_dir .. "/ai_api_bridge.py --get-history"
+      local config_dir = USERDIR .. PATHSEP .. "scripts"
+      local cmd = "python " .. config_dir .. PATHSEP .. "ai_api_bridge.py --get-history"
       local proc = process.start({ "cmd", "/c", cmd })
       local out_tbl = {}
       while true do
@@ -4847,7 +4847,7 @@ function AGView:_launch_team_builder()
       submit = function(role)
         if role:lower() == "done" or role == "" then
           if #team > 0 then
-            local p = USERDIR .. "/scripts/.team_config.json"
+            local p = USERDIR .. PATHSEP .. "scripts/.team_config.json"
             local f = io.open(p, "w")
             if f then
               -- basic JSON encode
@@ -4995,7 +4995,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             core.command_view:enter("Paste GitHub Repo or API URL", {
               submit = function(url)
                 core.add_thread(function()
-      local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
       local arg = ""
         if self.show_tools_tab then
             arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
@@ -5003,7 +5003,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             arg = self.show_installed_skills and "--get-installed-skills" or "--get-marketplace-skills"
         end
       
-      local tmp_file = USERDIR .. "/scripts/.market_tmp.json"
+      local tmp_file = USERDIR .. PATHSEP .. "scripts/.market_tmp.json"
       local cmd = {"python", bridge, arg, "--out-file", tmp_file}
       if not self.show_installed_skills then
          self.market_page = self.market_page or 1
@@ -5124,8 +5124,8 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             
             self.active_skill_preview._preview_md = "Loading SKILL.md from repository...\n(Fetching via shallow clone, this may take a few seconds...)"
             
-            local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
-            local tmp_file = USERDIR .. "/scripts/.tmp_skill.json"
+            local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+            local tmp_file = USERDIR .. PATHSEP .. "scripts/.tmp_skill.json"
             local skill_obj = self.active_skill_preview
             local ok_json, json = pcall(require, "plugins.lsp.json")
             if ok_json then
@@ -5552,7 +5552,7 @@ function AGView:on_mouse_released(button, mx, my)
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
           if btn.action == "Delete" then
             -- run delete command
-            local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+            local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
             core.add_thread(function()
               process.start({ "python", bridge, "--provider", btn.p, "--delete-key" }):wait()
               self:submit("/api") -- refresh
@@ -5563,7 +5563,7 @@ function AGView:on_mouse_released(button, mx, my)
             -- Set provider as active by picking its first model
             if self.tool_model_lists and self.tool_model_lists["cloud_api"] then
               for _, m in ipairs(self.tool_model_lists["cloud_api"]) do
-                if m.name:match("^" .. btn.p .. "/") then
+                if m.name:match("^" .. btn.p .. PATHSEP) then
                   local tc = self:_tool_cfg("cloud_api")
                   tc.selected_model = m.name
                   if (config.ai_sidebar.active_tool or "agy") == "cloud_api" then
@@ -5666,7 +5666,7 @@ function AGView:_prompt_for_api_key(provider)
       text = text:match("^%s*(.-)%s*$")
       if text and #text > 0 then
         -- Run python script to save key
-        local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+        local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
         local p = process.start({ "python", bridge, "--provider", provider, "--set-key", text })
         if p then
           core.add_thread(function()
@@ -5690,7 +5690,7 @@ function AGView:open_artifacts_popup()
     end
     
     local base_dir = (os.getenv("USERPROFILE") or os.getenv("HOME"))
-    local artifacts_path = base_dir .. "/.gemini/antigravity-cli/brain/" .. cid
+    local artifacts_path = base_dir .. PATHSEP .. ".gemini/antigravity-cli/brain/" .. cid
     
     local items = {}
     local seen = {}
@@ -5700,7 +5700,7 @@ function AGView:open_artifacts_popup()
       if not files then return end
       for _, f in ipairs(files) do
         if not f:match("^%.") then
-          local path = dir .. "/" .. f
+          local path = dir .. PATHSEP .. f
           local info = system.get_file_info(path)
           if info then
             if info.type == "file" then
@@ -5709,7 +5709,7 @@ function AGView:open_artifacts_popup()
                 seen[path] = true
               end
             elseif info.type == "dir" and f == "scratch" then
-              scan_dir(path, prefix .. f .. "/")
+              scan_dir(path, prefix .. f .. PATHSEP)
             end
           end
         end
@@ -5726,7 +5726,7 @@ function AGView:open_artifacts_popup()
             local ext = f:match("%.([^%.]+)$")
             ext = ext and ext:lower() or ""
             if ext == "docx" or ext == "pdf" or ext == "pptx" or ext == "xlsx" or ext == "csv" then
-              local path = core.project_dir .. "/" .. f
+              local path = core.project_dir .. PATHSEP .. f
               if not seen[path] then
                 table.insert(items, { text = "[Workspace] " .. f, path = path })
                 seen[path] = true

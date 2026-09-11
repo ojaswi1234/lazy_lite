@@ -1544,11 +1544,11 @@ function TermView:on_mouse_pressed(button, x, y, clicks)
           -- SECURITY: Strip shell metacharacters to prevent injection
           local safe_url = url:gsub('"', ''):gsub('&', ''):gsub(';', ''):gsub('|', '')
           if PLATFORM == "Windows" then
-            os.execute('start "" "' .. safe_url .. '"')
+            require("process").start({"cmd.exe", "/c", "start", "", safe_url})
           elseif PLATFORM == "Mac OS X" then
-            os.execute('open "' .. safe_url .. '"')
+            require("process").start({"open", safe_url})
           else
-            os.execute('xdg-open "' .. safe_url .. '"')
+            require("process").start({"xdg-open", safe_url})
           end
           return true
         end

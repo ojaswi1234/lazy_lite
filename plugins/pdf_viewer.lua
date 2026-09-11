@@ -46,18 +46,18 @@ local Doc = require "core.doc"
 local RootView = require "core.rootview"
 local process = require "process"
 
-local PYTHON_ENGINE = USERDIR .. "/plugins/pdf_engine.py"
+local PYTHON_ENGINE = USERDIR .. PATHSEP .. "plugins/pdf_engine.py"
 local HALF_BLOCK = "▀"
 
-local CACHE_DIR = USERDIR .. "/tempfiles/pdf_cache"
-system.mkdir(USERDIR .. "/tempfiles")
+local CACHE_DIR = USERDIR .. PATHSEP .. "tempfiles/pdf_cache"
+system.mkdir(USERDIR .. PATHSEP .. "tempfiles")
 system.mkdir(CACHE_DIR)
 
 -- Auto-cleanup orphaned cache files from previous sessions
 pcall(function()
   for _, file in ipairs(system.list_dir(CACHE_DIR) or {}) do
     if file:match("%.lua$") then
-      os.remove(CACHE_DIR .. "/" .. file)
+      os.remove(CACHE_DIR .. PATHSEP .. file)
     end
   end
 end)
@@ -200,7 +200,7 @@ local function clean_temp_path(name)
     math.randomseed(os.time() + os.clock() * 1000)
     rawset(_G, "__random_seeded", true)
   end
-  return CACHE_DIR .. "/" .. name:gsub("[^%w%._%-]", "_") .. "_" .. os.time() .. "_" .. math.random(1000, 9999)
+  return CACHE_DIR .. PATHSEP .. name:gsub("[^%w%._%-]", "_") .. "_" .. os.time() .. "_" .. math.random(1000, 9999)
 end
 
 function PdfView:load_pdf_info()
@@ -1433,11 +1433,11 @@ local function collect_all_pdf_files()
   end
 
   -- 2. Scan Desktop directory
-  local desktop_dir = USERDIR .. "/../../Desktop"
+  local desktop_dir = USERDIR .. PATHSEP .. "../../Desktop"
   local d_files = system.list_dir(desktop_dir) or {}
   for _, f in ipairs(d_files) do
     if f:lower():match("%.pdf$") then
-      add_file(desktop_dir .. "/" .. f)
+      add_file(desktop_dir .. PATHSEP .. f)
     end
   end
 

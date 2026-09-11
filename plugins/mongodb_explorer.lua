@@ -1332,8 +1332,8 @@ function store.stop_server(callback)
       local shut_js = "db.getSiblingDB('admin').shutdownServer({ force: true })"
       run_mongo_cli("mongodb://127.0.0.1:27017", shut_js, function() end)
 
-      pcall(function() os.execute("taskkill /F /IM mongod.exe >nul 2>&1") end)
-      pcall(function() os.execute("net stop MongoDB >nul 2>&1") end)
+      pcall(function() require("process").start({"taskkill", "/F", "/IM", "mongod.exe"}) end)
+      pcall(function() require("process").start({"cmd.exe", "/c", "net stop MongoDB"}) end)
     else
       process.start({ "sudo", "systemctl", "stop", "mongod" })
     end
@@ -3214,11 +3214,11 @@ function core.quit(force)
       pcall(function()
         local is_windows = (PLATFORM == "Windows" or os.getenv("OS") == "Windows_NT" or package.config:sub(1,1) == "\\")
         if is_windows then
-          os.execute("net stop MongoDB >nul 2>&1")
-          os.execute("powershell -Command \"Stop-Service MongoDB -ErrorAction SilentlyContinue\" >nul 2>&1")
-          os.execute("taskkill /F /IM mongod.exe >nul 2>&1")
+          require("process").start({"cmd.exe", "/c", "net stop MongoDB"})
+          require("process").start({"powershell", "-Command", "Stop-Service MongoDB -ErrorAction SilentlyContinue"})
+          require("process").start({"taskkill", "/F", "/IM", "mongod.exe"})
         else
-          os.execute("sudo systemctl stop mongod >/dev/null 2>&1")
+          require("process").start({"sudo", "systemctl", "stop", "mongod"})
         end
       end)
     end

@@ -32,6 +32,7 @@ cfg.keybind_stop = cfg.keybind_stop or "alt+shift+w"
 local preview_proc = nil
 local active_port = nil
 local active_url = nil
+local is_spawning_preview = false
 
 -- Colors for UI
 local function luminance(r, g, b)
@@ -326,8 +327,17 @@ end
 -- Commands
 command.add(nil, {
     ["web-preview:start"] = function()
+      if is_spawning_preview then return end
+      is_spawning_preview = true
       core.add_thread(function()
+        local function finish() is_spawning_preview = false end
+        
         if preview_proc and preview_proc:running() then
+          core.log("Web Preview: Already running on %s", active_url or "unknown")
+          if active_url then open_browser(active_url) end
+          finish()
+          return
+        end
           core.log("Web Preview: Already running on %s", active_url or "unknown")
           if active_url then open_browser(active_url) end
           return
@@ -345,6 +355,7 @@ command.add(nil, {
           active_url = bound_url
           core.log("Web Preview: Attached to active server on port %d 🚀 opening %s", bound_port, active_url)
           open_browser(active_url)
+          finish()
           return
         end
 

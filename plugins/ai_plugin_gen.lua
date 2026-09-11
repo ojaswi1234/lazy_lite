@@ -15,9 +15,9 @@ local Doc     = require "core.doc"
 local DocView = require "core.docview"
 
 -- ── Constants ─────────────────────────────────────────────────────────────────
-local PLUGIN_DIR = USERDIR .. "/plugins"
-local STORE_FILE = USERDIR .. "/ai_plugin_gen_store.lua"
-local TEMP_DIR   = USERDIR .. "/tempfiles"
+local PLUGIN_DIR = USERDIR .. PATHSEP .. "plugins"
+local STORE_FILE = USERDIR .. PATHSEP .. "ai_plugin_gen_store.lua"
+local TEMP_DIR   = USERDIR .. PATHSEP .. "tempfiles"
 local PAD        = 14  -- logical pixels (will be scaled)
 
 local STATE = {
@@ -250,7 +250,7 @@ end
 local function run_agy(prompt, conv_id, on_done)
   ensure_tempdir()
   -- Write prompt to temp file to avoid shell argument length limits
-  local tmp = TEMP_DIR .. "/ai_plugin_gen_prompt.txt"
+  local tmp = TEMP_DIR .. PATHSEP .. "ai_plugin_gen_prompt.txt"
   local fp  = io.open(tmp, "w")
   if fp then fp:write(prompt); fp:close() end
 
@@ -333,7 +333,7 @@ local function complexity_bar(x, y, w, val)
   local bars = ""
   for i=1,10 do bars = bars .. (i<=val and "▓" or "░") end
   renderer.draw_text(style.code_font, bars, x + sp(4), y, c(255,255,255,160))
-  renderer.draw_text(style.font, val.."/10", x + w + sp(8), y, style.text)
+  renderer.draw_text(style.font, val .. PATHSEP .. "10", x + w + sp(8), y, style.text)
   return y + bar_h + sp(4)
 end
 
@@ -1162,9 +1162,9 @@ function AIPluginGen:get_local_context()
       end
     end)
   end
-  scan_lua(USERDIR .. "/plugins", "user-plugin:")
-  scan_lua(DATADIR .. "/plugins", "sys-plugin:")
-  scan_lua(USERDIR .. "/scripts", "script:")
+  scan_lua(USERDIR .. PATHSEP .. "plugins", "user-plugin:")
+  scan_lua(DATADIR .. PATHSEP .. "plugins", "sys-plugin:")
+  scan_lua(USERDIR .. PATHSEP .. "scripts", "script:")
   if #ctx_files == 0 then return "" end
   return "LOCAL ENVIRONMENT CONTEXT (Existing Files):\n" .. table.concat(ctx_files, ", ") .. "\nCRITICAL: If the requested feature logically belongs to an existing plugin from the list above (e.g. port forwarding belongs in a port manager plugin), you MUST plan to modify the EXISTING plugin rather than creating a new independent one. Ensure [OUTPUT_FILES] reflects the existing plugin name!\n\n"
 end
@@ -1291,7 +1291,7 @@ function AIPluginGen:do_build()
   local existing_code = ""
   if plan.out_files then
     for _, fname in ipairs(plan.out_files) do
-      local path = USERDIR .. "/" .. fname
+      local path = USERDIR .. PATHSEP .. fname
       local f = io.open(path, "r")
       if f then
         existing_code = existing_code .. "\n=== EXISTING " .. fname .. " ===\n" .. f:read("*a") .. "\n"
@@ -1352,7 +1352,7 @@ Output the COMPLETE Lua source between [PLUGIN_CODE] and [/PLUGIN_CODE] tags ONL
 
     -- Determine file path
     local filename = plan.files[1] or ("plugins/" .. plan.name .. ".lua")
-    local filepath = USERDIR .. "/" .. filename
+    local filepath = USERDIR .. PATHSEP .. filename
 
     self.build_step = 3
 
