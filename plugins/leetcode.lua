@@ -2371,8 +2371,8 @@ command.add(nil, {
 
 keymap.add({
   ["ctrl+shift+l"] = "leetcode:toggle",
-  ["alt+r"] = "leetcode:run",
-  ["alt+s"] = "leetcode:submit",
+  
+  
   ["alt+z"] = "leetcode:reset",
   ["ctrl+q"] = "leetcode:close",
 })
@@ -2412,7 +2412,7 @@ keymap.add({
   ["return"] = "leetcode:return",
   ["tab"] = "leetcode:tab",
   ["escape"] = "leetcode:escape",
-  ["ctrl+v"] = "leetcode:paste",
+  
   ["gui+v"] = "leetcode:paste",
 })
 

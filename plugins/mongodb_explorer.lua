@@ -3339,7 +3339,7 @@ end
 -- ============================================================================
 keymap.add({
   ["ctrl+alt+m"] = "mongodb_explorer:toggle",
-  ["ctrl+return"] = "mongodb_explorer:execute-scratchpad",
+  
 })
 
 

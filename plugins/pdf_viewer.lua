@@ -1485,11 +1485,11 @@ keymap.add {
   ["ctrl+-"]         = "pdf:zoom-out",
   ["ctrl+0"]         = "pdf:zoom-reset",
   ["ctrl+m"]         = "pdf:toggle-mode",
-  ["ctrl+f"]         = "pdf:find",
+  
   ["f3"]             = "pdf:find-next",
   ["shift+f3"]       = "pdf:find-previous",
-  ["ctrl+g"]         = "pdf:goto-page",
-  ["ctrl+c"]         = "pdf:copy",
+  
+  
   ["ctrl+insert"]    = "pdf:copy",
   ["ctrl+a"]         = "pdf:select-all",
   ["alt+p"]          = "pdf:open-file",

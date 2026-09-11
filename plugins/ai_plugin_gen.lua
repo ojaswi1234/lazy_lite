@@ -1455,5 +1455,5 @@ command.add(
     end
   }
 )
-keymap.add({ ["ctrl+v"] = "ai-plugin-gen:paste", ["cmd+v"] = "ai-plugin-gen:paste" })
+keymap.add({  ["cmd+v"] = "ai-plugin-gen:paste" })
 

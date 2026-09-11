@@ -1996,8 +1996,7 @@ command.add(is_resume_picker, {
 
 keymap.add({
   ["ctrl+delete"] = "antigravity:delete-conversation",
-  ["ctrl+p"]      = "antigravity:toggle-pin-conversation"
-})
+  })
 
 function AGView:update()
   AGView.super.update(self)
@@ -6005,7 +6004,7 @@ keymap.add {
   ["enter"]        = "antigravity:return",
   ["shift+return"] = "antigravity:newline",
   ["shift+enter"]  = "antigravity:newline",
-  ["ctrl+return"]  = "antigravity:ctrl-return",
+  
   ["ctrl+enter"]   = "antigravity:ctrl-return",
   ["backspace"]    = "antigravity:backspace",
   ["up"]           = "antigravity:scroll-up",
@@ -6023,7 +6022,7 @@ keymap.add {
   ["cmd+c"]        = "antigravity:copy",
   ["ctrl+x"]       = "antigravity:cut",
   ["cmd+x"]        = "antigravity:cut",
-  ["ctrl+v"]       = "antigravity:paste",
+  
   ["cmd+v"]        = "antigravity:paste",
   ["delete"]       = "antigravity:delete",
   ["left"]         = "antigravity:cursor-left",

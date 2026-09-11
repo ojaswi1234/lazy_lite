@@ -1949,9 +1949,9 @@ command.add(
 keymap.add {
     ["return"]    = "terminal:return",
     ["backspace"] = "terminal:backspace",
-    ["ctrl+c"]    = "terminal:interrupt",
+    
     ["ctrl+l"]    = "terminal:clear",
-    ["ctrl+v"]    = "terminal:paste",
+    
     ["shift+insert"] = "terminal:paste",
     ["pageup"]    = "terminal:scroll-up",
     ["pagedown"]  = "terminal:scroll-down",
