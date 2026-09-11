@@ -683,7 +683,7 @@ command.add(nil, {
                     end
                     
                     -- Auto-generate secure command based on standard local forwarding
-                    local cmd = string.format("ssh -N -L %s:localhost:%s %s", local_port, remote_port, host)
+                    local cmd = string.format("ssh -o ConnectTimeout=15 -N -L %s:localhost:%s %s", local_port, remote_port, host)
                     table.insert(forwards, { name = name, cmd = cmd, output = "Press Enter/Double-click to start.\n", proc = nil })
                     save_rules()
                     core.log("Added secure port forward: %s", name)

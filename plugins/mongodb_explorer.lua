@@ -1300,6 +1300,7 @@ function store.start_server(callback)
     end
 
     if ready then
+      store.is_polling = false
       store.server_status = "running"
       core.log("[MongoDB] MongoDB Server is ready and running at 127.0.0.1:27017.")
       local local_conn = store.find_connection("conn_local") or store.connections[1]
