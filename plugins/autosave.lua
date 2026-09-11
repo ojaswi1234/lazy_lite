@@ -3,6 +3,7 @@
 -- Automatically saves dirty named documents periodically and on focus lost with UI Settings integration.
 
 local core = require "core"
+local system = require "system"
 local common = require "core.common"
 local config = require "core.config"
 local command = require "core.command"

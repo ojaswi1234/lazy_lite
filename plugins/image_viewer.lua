@@ -1,5 +1,6 @@
 -- mod-version:3
 local core = require "core"
+local system = require "system"
 
 local image_exts = { "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico" }
 

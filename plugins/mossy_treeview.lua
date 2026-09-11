@@ -8,6 +8,7 @@ local _COLOR_CACHE_3 = { 220, 100, 100, 255 }
 -- Mossy green styled tree view with Nerd Font file icons
 
 local core     = require "core"
+local system = require "system"
 local config   = require "core.config"
 local style    = require "core.style"
 local command  = require "core.command"

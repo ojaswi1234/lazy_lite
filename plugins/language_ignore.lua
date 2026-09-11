@@ -1,6 +1,7 @@
 -- mod-version:3
 
 local syntax = require "core.syntax"
+local core = require "core"
 local style = require "core.style"
 local common = require "core.common"
 

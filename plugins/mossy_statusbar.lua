@@ -2,6 +2,7 @@
 -- Stylised bottom status bar (VS Code style) with Git branch indicator.
 
 local core    = require "core"
+local system = require "system"
 local style   = require "core.style"
 local common  = require "core.common"
 local process = require "process"

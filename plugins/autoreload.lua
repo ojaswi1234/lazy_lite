@@ -1,5 +1,6 @@
 -- mod-version:3
 local core = require "core"
+local system = require "system"
 local config = require "core.config"
 local Doc = require "core.doc"
 local Node = require "core.node"

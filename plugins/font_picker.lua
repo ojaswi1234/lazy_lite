@@ -7,6 +7,7 @@
 -- macOS   : scans /System/Library/Fonts, /Library/Fonts, ~/Library/Fonts
 
 local core   = require "core"
+local system = require "system"
 local style  = require "core.style"
 local config = require "core.config"
 

@@ -10,6 +10,7 @@
 -- 
 
 local core = require "core"
+local style = require "core.style"
 local common = require "core.common"
 local config = require "core.config"
 local command = require "core.command"

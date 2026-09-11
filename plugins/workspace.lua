@@ -1,5 +1,6 @@
 -- mod-version:3
 local core = require "core"
+local system = require "system"
 local common = require "core.common"
 local DocView = require "core.docview"
 local LogView = require "core.logview"

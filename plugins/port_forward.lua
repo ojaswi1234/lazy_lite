@@ -4,6 +4,8 @@
 -- It allows developers to spawn background SSH tunnels or similar port-forwarding processes and easily start or stop them.
 
 local core = require "core"
+local system = require "system"
+local config = require "core.config"
 
 -- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
 local _COLOR_CACHE_0 = {60, 140, 200}

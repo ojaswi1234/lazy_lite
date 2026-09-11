@@ -8,6 +8,7 @@
 -- 5. Complete internal containment - strictly inside Lite XL (zero external browser popups)
 
 local core = require "core"
+local system = require "system"
 
 -- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
 local _COLOR_CACHE_0 = { 60, 80, 65 }

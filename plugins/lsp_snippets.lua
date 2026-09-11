@@ -5,6 +5,7 @@
 -- https://github.com/L3MON4D3/LuaSnip/blob/master/lua/luasnip/util/parser/neovim_parser.lua
 
 local core     = require 'core'
+local regex = require "core.regex"
 local common   = require 'core.common'
 local Doc      = require 'core.doc'
 local system   = require 'system'
