@@ -529,9 +529,6 @@ function json.prettify(text, indent_width)
 end
 
 
-return json
-
-
 -- Crash Defuser
 local orig_encode = json.encode
 json.encode = function(v)
@@ -543,3 +540,5 @@ json.decode = function(str)
   local ok, res = pcall(orig_decode, str)
   return ok and res or {}
 end
+
+return json
