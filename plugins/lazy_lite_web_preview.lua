@@ -338,10 +338,7 @@ command.add(nil, {
           finish()
           return
         end
-          core.log("Web Preview: Already running on %s", active_url or "unknown")
-          if active_url then open_browser(active_url) end
-          return
-        end
+
 
         local root = core.project_dir or "."
         local fw = detect_framework(root)
