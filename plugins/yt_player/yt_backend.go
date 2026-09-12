@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"sync"
 	"time"
 )
@@ -122,10 +123,16 @@ func send(ev Event) {
 
 
 func sendInfo(msg string) { send(Event{"event": "info", "message": msg}) }
+
+func hideCmd(cmd *exec.Cmd) *exec.Cmd {
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd
+}
+
 func sendErr(msg string)  { send(Event{"event": "error", "message": msg}) }
 
 func ytdlp(ctx context.Context, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, "python", append([]string{"-m", "yt_dlp", "--no-warnings", "--quiet", "--extractor-args", "youtube:player_client=mweb,default"}, args...)...)
+	return hideCmd(exec.CommandContext(ctx, "python", append([]string{"-m", "yt_dlp", "--no-warnings", "--quiet", "--extractor-args", "youtube:player_client=mweb,default"}, args...)...))
 }
 
 func extractInfo(ctx context.Context, url string) (*YTInfo, error) {
@@ -570,7 +577,7 @@ func (b *Backend) OpenVideo(videoID string, language string, sponsorBlock bool) 
 	b.vlcHTTP("pl_stop")
 	b.mu.Lock(); b.activeVlcPort = prevPort; b.mu.Unlock()
 
-	vlcGUI := exec.Command(vlcExe, vlcArgs...)
+	vlcGUI := hideCmd(exec.Command(vlcExe, vlcArgs...))
 	if err := vlcGUI.Start(); err != nil {
 		sendErr("VLC GUI: " + err.Error())
 		return
@@ -744,7 +751,7 @@ func (b *Backend) monitorLoop() {
 }
 
 func killZombiesOnPort(port string) {
-	out, err := exec.Command("cmd", "/C", fmt.Sprintf("netstat -ano | findstr :%s", port)).Output()
+	out, err := hideCmd(exec.Command("cmd", "/C", fmt.Sprintf("netstat -ano | findstr :%s", port))).Output()
 	if err == nil {
 		lines := strings.Split(string(out), "\n")
 		for _, line := range lines {
@@ -752,7 +759,7 @@ func killZombiesOnPort(port string) {
 				fields := strings.Fields(line)
 				if len(fields) >= 5 {
 					pid := fields[len(fields)-1]
-					exec.Command("taskkill", "/F", "/PID", pid).Run()
+					hideCmd(exec.Command("taskkill", "/F", "/PID", pid)).Run()
 				}
 			}
 		}
@@ -768,7 +775,7 @@ func main() {
 	defer bk.cancel()
 
 	// Start headless VLC with HTTP interface (will be restarted on Play)
-	vlcProc := exec.Command(vlcExe,
+	vlcProc := hideCmd(exec.Command(vlcExe,
 		"--intf", "http",
 		"--http-host", "127.0.0.1",
 		"--http-port", vlcPort,
@@ -778,7 +785,7 @@ func main() {
 		"--network-caching=3000",
 		"--live-caching=3000",
 		"--http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-	)
+	))
 	vlcProc.Stdout = io.Discard
 	vlcProc.Stderr = io.Discard
 	vlcProc.Start()
