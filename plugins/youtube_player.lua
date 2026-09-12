@@ -47,6 +47,8 @@ function YTView:new()
   self.current_time = 0
   self.total_time = 0
   self.scroll_y = 0
+    self.scrollable = true
+    self.max_scroll_y = 0
   self.status_msg = "Ready"
   self.active_input = false
   self.playing_title = ""
@@ -327,6 +329,10 @@ function YTView:set_target_size(axis, value)
   end
 end
 
+function YTView:get_scrollable_size()
+  return self.max_scroll_y or 0
+end
+
 function YTView:draw()
   self:draw_background(style.background3 or style.background)
   local font = style.font
@@ -448,90 +454,80 @@ function YTView:draw()
   y = y + th + pad
   
   -- Save results clipping rect
-  local clip_y = y
-  
-  local function draw_item(res, indent)
-    local row_h = th * 2 + pad
-    if y > clip_y + results_h then 
-      res.rect = nil
-      return false 
-    end
+    local clip_y = y
+    core.push_clip_rect(x, clip_y, w, results_h)
+    local list_virtual_y = 0
     
-    local hovered = is_hovered({x, y, w, row_h})
-    local bg = hovered and style.background2 or _COLOR_CACHE_0
-    renderer.draw_rect(x, y, w, row_h, bg)
-    
-    local ix = x + pad + indent
-    local iw = w - pad - indent
-    
-    local right_str = ""
-    local dur = tonumber(res.duration) or 0
-    if res.type == "playlist" then
-      right_str = (res.entry_count or dur) .. " items"
-    else
-      right_str = string.format("%02d:%02d", math.floor(dur / 60), math.floor(dur % 60))
-    end
-    
-    local right_w = font:get_width(right_str)
-    
-    local max_title_w = iw - pad*2 - right_w - (res.type == "playlist" and font:get_width("[+] ") or 0)
-    if max_title_w < 10 then max_title_w = 10 end
-    
-    local title = common.truncate_text(res.title or "", font, max_title_w)
-    
-    if res.type == "playlist" then
-      local exp_text = self.expanded_playlists[res.id] and "[-]" or "[+]"
-      renderer.draw_text(font, exp_text, ix, y + pad + (th/2), hovered and style.text or style.dim)
-      ix = ix + font:get_width(exp_text) + pad/2
-    end
-    
-    local t_col = hovered and style.text or style.dim
-    if res.id == self.playing_video_id then t_col = style.accent end
-    renderer.draw_text(font, title, ix, y + pad + (th/2), t_col)
-    
-    renderer.draw_text(font, right_str, x + w - pad - right_w, y + pad + (th/2), style.dim)
-    
-    res.rect = {x, y, w, row_h}
-    y = y + row_h
-    return true
-  end
-
-  for i, res in ipairs(self.results) do
-    if not draw_item(res, 0) then
-      -- Clear rects for remaining items so they aren't clickable
-      for j = i, #self.results do
-        self.results[j].rect = nil
-        if self.results[j].type == "playlist" and self.playlist_videos[self.results[j].id] then
-          for _, v in ipairs(self.playlist_videos[self.results[j].id]) do
-            v.rect = nil
-          end
-        end
+    local function draw_item(res, indent)
+      local row_h = th * 2 + pad
+      local draw_y = clip_y + list_virtual_y - (self.scroll.y or 0)
+      list_virtual_y = list_virtual_y + row_h
+      
+      if draw_y + row_h < clip_y or draw_y > clip_y + results_h then 
+        res.rect = nil
+        return true 
       end
-      break
-    end
-    
-    if res.type == "playlist" and self.expanded_playlists[res.id] then
-      local pvs = self.playlist_videos[res.id]
-      if pvs then
-        local stop_inner = false
-        for _, v in ipairs(pvs) do
-          if stop_inner then
-            v.rect = nil
-          elseif not draw_item(v, pad*3) then
-            stop_inner = true
-          end
-        end
+      
+      local hovered = is_hovered({x, draw_y, w, row_h})
+      local bg = hovered and style.background2 or _COLOR_CACHE_0
+      renderer.draw_rect(x, draw_y, w, row_h, bg)
+      
+      local ix = x + pad + indent
+      local iw = w - pad - indent
+      
+      local right_str = ""
+      local dur = tonumber(res.duration) or 0
+      if res.type == "playlist" then
+        right_str = (res.entry_count or dur) .. " items"
       else
-        local row_h = th + pad
-        if y < clip_y + results_h then
-          renderer.draw_text(font, "Loading...", x + pad + pad*3, y + pad/2, style.dim)
-          y = y + row_h
+        right_str = string.format("%02d:%02d", math.floor(dur / 60), math.floor(dur % 60))
+      end
+      
+      local right_w = font:get_width(right_str)
+      local max_title_w = iw - pad*2 - right_w - (res.type == "playlist" and font:get_width("[+] ") or 0)
+      if max_title_w < 10 then max_title_w = 10 end
+      
+      local title = common.truncate_text(res.title or "", font, max_title_w)
+      
+      if res.type == "playlist" then
+        local exp_text = self.expanded_playlists[res.id] and "[-]" or "[+]"
+        renderer.draw_text(font, exp_text, ix, draw_y + pad + (th/2), hovered and style.text or style.dim)
+        ix = ix + font:get_width(exp_text) + pad/2
+      end
+      
+      local t_col = hovered and style.text or style.dim
+      if res.id == self.playing_video_id then t_col = style.accent end
+      renderer.draw_text(font, title, ix, draw_y + pad + (th/2), t_col)
+      renderer.draw_text(font, right_str, x + w - pad - right_w, draw_y + pad + (th/2), style.dim)
+      
+      res.rect = {x, draw_y, w, row_h}
+      return true
+    end
+  
+    for i, res in ipairs(self.results) do
+      draw_item(res, 0)
+      
+      if res.type == "playlist" and self.expanded_playlists[res.id] then
+        local pvs = self.playlist_videos[res.id]
+        if pvs then
+          for _, v in ipairs(pvs) do
+            draw_item(v, pad*3)
+          end
+        else
+          local row_h = th + pad
+          local draw_y = clip_y + list_virtual_y - (self.scroll.y or 0)
+          list_virtual_y = list_virtual_y + row_h
+          if draw_y + row_h >= clip_y and draw_y <= clip_y + results_h then
+            renderer.draw_text(font, "Loading...", x + pad + pad*3, draw_y + pad/2, style.dim)
+          end
         end
       end
     end
-  end
-  
-  -- ==========================================
+    
+    self.max_scroll_y = list_virtual_y
+    core.pop_clip_rect()
+    
+    -- ==========================================
   -- 4. PLAYER AREA (Sticky at Bottom)
   -- ==========================================
   local px_y = self.position.y + self.size.y - player_h - pad
@@ -610,6 +606,7 @@ function YTView:draw()
 end
 
 function YTView:on_mouse_pressed(button, x, y, clicks)
+    if YTView.super.on_mouse_pressed(self, button, x, y, clicks) then return true end
   local function in_rect(rx, ry, rw, rh)
     return x >= rx and y >= ry and x <= rx + rw and y <= ry + rh
   end
