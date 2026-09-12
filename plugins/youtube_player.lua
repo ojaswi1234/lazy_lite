@@ -2,6 +2,29 @@
 local core = require "core"
 local common = require "core.common"
 
+-- Hotfix: inject missing common.truncate_text
+if not common.truncate_text then
+  function common.truncate_text(text, font, max_w)
+    if font:get_width(text) <= max_w then return text end
+    local dots_w = font:get_width("...")
+    local w = 0
+    local i = 1
+    local res = ""
+    while i <= #text do
+      local c = text:sub(i, i)
+      -- rudimentary char byte sizing (not true utf8 but safe enough for ascii/basic)
+      w = w + font:get_width(c)
+      if w > (max_w - dots_w) then
+        return res .. "..."
+      end
+      res = res .. c
+      i = i + 1
+    end
+    return text
+  end
+end
+
+
 -- [AUTO-GENERATED CACHED COLORS FOR GC OPTIMIZATION]
 local _COLOR_CACHE_0 = {0,0,0,0}
 local command = require "core.command"
