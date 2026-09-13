@@ -446,7 +446,7 @@ lspconfig.jdtls = add_lsp {
   name = "jdtls",
   language = "java",
   file_patterns = { "%.java$" },
-  command = { "jdtls" },
+  command = { "C:\\Users\\ojasw\\.config\\lite-xl\\jdtls\\bin\\jdtls.bat" },
   verbose = false
 }
 
