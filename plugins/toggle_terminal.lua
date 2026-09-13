@@ -757,7 +757,10 @@ function TermView:update()
         if system.get_time() - budget_start > 0.010 then break end
       end
       
-      if processed_any then core.redraw = true end
+      if processed_any then 
+        core.redraw = true 
+        if s.scroll_to_bottom then self:scroll_to_end() end
+      end
       
       -- Handle unexpected exit / crash
         if not processed_any and not s.proc:running() then 
@@ -1344,8 +1347,9 @@ function TermView:on_text_input(text)
     s.cursor = s.cursor + #text
     self:scroll_to_end()
   elseif s.proc and s.proc:running() then
-    s.proc:write(text)
-  end
+      s.proc:write(text)
+      self:scroll_to_end()
+    end
 end
 
 function TermView:on_key_pressed(key)
@@ -1372,6 +1376,7 @@ function TermView:on_key_pressed(key)
     end
     if seq then
       s.proc:write(seq)
+      self:scroll_to_end()
       return true
     end
     if key == "pageup" then
@@ -1990,9 +1995,18 @@ local last_scanned_line = 0
 local last_session_ptr = nil
 
 function TermView:update(...)
-  if old_termview_update then old_termview_update(self, ...) end
-  local s = self:state()
-  if not s then return end
+    if old_termview_update then old_termview_update(self, ...) end
+    local s = self:state()
+    if not s then return end
+
+    -- Smart auto-scroll re-attach: If scrolled to bottom manually, re-enable tracking
+    local lh = style.code_font:get_height() + 2 * SCALE
+    local out_h = self.size.y - 31 * SCALE
+    local total_lines = s.term and (#s.term.scrollback + s.term.rows) or (s.lines and #s.lines + 1 or 1)
+    local max_scroll = math.max(0, total_lines * lh - out_h + 10 * SCALE)
+    if (s.scroll_y or 0) >= max_scroll - 15 * SCALE then
+      s.scroll_to_bottom = true
+    end
 
   if last_session_ptr ~= s then
     last_scanned_line = s.lines and #s.lines or 0
