@@ -200,10 +200,13 @@ local function ensure_api()
               pending[resp.id] = nil
               cb(resp)
             end
+            end
           end
         end
-      end
-      if chunk == "" then
+        if parsed_pos > 1 then
+          buf = buf:sub(parsed_pos)
+        end
+        if chunk == "" then
         coroutine.yield(0.05)
       end
     end
