@@ -2036,9 +2036,6 @@ command.add(nil, {
           end
         end
       end
-      if parsed_pos > 1 then
-        buf = buf:sub(parsed_pos)
-      end
     end
 
     if not meta or not code then
@@ -2131,9 +2128,6 @@ command.add(nil, {
             end
           end
         end
-      end
-      if parsed_pos > 1 then
-        buf = buf:sub(parsed_pos)
       end
     end
 
