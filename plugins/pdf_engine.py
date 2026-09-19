@@ -79,7 +79,7 @@ def get_pdf_info(pdf_path, out_file):
         with open(out_file, "w", encoding="utf-8") as f:
             f.write("return {\n")
             f.write(f"  page_count = {info['page_count']},\n")
-            t_escaped = info['title'].replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ')
+            t_escaped = info['title'].replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\n', ' ')
             f.write(f"  title = \"{t_escaped}\",\n")
             f.write("  pages = {\n")
             for p in info['pages']:
@@ -176,7 +176,7 @@ def render_page_browsh(pdf, page_idx, cols=110):
         if has_text:
             raw_str = "".join(line_chars).rstrip()
             leading = len(raw_str) - len(raw_str.lstrip())
-            clean_str = raw_str.strip().replace("\\", "\\\\").replace('"', '\\"')
+            clean_str = raw_str.strip().replace("\\", "\\\\").replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
             text_lines.append(f'{{{r},{leading},"{clean_str}",{{{text_fg[0]},{text_fg[1]},{text_fg[2]}}}}}')
             
     # 3. Extract pure graphics runs (half-block '▀' only for non-background non-text cells)
@@ -401,12 +401,12 @@ def render_page_hd(pdf, page_idx, target_width=1300):
             add_link(raw_url, w_item["x"], w_item["y"], w_item["w"], w_item["h"])
 
     formatted_words = [
-        f"    {{ x = {w_item['x']}, y = {w_item['y']}, w = {w_item['w']}, h = {w_item['h']}, text = \"{w_item['text'].replace('\\\\', '\\\\\\\\').replace('\"', '\\\\\"')}\" }}"
+        f"    {{ x = {w_item['x']}, y = {w_item['y']}, w = {w_item['w']}, h = {w_item['h']}, text = \"{w_item['text'].replace('\\', '\\\\').replace('\"', '\\\"').replace('\n', '\\n').replace('\r', '\\r')}\" }}"
         for w_item in words
     ]
 
     formatted_links = [
-        f"    {{ x = {l_item['x']}, y = {l_item['y']}, w = {l_item['w']}, h = {l_item['h']}, url = \"{l_item['url'].replace('\\\\', '\\\\\\\\').replace('\"', '\\\\\"')}\" }}"
+        f"    {{ x = {l_item['x']}, y = {l_item['y']}, w = {l_item['w']}, h = {l_item['h']}, url = \"{l_item['url'].replace('\\', '\\\\').replace('\"', '\\\"').replace('\n', '\\n').replace('\r', '\\r')}\" }}"
         for l_item in links
     ]
 
@@ -525,7 +525,7 @@ def search_pdf(pdf_path, query, out_file):
                     
         with open(out_file, "w", encoding="utf-8") as f:
             f.write("return {\n")
-            q_escaped = query.replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ')
+            q_escaped = query.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\n', ' ')
             f.write(f"  query = \"{q_escaped}\",\n")
             f.write(f"  match_count = {len(results)},\n")
             f.write("  matches = {\n")
