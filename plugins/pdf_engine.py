@@ -308,8 +308,7 @@ def render_page_hd(pdf, page_idx, target_width=1300):
                 norm_y = round((orig_h - top) / orig_h, 4)
                 norm_w = round((right - left) / orig_w, 4)
                 norm_h = round((top - bottom) / orig_h, 4)
-                clean_w = word_str.replace('\\', '\\\\').replace('"', '\\"')
-                words.append(f'    {{ text="{clean_w}", x={norm_x}, y={norm_y}, w={norm_w}, h={norm_h} }}')
+                words.append({"text": word_str, "x": norm_x, "y": norm_y, "w": norm_w, "h": norm_h})
                 curr_word = []
                 curr_box = None
             continue
@@ -329,8 +328,7 @@ def render_page_hd(pdf, page_idx, target_width=1300):
         norm_y = round((orig_h - top) / orig_h, 4)
         norm_w = round((right - left) / orig_w, 4)
         norm_h = round((top - bottom) / orig_h, 4)
-        clean_w = word_str.replace('\\', '\\\\').replace('"', '\\"')
-        words.append(f'    {{ text="{clean_w}", x={norm_x}, y={norm_y}, w={norm_w}, h={norm_h} }}')
+        words.append({"text": word_str, "x": norm_x, "y": norm_y, "w": norm_w, "h": norm_h})
 
     # Comprehensive Hyperlink Extraction (PDFium WebLinks + Link Annotations + Text regex)
     links = []
@@ -345,8 +343,7 @@ def render_page_hd(pdf, page_idx, target_width=1300):
         key = (url_clean, round(nx, 3), round(ny, 3))
         if key not in seen_links:
             seen_links.add(key)
-            clean_u = url_clean.replace('\\', '\\\\').replace('"', '\\"')
-            links.append(f'    {{ url="{clean_u}", x={nx}, y={ny}, w={nw}, h={nh} }}')
+            links.append({"url": url_clean, "x": nx, "y": ny, "w": nw, "h": nh})
 
     # A. PDFium native web link detection
     try:
