@@ -2410,7 +2410,8 @@ keymap.add({
   ["tab"] = "leetcode:tab",
   ["escape"] = "leetcode:escape",
   
-  ["gui+v"] = "leetcode:paste",
+  ["ctrl+v"] = "leetcode:paste",
+    ["cmd+v"] = "leetcode:paste",
 })
 
 -- -- Rich markdown-aware text renderer --------------------------------------
