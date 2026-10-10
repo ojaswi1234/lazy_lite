@@ -111,7 +111,7 @@ local function hook_lsp_for_codespace(cs_name, repo_name)
       local proxy_script = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "remote_lsp_proxy.py"
       if system.get_file_info(proxy_script) then
         cfg.orig_command = cfg.command
-        local cmd_str = table.concat(cfg.orig_command, " ")
+        local cmd_str = type(cfg.orig_command) == "table" and table.concat(cfg.orig_command, " ") or tostring(cfg.orig_command)
         cfg.command = { "python", proxy_script, cs_name, repo_name, cmd_str, USERDIR }
       else
         core.error("Missing LSP proxy: %s", proxy_script)
