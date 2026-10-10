@@ -74,7 +74,7 @@ function loader.on_keypressed(key)
   -- global loader toggle
   if key == "?" or key == "shift+/" then
     loader.show_tooltip = not loader.show_tooltip
-    if self.active then core.redraw = true end
+    if loader.active then core.redraw = true end
     return true
   end
   
@@ -139,7 +139,7 @@ function loader.draw(x, y, w, h)
   renderer.draw_text(style.font, status_text, x + (w - st_w)/2, strip_y + (status_h - font_h)/2, style.accent)
   
   -- force continuous redraw since games are animating
-  if self.active then core.redraw = true end
+  if loader.active then core.redraw = true end
 end
 
 return loader
