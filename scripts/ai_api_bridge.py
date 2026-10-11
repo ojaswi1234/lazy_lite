@@ -408,7 +408,7 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
             except Exception as e:
                 return f"Web search error: {str(e)}"
                 
-        tools = [] if read_only else [local_shell, read_file, write_file, web_search]
+        tools = [read_file, web_search] if read_only else [local_shell, read_file, write_file, web_search]
 
         def create_llm(p_name, m_name, p_key):
             if p_name == "gemini":
@@ -464,7 +464,15 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         except: pass
         attachments_context = f"\nLITE-XL ATTACHMENTS DIRECTORY (For saving/reading docx, pdf, media, etc.): {attachments_dir}\nIf asked to save, read, or modify a document/attachment, look for it in this folder first, and save it here.\n"
         
-        system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor. 
+        if read_only:
+              system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor operating in strict READ-ONLY mode.
+  You are STRICTLY FORBIDDEN from modifying, writing, creating, or deleting files, or running mutating commands.{ws_context}
+  CRITICAL INSTRUCTIONS:
+  1. STRICT READ-ONLY MODE: Do NOT attempt to modify, create, or delete files, and do NOT execute modifying commands. You may read files and search the web, but NEVER edit code on disk.
+  2. If code adjustments, refactors, or bugfixes are requested, explain them and present the proposed code ONLY as formatted markdown code blocks in your chat response for the user to inspect.
+  3. NEVER overwrite, delete, or create files on disk."""
+          else:
+              system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor. 
 You have access to local shell execution, file editing, and web search.{ws_context}
 CRITICAL INSTRUCTIONS:
 1. THINK BEFORE EXECUTING: Always explore the directory structure first.

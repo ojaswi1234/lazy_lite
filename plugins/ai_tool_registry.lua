@@ -332,7 +332,13 @@ M.REGISTRY = {
       if cfg.project_dir and #cfg.project_dir>0 then
         a[#a+1]="--add-dir"; a[#a+1]=cfg.project_dir
       end
-      a[#a+1]="--dangerously-skip-permissions"
+      local config = require "core.config"
+      local is_ro = config.ai_sidebar and config.ai_sidebar.read_only
+      if is_ro then
+        a[#a+1]="--mode"; a[#a+1]="plan"
+      else
+        a[#a+1]="--dangerously-skip-permissions"
+      end
       return a
     end,
     build_models_argv = function(bin) return { bin, "models" } end,

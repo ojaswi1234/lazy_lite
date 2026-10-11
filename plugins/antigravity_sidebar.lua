@@ -1829,6 +1829,9 @@ function AGView:submit(prompt)
   if fname and tool_id == "agy" then
     full_prompt = string.format("Regarding the active file %s: %s", fname, expanded_prompt)
   end
+  if config.ai_sidebar and config.ai_sidebar.read_only then
+    full_prompt = "[READ-ONLY MODE: You are currently operating in strict read-only mode. You are STRICTLY FORBIDDEN from editing, modifying, creating, or deleting any files on disk, and you must NOT run mutating commands. Provide explanations, analysis, or proposed code snippets in chat only, WITHOUT touching or modifying the user's workspace files.]\n\n" .. full_prompt
+  end
 
   if core.active_codespace and not self:state().cid and tool_id == "agy" then
     local cs = core.active_codespace
@@ -1887,7 +1890,7 @@ function AGView:submit(prompt)
     end
     table.insert(argv, "-p"); table.insert(argv, full_prompt)
     table.insert(argv, "--add-dir"); table.insert(argv, project_root)
-    if cfg.auto_skip_permissions then
+      if cfg.auto_skip_permissions and not (config.ai_sidebar and config.ai_sidebar.read_only) then
       table.insert(argv, "--dangerously-skip-permissions")
     end
     needs_pty = true
