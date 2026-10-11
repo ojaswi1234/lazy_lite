@@ -5558,21 +5558,37 @@ function AGView:on_mouse_released(button, mx, my)
             end)
           elseif btn.action == "URL/Key" then
               self:_prompt_for_api_key(btn.p)
-            elseif btn.action == "Use" then
+          elseif btn.action == "Use" then
             -- Set provider as active by picking its first model
+            local chosen_model = nil
             if self.tool_model_lists and self.tool_model_lists["cloud_api"] then
               for _, m in ipairs(self.tool_model_lists["cloud_api"]) do
-                if m.name:match("^" .. btn.p .. PATHSEP) then
-                  local tc = self:_tool_cfg("cloud_api")
-                  tc.selected_model = m.name
-                  if (config.ai_sidebar.active_tool or "agy") == "cloud_api" then
-                    config.antigravity.selected_model = m.name
-                  end
-                  self.show_api_view = false
+                if m.name:match("^" .. btn.p .. "[/\\]") then
+                  chosen_model = m.name
                   break
                 end
               end
             end
+            if not chosen_model then
+              local defaults = {
+                groq      = "groq/qwen/qwen3.8-27b",
+                gemini    = "gemini/gemini-2.5-pro",
+                openai    = "openai/gpt-4o",
+                anthropic = "anthropic/claude-3-7-sonnet-20250219",
+                ollama    = "ollama/mistral-large-3:675b",
+                omniroute = "omniroute/default",
+              }
+              chosen_model = defaults[btn.p] or (btn.p .. "/default")
+            end
+            config.ai_sidebar.active_tool = "cloud_api"
+            local tc = self:_tool_cfg("cloud_api")
+            tc.selected_model = chosen_model
+            config.antigravity.selected_model = chosen_model
+            self:_sync_model_list()
+            self:state().has_session = false
+            self.show_api_view = false
+            core.log("AI Sidebar: Switched to " .. btn.p:upper() .. " (" .. chosen_model .. ")")
+            core.redraw = true
           else
             -- set key
             self:_prompt_for_api_key(btn.p)
@@ -5671,6 +5687,22 @@ function AGView:_prompt_for_api_key(provider)
           core.add_thread(function()
             while p:running() do coroutine.yield(0.1) end
             self:fetch_models(true)
+            local defaults = {
+              groq      = "groq/qwen/qwen3.8-27b",
+              gemini    = "gemini/gemini-2.5-pro",
+              openai    = "openai/gpt-4o",
+              anthropic = "anthropic/claude-3-7-sonnet-20250219",
+              ollama    = "ollama/mistral-large-3:675b",
+              omniroute = "omniroute/default",
+            }
+            local chosen_model = defaults[provider] or (provider .. "/default")
+            config.ai_sidebar.active_tool = "cloud_api"
+            local tc = self:_tool_cfg("cloud_api")
+            tc.selected_model = chosen_model
+            config.antigravity.selected_model = chosen_model
+            self:_sync_model_list()
+            self:state().has_session = false
+            core.log("AI Sidebar: Key saved and switched to " .. provider:upper() .. " (" .. chosen_model .. ")")
             if self.show_api_view then
               self:submit("/api")
             end
