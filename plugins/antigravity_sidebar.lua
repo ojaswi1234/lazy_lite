@@ -2718,7 +2718,8 @@ function AGView:draw()
   local seg_w = math.max(40 * SCALE, math.floor(avail_w / num_segs))
   
   -- Draw pill container background
-  local total_pill_w = num_segs * seg_w
+  local max_pills_w = math.max(10 * SCALE, (x + w - status_w - 12 * SCALE) - seg_x)
+  core.push_clip_rect(seg_x, seg_y, max_pills_w, seg_h + 4 * SCALE)
   renderer.draw_rect(seg_x, seg_y, total_pill_w, seg_h, P.bg_input)
   draw_rect_outline(seg_x, seg_y, total_pill_w, seg_h, P.border)
   
@@ -2765,6 +2766,7 @@ function AGView:draw()
   local add_col = add_hov and P.fg_accent or P.fg_muted
   renderer.draw_text(sf, "+", add_x + 8 * SCALE, seg_y + math.floor((seg_h - fh2)/2), add_col)
   table.insert(self._tool_picker_rects, { x=add_x, y=seg_y, w=add_w, h=seg_h, idx=#det_list + 1, is_add=true })
+  core.pop_clip_rect()
 
   -- ── ROW 1 right: status text ─────────────────────────────────────────
   local status_str = self:state().status == "running"
@@ -2774,8 +2776,10 @@ function AGView:draw()
   local scol = self:state().status == "running" and { acol[1], acol[2], acol[3], 210 }
             or self:state().status == "error"   and P.dot_err
             or P.fg_muted
+  local status_draw_x = x + w - sf:get_width(status_str) - 8 * SCALE
+  renderer.draw_rect(status_draw_x - 4 * SCALE, row1_y, sf:get_width(status_str) + 12 * SCALE, fh1, P.bg_darker)
   renderer.draw_text(sf, status_str,
-    x + w - sf:get_width(status_str) - 8 * SCALE,
+    status_draw_x,
     row1_y + math.floor((fh1 - fh2) / 2),
     scol)
 
@@ -3010,10 +3014,13 @@ function AGView:draw()
   local my = act_y + math.floor((action_row_h - mh) / 2)
 
   local m_bg = self.hover_model_btn and P.bg_btn_hl or _COLOR_CACHE_22
+  local m_clip_w = math.max(0, auto_x - 4 * SCALE - mx)
+  core.push_clip_rect(mx, my, m_clip_w, mh)
   renderer.draw_rect(mx, my, mw, mh, m_bg)
   renderer.draw_text(small_font, model_lbl, mx + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2),
     self.hover_model_btn and P.fg_accent or P.fg_muted)
-  self._model_rect = { x = mx, y = my, w = mw, h = mh }
+  core.pop_clip_rect()
+  self._model_rect = { x = mx, y = my, w = math.min(mw, m_clip_w), h = mh }
 
   -- Draw Autopilot
   local auto_bg = config.ai_sidebar.autopilot and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
@@ -3502,9 +3509,7 @@ function AGView:draw()
     for i, item in ipairs(self:state().mention_suggestions) do
       local iy = pop_y + (i - 1) * item_h
       local is_sel = (i == self:state().mention_idx)
-      if is_sel then
-        renderer.draw_rect(pop_x, iy, pop_w, item_h, P.bg_btn_hl)
-      end
+      renderer.draw_rect(pop_x, iy, pop_w, item_h, is_sel and P.bg_btn_hl or P.bg_darker)
 
       local item_type = type(item) == "table" and item.type or "file"
       local item_name = type(item) == "table" and (item.name or item.full_path) or tostring(item)
@@ -3559,8 +3564,8 @@ function AGView:draw()
         if ry + item_h >= pop_y and ry <= pop_y + pop_h then
           local is_sel = config.antigravity.selected_model == m.name
           local is_hov = (self.hover_model_idx == i) and not m.limited
-          local rbg    = is_sel and P.bg_btn_hl or is_hov and P.bg_btn or nil
-          if rbg then renderer.draw_rect(x, ry, w, item_h, rbg) end
+          local rbg    = is_sel and P.bg_btn_hl or is_hov and P.bg_btn or P.bg_dark
+          renderer.draw_rect(x, ry, w, item_h, rbg)
           
           local label = m.name
           local is_limited = m.limited
@@ -3749,6 +3754,7 @@ function AGView:draw()
            p_name = "[MCP:" .. (srv_name or "unknown") .. "] " .. (ek or "Key")
         end
         
+        renderer.draw_rect(mx + pad, ty - 2 * SCALE, mw - 2 * pad, lh + 6 * SCALE, P.bg)
         renderer.draw_text(style.font, p_name, mx + pad, ty, P.fg)
         local status_x = mx + pad + 100 * SCALE
         

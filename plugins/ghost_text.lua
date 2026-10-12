@@ -137,6 +137,12 @@ local function compute_ghost_text(doc, line, col)
   local line_text = doc.lines[line]
   local prefix_on_line = line_text:sub(1, col - 1)
   
+  -- Don't show ghost if autocomplete dropdown is currently open
+  local ac = package.loaded["plugins.autocomplete"]
+  if ac and ac.is_open and ac.is_open() then
+    return nil
+  end
+
   -- Don't show ghost if cursor is in middle of existing alphanumeric text
   local char_after = line_text:sub(col, col)
   if char_after:match("[%w_]") then
@@ -255,30 +261,93 @@ function Doc:set_selection(line1, col1, line2, col2, swap)
   end
 end
 
--- Render Ghost Text in DocView Overlay with pixel-perfect font baseline
+-- Render Ghost Text Inline with space preservation (exactly like VS Code)
+local old_draw_line_text = DocView.draw_line_text
+function DocView:draw_line_text(line, x, y)
+  if not (ghost.active and ghost.doc == self.doc and core.active_view == self and is_editor_doc(self.doc) and line == ghost.line and ghost.lines and #ghost.lines > 0) then
+    return old_draw_line_text(self, line, x, y)
+  end
+
+  local line1, col1 = self.doc:get_selection()
+  if line1 ~= ghost.line or col1 ~= ghost.col then
+    return old_draw_line_text(self, line, x, y)
+  end
+
+  local default_font = self:get_font()
+  local tx, ty = x, y + (self.get_line_text_y_offset and self:get_line_text_y_offset() or 0)
+  local last_token = nil
+  local tokens = self.doc.highlighter:get_line(line).tokens
+  local tokens_count = #tokens
+  if string.sub(tokens[tokens_count] or "", -1) == "\n" then
+    last_token = tokens_count - 1
+  end
+
+  local ghost_color = config.plugins.ghost_text.color or style.syntax["comment"] or _COLOR_CACHE_0
+  local gline = ghost.lines[1] or ""
+  local ghost_drawn = false
+  local cur_col = 1
+
+  for tidx, type, text in self.doc.highlighter:each_token(line) do
+    local color = style.syntax[type]
+    local font = style.syntax_fonts[type] or default_font
+    if tidx == last_token then text = text:sub(1, -2) end
+    local token_len = #text
+
+    if not ghost_drawn and ghost.col >= cur_col and ghost.col <= cur_col + token_len then
+      -- Split token at ghost.col
+      local split_idx = ghost.col - cur_col
+      local part_before = text:sub(1, split_idx)
+      local part_after = text:sub(split_idx + 1)
+
+      if #part_before > 0 then
+        tx = renderer.draw_text(font, part_before, tx, ty, color)
+      end
+
+      -- Draw ghost text inline, giving space by advancing tx!
+      if #gline > 0 then
+        tx = renderer.draw_text(default_font, gline, tx, ty, ghost_color)
+      end
+      ghost_drawn = true
+
+      if #part_after > 0 then
+        tx = renderer.draw_text(font, part_after, tx, ty, color)
+      end
+    else
+      tx = renderer.draw_text(font, text, tx, ty, color)
+    end
+
+    cur_col = cur_col + token_len
+    if tx > self.position.x + self.size.x then break end
+  end
+
+  -- If cursor is at or past end of line
+  if not ghost_drawn and #gline > 0 then
+    renderer.draw_text(default_font, gline, tx, ty, ghost_color)
+  end
+
+  return self:get_line_height()
+end
+
+-- Render Multi-Line continuation only on empty lines below (never over existing code)
 local old_draw_overlay = DocView.draw_overlay
 function DocView:draw_overlay()
   old_draw_overlay(self)
 
-  if ghost.active and ghost.doc == self.doc and core.active_view == self and is_editor_doc(self.doc) then
+  if ghost.active and ghost.doc == self.doc and core.active_view == self and is_editor_doc(self.doc) and ghost.lines and #ghost.lines > 1 then
     local line1, col1 = self.doc:get_selection()
     if line1 == ghost.line and col1 == ghost.col then
       local font = self:get_font()
       local lh = self:get_line_height()
       local y_off = self.get_line_text_y_offset and self:get_line_text_y_offset() or 0
       local ghost_color = config.plugins.ghost_text.color or style.syntax["comment"] or _COLOR_CACHE_0
-      
-      -- Position of the first ghost segment (immediately after cursor)
-      local sx, sy = self:get_line_screen_position(ghost.line, ghost.col)
-      
-      for i, gline in ipairs(ghost.lines) do
-        if i == 1 then
-          -- First line drawn directly after cursor
-          if #gline > 0 then
-            renderer.draw_text(font, gline, sx, sy + y_off, ghost_color)
-          end
-        else
-          -- Multi-line continuation drawn on successive lines aligned to indentation
+      local _, sy = self:get_line_screen_position(ghost.line, ghost.col)
+
+      for i = 2, #ghost.lines do
+        local target_line = ghost.line + i - 1
+        -- Only draw continuation if target line is beyond EOF or entirely whitespace
+        local existing = self.doc.lines[target_line]
+        if not existing or existing:match("^%s*$") then
+          local gline = ghost.lines[i]
           local next_y = sy + (i - 1) * lh + y_off
           local line_base_x = self:get_line_screen_position(ghost.line)
           renderer.draw_text(font, gline, line_base_x, next_y, ghost_color)

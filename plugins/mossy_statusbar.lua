@@ -21,19 +21,24 @@ local function get_contrast_bg(bg)
 end
 
 -- ── 1. Override Status View Background ──────────────────────────────────────────
-local old_draw_bg = core.status_view.draw_background
-function core.status_view:draw_background(...)
+-- ── 1. Override Status View Background & Overlap-Proof Drawing ────────────────
+local StatusView = require "core.statusview"
+
+local function draw_clean_status_bg(self)
   local status_bg = (style.mossy and style.mossy.status_bg) or get_contrast_bg(style.background)
-  renderer.draw_rect(0, self.position.y, self.size.x, self.size.y, status_bg)
-  
+  local full_w = math.max(self.size.x, (core.root_view and core.root_view.size.x) or self.size.x)
+  -- Clear across full window width to prevent un-cleared ghost artifacts in gutters/sidebars
+  renderer.draw_rect(0, self.position.y, full_w, self.size.y, status_bg)
+  if self.position.x > 0 then
+    renderer.draw_rect(self.position.x, self.position.y, self.size.x, self.size.y, status_bg)
+  end
   local border_bg = (style.mossy and style.mossy.border) or get_contrast_bg(status_bg)
-  renderer.draw_rect(0, self.position.y, self.size.x, 1 * SCALE, border_bg)
+  renderer.draw_rect(0, self.position.y, full_w, math.ceil(1 * SCALE), border_bg)
 end
 
+core.status_view.draw_background = draw_clean_status_bg
+
 -- The REAL fix: hook update_active_items() where item.cached_item is built.
--- StatusView caches get_item() results into item.cached_item during update(),
--- then draw() just renders item.cached_item. Swapping colors in draw() is
--- too late — the colors are already baked in. We must swap them here.
 local old_update_active = core.status_view.update_active_items
 function core.status_view:update_active_items(...)
   local old_text   = style.text
@@ -54,9 +59,16 @@ function core.status_view:update_active_items(...)
   style.accent     = old_accent
 end
 
--- Also hook draw() for items that use on_draw callbacks (they run during draw)
-local old_draw = core.status_view.draw
+local function get_item_bg(self, item)
+  local hovered = self.hovered_item == item
+  local item_bg = hovered and item.background_color_hover or item.background_color
+  return hovered, item_bg
+end
+
+-- Bulletproof draw() that guarantees ZERO text overlap across status bar items
 function core.status_view:draw(...)
+  if not self.visible and self.size.y <= 0 then return end
+
   local old_text   = style.text
   local old_dim    = style.dim
   local old_icon   = style.icon_color
@@ -68,7 +80,107 @@ function core.status_view:draw(...)
     style.icon_color = st
     style.accent     = st
   end
-  old_draw(self, ...)
+
+  draw_clean_status_bg(self)
+
+  if self.message and system.get_time() <= self.message_timeout then
+    self:draw_items(self.message, false, 0, self.size.y)
+  else
+    if self.tooltip_mode then
+      self:draw_items(self.tooltip)
+    end
+
+    if #self.active_items > 0 then
+      local base_x = self.position.x
+      local bar_w = self.size.x
+      local bar_y = self.position.y
+      local bar_h = self.size.y
+      local pad = style.padding.x
+
+      -- Group active items into left and right
+      local left_items = {}
+      local right_items = {}
+      for _, item in ipairs(self.active_items) do
+        if item.alignment == StatusView.Item.LEFT then
+          table.insert(left_items, item)
+        else
+          table.insert(right_items, item)
+        end
+      end
+
+      -- Draw left items sequentially from left edge
+      local cur_left_x = base_x + pad
+      local max_left_reach = base_x + math.floor(bar_w * 0.45)
+
+      for _, item in ipairs(left_items) do
+        local iw = item.w or 0
+        if cur_left_x + iw > max_left_reach then
+          local avail = math.max(0, max_left_reach - cur_left_x)
+          if avail > 10 * SCALE then
+            core.push_clip_rect(cur_left_x, bar_y, avail, bar_h)
+            local hovered, item_bg = get_item_bg(self, item)
+            if type(item_bg) == "table" then
+              renderer.draw_rect(cur_left_x, bar_y, avail, bar_h, item_bg)
+            end
+            if item.on_draw then
+              item.on_draw(cur_left_x, bar_y, bar_h, hovered)
+            else
+              self:draw_items(item.cached_item, false, (cur_left_x - base_x) - pad)
+            end
+            core.pop_clip_rect()
+          end
+          cur_left_x = max_left_reach
+          break
+        else
+          core.push_clip_rect(cur_left_x, bar_y, iw, bar_h)
+          local hovered, item_bg = get_item_bg(self, item)
+          if type(item_bg) == "table" then
+            renderer.draw_rect(cur_left_x, bar_y, iw, bar_h, item_bg)
+          end
+          if item.on_draw then
+            item.on_draw(cur_left_x, bar_y, bar_h, hovered)
+          else
+            self:draw_items(item.cached_item, false, (cur_left_x - base_x) - pad)
+          end
+          core.pop_clip_rect()
+          cur_left_x = cur_left_x + iw
+        end
+      end
+
+      -- Draw right items backwards from the right edge
+      local cur_right_x = base_x + bar_w - pad
+      local min_right_reach = cur_left_x + pad -- NEVER cross into left pane!
+
+      for i = #right_items, 1, -1 do
+        local item = right_items[i]
+        local iw = item.w or 0
+        local item_x = cur_right_x - iw
+
+        if item_x < min_right_reach then
+          break -- Stop drawing if no space left; guarantees zero overlap
+        end
+
+        core.push_clip_rect(item_x, bar_y, iw, bar_h)
+        local hovered, item_bg = get_item_bg(self, item)
+        if type(item_bg) == "table" then
+          renderer.draw_rect(item_x, bar_y, iw, bar_h, item_bg)
+        end
+        if item.on_draw then
+          item.on_draw(item_x, bar_y, bar_h, hovered)
+        else
+          self:draw_items(item.cached_item, false, (item_x - base_x) - pad)
+        end
+        core.pop_clip_rect()
+
+        cur_right_x = item_x
+      end
+
+      if self.hovered_item and self.hovered_item.tooltip and self.hovered_item.tooltip ~= "" and self.hovered_item.active then
+        self:draw_item_tooltip(self.hovered_item)
+      end
+    end
+  end
+
   style.text       = old_text
   style.dim        = old_dim
   style.icon_color = old_icon

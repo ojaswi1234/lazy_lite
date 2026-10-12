@@ -395,10 +395,9 @@ local function draw_actions_panel(x, y, w, h)
     local ry = oy + (i-1) * row_h
     if ry + row_h < y or ry > y + h then goto skip end
 
-    -- row bg on hover
-    if gh_state.actions_hover == i then
-      renderer.draw_rect(x, ry, w, row_h, _COLOR_CACHE_11)
-    end
+    -- row bg
+    local row_bg = (gh_state.actions_hover == i) and _COLOR_CACHE_11 or style.background
+    renderer.draw_rect(x, ry, w, row_h, row_bg)
 
     -- divider
     if i > 1 then

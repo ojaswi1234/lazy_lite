@@ -539,9 +539,20 @@ function YTView:draw()
   -- Player Background
   renderer.draw_rect(x, px_y, w, player_h, style.background2)
   
-  -- Title
+  -- Time text (Right aligned over progress bar)
+  local time_str = string.format("%02d:%02d / %02d:%02d", 
+    math.floor((self.current_time or 0) / 60), math.floor((self.current_time or 0) % 60),
+    math.floor((self.total_time or 0) / 60), math.floor((self.total_time or 0) % 60))
+  local tw_time = style.code_font:get_width(time_str)
+  local time_x = x + w - pad - tw_time
+  renderer.draw_rect(time_x, px_y + pad, tw_time, th, style.background2)
+  renderer.draw_text(style.code_font, time_str, time_x, px_y + pad, style.dim)
+
+  -- Title (bounded strictly to not overlap time)
   local title = (self.playing_title and self.playing_title ~= "") and self.playing_title or "No media playing"
-  renderer.draw_text(font, title:sub(1, 60) .. (title:len() > 60 and "..." or ""), x + pad, px_y + pad, style.text)
+  local avail_title_w = math.max(10, time_x - (x + pad) - pad)
+  local title_trunc = common.truncate_text(title, font, avail_title_w)
+  renderer.draw_text(font, title_trunc, x + pad, px_y + pad, style.text)
   
   -- Progress Bar
   local py = px_y + pad*2 + th
@@ -552,12 +563,6 @@ function YTView:draw()
   renderer.draw_rect(x + pad, py, pw, pb_hover and p_h + 2 or p_h, style.background3)
   local progress = (self.total_time and self.total_time > 0) and (self.current_time / self.total_time) or 0
   renderer.draw_rect(x + pad, py, pw * progress, pb_hover and p_h + 2 or p_h, style.accent)
-  
-  -- Time text (Right aligned over progress bar)
-  local time_str = string.format("%02d:%02d / %02d:%02d", 
-    math.floor((self.current_time or 0) / 60), math.floor((self.current_time or 0) % 60),
-    math.floor((self.total_time or 0) / 60), math.floor((self.total_time or 0) % 60))
-  renderer.draw_text(style.code_font, time_str, x + w - pad - style.code_font:get_width(time_str), px_y + pad, style.dim)
   
   -- Controls
   local cy = py + pad*1.5

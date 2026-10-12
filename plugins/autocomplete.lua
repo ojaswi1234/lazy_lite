@@ -548,7 +548,7 @@ local function draw_suggestions_box(av)
   if #suggestions <= 0 then return end
 
   -- Direct unclipped overlay rendering
-  renderer.set_clip_rect(0, 0, core.root_view.size.x, core.root_view.size.y)
+  core.push_clip_rect(0, 0, core.root_view.size.x, core.root_view.size.y)
 
   local ah = config.plugins.autocomplete.max_height or 9
   local rx, ry, rw, rh = get_suggestions_rect(av)
@@ -590,9 +590,10 @@ local function draw_suggestions_box(av)
       item_start_x = item_start_x + swatch_size + 6 * SCALE
     end
 
-    renderer.set_clip_rect(item_start_x, y, rw - info_size - style.padding.x - (s.color and 18 * SCALE or 0), lh)
-    local x_adv = common.draw_text(font, color, s.text, "left", item_start_x, y, rw, lh)
-    renderer.set_clip_rect(0, 0, core.root_view.size.x, core.root_view.size.y)
+    local max_item_text_w = math.max(0, (rx + rw - info_size - style.padding.x / 2) - item_start_x)
+    core.push_clip_rect(item_start_x, y, max_item_text_w, lh)
+    local x_adv = common.draw_text(font, color, s.text, "left", item_start_x, y, max_item_text_w, lh)
+    core.pop_clip_rect()
 
     if x_adv > rx + rw - info_size then
       local ellipsis_size = font:get_width("…")
@@ -641,6 +642,7 @@ local function draw_suggestions_box(av)
     "right",
     rx, y + 1, rw - style.padding.x, lh
   )
+  core.pop_clip_rect()
 end
 
 local function is_assessment_active()

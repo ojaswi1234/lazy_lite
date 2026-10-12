@@ -5125,21 +5125,31 @@ function LeetCodeView:draw()
         local p_num = tostring(prob.id or prob.question_id or pi)
         renderer.draw_text(style.font, p_num, cx + 8*SCALE, row_y + 4*SCALE, style.dim)
 
-        -- Title
-        core.push_clip_rect(cx + 50*SCALE, row_y, cw - 210*SCALE, 24*SCALE)
+        -- Difficulty
+        local diff_str = prob.difficulty or "Easy"
+        local diff_col = LC_COLORS[diff_str:lower()] or style.dim
+        local diff_w = style.font:get_width(diff_str) + 8*SCALE
+        local show_diff = cw > 140*SCALE
+        if show_diff then
+          renderer.draw_text(style.font, diff_str, cx + cw - diff_w, row_y + 4*SCALE, diff_col)
+        end
+
+        -- Acceptance
+        local acc_str = prob.ac_rate and string.format("%.1f%%", prob.ac_rate) or "--"
+        local acc_w = style.font:get_width(acc_str) + 12*SCALE
+        local show_acc = cw > 220*SCALE
+        if show_acc then
+          renderer.draw_text(style.font, acc_str, cx + cw - diff_w - acc_w, row_y + 4*SCALE, style.dim)
+        end
+
+        -- Title (bounded so it never overlaps right columns)
+        local right_reserved = (show_diff and diff_w or 0) + (show_acc and acc_w or 0) + 10*SCALE
+        local title_avail_w = math.max(20*SCALE, cw - 50*SCALE - right_reserved)
+        core.push_clip_rect(cx + 50*SCALE, row_y, title_avail_w, 24*SCALE)
         local p_title = prob.title or prob.slug or "Unknown"
         local title_fg = prob.paid and style.dim or (is_sel and style.accent or style.text)
         renderer.draw_text(style.font, p_title, cx + 50*SCALE, row_y + 4*SCALE, title_fg)
         core.pop_clip_rect()
-
-        -- Acceptance
-        local acc_str = prob.ac_rate and string.format("%.1f%%", prob.ac_rate) or "--"
-        renderer.draw_text(style.font, acc_str, cx + cw - 150*SCALE, row_y + 4*SCALE, style.dim)
-
-        -- Difficulty
-        local diff_str = prob.difficulty or "Easy"
-        local diff_col = LC_COLORS[diff_str:lower()] or style.dim
-        renderer.draw_text(style.font, diff_str, cx + cw - 70*SCALE, row_y + 4*SCALE, diff_col)
 
         table.insert(self.problem_rows, {x=cx, y=row_y, w=cw, h=24*SCALE, idx=pi})
       end
@@ -5218,7 +5228,9 @@ function LeetCodeView:draw()
       local timer_col = remaining > 900 and (LC_COLORS.accepted or style.accent) or (remaining > 300 and (LC_COLORS.medium or style.text) or (LC_COLORS.hard or style.error))
       local timer_str = string.format("Time Left: %02d:%02d", math.floor(remaining / 60), remaining % 60)
       local tw = style.font:get_width(timer_str)
-      renderer.draw_text(style.font, timer_str, cx + cw - copy_w - tw - 16*SCALE, cy + 4*SCALE, timer_col)
+      local timer_x = cx + cw - copy_w - tw - 16*SCALE
+      renderer.draw_rect(timer_x, cy + 4*SCALE, tw + 4*SCALE, style.font:get_height(), style.background2 or style.background)
+      renderer.draw_text(style.font, timer_str, timer_x, cy + 4*SCALE, timer_col)
     end
 
     cy = cy + 32*SCALE
@@ -5226,8 +5238,11 @@ function LeetCodeView:draw()
     -- Title & Difficulty
     local num = tostring(p.id or p.question_id or "")
     local full_title = (num ~= "" and (num .. ". ") or "") .. (p.title or p.slug)
-    renderer.draw_text(style.big_font or style.font, full_title, cx, cy, style.text)
-    cy = cy + (style.big_font or style.font):get_height() + 4*SCALE
+    local title_f = style.big_font or style.font
+    core.push_clip_rect(cx, cy, cw, title_f:get_height() + 4*SCALE)
+    renderer.draw_text(title_f, full_title, cx, cy, style.text)
+    core.pop_clip_rect()
+    cy = cy + title_f:get_height() + 4*SCALE
 
     local diff_str = p.difficulty or "Medium"
     local diff_col = LC_COLORS[diff_str:lower()] or style.dim

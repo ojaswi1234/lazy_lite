@@ -2039,11 +2039,10 @@ function MongoDBExplorerView:draw()
       local is_selected = store.selected_node == row
       local is_hover = self.hovered_item == row
 
+      local row_bg = is_selected and pal.row_selected or is_hover and pal.row_hover or pal.bg
+      renderer.draw_rect(x, row_y, w, item_h, row_bg)
       if is_selected then
-        renderer.draw_rect(x, row_y, w, item_h, pal.row_selected)
         renderer.draw_rect(x, row_y, 3 * SCALE, item_h, pal.accent)
-      elseif is_hover then
-        renderer.draw_rect(x, row_y, w, item_h, pal.row_hover)
       end
 
       -- Vertical hierarchy guides

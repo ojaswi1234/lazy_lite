@@ -664,9 +664,8 @@ function GitTimelineView:draw_gh_items(items, gh_idx, x, content_y, w, content_h
     local iy = content_y + (i-1)*row_h - self.scroll.y
     if iy + row_h < content_y or iy > content_y + content_h then goto skip end
 
-    if self.gh_hovered == i then
-      renderer.draw_rect(x, iy, w, row_h, style.line_highlight or _COLOR_CACHE_11)
-    end
+    local row_bg = (self.gh_hovered == i) and (style.line_highlight or _COLOR_CACHE_11) or style.background
+    renderer.draw_rect(x, iy, w, row_h, row_bg)
     if i > 1 then
       renderer.draw_rect(x + pad, iy, w - pad*2, math.ceil(SCALE), style.divider or _COLOR_CACHE_6)
     end
@@ -768,11 +767,11 @@ function GitTimelineView:draw_commits(start_y, layout)
       goto continue
     end
 
-    -- "?"? ACTIVE COMMIT HIGHLIGHT "?"?
-    if core.git_active_commit == commit.hash then
-      local hl_bg = (style.mossy and style.mossy.hover_row) or style.line_highlight or _COLOR_CACHE_15
-      renderer.draw_rect(self.position.x, cy - rh * 0.5, self.size.x, rh, hl_bg)
-    end
+    -- ACTIVE COMMIT HIGHLIGHT / CLEAN ROW BACKGROUND
+    local row_y_top = math.floor(cy - rh * 0.5)
+    local is_active = (core.git_active_commit == commit.hash)
+    local hl_bg = is_active and ((style.mossy and style.mossy.hover_row) or style.line_highlight or _COLOR_CACHE_15) or style.background
+    renderer.draw_rect(self.position.x, row_y_top, self.size.x, math.ceil(rh), hl_bg)
 
     local dc = math.min(commit.column, eff_cols - 1)
     local cx = gx + dc * col_w

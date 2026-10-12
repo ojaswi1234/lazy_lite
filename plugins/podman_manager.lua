@@ -408,11 +408,11 @@ function PodmanView:draw()
       
       for _, item in ipairs(sec.data) do
         local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
-        if item_hovered then renderer.draw_rect(x, y, w, 30 * SCALE, style.line_highlight) end
+        renderer.draw_rect(x, y, w, 30 * SCALE, item_hovered and style.line_highlight or style.background)
         
         if sec.id == "compose" then
           renderer.draw_text(style.icon_font, "\u{f490}", x + 20 * SCALE, y + 5 * SCALE, style.accent)
-          core.push_clip_rect(x, y, w - 170 * SCALE, 30 * SCALE)
+          core.push_clip_rect(x, y, math.max(10, w - 170 * SCALE), 30 * SCALE)
             renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
             core.pop_clip_rect()
           
@@ -444,12 +444,13 @@ function PodmanView:draw()
         elseif sec.id == "containers" then
           local c_col = (item.status or ""):match("Up") and PODMAN_COLORS.up or PODMAN_COLORS.exited
           renderer.draw_text(style.icon_font, "\u{f1b2}", x + 20 * SCALE, y + 5 * SCALE, c_col)
-          core.push_clip_rect(x, y, w - 170 * SCALE, 30 * SCALE)
-            local nx = renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
-            core.pop_clip_rect()
+          local max_content_w = math.max(20 * SCALE, w - 170 * SCALE)
+          core.push_clip_rect(x + 40 * SCALE, y, max_content_w - 40 * SCALE, 30 * SCALE)
+          local nx = renderer.draw_text(style.font, (item.name or "Unknown"), x + 40 * SCALE, y + 5 * SCALE, style.text)
           if item.ports and item.ports ~= "" then
             renderer.draw_text(style.font, "  [" .. item.ports .. "]", nx, y + 5 * SCALE, style.dim)
           end
+          core.pop_clip_rect()
           local item_hovered = (in_bounds and self.mouse_y >= y and self.mouse_y < y + 30 * SCALE)
           local bx = x + w - 160 * SCALE
           

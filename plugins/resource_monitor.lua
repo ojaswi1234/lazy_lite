@@ -177,6 +177,7 @@ function TitleView:draw()
     end
     
     current_x = current_x - 6 * SCALE - tw
+    renderer.draw_rect(current_x, y, tw + 6 * SCALE, style.font:get_height() + 4 * SCALE, style.background2 or style.background)
     renderer.draw_text(style.font, txt, current_x, y, style.text)
     current_x = current_x - gap
   end
@@ -192,6 +193,7 @@ function TitleView:draw()
     local txt = string.format("CS UPTIME: %02d:%02d", mins, secs)
     local tw = style.font:get_width(txt)
     current_x = current_x - tw
+    renderer.draw_rect(current_x, y, tw + 4 * SCALE, style.font:get_height() + 4 * SCALE, style.background2 or style.background)
     renderer.draw_text(style.font, txt, current_x, y, _COLOR_CACHE_0)
   end
 end
