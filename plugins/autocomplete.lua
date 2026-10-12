@@ -397,10 +397,11 @@ local function get_suggestions_rect(av)
   local ah = config.plugins.autocomplete.max_height or 9
   local show_count = math.min(#suggestions, ah)
 
-  -- Calculate dynamic width strictly according to the length of current suggestions
+  -- Calculate dynamic width strictly according to the length of visible suggestions and selected item
   local max_width = 0
-  local sample_count = math.min(#suggestions, 50)
-  for i = 1, sample_count do
+  local start_index = suggestions_offset
+  local end_index = math.min(#suggestions, start_index + show_count - 1)
+  for i = start_index, end_index do
     local s = suggestions[i]
     if s then
       local text = tostring(s.text or s)
@@ -412,6 +413,18 @@ local function get_suggestions_rect(av)
       end
       max_width = math.max(max_width, item_w)
     end
+  end
+
+  local cur_s = suggestions[suggestions_idx]
+  if cur_s then
+    local text = tostring(cur_s.text or cur_s)
+    local item_w = font:get_width(text) + (cur_s.color and 18 * SCALE or 0)
+    if cur_s.info and #tostring(cur_s.info) > 0 then
+      item_w = item_w + style.font:get_width(tostring(cur_s.info)) + (style.padding.x * 4) + (10 * SCALE)
+    else
+      item_w = item_w + (style.padding.x * 3) + (8 * SCALE)
+    end
+    max_width = math.max(max_width, item_w)
   end
 
   -- Dynamic floor based on footer text to prevent overlap while remaining compact
@@ -455,6 +468,9 @@ local function wrap_line(line, max_chars)
     local prev_char = ""
     local position = 0
     local indent = line:match("^%s+")
+    if indent and #indent >= max_chars - 2 then
+      indent = ""
+    end
     for char in line:gmatch(".") do
       position = position + 1
       if #new_line < max_chars then
@@ -464,20 +480,25 @@ local function wrap_line(line, max_chars)
           table.insert(lines, new_line)
         end
       else
+        local next_char = string.sub(line, position, position)
         if
           not prev_char:match("%s")
           and
-          not string.sub(line, position+1, 1):match("%s")
+          not next_char:match("%s")
           and
           position < line_len
         then
           new_line = new_line .. "-"
         end
         table.insert(lines, new_line)
-        if indent then
+        if indent and #indent > 0 then
           new_line = indent .. char
         else
           new_line = char
+        end
+        prev_char = char
+        if position >= line_len then
+          table.insert(lines, new_line)
         end
       end
     end

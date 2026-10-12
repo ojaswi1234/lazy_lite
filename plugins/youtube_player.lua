@@ -5,6 +5,10 @@ local common = require "core.common"
 -- Hotfix: inject missing common.truncate_text
 if not common.truncate_text then
   function common.truncate_text(text, font, max_w)
+    text = tostring(text or "")
+    font = font or (style and style.font)
+    if not font then return text end
+    max_w = max_w or 100
     if font:get_width(text) <= max_w then return text end
     local dots_w = font:get_width("...")
     local w = 0

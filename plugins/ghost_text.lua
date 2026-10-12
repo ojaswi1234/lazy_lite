@@ -143,12 +143,6 @@ local function compute_ghost_text(doc, line, col)
     return nil
   end
 
-  -- Don't show ghost if cursor is in middle of existing alphanumeric text
-  local char_after = line_text:sub(col, col)
-  if char_after:match("[%w_]") then
-    return nil
-  end
-
   local lang = get_file_lang(doc)
   local patterns = PATTERNS[lang] or {}
 
@@ -174,7 +168,11 @@ local function compute_ghost_text(doc, line, col)
             for _, item in pairs(v.items) do
               local text = type(item) == "table" and (item.text or item.label) or tostring(item)
               if text:sub(1, #current_word) == current_word and #text > #current_word then
-                return text:sub(#current_word + 1)
+                local suffix = text:sub(#current_word + 1)
+                -- If text immediately after cursor already equals suffix, do not duplicate
+                if line_text:sub(col, col + #suffix - 1) ~= suffix then
+                  return suffix
+                end
               end
             end
           end
@@ -183,15 +181,19 @@ local function compute_ghost_text(doc, line, col)
     end
   end
 
-  -- 3. Check word tokens from buffer / open documents
+  -- 3. Check word tokens locally in current buffer within a bounded window (±60 lines)
+  -- This provides instant word completions without hanging the UI on large files.
   if #current_word >= config.plugins.ghost_text.min_trigger_len then
     local word_pat = "^" .. current_word:gsub("(%W)", "%%%1") .. "([%w_]+)$"
-    for _, item_doc in ipairs(core.docs or {}) do
-      if item_doc.lines then
-        for _, lstr in ipairs(item_doc.lines) do
-          for w in lstr:gmatch("[%w_]+") do
-            local suffix = w:match(word_pat)
-            if suffix and #suffix > 0 then
+    local min_l = math.max(1, line - 60)
+    local max_l = math.min(#doc.lines, line + 60)
+    for l = min_l, max_l do
+      local lstr = doc.lines[l]
+      if lstr then
+        for w in lstr:gmatch("[%w_]+") do
+          local suffix = w:match(word_pat)
+          if suffix and #suffix > 0 then
+            if line_text:sub(col, col + #suffix - 1) ~= suffix then
               return suffix
             end
           end
@@ -273,59 +275,75 @@ function DocView:draw_line_text(line, x, y)
     return old_draw_line_text(self, line, x, y)
   end
 
-  local default_font = self:get_font()
-  local tx, ty = x, y + (self.get_line_text_y_offset and self:get_line_text_y_offset() or 0)
-  local last_token = nil
-  local tokens = self.doc.highlighter:get_line(line).tokens
-  local tokens_count = #tokens
-  if string.sub(tokens[tokens_count] or "", -1) == "\n" then
-    last_token = tokens_count - 1
+  if not self.doc.highlighter or not self.doc.highlighter.get_line then
+    return old_draw_line_text(self, line, x, y)
   end
 
-  local ghost_color = config.plugins.ghost_text.color or style.syntax["comment"] or _COLOR_CACHE_0
-  local gline = ghost.lines[1] or ""
-  local ghost_drawn = false
-  local cur_col = 1
+  local hline = self.doc.highlighter:get_line(line)
+  if not hline or not hline.tokens then
+    return old_draw_line_text(self, line, x, y)
+  end
 
-  for tidx, type, text in self.doc.highlighter:each_token(line) do
-    local color = style.syntax[type]
-    local font = style.syntax_fonts[type] or default_font
-    if tidx == last_token then text = text:sub(1, -2) end
-    local token_len = #text
-
-    if not ghost_drawn and ghost.col >= cur_col and ghost.col <= cur_col + token_len then
-      -- Split token at ghost.col
-      local split_idx = ghost.col - cur_col
-      local part_before = text:sub(1, split_idx)
-      local part_after = text:sub(split_idx + 1)
-
-      if #part_before > 0 then
-        tx = renderer.draw_text(font, part_before, tx, ty, color)
-      end
-
-      -- Draw ghost text inline, giving space by advancing tx!
-      if #gline > 0 then
-        tx = renderer.draw_text(default_font, gline, tx, ty, ghost_color)
-      end
-      ghost_drawn = true
-
-      if #part_after > 0 then
-        tx = renderer.draw_text(font, part_after, tx, ty, color)
-      end
-    else
-      tx = renderer.draw_text(font, text, tx, ty, color)
+  local ok, res = pcall(function()
+    local tokens = hline.tokens
+    local tokens_count = #tokens
+    local last_token = nil
+    if string.sub(tokens[tokens_count] or "", -1) == "\n" then
+      last_token = tokens_count - 1
     end
 
-    cur_col = cur_col + token_len
-    if tx > self.position.x + self.size.x then break end
-  end
+    local default_font = self:get_font()
+    local tx, ty = x, y + (self.get_line_text_y_offset and self:get_line_text_y_offset() or 0)
+    local ghost_color = config.plugins.ghost_text.color or style.syntax["comment"] or _COLOR_CACHE_0
+    local gline = ghost.lines[1] or ""
+    local ghost_drawn = false
+    local cur_col = 1
 
-  -- If cursor is at or past end of line
-  if not ghost_drawn and #gline > 0 then
-    renderer.draw_text(default_font, gline, tx, ty, ghost_color)
-  end
+    for tidx, type, text in self.doc.highlighter:each_token(line) do
+      local color = style.syntax[type]
+      local font = style.syntax_fonts[type] or default_font
+      if tidx == last_token then text = text:sub(1, -2) end
+      local token_len = #text
 
-  return self:get_line_height()
+      if not ghost_drawn and ghost.col >= cur_col and ghost.col <= cur_col + token_len then
+        -- Split token at ghost.col
+        local split_idx = ghost.col - cur_col
+        local part_before = text:sub(1, split_idx)
+        local part_after = text:sub(split_idx + 1)
+
+        if #part_before > 0 then
+          tx = renderer.draw_text(font, part_before, tx, ty, color)
+        end
+
+        -- Draw ghost text inline, giving space dynamically advancing tx!
+        if #gline > 0 then
+          tx = renderer.draw_text(default_font, gline, tx, ty, ghost_color)
+        end
+        ghost_drawn = true
+
+        if #part_after > 0 then
+          tx = renderer.draw_text(font, part_after, tx, ty, color)
+        end
+      else
+        tx = renderer.draw_text(font, text, tx, ty, color)
+      end
+
+      cur_col = cur_col + token_len
+      if tx > self.position.x + self.size.x then break end
+    end
+
+    -- If cursor is at or past end of line
+    if not ghost_drawn and #gline > 0 then
+      renderer.draw_text(default_font, gline, tx, ty, ghost_color)
+    end
+
+    return self:get_line_height()
+  end)
+
+  if ok and res then
+    return res
+  end
+  return old_draw_line_text(self, line, x, y)
 end
 
 -- Render Multi-Line continuation only on empty lines below (never over existing code)
