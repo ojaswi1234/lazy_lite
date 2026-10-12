@@ -742,7 +742,15 @@ function TermView:update()
             local rest = s.out_buf:sub(cport_end)
             if #rest > 0 and s.term then
               s.term:feed(rest)
-              if s.term.was_cleared then
+              if s.clearing then
+                s.term.scrollback = {}
+                s.scroll_y = 0
+                s.scroll_to_bottom = true
+                s.clearing_countdown = (s.clearing_countdown or 1) - 1
+                if s.clearing_countdown <= 0 or (s.clearing_until and system.get_time() > s.clearing_until) then
+                  s.clearing = false
+                end
+              elseif s.term.was_cleared then
                 s.scroll_y = 0
                 s.scroll_to_bottom = true
                 s.term.was_cleared = false
@@ -760,20 +768,32 @@ function TermView:update()
           end
         else
           if s.term then
-              s.term:feed(chunk)
-              if s.term.was_cleared then
-                s.scroll_y = 0
-                s.scroll_to_bottom = true
-                s.term.was_cleared = false
+            s.term:feed(chunk)
+            if s.clearing then
+              s.term.scrollback = {}
+              s.scroll_y = 0
+              s.scroll_to_bottom = true
+              s.clearing_countdown = (s.clearing_countdown or 1) - 1
+              if s.clearing_countdown <= 0 or (s.clearing_until and system.get_time() > s.clearing_until) then
+                s.clearing = false
               end
+            elseif s.term.was_cleared then
+              s.scroll_y = 0
+              s.scroll_to_bottom = true
+              s.term.was_cleared = false
             end
+          end
         end
         if system.get_time() - budget_start > 0.010 then break end
       end
       
       if processed_any then 
         core.redraw = true 
-        if s.scroll_to_bottom then self:scroll_to_end() end
+        if s.clearing then
+          s.scroll_y = 0
+        elseif s.scroll_to_bottom then
+          self:scroll_to_end(s)
+        end
       end
       
       -- Handle unexpected exit / crash
@@ -1342,9 +1362,15 @@ function TermView:draw_port_manager(x, y, w, h)
 end
 
 -- ── Input ──────────────────────────────────────────────────────────────────────
-function TermView:scroll_to_end()
-  local s = self:state()
+function TermView:scroll_to_end(sess)
+  local s = sess or self:state()
   if not s then return end
+  if s.clearing then
+    s.scroll_y = 0
+    s.scroll_to_bottom = true
+    core.redraw = true
+    return
+  end
   s.scroll_to_bottom = true
   local lh = style.code_font:get_height() + 2 * SCALE
   local out_h = self.size.y - 31 * SCALE
@@ -1359,11 +1385,12 @@ function TermView:on_text_input(text)
     s.cursor = s.cursor or (#s.input + 1)
     s.input = s.input:sub(1, s.cursor - 1) .. text .. s.input:sub(s.cursor)
     s.cursor = s.cursor + #text
-    self:scroll_to_end()
+    self:scroll_to_end(s)
   elseif s.proc and s.proc:running() then
-      s.proc:write(text)
-      self:scroll_to_end()
-    end
+    s.cmd_buffer = (s.cmd_buffer or "") .. text
+    s.proc:write(text)
+    self:scroll_to_end(s)
+  end
 end
 
 function TermView:on_key_pressed(key)
@@ -1375,39 +1402,118 @@ function TermView:on_key_pressed(key)
     elseif key == "down" then seq = "\27[B"
     elseif key == "right" then seq = "\27[C"
     elseif key == "left" then seq = "\27[D"
-    elseif key == "return" then seq = "\r"
-    elseif key == "backspace" then seq = "\8"
-    elseif key == "escape" then seq = "\27"
-    elseif key == "tab" then seq = "\t"
-    elseif key == "ctrl+c" then seq = "\3"
-      elseif key == "ctrl+l" then
+    elseif key == "return" then
+      local cmd = (s.cmd_buffer or ""):match("^%s*(.-)%s*$"):lower()
+      local line_txt = ""
+      if s.term and s.term.grid and s.term.cursor_y and s.term.grid[s.term.cursor_y] then
+        local chars = {}
+        for x = 1, s.term.cols do
+          local c = s.term.grid[s.term.cursor_y][x]
+          if c and c.char then chars[#chars + 1] = c.char end
+        end
+        line_txt = table.concat(chars):match("^%s*(.-)%s*$"):lower()
+      end
+      s.cmd_buffer = ""
+
+      local is_clear = (cmd == "clear" or cmd == "cls" or cmd == "clear-host")
+      if not is_clear and line_txt ~= "" then
+        if line_txt == "clear" or line_txt == "cls" or line_txt == "clear-host"
+           or line_txt:match("[%s>$#]clear%s*$")
+           or line_txt:match("[%s>$#]cls%s*$")
+           or line_txt:match("[%s>$#]clear%-host%s*$") then
+          is_clear = true
+        end
+      end
+
+      if is_clear then
+        s.clearing = true
+        s.clearing_countdown = 10
+        s.clearing_until = system.get_time() + 1.0
+        s.selection = nil
         if s.term then
+          s.term.scrollback = {}
           for y = 1, s.term.rows do
             for x = 1, s.term.cols do s.term:clear_cell(x, y) end
           end
-          s.term.scrollback = {}
           s.term.cursor_x = 1
           s.term.cursor_y = 1
         end
         if s.lines then s.lines = {} end
         s.scroll_y = 0
         s.scroll_to_bottom = true
-        if s.proc and s.proc:running() then
-          s.proc:write("\12")
+      end
+      seq = "\r"
+    elseif key == "backspace" then
+      if s.cmd_buffer and #s.cmd_buffer > 0 then
+        s.cmd_buffer = s.cmd_buffer:sub(1, -2)
+      end
+      seq = "\8"
+    elseif key == "escape" then
+      s.cmd_buffer = ""
+      seq = "\27"
+    elseif key == "tab" then seq = "\t"
+    elseif key == "ctrl+c" or key == "ctrl+u" then
+      s.cmd_buffer = ""
+      seq = (key == "ctrl+c") and "\3" or "\21"
+    elseif key == "ctrl+l" then
+      if s.term then
+        for y = 1, s.term.rows do
+          for x = 1, s.term.cols do s.term:clear_cell(x, y) end
         end
-        core.redraw = true
-        return true
+        s.term.scrollback = {}
+        s.term.cursor_x = 1
+        s.term.cursor_y = 1
+      end
+      if s.lines then s.lines = {} end
+      s.scroll_y = 0
+      s.scroll_to_bottom = true
+      s.clearing = true
+      s.clearing_countdown = 10
+      s.clearing_until = system.get_time() + 1.0
+      s.cmd_buffer = ""
+      s.selection = nil
+      if s.proc and s.proc:running() then
+        s.proc:write("\12")
+      end
+      core.redraw = true
+      return true
     elseif key == "ctrl+v" or key == "shift+insert" then 
       local text = system.get_clipboard()
       if text then 
         text = text:gsub("\r\n", "\r"):gsub("\n", "\r")
+        local clean = text:match("^%s*(.-)%s*$"):lower()
+        if clean == "clear" or clean == "cls" or clean == "clear-host"
+           or clean == "clear\r" or clean == "cls\r" or clean == "clear-host\r" then
+          s.cmd_buffer = clean:gsub("\r", "")
+          if clean:find("\r") then
+            s.clearing = true
+            s.clearing_countdown = 10
+            s.clearing_until = system.get_time() + 1.0
+            s.selection = nil
+            if s.term then
+              s.term.scrollback = {}
+              for y = 1, s.term.rows do
+                for x = 1, s.term.cols do s.term:clear_cell(x, y) end
+              end
+              s.term.cursor_x = 1
+              s.term.cursor_y = 1
+            end
+            if s.lines then s.lines = {} end
+            s.scroll_y = 0
+            s.scroll_to_bottom = true
+          end
+        else
+          s.cmd_buffer = (s.cmd_buffer or "") .. text:gsub("\r", "")
+        end
         s.proc:write(text) 
       end
       return true
     end
     if seq then
       s.proc:write(seq)
-      self:scroll_to_end()
+      if not s.clearing then
+        self:scroll_to_end(s)
+      end
       return true
     end
     if key == "pageup" then

@@ -34,6 +34,7 @@ function Terminal.new(cols, rows)
   self.params = {}
   self.param_val = 0
   self.has_param = false
+  self.conpty_clear_lines = 0
   
   return self
 end
@@ -180,6 +181,9 @@ function Terminal:process_byte(b)
 end
 
 function Terminal:print_char(c)
+  if c ~= ' ' then
+    self.conpty_clear_lines = 0
+  end
   local cell = self.grid[self.cursor_y][self.cursor_x]
   if cell then
     cell.char = c
@@ -221,6 +225,13 @@ function Terminal:dispatch_csi(action)
     if col < 1 then col = 1 end
     self.cursor_y = math.min(row, self.rows)
     self.cursor_x = math.min(col, self.cols)
+    if self.cursor_y == 1 and self.cursor_x == 1 then
+      if (self.conpty_clear_lines or 0) >= math.min(self.rows - 1, 5) then
+        self.scrollback = {}
+        self.was_cleared = true
+      end
+    end
+    self.conpty_clear_lines = 0
     
   elseif char == 'A' then -- CUU (Cursor Up)
     local n = self.params[1] or 1
@@ -277,6 +288,17 @@ function Terminal:dispatch_csi(action)
       for x = 1, self.cursor_x do self:clear_cell(x, self.cursor_y) end
     elseif n == 2 then
       for x = 1, self.cols do self:clear_cell(x, self.cursor_y) end
+    end
+    if self.cursor_x == 1 then
+      if self.cursor_y == 1 then
+        self.conpty_clear_lines = 1
+      elseif self.cursor_y == (self.conpty_clear_lines or 0) + 1 then
+        self.conpty_clear_lines = self.cursor_y
+      else
+        self.conpty_clear_lines = 0
+      end
+    else
+      self.conpty_clear_lines = 0
     end
     
   elseif char == '@' then -- ICH (Insert Character)
