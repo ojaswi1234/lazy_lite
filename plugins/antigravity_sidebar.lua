@@ -2716,6 +2716,7 @@ function AGView:draw()
   if num_segs == 0 then num_segs = 1 end
   local avail_w = w - (seg_x - x) - status_w - add_w - 12 * SCALE
   local seg_w = math.max(40 * SCALE, math.floor(avail_w / num_segs))
+  local total_pill_w = num_segs * seg_w
   
   -- Draw pill container background
   local max_pills_w = math.max(10 * SCALE, (x + w - status_w - 12 * SCALE) - seg_x)

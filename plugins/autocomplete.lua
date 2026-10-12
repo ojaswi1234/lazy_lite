@@ -379,10 +379,8 @@ local function update_suggestions()
   core.redraw = true
 end
 
-local last_max_width = 0
 local function get_suggestions_rect(av)
   if #suggestions == 0 then
-    last_max_width = 0
     return 0, 0, 0, 0
   end
 
@@ -398,29 +396,33 @@ local function get_suggestions_rect(av)
 
   local ah = config.plugins.autocomplete.max_height or 9
   local show_count = math.min(#suggestions, ah)
-  local start_index = suggestions_offset
 
+  -- Calculate dynamic width strictly according to the length of current suggestions
   local max_width = 0
-  for i = start_index, start_index + show_count - 1 do
+  local sample_count = math.min(#suggestions, 50)
+  for i = 1, sample_count do
     local s = suggestions[i]
     if s then
       local text = tostring(s.text or s)
-      local w = font:get_width(text) + (s.color and 18 * SCALE or 0)
-      if s.info then
-        w = w + style.font:get_width(tostring(s.info)) + (style.padding.x * 2)
+      local item_w = font:get_width(text) + (s.color and 18 * SCALE or 0)
+      if s.info and #tostring(s.info) > 0 then
+        item_w = item_w + style.font:get_width(tostring(s.info)) + (style.padding.x * 4) + (10 * SCALE)
+      else
+        item_w = item_w + (style.padding.x * 3) + (8 * SCALE)
       end
-      max_width = math.max(max_width, w)
+      max_width = math.max(max_width, item_w)
     end
   end
-  max_width = math.max(last_max_width, max_width)
-  last_max_width = max_width
 
-  max_width = max_width + (style.padding.x * 4) + (24 * SCALE)
-  if max_width < 240 * SCALE then
-    max_width = 240 * SCALE
-  end
-  if max_width > core.root_view.size.x - 20 then
-    max_width = core.root_view.size.x - 20
+  -- Dynamic floor based on footer text to prevent overlap while remaining compact
+  local footer_text = "Suggestions " .. tostring(suggestions_idx) .. "/" .. tostring(#suggestions)
+  local min_footer_w = style.font:get_width(footer_text) + (style.padding.x * 4) + (16 * SCALE)
+  local dynamic_min = math.max(100 * SCALE, min_footer_w)
+  max_width = math.max(dynamic_min, max_width)
+
+  local max_allowed = math.max(dynamic_min, core.root_view.size.x - 20)
+  if max_width > max_allowed then
+    max_width = max_allowed
   end
 
   local item_h = th + style.padding.y
