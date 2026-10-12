@@ -740,7 +740,14 @@ function TermView:update()
             s.ctrl_port = tonumber(cport)
             s.ctrl_port_found = true
             local rest = s.out_buf:sub(cport_end)
-            if #rest > 0 and s.term then s.term:feed(rest) end
+            if #rest > 0 and s.term then
+              s.term:feed(rest)
+              if s.term.was_cleared then
+                s.scroll_y = 0
+                s.scroll_to_bottom = true
+                s.term.was_cleared = false
+              end
+            end
             s.out_buf = nil
             -- Immediately send initial resize now that port is known
             if s.term then
@@ -752,7 +759,14 @@ function TermView:update()
             s.out_buf = nil
           end
         else
-          if s.term then s.term:feed(chunk) end
+          if s.term then
+              s.term:feed(chunk)
+              if s.term.was_cleared then
+                s.scroll_y = 0
+                s.scroll_to_bottom = true
+                s.term.was_cleared = false
+              end
+            end
         end
         if system.get_time() - budget_start > 0.010 then break end
       end
@@ -1118,7 +1132,7 @@ function TermView:resolve_position(x, y)
   local text_y = out_top + 4 * SCALE - (s.scroll_y or 0)
   local lh = style.code_font:get_height() + 2 * SCALE
   local line = math.floor((y - text_y) / lh) + 1
-  local total_lines = s.term and (#s.term.scrollback + s.term.rows) or #s.lines
+  local total_lines = s.term and s.term:get_content_height() or #s.lines
   line = common.clamp(line, 1, total_lines)
   local col = 1
   
@@ -1334,7 +1348,7 @@ function TermView:scroll_to_end()
   s.scroll_to_bottom = true
   local lh = style.code_font:get_height() + 2 * SCALE
   local out_h = self.size.y - 31 * SCALE
-  local total_lines = s.term and (#s.term.scrollback + s.term.rows) or (#s.lines + 1)
+  local total_lines = s.term and s.term:get_content_height() or (#s.lines + 1)
   s.scroll_y = math.max(0, total_lines * lh - out_h + 10 * SCALE)
   core.redraw = true
 end
@@ -1366,6 +1380,23 @@ function TermView:on_key_pressed(key)
     elseif key == "escape" then seq = "\27"
     elseif key == "tab" then seq = "\t"
     elseif key == "ctrl+c" then seq = "\3"
+      elseif key == "ctrl+l" then
+        if s.term then
+          for y = 1, s.term.rows do
+            for x = 1, s.term.cols do s.term:clear_cell(x, y) end
+          end
+          s.term.scrollback = {}
+          s.term.cursor_x = 1
+          s.term.cursor_y = 1
+        end
+        if s.lines then s.lines = {} end
+        s.scroll_y = 0
+        s.scroll_to_bottom = true
+        if s.proc and s.proc:running() then
+          s.proc:write("\12")
+        end
+        core.redraw = true
+        return true
     elseif key == "ctrl+v" or key == "shift+insert" then 
       local text = system.get_clipboard()
       if text then 
@@ -1790,7 +1821,7 @@ function TermView:on_mouse_wheel(dy, dx)
   s.scroll_y = math.max(0, s.scroll_y - dy * lh * 3)
   
   -- Clamp scroll
-  local total = s.term and (#s.term.scrollback + s.term.rows) * lh or (#s.lines + 1) * lh
+  local total = s.term and (s.term:get_content_height() * lh) or (#s.lines + 1) * lh
   local inner = math.max(0, self.size.y - 31 * SCALE)
   local max_scroll = math.max(0, total - inner)
   s.scroll_y = math.max(0, math.min(max_scroll, s.scroll_y))
@@ -2002,7 +2033,7 @@ function TermView:update(...)
     -- Smart auto-scroll re-attach: If scrolled to bottom manually, re-enable tracking
     local lh = style.code_font:get_height() + 2 * SCALE
     local out_h = self.size.y - 31 * SCALE
-    local total_lines = s.term and (#s.term.scrollback + s.term.rows) or (s.lines and #s.lines + 1 or 1)
+    local total_lines = s.term and s.term:get_content_height() or (s.lines and #s.lines + 1 or 1)
     local max_scroll = math.max(0, total_lines * lh - out_h + 10 * SCALE)
     if (s.scroll_y or 0) >= max_scroll - 15 * SCALE then
       s.scroll_to_bottom = true

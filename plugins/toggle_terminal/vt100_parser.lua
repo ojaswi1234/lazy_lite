@@ -257,13 +257,16 @@ function Terminal:dispatch_csi(action)
       end
       for x = 1, self.cursor_x do self:clear_cell(x, self.cursor_y) end
     elseif n == 2 then
-      -- Clear entire screen
+      -- Clear entire screen AND scrollback (Clear-Host / cls / clear)
       for y = 1, self.rows do
         for x = 1, self.cols do self:clear_cell(x, y) end
       end
+      self.scrollback = {}
+      self.was_cleared = true
     elseif n == 3 then
       -- Clear scrollback
       self.scrollback = {}
+      self.was_cleared = true
     end
     
   elseif char == 'K' then -- EL (Erase in Line)
@@ -352,6 +355,28 @@ function Terminal:get_absolute_line(y)
   else
     return self.grid[y - #self.scrollback]
   end
+end
+
+function Terminal:get_content_height()
+  local last_y = self.cursor_y or 1
+  for y = self.rows, 1, -1 do
+    local row = self.grid[y]
+    if row then
+      local has_text = false
+      for x = 1, self.cols do
+        local cell = row[x]
+        if cell and cell.char and cell.char ~= ' ' and cell.char ~= '' and cell.char ~= '\0' then
+          has_text = true
+          break
+        end
+      end
+      if has_text then
+        last_y = math.max(last_y, y)
+        break
+      end
+    end
+  end
+  return #self.scrollback + last_y
 end
 
 return Terminal
