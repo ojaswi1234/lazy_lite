@@ -291,6 +291,7 @@ M.REGISTRY = {
     build_sessions_argv = nil,
     parse_sessions = nil,
     hardcoded_models = {
+      { name = "gemini/gemini-2.5-flash", limited = false },
       { name = "gemini/gemini-2.5-pro", limited = false },
       { name = "groq/llama3-70b-8192", limited = false },
       { name = "openai/gpt-4o", limited = false },

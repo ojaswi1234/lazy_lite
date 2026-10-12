@@ -48,70 +48,123 @@ threading.Thread(target=stdin_watchdog, daemon=True).start()
 def load_keys():
     config_dir = os.path.dirname(os.path.abspath(__file__))
     keys_file = os.path.join(config_dir, "ai_api_keys.json")
-    if not os.path.exists(keys_file):
-        with open(keys_file, "w") as f:
-            json.dump({}, f)
-        return {}
-    with open(keys_file, "r") as f:
+    keys = {}
+    if os.path.exists(keys_file):
         try:
-            return json.load(f)
+            with open(keys_file, "r") as f:
+                keys = json.load(f)
         except:
-            return {}
+            keys = {}
+    else:
+        try:
+            with open(keys_file, "w") as f:
+                json.dump({}, f)
+        except: pass
+
+    # Also load from .env file if present
+    for env_path in [
+        os.path.join(config_dir, ".env"),
+        os.path.join(os.path.dirname(config_dir), ".env"),
+        os.path.join(os.path.expanduser("~"), ".config", "lite-xl", ".env")
+    ]:
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as ef:
+                    for line in ef:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip().strip('"').strip("'")
+                            if k not in os.environ:
+                                os.environ[k] = v
+            except: pass
+
+    # Fallback to environment variables if key is missing or empty
+    env_fallbacks = {
+        "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        "groq": ["GROQ_API_KEY"],
+        "openai": ["OPENAI_API_KEY"],
+        "anthropic": ["ANTHROPIC_API_KEY"],
+        "ollama": ["OLLAMA_API_KEY", "OLLAMA_BASE_URL", "OLLAMA_HOST"],
+    }
+    for provider, env_vars in env_fallbacks.items():
+        if not keys.get(provider):
+            for ev in env_vars:
+                val = os.environ.get(ev)
+                if val:
+                    keys[provider] = val
+                    break
+    return keys
+
+def validate_single_key(p, api_key):
+    if not api_key:
+        return p, "missing"
+    try:
+        if p == "gemini":
+            try:
+                import urllib.request
+                req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    if resp.status == 200:
+                        return p, "valid"
+            except Exception:
+                pass
+            try:
+                from google import genai
+                client = genai.Client(api_key=api_key)
+                for _ in client.models.list():
+                    return p, "valid"
+            except Exception:
+                pass
+            return p, "expired"
+        elif p == "groq":
+            from groq import Groq
+            client = Groq(api_key=api_key, timeout=5.0)
+            client.models.list()
+            return p, "valid"
+        elif p == "openai":
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, timeout=5.0)
+            client.models.list()
+            return p, "valid"
+        elif p == "omniroute":
+            from openai import OpenAI
+            base = "http://127.0.0.1:20128/v1"
+            key = api_key if api_key else "dummy"
+            if api_key and "|" in api_key:
+                base, key = api_key.split("|", 1)
+            client = OpenAI(base_url=base, api_key=key, timeout=2.0)
+            client.models.list()
+            return p, "valid"
+        elif p == "ollama":
+            from openai import OpenAI
+            base = "http://127.0.0.1:11434/v1"
+            key = api_key
+            if api_key and "|" in api_key:
+                base, key = api_key.split("|", 1)
+            elif api_key and api_key.startswith("http"):
+                base = api_key
+                key = "ollama"
+            client = OpenAI(base_url=base, api_key=key, timeout=3.0)
+            client.models.list()
+            return p, "valid"
+        elif p == "anthropic":
+            from anthropic import Anthropic
+            client = Anthropic(api_key=api_key, timeout=5.0)
+            client.models.list()
+            return p, "valid"
+    except Exception:
+        return p, "expired"
+    return p, "expired"
 
 def validate_keys(keys):
-    status = {}
     providers = ["gemini", "groq", "openai", "anthropic", "ollama", "omniroute"]
-    for p in providers:
-        api_key = keys.get(p, "")
-        if not api_key:
-            status[p] = "missing"
-            continue
-        try:
-            if p == "gemini":
-                import google.generativeai as genai
-                genai.configure(api_key=api_key)
-                genai.list_models()
-                status[p] = "valid"
-            elif p == "groq":
-                from groq import Groq
-                client = Groq(api_key=api_key)
-                client.models.list()
-                status[p] = "valid"
-            elif p == "openai":
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key)
-                client.models.list()
-                status[p] = "valid"
-            elif p == "omniroute":
-                from openai import OpenAI
-                base = "http://127.0.0.1:20128/v1"
-                key = api_key if api_key else "dummy"
-                if api_key and "|" in api_key:
-                    base, key = api_key.split("|", 1)
-                client = OpenAI(base_url=base, api_key=key)
-                client.models.list()
-                status[p] = "valid"
-            elif p == "ollama":
-                from openai import OpenAI
-                base = "http://127.0.0.1:11434/v1"
-                key = api_key
-                if api_key and "|" in api_key:
-                    base, key = api_key.split("|", 1)
-                elif api_key and api_key.startswith("http"):
-                    base = api_key
-                    key = "ollama"
-                client = OpenAI(base_url=base, api_key=key)
-                client.models.list()
-                status[p] = "valid"
-            elif p == "anthropic":
-                from anthropic import Anthropic
-                client = Anthropic(api_key=api_key)
-                client.models.list()
-                status[p] = "valid"
-        except Exception as e:
-            status[p] = "expired"
-    for p, v in status.items():
-        print(f"{p}:{v}", flush=True)
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(validate_single_key, p, keys.get(p, "")): p for p in providers}
+        for future in concurrent.futures.as_completed(futures):
+            p, v = future.result()
+            print(f"{p}:{v}", flush=True)
     try:
         config_dir = os.path.dirname(os.path.abspath(__file__))
         mcp_config_path = os.path.join(config_dir, "mcp_config.json")
@@ -140,11 +193,25 @@ def list_models(provider, keys):
             continue
         try:
             if p == "gemini":
-                import google.generativeai as genai
-                genai.configure(api_key=api_key)
-                m_list = [m.name.replace("models/", "") for m in genai.list_models() if "generateContent" in m.supported_generation_methods]
-                if not m_list: m_list = ["gemini-2.5-pro", "gemini-2.5-flash"]
-                models.extend([f"gemini/{m}" for m in m_list])
+                m_list = []
+                try:
+                    import urllib.request, json
+                    req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode())
+                        m_list = [m['name'].replace('models/', '') for m in data.get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
+                except Exception:
+                    pass
+                if not m_list:
+                    try:
+                        from google import genai
+                        client = genai.Client(api_key=api_key)
+                        m_list = [m.name.replace("models/", "") for m in client.models.list()]
+                    except Exception:
+                        pass
+                if not m_list:
+                    m_list = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.1-pro-preview"]
+                models.extend([f"gemini/{m}" for m in m_list if "embed" not in m.lower()])
             elif p == "groq":
                 import time, urllib.request, concurrent.futures
                 cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "groq_model_cache.json")
@@ -303,7 +370,7 @@ def list_models(provider, keys):
                 client = Anthropic(api_key=api_key)
                 models.extend([f"anthropic/{m.id}" for m in client.models.list().data])
         except Exception:
-            if p == "gemini": models.extend([f"gemini/{m}" for m in ["gemini-2.5-pro", "gemini-2.5-flash"]])
+            if p == "gemini": models.extend([f"gemini/{m}" for m in ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.1-pro-preview"]])
             elif p == "groq": models.extend([f"groq/{m}" for m in ["llama-3.1-70b-versatile"]])
             elif p == "openai": models.extend([f"openai/{m}" for m in ["gpt-4o", "gpt-4o-mini"]])
             elif p == "ollama": models.extend([f"ollama/{m}" for m in ["mistral-large-3:675b", "llama3.3"]])
@@ -465,14 +532,14 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         attachments_context = f"\nLITE-XL ATTACHMENTS DIRECTORY (For saving/reading docx, pdf, media, etc.): {attachments_dir}\nIf asked to save, read, or modify a document/attachment, look for it in this folder first, and save it here.\n"
         
         if read_only:
-              system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor operating in strict READ-ONLY mode.
+            system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor operating in strict READ-ONLY mode.
   You are STRICTLY FORBIDDEN from modifying, writing, creating, or deleting files, or running mutating commands.{ws_context}
   CRITICAL INSTRUCTIONS:
   1. STRICT READ-ONLY MODE: Do NOT attempt to modify, create, or delete files, and do NOT execute modifying commands. You may read files and search the web, but NEVER edit code on disk.
   2. If code adjustments, refactors, or bugfixes are requested, explain them and present the proposed code ONLY as formatted markdown code blocks in your chat response for the user to inspect.
   3. NEVER overwrite, delete, or create files on disk."""
-          else:
-              system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor. 
+        else:
+            system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor. 
 You have access to local shell execution, file editing, and web search.{ws_context}
 CRITICAL INSTRUCTIONS:
 1. THINK BEFORE EXECUTING: Always explore the directory structure first.
@@ -752,8 +819,22 @@ CRITICAL INSTRUCTIONS:
                     async for event in graph.astream(inputs, config=config, stream_mode="messages"):
                         msg, metadata = event
                         if isinstance(msg, AIMessage) and msg.content:
-                            sys.stdout.write(msg.content)
-                            sys.stdout.flush()
+                            text_out = ""
+                            if isinstance(msg.content, str):
+                                text_out = msg.content
+                            elif isinstance(msg.content, list):
+                                for part in msg.content:
+                                    if isinstance(part, str):
+                                        text_out += part
+                                    elif isinstance(part, dict):
+                                        text_out += part.get("text", "")
+                                    else:
+                                        text_out += str(part)
+                            else:
+                                text_out = str(msg.content)
+                            if text_out:
+                                sys.stdout.write(text_out)
+                                sys.stdout.flush()
                     print("\n\n--- Finished ---", flush=True)
                 except Exception as e:
                     err_str = str(e)
@@ -781,6 +862,7 @@ def main():
     parser.add_argument("--set-key", type=str)
     parser.add_argument("--delete-key", action="store_true")
     parser.add_argument("--validate-keys", action="store_true")
+    parser.add_argument("--get-keys", action="store_true")
     parser.add_argument("--get-marketplace-tools", action="store_true")
     parser.add_argument("--get-marketplace-skills", action="store_true")
     parser.add_argument("--get-installed-tools", action="store_true")
@@ -1021,6 +1103,20 @@ def main():
         sys.exit(0)
 
     keys = load_keys()
+
+    if args.get_keys:
+        masked = {}
+        for p in ["gemini", "groq", "openai", "anthropic", "ollama", "omniroute"]:
+            k = keys.get(p, "")
+            if k:
+                if len(k) > 10:
+                    masked[p] = k[:4] + "..." + k[-4:]
+                else:
+                    masked[p] = "***"
+            else:
+                masked[p] = ""
+        print(json.dumps(masked))
+        sys.exit(0)
 
     if args.validate_keys:
         validate_keys(keys)

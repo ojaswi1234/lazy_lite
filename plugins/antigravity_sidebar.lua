@@ -1657,39 +1657,57 @@ function AGView:submit(prompt)
     core.redraw = true
     return
   elseif prompt == "/api" then
-    if tool_id ~= "cloud_api" then
-      core.log("/api is only available in Cloud AI (API) mode")
-      return
-    end
     self.show_api_view = true
-    self.api_key_status = { status = "loading" }
+    local parsed_data = (self.api_key_status and self.api_key_status.data) or {}
+    self.api_key_status = { status = "loading", data = parsed_data }
     
     local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
     core.add_thread(function()
       local p, err = process.start({ "python", bridge, "--validate-keys" })
       if not p then
-        self.api_key_status = { status = "error", err = err }
+        self.api_key_status = { status = "error", err = err, data = parsed_data }
         return
       end
       local out = ""
+      local err_out = ""
       while p:running() do
         local chunk = p:read_stdout(4096)
-        if chunk and #chunk > 0 then out = out .. chunk end
-        coroutine.yield(0.1)
+        if chunk and #chunk > 0 then
+          out = out .. chunk
+          for line in (out .. "\n"):gmatch("([^\r\n]+)\r?\n") do
+            local k, v = line:match("^([^:]+):%s*(.+)$")
+            if k and v then
+              parsed_data[k] = v:gsub("%s+$", "")
+            end
+          end
+          self.api_key_status = { status = "loading", data = parsed_data }
+          core.redraw = true
+        end
+        local err_chunk = p:read_stderr(4096)
+        if err_chunk and #err_chunk > 0 then err_out = err_out .. err_chunk end
+        coroutine.yield(0.05)
       end
-      local chunk = p:read_stdout(4096)
-      if chunk and #chunk > 0 then out = out .. chunk end
-      while p:running() do coroutine.yield(0.1) end
-      local parsed_data = {}
+      while true do
+        local chunk = p:read_stdout(4096)
+        if not chunk or #chunk == 0 then break end
+        out = out .. chunk
+      end
+      while true do
+        local err_chunk = p:read_stderr(4096)
+        if not err_chunk or #err_chunk == 0 then break end
+        err_out = err_out .. err_chunk
+      end
       for line in (out .. "\n"):gmatch("([^\r\n]+)\r?\n") do
         local k, v = line:match("^([^:]+):%s*(.+)$")
         if k and v then
-          -- Strip any trailing spaces or carriage returns from the value
-          v = v:gsub("%s+$", "")
-          parsed_data[k] = v
+          parsed_data[k] = v:gsub("%s+$", "")
         end
       end
-      self.api_key_status = { status = "done", data = parsed_data }
+      if next(parsed_data) == nil and err_out ~= "" then
+        self.api_key_status = { status = "error", err = err_out, data = parsed_data }
+      else
+        self.api_key_status = { status = "done", data = parsed_data }
+      end
       core.redraw = true
     end)
     return
@@ -2118,6 +2136,7 @@ function AGView:update()
         while true do
           local out = tab.process:read_stderr(65536)
           if not out or #out == 0 then break end
+          tab._err_buf = (tab._err_buf or "") .. out
         end
 
         local rc = tab.process:returncode()
@@ -2127,6 +2146,11 @@ function AGView:update()
             local out = tab.process:read_stdout(65536)
             if not out or #out == 0 then break end
             tab._ai_buf = (tab._ai_buf or "") .. out
+          end
+          while true do
+            local out = tab.process:read_stderr(65536)
+            if not out or #out == 0 then break end
+            tab._err_buf = (tab._err_buf or "") .. out
           end
           tab.process = nil
           tab.status = (rc == 0) and "idle" or "error"
@@ -2139,7 +2163,9 @@ function AGView:update()
             local elapsed = os.time() - (tab._chat_started_at or os.time())
             local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
             local hint
-            if cur_tool == "agy" then
+            if tab._err_buf and tab._err_buf ~= "" then
+              hint = "Process error:\n" .. tab._err_buf
+            elseif cur_tool == "agy" then
               hint = "Try the AGY Auth button if you just logged in."
             else
               local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
@@ -3733,22 +3759,27 @@ function AGView:draw()
     
     self._api_btns = {}
     
-    if not self.api_key_status or self.api_key_status.status == "loading" then
-      renderer.draw_text(style.font, "Validating API Keys...", mx + pad, ty, P.fg_muted)
-    elseif self.api_key_status.status == "error" then
+    if not self.api_key_status then
+      renderer.draw_text(style.font, "Loading API Keys...", mx + pad, ty, P.fg_muted)
+    elseif self.api_key_status.status == "error" and (not self.api_key_status.data or next(self.api_key_status.data) == nil) then
       renderer.draw_text(style.font, "Error: " .. tostring(self.api_key_status.err), mx + pad, ty, _COLOR_CACHE_14)
     else
+      if self.api_key_status.status == "loading" then
+        renderer.draw_text(style.font, "Validating keys in background...", mx + pad, ty, P.fg_muted)
+        ty = ty + lh + 4 * SCALE
+      end
       local providers = { "gemini", "groq", "openai", "anthropic", "ollama", "omniroute" }
+      local data = (self.api_key_status and self.api_key_status.data) or {}
       local seen = {}
       for _, p in ipairs(providers) do seen[p] = true end
-      for p, _ in pairs(self.api_key_status.data) do
+      for p, _ in pairs(data) do
          if not seen[p] then
              table.insert(providers, p)
          end
       end
       
       for _, p in ipairs(providers) do
-        local stat = self.api_key_status.data[p] or "missing"
+        local stat = data[p] or (self.api_key_status.status == "loading" and "checking..." or "missing")
         local p_name = p:sub(1,1):upper() .. p:sub(2)
         if p:find("MCP::") then
            local srv_name, ek = p:match("MCP::(.-)::(.*)")
@@ -3757,18 +3788,19 @@ function AGView:draw()
         
         renderer.draw_rect(mx + pad, ty - 2 * SCALE, mw - 2 * pad, lh + 6 * SCALE, P.bg)
         renderer.draw_text(style.font, p_name, mx + pad, ty, P.fg)
-        local status_x = mx + pad + 100 * SCALE
+        local status_x = mx + pad + 95 * SCALE
         
         local stat_color = P.fg_muted
         if stat == "valid" then stat_color = _COLOR_CACHE_15
-        elseif stat == "expired" then stat_color = _COLOR_CACHE_25 end
+        elseif stat == "expired" then stat_color = _COLOR_CACHE_25
+        elseif stat == "checking..." then stat_color = P.fg_muted end
         
         renderer.draw_text(style.font, stat:upper(), status_x, ty, stat_color)
         
-        local btn_w = 60 * SCALE
+        local btn_w = 55 * SCALE
         local btn_x = mx + mw - pad - btn_w
         
-        local btn_text = (stat == "missing" or stat == "expired") and "Set Key" or (p == "ollama" and "URL/Key" or "Delete")
+        local btn_text = (stat == "missing" or stat == "expired" or stat == "checking...") and "Set Key" or (p == "ollama" and "URL/Key" or "Delete")
         local is_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == btn_text
         local btn_bg = is_hover and P.bg_btn_hl or P.bg_btn
         renderer.draw_rect(btn_x, ty, btn_w, lh, btn_bg)
@@ -3777,8 +3809,15 @@ function AGView:draw()
         table.insert(self._api_btns, { p = p, text = btn_text, action = btn_text, x = btn_x, y = ty, w = btn_w, h = lh })
         
         if stat == "valid" then
-          local use_w = 40 * SCALE
-          local use_x = btn_x - use_w - 5 * SCALE
+          local edit_w = 38 * SCALE
+          local edit_x = btn_x - edit_w - 4 * SCALE
+          local is_edit_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == "Edit"
+          renderer.draw_rect(edit_x, ty, edit_w, lh, is_edit_hover and P.bg_btn_hl or P.bg_btn)
+          renderer.draw_text(style.font, "Edit", edit_x + (edit_w - style.font:get_width("Edit"))/2, ty, P.fg)
+          table.insert(self._api_btns, { p = p, text = "Edit", action = "Edit", x = edit_x, y = ty, w = edit_w, h = lh })
+
+          local use_w = 38 * SCALE
+          local use_x = edit_x - use_w - 4 * SCALE
           local is_use_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == "Use"
           renderer.draw_rect(use_x, ty, use_w, lh, is_use_hover and P.bg_btn_hl or P.bg_btn)
           renderer.draw_text(style.font, "Use", use_x + (use_w - style.font:get_width("Use"))/2, ty, P.fg)
@@ -4834,7 +4873,7 @@ function AGView:_launch_team_builder()
     
     if #items == 0 then
       self:fetch_models()
-      table.insert(items, "gemini/gemini-2.5-pro")
+      table.insert(items, "gemini/gemini-2.5-flash")
       table.insert(items, "groq/llama3-70b-8192")
     end
     
@@ -5563,10 +5602,13 @@ function AGView:on_mouse_released(button, mx, my)
             -- run delete command
             local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
             core.add_thread(function()
-              process.start({ "python", bridge, "--provider", btn.p, "--delete-key" }):wait()
+              local p = process.start({ "python", bridge, "--provider", btn.p, "--delete-key" })
+              if p then
+                while p:running() do coroutine.yield(0.1) end
+              end
               self:submit("/api") -- refresh
             end)
-          elseif btn.action == "URL/Key" then
+          elseif btn.action == "URL/Key" or btn.action == "Edit" or btn.action == "Set Key" then
               self:_prompt_for_api_key(btn.p)
           elseif btn.action == "Use" then
             -- Set provider as active by picking its first model
@@ -5582,7 +5624,7 @@ function AGView:on_mouse_released(button, mx, my)
             if not chosen_model then
               local defaults = {
                 groq      = "groq/qwen/qwen3.8-27b",
-                gemini    = "gemini/gemini-2.5-pro",
+                gemini    = "gemini/gemini-2.5-flash",
                 openai    = "openai/gpt-4o",
                 anthropic = "anthropic/claude-3-7-sonnet-20250219",
                 ollama    = "ollama/mistral-large-3:675b",
@@ -5699,7 +5741,7 @@ function AGView:_prompt_for_api_key(provider)
             self:fetch_models(true)
             local defaults = {
               groq      = "groq/qwen/qwen3.8-27b",
-              gemini    = "gemini/gemini-2.5-pro",
+              gemini    = "gemini/gemini-2.5-flash",
               openai    = "openai/gpt-4o",
               anthropic = "anthropic/claude-3-7-sonnet-20250219",
               ollama    = "ollama/mistral-large-3:675b",
