@@ -2895,13 +2895,49 @@ function AGView:fetch_marketplace()
   self.marketplace_skills = "loading"
   core.redraw = true
   core.add_thread(function()
+      local ok_json, json = pcall(require, "plugins.lsp.json")
+      
+      -- Synchronously update installed maps & counts for badges and status
+      self.installed_skills_map = {}
+      self.installed_tools_map = {}
+      self.installed_skills_count = 0
+      self.installed_tools_count = 0
+      if ok_json then
+        local f_sk = io.open(USERDIR .. PATHSEP .. "scripts/local_skills.json", "r")
+        if f_sk then
+          local sk_raw = f_sk:read("*a")
+          f_sk:close()
+          local ok_s, sk_data = pcall(json.decode, sk_raw)
+          if ok_s and type(sk_data) == "table" then
+            self.installed_skills_count = #sk_data
+            for _, s in ipairs(sk_data) do
+              if s.id then self.installed_skills_map[s.id] = true end
+            end
+          end
+        end
+        local f_mc = io.open(USERDIR .. PATHSEP .. "scripts/mcp_config.json", "r")
+        if f_mc then
+          local mc_raw = f_mc:read("*a")
+          f_mc:close()
+          local ok_m, mc_data = pcall(json.decode, mc_raw)
+          if ok_m and type(mc_data) == "table" and mc_data.mcpServers then
+            local count = 0
+            for k, _ in pairs(mc_data.mcpServers) do
+              self.installed_tools_map[k] = true
+              count = count + 1
+            end
+            self.installed_tools_count = count
+          end
+        end
+      end
+
       local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
       local arg = ""
-        if self.show_tools_tab then
-            arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
-        else
-            arg = self.show_installed_skills and "--get-installed-skills" or "--get-marketplace-skills"
-        end
+      if self.show_tools_tab then
+          arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
+      else
+          arg = self.show_installed_skills and "--get-installed-skills" or "--get-marketplace-skills"
+      end
       
       local tmp_file = USERDIR .. PATHSEP .. "scripts/.market_tmp.json"
       local cmd = {"python", bridge, arg, "--out-file", tmp_file}
@@ -2916,10 +2952,7 @@ function AGView:fetch_marketplace()
           table.insert(cmd, self.market_search_query)
       end
       local p, err = process.start(cmd)
-      if not p then
-          local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
-          if df then df:write("PROCESS ERROR: " .. tostring(err) .. "\nCMD: " .. table.concat(cmd, " ")); df:close() end
-      else
+      if p then
           while p:running() do coroutine.yield(0.1) end
       end
       
@@ -2930,10 +2963,6 @@ function AGView:fetch_marketplace()
           f:close()
       end
       
-      local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
-      if df then df:write(tostring(full)); df:close() end
-      
-      local ok_json, json = pcall(require, "plugins.lsp.json")
       local ok, res = false, nil
       if ok_json and full and full ~= "" then
         ok, res = pcall(json.decode, full)
@@ -5148,17 +5177,91 @@ function AGView:on_mouse_moved(mx, my, ...)
 
   -- 2. Full isolation for Skills Modal
   if self.show_skills_modal then
-      for _, r in ipairs(self._market_rects or {}) do
-          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-              self.hover_market_skill = r.id
-              system.set_cursor("hand")
-              core.redraw = true
-              return
-          end
+    self.hover_market_skill = nil
+    self.hover_market_action = nil
+    self.hover_market_cat = nil
+    self.hover_market_close = nil
+    self.hover_market_tab = nil
+    self.hover_market_view = nil
+    self.hover_market_ref = nil
+    self.hover_market_add = nil
+    self.hover_market_search = nil
+    self.hover_market_search_clear = nil
+    self.hover_market_prev = nil
+    self.hover_market_next = nil
+    self.hover_market_clr_filters = nil
+    self.hover_preview_close = nil
+    self.hover_preview_cancel = nil
+    self.hover_preview_install = nil
+    self.hover_preview_uninstall = nil
+    self.hover_preview_repo = nil
+
+    local is_hand = false
+
+    if self.active_skill_preview then
+      local function check_btn(btn)
+        return btn and (mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h)
       end
-      -- Stop other hovers if modal is open
-      system.set_cursor("arrow")
-      return
+      if check_btn(self._preview_close_btn) then self.hover_preview_close = true; is_hand = true
+      elseif check_btn(self._preview_cancel_btn) then self.hover_preview_cancel = true; is_hand = true
+      elseif check_btn(self._preview_install_btn) then self.hover_preview_install = true; is_hand = true
+      elseif check_btn(self._preview_uninstall_btn) then self.hover_preview_uninstall = true; is_hand = true
+      elseif check_btn(self._preview_repo_btn) then self.hover_preview_repo = true; is_hand = true
+      end
+    else
+      local function check_btn(btn)
+        return btn and (mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h)
+      end
+      if check_btn(self._market_close_btn) then self.hover_market_close = true; is_hand = true
+      elseif check_btn(self._market_tab_skills_btn) then self.hover_market_tab = "skills"; is_hand = true
+      elseif check_btn(self._market_tab_tools_btn) then self.hover_market_tab = "tools"; is_hand = true
+      elseif check_btn(self._market_browse_btn) then self.hover_market_view = "browse"; is_hand = true
+      elseif check_btn(self._market_installed_btn) then self.hover_market_view = "installed"; is_hand = true
+      elseif check_btn(self._market_manage_btn) then self.hover_market_view = "manage"; is_hand = true
+      elseif check_btn(self._market_refresh_btn) then self.hover_market_ref = true; is_hand = true
+      elseif check_btn(self._market_add_btn) then self.hover_market_add = true; is_hand = true
+      elseif check_btn(self._market_search_clear_btn) then self.hover_market_search_clear = true; is_hand = true
+      elseif check_btn(self._market_search_btn) then self.hover_market_search = true; is_hand = true
+      elseif check_btn(self._market_prev_btn) then self.hover_market_prev = true; is_hand = true
+      elseif check_btn(self._market_next_btn) then self.hover_market_next = true; is_hand = true
+      elseif check_btn(self._market_clear_filters_btn) then self.hover_market_clr_filters = true; is_hand = true
+      end
+
+      if not is_hand and self._market_cat_chips then
+        for _, chip in ipairs(self._market_cat_chips) do
+          if mx >= chip.x and mx <= chip.x + chip.w and my >= chip.y and my <= chip.y + chip.h then
+            self.hover_market_cat = chip.id
+            is_hand = true
+            break
+          end
+        end
+      end
+
+      if not is_hand and self._market_action_btns then
+        for _, btn in ipairs(self._market_action_btns) do
+          if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+            self.hover_market_action = btn.key
+            self.hover_market_skill = btn.item and btn.item.id
+            is_hand = true
+            break
+          end
+        end
+      end
+
+      if not is_hand and self._market_rects then
+        for _, r in ipairs(self._market_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            self.hover_market_skill = r.id
+            is_hand = true
+            break
+          end
+        end
+      end
+    end
+
+    system.set_cursor(is_hand and "hand" or "arrow")
+    core.redraw = true
+    return
   end
 
   -- 3. Full isolation for Usage View
@@ -5961,22 +6064,106 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     end
 
     if self.show_skills_modal then
-        if self._market_tab_skills_btn then
-          local btn = self._market_tab_skills_btn
-          if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
-            self.show_tools_tab = false
-            self:fetch_marketplace()
+      -- 1. Preview Modal clicks
+      if self.active_skill_preview then
+        local function check_btn(btn)
+          return btn and (mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h)
+        end
+        if check_btn(self._preview_close_btn) or check_btn(self._preview_cancel_btn) then
+          self.active_skill_preview = nil
+          self.preview_scroll_y = 0
+          core.redraw = true
+          return true
+        end
+        if check_btn(self._preview_install_btn) then
+          self:install_skill(self.active_skill_preview)
+          self.active_skill_preview = nil
+          core.redraw = true
+          return true
+        end
+        if check_btn(self._preview_uninstall_btn) then
+          self:uninstall_skill(self.active_skill_preview.id)
+          self.active_skill_preview = nil
+          core.redraw = true
+          return true
+        end
+        if check_btn(self._preview_repo_btn) then
+          local url = self.active_skill_preview.repo_url
+          if url and url ~= "" then
+            if system.open_url then system.open_url(url)
+            elseif PLATFORM == "Windows" then system.exec("start \"\" \"" .. url .. "\"") end
+          end
+          return true
+        end
+        if self._preview_modal_rect then
+          local pr = self._preview_modal_rect
+          if mx < pr.x or mx > pr.x + pr.w or my < pr.y or my > pr.y + pr.h then
+            self.active_skill_preview = nil
+            self.preview_scroll_y = 0
+            core.redraw = true
             return true
           end
         end
-        if self._market_tab_tools_btn then
-          local btn = self._market_tab_tools_btn
-          if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
-            self.show_tools_tab = true
-            self:fetch_marketplace()
-            return true
-          end
+        return true
+      end
+
+      -- 2. Header & Modal controls
+      if self._market_close_btn then
+        local btn = self._market_close_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self.show_skills_modal = false
+          core.redraw = true
+          return true
         end
+      end
+
+      if self._market_tab_skills_btn then
+        local btn = self._market_tab_skills_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self.show_tools_tab = false
+          self.market_page = 1
+          self.market_scroll_y = 0
+          self:fetch_marketplace()
+          return true
+        end
+      end
+      if self._market_tab_tools_btn then
+        local btn = self._market_tab_tools_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self.show_tools_tab = true
+          self.market_page = 1
+          self.market_scroll_y = 0
+          self:fetch_marketplace()
+          return true
+        end
+      end
+
+      if self._market_browse_btn then
+        local btn = self._market_browse_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          if self.show_installed_skills then
+            self.show_installed_skills = false
+            self.market_page = 1
+            self.market_scroll_y = 0
+            self:fetch_marketplace()
+          end
+          return true
+        end
+      end
+
+      if self._market_installed_btn then
+        local btn = self._market_installed_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          if not self.show_installed_skills then
+            self.show_installed_skills = true
+            self.market_page = 1
+            self.market_scroll_y = 0
+            self:fetch_marketplace()
+          end
+          return true
+        end
+      end
+
       if self._market_manage_btn then
         local btn = self._market_manage_btn
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
@@ -5984,42 +6171,70 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
           self.market_page = 1
           self.market_scroll_y = 0
           self:fetch_marketplace()
-          return
+          return true
         end
       end
-      
+
       if self._market_refresh_btn then
         local btn = self._market_refresh_btn
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
           self:fetch_marketplace()
-          return
+          return true
         end
       end
-      
+
       if self._market_search_clear_btn then
         local btn = self._market_search_clear_btn
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
           self.market_search_query = ""
           self.market_page = 1
+          self.market_scroll_y = 0
           self:fetch_marketplace()
-          return
+          return true
         end
       end
-      
+
       if self._market_search_btn then
         local btn = self._market_search_btn
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
           core.command_view:enter("Search Marketplace", {
+            text = self.market_search_query or "",
             submit = function(text)
               self.market_search_query = text
               self.market_page = 1
+              self.market_scroll_y = 0
               self:fetch_marketplace()
             end
           })
-          return
+          return true
         end
       end
 
+      if self._market_clear_filters_btn then
+        local btn = self._market_clear_filters_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self.market_category = "all"
+          self.market_search_query = ""
+          self.market_page = 1
+          self.market_scroll_y = 0
+          self:fetch_marketplace()
+          return true
+        end
+      end
+
+      -- Category Filter Chips
+      if self._market_cat_chips then
+        for _, chip in ipairs(self._market_cat_chips) do
+          if mx >= chip.x and mx <= chip.x + chip.w and my >= chip.y and my <= chip.y + chip.h then
+            self.market_category = chip.id
+            self.market_scroll_y = 0
+            core.redraw = true
+            return true
+          end
+        end
+      end
+
+      -- Add Custom / URL button
       if self._market_add_btn then
         local btn = self._market_add_btn
         if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
@@ -6042,74 +6257,29 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
               end
             })
           else
-            core.command_view:enter("Paste GitHub Repo or API URL", {
+            core.command_view:enter("Paste GitHub Repo or Smithery Tool ID", {
               submit = function(url)
-                core.add_thread(function()
-      local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
-      local arg = ""
-        if self.show_tools_tab then
-            arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
-        else
-            arg = self.show_installed_skills and "--get-installed-skills" or "--get-marketplace-skills"
-        end
-      
-      local tmp_file = USERDIR .. PATHSEP .. "scripts/.market_tmp.json"
-      local cmd = {"python", bridge, arg, "--out-file", tmp_file}
-      if not self.show_installed_skills then
-         self.market_page = self.market_page or 1
-         table.insert(cmd, "--page")
-         table.insert(cmd, tostring(self.market_page))
-      end
-      
-      if self.market_search_query and self.market_search_query ~= "" then
-          table.insert(cmd, "--search")
-          table.insert(cmd, self.market_search_query)
-      end
-      local p, err = process.start(cmd)
-      if not p then
-          local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
-          if df then df:write("PROCESS ERROR: " .. tostring(err) .. "\nCMD: " .. table.concat(cmd, " ")); df:close() end
-      else
-          while p:running() do coroutine.yield(0.1) end
-      end
-      
-      local full = ""
-      local f = io.open(tmp_file, "r")
-      if f then
-          full = f:read("*a")
-          f:close()
-      end
-      
-      local df = io.open("C:/Users/ojasw/Desktop/debug_fetch.log", "w")
-      if df then df:write(tostring(full)); df:close() end
-      
-      local ok_json, json = pcall(require, "plugins.lsp.json")
-      local ok, res = false, nil
-      if ok_json and full and full ~= "" then
-        ok, res = pcall(json.decode, full)
-      end
-      
-      if ok and type(res) == "table" then
-        if self.show_installed_skills then
-          self.marketplace_skills = res
-        else
-          self.marketplace_skills = res.skills or res.data or {}
-          self.market_total_pages = res.total_pages or 1
-        end
-      else
-        self.marketplace_skills = "error"
-      end
-      
-      self._is_fetching = false
-      core.redraw = true
-    end)
-  end
+                if self.show_tools_tab then
+                  self:install_skill({id = url, title = url, name = url, description = "Installed from URL/ID"})
+                else
+                  local skill = {
+                    id = "custom_" .. tostring(os.time()),
+                    title = url:match("([^/]+)$") or url,
+                    repo_url = url,
+                    description = "Custom skill from " .. url,
+                    domain = "Custom",
+                    author = "Community"
+                  }
+                  self:install_skill(skill)
+                end
+              end
             })
           end
-          return
+          return true
         end
       end
-      
+
+      -- Pagination
       if not self.show_installed_skills then
         if self._market_prev_btn then
           local b = self._market_prev_btn
@@ -6117,7 +6287,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             self.market_page = math.max(1, (self.market_page or 1) - 1)
             self.market_scroll_y = 0
             self:fetch_marketplace()
-            return
+            return true
           end
         end
         if self._market_next_btn then
@@ -6126,90 +6296,52 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             self.market_page = math.min(self.market_total_pages or 1, (self.market_page or 1) + 1)
             self.market_scroll_y = 0
             self:fetch_marketplace()
-            return
+            return true
           end
         end
       end
-      
+
+      -- 3. Cards & Action Buttons within clip rect
       local cr = self._market_clip_rect
       local in_clip = cr and (mx >= cr.x and mx <= cr.x + cr.w and my >= cr.y and my <= cr.y + cr.h)
-              if self.active_skill_preview then
-          local mw = self.size.x - 20 * SCALE
-          local mh = self.size.y - 20 * SCALE
-          local modal_x = self.position.x + 10 * SCALE
-          local modal_y = self.position.y + 10 * SCALE
-          
-          local btn_w = math.min(100 * SCALE, (mw - 45 * SCALE) / 2)
-          local btn_h = 30 * SCALE
-          local cx, cy = modal_x + 15 * SCALE, modal_y + mh - 45 * SCALE
-          local ix, iy = modal_x + mw - 15 * SCALE - btn_w, modal_y + mh - 45 * SCALE
-          
-          if mx >= ix and mx <= ix + btn_w and my >= iy and my <= iy + btn_h then
-              self:install_skill(self.active_skill_preview)
-              self.active_skill_preview = nil
-              core.redraw = true
-              return
+      if in_clip then
+        if self._market_action_btns then
+          for _, btn in ipairs(self._market_action_btns) do
+            if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+              if btn.action == "install" then
+                self:install_skill(btn.item)
+                return true
+              elseif btn.action == "uninstall" then
+                self:uninstall_skill(btn.item.id)
+                return true
+              elseif btn.action == "details" then
+                self:open_skill_preview(btn.item)
+                return true
+              end
+            end
           end
-          
-          if mx >= cx and mx <= cx + btn_w and my >= cy and my <= cy + btn_h then
-              self.active_skill_preview = nil
-              self.preview_scroll_y = 0
-              core.redraw = true
-              return
-          end
-          return
         end
 
-        if in_clip and self.hover_market_skill then
-          if self.show_installed_skills then
-            self:uninstall_skill(self.hover_market_skill)
-          else
-            for _, s in ipairs(self.marketplace_skills) do
-                if s.id == self.hover_market_skill then
-                    self.active_skill_preview = s
-                    break
-                end
+        if self._market_rects then
+          for _, crd in ipairs(self._market_rects) do
+            if mx >= crd.x and mx <= crd.x + crd.w and my >= crd.y and my <= crd.y + crd.h then
+              self:open_skill_preview(crd.item)
+              return true
             end
-            if not self.active_skill_preview then return end
-            
-            self.active_skill_preview._preview_md = "Loading SKILL.md from repository...\n(Fetching via shallow clone, this may take a few seconds...)"
-            
-            local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
-            local tmp_file = USERDIR .. PATHSEP .. "scripts/.tmp_skill.json"
-            local skill_obj = self.active_skill_preview
-            local ok_json, json = pcall(require, "plugins.lsp.json")
-            if ok_json then
-                local f = io.open(tmp_file, "w")
-                if f then f:write(json.encode(skill_obj)); f:close() end
-                core.add_thread(function()
-                    local p = process.start({"python", bridge, "--preview-skill", "FILE:" .. tmp_file})
-                    if p then
-                        local out = {}
-                        while true do
-                            local chunk = p:read_stdout()
-                            if not chunk or chunk == "" then
-                                if not p:running() then break end
-                                coroutine.yield(0.1)
-                            else table.insert(out, chunk) end
-                        end
-                        skill_obj._preview_md = table.concat(out)
-                        core.redraw = true
-                    end
-                end)
-            end
-            core.redraw = true
           end
-          return
         end
-      
+      end
+
+      -- 4. Click outside modal window closes modal
       if self._market_modal_rect then
         local r = self._market_modal_rect
         if mx < r.x or mx > r.x + r.w or my < r.y or my > r.y + r.h then
           self.show_skills_modal = false
           core.redraw = true
+          return true
         end
       end
-      return
+      return true
     end
 
     if self.hover_cloud_tools then
@@ -7038,6 +7170,28 @@ command.add(nil, {
       end
     })
   end,
+  ["antigravity:marketplace"] = function()
+    if not instance or not instance.visible then
+      command.perform("antigravity:toggle")
+    end
+    if instance then
+      instance.show_skills_modal = true
+      instance.show_tools_tab = false
+      instance:fetch_marketplace()
+      core.redraw = true
+    end
+  end,
+  ["antigravity:mcp_tools"] = function()
+    if not instance or not instance.visible then
+      command.perform("antigravity:toggle")
+    end
+    if instance then
+      instance.show_skills_modal = true
+      instance.show_tools_tab = true
+      instance:fetch_marketplace()
+      core.redraw = true
+    end
+  end,
 })
 
 -- Hook the StatusView draw function to guarantee the entire status bar text is highly contrasted
@@ -7227,328 +7381,769 @@ end
     local sp = spin[(math.floor(t * 15) % 4) + 1]
   end
 
-  function AGView:draw_skills_modal(x, y, w, h)
-  local mx_mouse, my_mouse = core.root_view.mouse.x, core.root_view.mouse.y
-  local P = get_palette()
-  local pad = 10 * SCALE
-  
-  -- Overlay bg
-  renderer.draw_rect(x, y, w, h, {P.bg[1], P.bg[2], P.bg[3], 230})
-  
-  local mw = math.min(w * 0.9, 1200 * SCALE)
-  local mh = math.min(h * 0.9, 800 * SCALE)
-  local mx = x + (w - mw) / 2
-  local my = y + (h - mh) / 2
-  
-  self._market_modal_rect = {x = mx, y = my, w = mw, h = mh}
-  
-  -- Modal Window
-  renderer.draw_rect(mx, my, mw, mh, P.bg)
-  renderer.draw_rect(mx, my, mw, mh, _COLOR_CACHE_10) -- subtle border
-  
-    local ty = my + pad
-  -- TABS
-  local t_skills_txt = self.show_installed_skills and "Installed AI Skills" or "AI Skills Marketplace"
-  local t_tools_txt = self.show_installed_skills and "Installed MCP Tools" or "MCP Tools Marketplace"
-  local t_skills_w = (style.big_font or style.font):get_width(t_skills_txt)
-  local t_tools_w = (style.big_font or style.font):get_width(t_tools_txt)
-  
-  local is_hover_tab1 = mx_mouse >= mx + pad and mx_mouse <= mx + pad + t_skills_w and my_mouse >= ty and my_mouse <= ty + 30 * SCALE
-  local is_hover_tab2 = mx_mouse >= mx + pad + t_skills_w + 20*SCALE and mx_mouse <= mx + pad + t_skills_w + 20*SCALE + t_tools_w and my_mouse >= ty and my_mouse <= ty + 30 * SCALE
-  
-  self._market_tab_skills_btn = {x = mx + pad, y = ty, w = t_skills_w, h = 30 * SCALE}
-  self._market_tab_tools_btn = {x = mx + pad + t_skills_w + 20*SCALE, y = ty, w = t_tools_w, h = 30 * SCALE}
-  
-  renderer.draw_text((style.big_font or style.font), t_skills_txt, mx + pad, ty, (not self.show_tools_tab) and P.fg or (is_hover_tab1 and P.fg or P.fg_dim))
-  
-  -- Vertical Divider
-  local div_x = mx + pad + t_skills_w + 10 * SCALE
-  local div_y = ty + 5 * SCALE
-  local div_h = 20 * SCALE
-  renderer.draw_rect(div_x, div_y, 2 * SCALE, div_h, P.fg_dim)
-  
-  renderer.draw_text((style.big_font or style.font), t_tools_txt, mx + pad + t_skills_w + 20*SCALE, ty, self.show_tools_tab and P.fg or (is_hover_tab2 and P.fg or P.fg_dim))
-  
-  -- Manage Skills Button
-  local btn_text = self.show_installed_skills and "View Marketplace" or "Manage Installed"
-  local bw = style.font:get_width(btn_text) + 20 * SCALE
-  local bh = 30 * SCALE
-  local bx = mx + mw - pad - bw
-  local by = ty
-  
-  local is_hover_manage = mx_mouse >= bx and mx_mouse <= bx + bw and my_mouse >= by and my_mouse <= by + bh
-  renderer.draw_rect(bx, by, bw, bh, is_hover_manage and P.bg_btn_hl or P.bg_btn)
-  renderer.draw_text(style.font, btn_text, bx + 10 * SCALE, by + (bh - style.font:get_height())/2, P.fg)
-  self._market_manage_btn = {x = bx, y = by, w = bw, h = bh}
-  
-  -- Refresh Button
-  local ref_text = "Refresh"
-  local rw = style.font:get_width(ref_text) + 20 * SCALE
-  local rx = bx - rw - 10 * SCALE
-  local is_hover_ref = mx_mouse >= rx and mx_mouse <= rx + rw and my_mouse >= by and my_mouse <= by + bh
-  renderer.draw_rect(rx, by, rw, bh, is_hover_ref and P.bg_btn_hl or P.bg_btn)
-  renderer.draw_text(style.font, ref_text, rx + 10 * SCALE, by + (bh - style.font:get_height())/2, P.fg)
-  self._market_refresh_btn = {x = rx, y = by, w = rw, h = bh}
-  
-  local add_text = self.show_installed_skills and "+ Custom plugin" or "+ Resource"
-  local add_w = style.font:get_width(add_text) + 20 * SCALE
-  local add_x = rx - add_w - 10 * SCALE
-  local is_hover_add = mx_mouse >= add_x and mx_mouse <= add_x + add_w and my_mouse >= by and my_mouse <= by + bh
-  renderer.draw_rect(add_x, by, add_w, bh, is_hover_add and P.bg_btn_hl or P.bg_btn)
-  renderer.draw_text(style.font, add_text, add_x + 10 * SCALE, by + (bh - style.font:get_height())/2, P.fg)
-  self._market_add_btn = {x = add_x, y = by, w = add_w, h = bh}
-  
-  ty = ty + math.max((style.big_font or style.font):get_height(), bh) + pad
-  
-  -- Interactive Search Input
-  self._market_search_btn = {x = mx + pad, y = ty, w = mw - 2*pad, h = 25 * SCALE}
-  renderer.draw_rect(self._market_search_btn.x, self._market_search_btn.y, self._market_search_btn.w, self._market_search_btn.h, P.bg_btn)
-  
-  local search_text = (self.market_search_query and self.market_search_query ~= "") and self.market_search_query or "Search..."
-  local text_color = (self.market_search_query and self.market_search_query ~= "") and P.fg or P.fg_dim
-  renderer.draw_text(style.font, search_text, self._market_search_btn.x + 10 * SCALE, ty + (25*SCALE - style.font:get_height())/2, text_color)
-  
-  if self.market_search_query and self.market_search_query ~= "" then
-      local cw = style.font:get_width("X")
-      self._market_search_clear_btn = {x = self._market_search_btn.x + self._market_search_btn.w - cw - 15*SCALE, y = self._market_search_btn.y, w = cw + 10*SCALE, h = self._market_search_btn.h}
-      renderer.draw_text(style.font, "X", self._market_search_clear_btn.x + 5*SCALE, ty + (25*SCALE - style.font:get_height())/2, _COLOR_CACHE_18)
-  else
-      self._market_search_clear_btn = nil
+  -- Helper for drawing clean framed boxes with optional borders
+  local function draw_market_box(bx, by, bw, bh, bg_col, border_col)
+    renderer.draw_rect(bx, by, bw, bh, bg_col)
+    if border_col then
+      renderer.draw_rect(bx, by, bw, 1, border_col)
+      renderer.draw_rect(bx, by + bh - 1, bw, 1, border_col)
+      renderer.draw_rect(bx, by, 1, bh, border_col)
+      renderer.draw_rect(bx + bw - 1, by, 1, bh, border_col)
+    end
   end
-  ty = ty + 25 * SCALE + pad
 
-      if type(self.marketplace_skills) == "string" then
-      if self.marketplace_skills == "loading" then
-          self:draw_crawler_loader(mx, ty, mw, mh)
+  -- Helper for pill badges
+  local function draw_market_badge(bx, by, bw, bh, bg_col, border_col, text, font, text_col)
+    draw_market_box(bx, by, bw, bh, bg_col, border_col)
+    local tw = font:get_width(text)
+    local th = font:get_height()
+    renderer.draw_text(font, text, bx + math.floor((bw - tw) / 2), by + math.floor((bh - th) / 2), text_col)
+  end
+
+  -- Fast binary search text truncation with ellipsis
+  local function truncate_text(font, text, max_w)
+    if not text or text == "" then return "" end
+    if font:get_width(text) <= max_w then return text end
+    local ell = "..."
+    local ell_w = font:get_width(ell)
+    if max_w <= ell_w then return ell end
+    local low, high, best = 1, #text, ""
+    while low <= high do
+      local mid = math.floor((low + high) / 2)
+      local sub = text:sub(1, mid)
+      if font:get_width(sub) + ell_w <= max_w then
+        best = sub
+        low = mid + 1
       else
-          local t = "Failed to load."
-          renderer.draw_text(style.font, t, mx + pad, ty, _COLOR_CACHE_28)
+        high = mid - 1
+      end
+    end
+    return best .. ell
+  end
+
+  -- Clean word-wrapped lines with ellipsis truncation on final line
+  local function draw_wrapped_lines(font, text, x, y, max_w, max_lines, color, line_spacing)
+    if not text or text == "" then return y end
+    local lh = font:get_height() + (line_spacing or (2 * SCALE))
+    local cur_line = ""
+    local line_count = 0
+    local words = {}
+    for w in text:gmatch("%S+") do table.insert(words, w) end
+    
+    for idx, w in ipairs(words) do
+      local test_line = cur_line == "" and w or (cur_line .. " " .. w)
+      if font:get_width(test_line) > max_w then
+        if cur_line ~= "" then
+          line_count = line_count + 1
+          if line_count == max_lines and idx < #words then
+            cur_line = truncate_text(font, cur_line .. " " .. w, max_w)
+            renderer.draw_text(font, cur_line, x, y, color)
+            y = y + lh
+            cur_line = ""
+            break
+          else
+            renderer.draw_text(font, cur_line, x, y, color)
+            y = y + lh
+            cur_line = w
+            if line_count >= max_lines then break end
+          end
+        else
+          line_count = line_count + 1
+          local trunc = truncate_text(font, w, max_w)
+          renderer.draw_text(font, trunc, x, y, color)
+          y = y + lh
+          cur_line = ""
+          if line_count >= max_lines then break end
+        end
+      else
+        cur_line = test_line
+      end
+    end
+    
+    if cur_line ~= "" and line_count < max_lines then
+      renderer.draw_text(font, cur_line, x, y, color)
+      y = y + lh
+    end
+    return y
+  end
+
+  local MARKET_CATEGORIES = {
+    { id = "all",     label = "All" },
+    { id = "coding",  label = "Coding & Dev" },
+    { id = "design",  label = "Design & UI" },
+    { id = "writing", label = "Writing & Docs" },
+    { id = "data_ai", label = "Data & AI" },
+    { id = "devops",  label = "DevOps & Cloud" },
+    { id = "tools",   label = "Testing & Utilities" },
+  }
+
+  local function matches_market_category(cat, domain, title, desc)
+    if not cat or cat == "all" then return true end
+    local dom = (domain or ""):lower()
+    local tit = (title or ""):lower()
+    local dsc = (desc or ""):lower()
+    local hay = dom .. " " .. tit .. " " .. dsc
+    
+    if cat == "coding" then
+      return hay:find("code") or hay:find("development") or hay:find("dev") or hay:find("git") or hay:find("powershell") or hay:find("programming") or hay:find("script") or hay:find("api")
+    elseif cat == "design" then
+      return hay:find("design") or hay:find("art") or hay:find("creative") or hay:find("canvas") or hay:find("image") or hay:find("gif") or hay:find("ui") or hay:find("frontend") or hay:find("theme")
+    elseif cat == "writing" then
+      return hay:find("writing") or hay:find("doc") or hay:find("docx") or hay:find("pdf") or hay:find("epub") or hay:find("content") or hay:find("comms") or hay:find("article") or hay:find("book") or hay:find("gmail") or hay:find("mail")
+    elseif cat == "data_ai" then
+      return hay:find("data") or hay:find("ai") or hay:find("analysis") or hay:find("machine learning") or hay:find("ml") or hay:find("scientific") or hay:find("csv") or hay:find("xlsx") or hay:find("sql") or hay:find("postgres") or hay:find("sqlite") or hay:find("memory")
+    elseif cat == "devops" then
+      return hay:find("cloud") or hay:find("aws") or hay:find("infrastructure") or hay:find("server") or hay:find("devops") or hay:find("docker") or hay:find("deploy") or hay:find("slack") or hay:find("jira") or hay:find("github")
+    elseif cat == "tools" then
+      return hay:find("test") or hay:find("security") or hay:find("productivity") or hay:find("utility") or hay:find("automation") or hay:find("review") or hay:find("search") or hay:find("brave") or hay:find("fetch") or hay:find("everything") or hay:find("filesystem")
+    end
+    return true
+  end
+
+  function AGView:open_skill_preview(skill_obj)
+    if not skill_obj then return end
+    self.active_skill_preview = skill_obj
+    self.preview_scroll_y = 0
+    self.active_skill_preview._preview_md = "# " .. (skill_obj.title or skill_obj.name or skill_obj.id) .. "\nLoading documentation from repository...\n(Fetching manifest and details...)"
+    core.redraw = true
+    
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+    local tmp_file = USERDIR .. PATHSEP .. "scripts/.tmp_skill.json"
+    local ok_json, json = pcall(require, "plugins.lsp.json")
+    if ok_json then
+      local f = io.open(tmp_file, "w")
+      if f then
+        f:write(json.encode(skill_obj))
+        f:close()
+      end
+      core.add_thread(function()
+        local p = process.start({"python", bridge, "--preview-skill", "FILE:" .. tmp_file})
+        if p then
+          local out = {}
+          while true do
+            local chunk = p:read_stdout()
+            if not chunk or chunk == "" then
+              if not p:running() then break end
+              coroutine.yield(0.1)
+            else
+              table.insert(out, chunk)
+            end
+          end
+          skill_obj._preview_md = table.concat(out)
+          core.redraw = true
+        end
+      end)
+    end
+  end
+
+  function AGView:draw_skills_modal(x, y, w, h)
+    local P = get_palette()
+    local pad = 12 * SCALE
+    
+    -- Backdrop overlay
+    renderer.draw_rect(x, y, w, h, {0, 0, 0, 220})
+    
+    -- Responsive modal dimensions
+    local mw = math.min(math.floor(w * 0.95), 1150 * SCALE)
+    local mh = math.min(math.floor(h * 0.93), 850 * SCALE)
+    local mx = x + math.floor((w - mw) / 2)
+    local my = y + math.floor((h - mh) / 2)
+    self._market_modal_rect = {x = mx, y = my, w = mw, h = mh}
+    
+    -- Window surface
+    draw_market_box(mx, my, mw, mh, P.bg, P.border)
+    
+    -- Top Header Bar
+    local hdr_h = 44 * SCALE
+    renderer.draw_rect(mx, my, mw, hdr_h, P.bg_darker)
+    renderer.draw_rect(mx, my + hdr_h - 1, mw, 1, P.border)
+    
+    -- Header Title & Subtitle Badge
+    local h_title = "Extensions & Skills"
+    local h_title_font = style.big_font or style.font
+    renderer.draw_text(h_title_font, h_title, mx + pad, my + math.floor((hdr_h - h_title_font:get_height()) / 2), P.fg)
+    
+    local mode_pill = self.show_tools_tab and "MCP Servers" or "AI Skills"
+    local mp_w = style.font:get_width(mode_pill) + 14 * SCALE
+    local mp_x = mx + pad + h_title_font:get_width(h_title) + 12 * SCALE
+    local mp_y = my + math.floor((hdr_h - 22 * SCALE) / 2)
+    draw_market_badge(mp_x, mp_y, mp_w, 22 * SCALE, P.bg_btn, P.border, mode_pill, style.font, P.fg_accent)
+    
+    -- Close button (✕)
+    local cb_sz = 26 * SCALE
+    local cb_x = mx + mw - pad - cb_sz
+    local cb_y = my + math.floor((hdr_h - cb_sz) / 2)
+    self._market_close_btn = {x = cb_x, y = cb_y, w = cb_sz, h = cb_sz}
+    local is_hov_close = self.hover_market_close
+    draw_market_box(cb_x, cb_y, cb_sz, cb_sz, is_hov_close and _COLOR_CACHE_5 or P.bg_btn, is_hov_close and _COLOR_CACHE_12 or P.border)
+    local x_w = style.font:get_width("✕")
+    renderer.draw_text(style.font, "✕", cb_x + math.floor((cb_sz - x_w)/2), cb_y + math.floor((cb_sz - style.font:get_height())/2), is_hov_close and _COLOR_CACHE_12 or P.fg_muted)
+    
+    local ty = my + hdr_h + pad
+    
+    -- Row 1: Segmented Switchers & Action Buttons
+    local seg_h = 30 * SCALE
+    local sw_skills_w = style.font:get_width("⚡ AI Skills") + 18 * SCALE
+    local sw_tools_w  = style.font:get_width("🔌 MCP Tools") + 18 * SCALE
+    local sw_total_w  = sw_skills_w + sw_tools_w
+    
+    -- Type Segmented Pill Container
+    local seg_type_x = mx + pad
+    draw_market_box(seg_type_x, ty, sw_total_w, seg_h, P.bg_darker, P.border)
+    
+    self._market_tab_skills_btn = {x = seg_type_x, y = ty, w = sw_skills_w, h = seg_h}
+    self._market_tab_tools_btn  = {x = seg_type_x + sw_skills_w, y = ty, w = sw_tools_w, h = seg_h}
+    
+    local is_skills_tab = not self.show_tools_tab
+    local is_hov_tab1 = self.hover_market_tab == "skills"
+    local is_hov_tab2 = self.hover_market_tab == "tools"
+    
+    if is_skills_tab then
+      draw_market_box(seg_type_x, ty, sw_skills_w, seg_h, P.bg_btn_hl, P.border)
+    elseif is_hov_tab1 then
+      draw_market_box(seg_type_x, ty, sw_skills_w, seg_h, P.bg_btn, nil)
+    end
+    renderer.draw_text(style.font, "⚡ AI Skills", seg_type_x + math.floor((sw_skills_w - style.font:get_width("⚡ AI Skills"))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_skills_tab and P.fg_accent or P.fg_dim)
+    
+    if not is_skills_tab then
+      draw_market_box(seg_type_x + sw_skills_w, ty, sw_tools_w, seg_h, P.bg_btn_hl, P.border)
+    elseif is_hov_tab2 then
+      draw_market_box(seg_type_x + sw_skills_w, ty, sw_tools_w, seg_h, P.bg_btn, nil)
+    end
+    renderer.draw_text(style.font, "🔌 MCP Tools", seg_type_x + sw_skills_w + math.floor((sw_tools_w - style.font:get_width("🔌 MCP Tools"))/2), ty + math.floor((seg_h - style.font:get_height())/2), (not is_skills_tab) and P.fg_accent or P.fg_dim)
+    
+    -- View Mode Segmented Pill (Marketplace vs Installed)
+    local inst_count = self.show_tools_tab and (self.installed_tools_count or 0) or (self.installed_skills_count or 0)
+    local v_market_txt = "🌐 Marketplace"
+    local v_inst_txt = "📦 Installed (" .. tostring(inst_count) .. ")"
+    local vm_w = style.font:get_width(v_market_txt) + 18 * SCALE
+    local vi_w = style.font:get_width(v_inst_txt) + 18 * SCALE
+    local seg_view_x = seg_type_x + sw_total_w + 12 * SCALE
+    
+    draw_market_box(seg_view_x, ty, vm_w + vi_w, seg_h, P.bg_darker, P.border)
+    self._market_browse_btn = {x = seg_view_x, y = ty, w = vm_w, h = seg_h}
+    self._market_installed_btn = {x = seg_view_x + vm_w, y = ty, w = vi_w, h = seg_h}
+    self._market_manage_btn = self._market_installed_btn -- backward compatibility
+    
+    local is_installed_view = self.show_installed_skills
+    local is_hov_v1 = self.hover_market_view == "browse"
+    local is_hov_v2 = self.hover_market_view == "installed" or self.hover_market_view == "manage"
+    
+    if not is_installed_view then
+      draw_market_box(seg_view_x, ty, vm_w, seg_h, P.bg_btn_hl, P.border)
+    elseif is_hov_v1 then
+      draw_market_box(seg_view_x, ty, vm_w, seg_h, P.bg_btn, nil)
+    end
+    renderer.draw_text(style.font, v_market_txt, seg_view_x + math.floor((vm_w - style.font:get_width(v_market_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), (not is_installed_view) and P.fg_accent or P.fg_dim)
+    
+    if is_installed_view then
+      draw_market_box(seg_view_x + vm_w, ty, vi_w, seg_h, P.bg_btn_hl, P.border)
+    elseif is_hov_v2 then
+      draw_market_box(seg_view_x + vm_w, ty, vi_w, seg_h, P.bg_btn, nil)
+    end
+    renderer.draw_text(style.font, v_inst_txt, seg_view_x + vm_w + math.floor((vi_w - style.font:get_width(v_inst_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_installed_view and P.fg_accent or P.fg_dim)
+    
+    -- Right Action Buttons: Refresh & Add
+    local ref_txt = "🔄 Refresh"
+    local ref_w = style.font:get_width(ref_txt) + 18 * SCALE
+    local ref_x = mx + mw - pad - ref_w
+    self._market_refresh_btn = {x = ref_x, y = ty, w = ref_w, h = seg_h}
+    local is_hov_ref = self.hover_market_ref
+    draw_market_box(ref_x, ty, ref_w, seg_h, is_hov_ref and P.bg_btn_hl or P.bg_btn, P.border)
+    renderer.draw_text(style.font, ref_txt, ref_x + math.floor((ref_w - style.font:get_width(ref_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_hov_ref and P.fg_accent or P.fg)
+    
+    local add_txt = self.show_tools_tab and "➕ Add MCP" or "➕ Add Skill"
+    local add_w = style.font:get_width(add_txt) + 18 * SCALE
+    local add_x = ref_x - 10 * SCALE - add_w
+    self._market_add_btn = {x = add_x, y = ty, w = add_w, h = seg_h}
+    local is_hov_add = self.hover_market_add
+    draw_market_box(add_x, ty, add_w, seg_h, is_hov_add and P.bg_btn_hl or P.bg_btn, P.border)
+    renderer.draw_text(style.font, add_txt, add_x + math.floor((add_w - style.font:get_width(add_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_hov_add and P.fg_accent or P.fg)
+    
+    ty = ty + seg_h + 10 * SCALE
+    
+    -- Row 2: Modern Search Input Bar
+    local s_h = 28 * SCALE
+    local s_w = mw - 2 * pad
+    self._market_search_btn = {x = mx + pad, y = ty, w = s_w, h = s_h}
+    local is_hov_search = self.hover_market_search
+    draw_market_box(mx + pad, ty, s_w, s_h, P.bg_darker, is_hov_search and P.fg_accent or P.border)
+    
+    renderer.draw_text(style.font, "🔍", mx + pad + 10 * SCALE, ty + math.floor((s_h - style.font:get_height())/2), P.fg_muted)
+    
+    local has_query = self.market_search_query and self.market_search_query ~= ""
+    local q_text = has_query and self.market_search_query or "Search skills, tools, prompts, authors, keywords..."
+    local q_color = has_query and P.fg or P.fg_dim
+    renderer.draw_text(style.font, q_text, mx + pad + 32 * SCALE, ty + math.floor((s_h - style.font:get_height())/2), q_color)
+    
+    if has_query then
+      local clr_w = 22 * SCALE
+      local clr_x = mx + pad + s_w - clr_w - 4 * SCALE
+      local clr_y = ty + math.floor((s_h - clr_w) / 2)
+      self._market_search_clear_btn = {x = clr_x, y = clr_y, w = clr_w, h = clr_w}
+      local is_hov_clr = self.hover_market_search_clear
+      draw_market_box(clr_x, clr_y, clr_w, clr_w, is_hov_clr and _COLOR_CACHE_5 or P.bg_btn, P.border)
+      local xw = style.font:get_width("✕")
+      renderer.draw_text(style.font, "✕", clr_x + math.floor((clr_w - xw)/2), clr_y + math.floor((clr_w - style.font:get_height())/2), is_hov_clr and _COLOR_CACHE_12 or P.fg_dim)
+    else
+      self._market_search_clear_btn = nil
+    end
+    
+    ty = ty + s_h + 10 * SCALE
+    
+    -- Row 3: Category Filter Chips Row
+    local chip_x = mx + pad
+    local chip_y = ty
+    local chip_h = 24 * SCALE
+    local max_chip_x = mx + mw - pad
+    
+    self._market_cat_chips = {}
+    for _, cat in ipairs(MARKET_CATEGORIES) do
+      local cw = style.font:get_width(cat.label) + 16 * SCALE
+      if chip_x + cw > max_chip_x and chip_x > mx + pad then
+        chip_x = mx + pad
+        chip_y = chip_y + chip_h + 6 * SCALE
+      end
+      
+      local is_active = (self.market_category or "all") == cat.id
+      local is_hov = self.hover_market_cat == cat.id
+      
+      local bg_col = is_active and P.bg_btn_hl or (is_hov and P.bg_btn_hl or P.bg_btn)
+      local border_col = is_active and P.fg_accent or P.border
+      local txt_col = is_active and P.fg_accent or (is_hov and P.fg or P.fg_dim)
+      
+      draw_market_box(chip_x, chip_y, cw, chip_h, bg_col, border_col)
+      local tw = style.font:get_width(cat.label)
+      renderer.draw_text(style.font, cat.label, chip_x + math.floor((cw - tw) / 2), chip_y + math.floor((chip_h - style.font:get_height()) / 2), txt_col)
+      
+      table.insert(self._market_cat_chips, {id = cat.id, x = chip_x, y = chip_y, w = cw, h = chip_h})
+      chip_x = chip_x + cw + 8 * SCALE
+    end
+    ty = chip_y + chip_h + 12 * SCALE
+    
+    -- Handle loading state with animated spider crawler
+    if type(self.marketplace_skills) == "string" then
+      if self.marketplace_skills == "loading" then
+        self:draw_crawler_loader(mx, ty, mw, (my + mh) - ty)
+      else
+        local err_box_w = 400 * SCALE
+        local err_box_h = 100 * SCALE
+        local ex = mx + math.floor((mw - err_box_w)/2)
+        local ey = ty + 60 * SCALE
+        draw_market_box(ex, ey, err_box_w, err_box_h, P.bg_darker, _COLOR_CACHE_12)
+        renderer.draw_text((style.big_font or style.font), "Connection Notice", ex + 20 * SCALE, ey + 20 * SCALE, _COLOR_CACHE_12)
+        renderer.draw_text(style.font, "Unable to reach remote marketplace registry.", ex + 20 * SCALE, ey + 48 * SCALE, P.fg_dim)
+        renderer.draw_text(style.font, "Check internet connection or click Refresh.", ex + 20 * SCALE, ey + 68 * SCALE, P.fg_muted)
       end
       core.redraw = true
       return
     end
-  
-  self._market_rects = {}
-  
-  if type(self.marketplace_skills) == "table" then
+    
+    -- Filter items by selected category
+    local raw_items = self.marketplace_skills or {}
+    local display_items = {}
+    if type(raw_items) == "table" then
+      for _, item in ipairs(raw_items) do
+        if item.id and item.id ~= "error" then
+          if matches_market_category(self.market_category or "all", item.domain, item.title or item.name, item.description) then
+            table.insert(display_items, item)
+          end
+        end
+      end
+    end
+    
+    self._market_rects = {}
+    self._market_action_btns = {}
+    
     local content_y = ty
     local clip_h = (my + mh - pad) - content_y
-    self._market_clip_rect = {x=mx, y=content_y, w=mw, h=clip_h}
+    self._market_clip_rect = {x = mx, y = content_y, w = mw, h = clip_h}
     core.push_clip_rect(mx, content_y, mw, clip_h)
     
     self.market_scroll_y = self.market_scroll_y or 0
     local scroll_ty = content_y - self.market_scroll_y
     
-    local cols = mw > 900 and 4 or (mw > 600 and 3 or 2)
-    local col_w = (mw - 2*pad - (cols-1)*15*SCALE) / cols
-    local sh = 130 * SCALE
-    
-    for i, skill in ipairs(self.marketplace_skills) do
-      local row = math.floor((i - 1) / cols)
-      local col = (i - 1) % cols
-      
-      local sx = mx + pad + col * (col_w + 15*SCALE)
-      local sy = scroll_ty + row * (sh + 15*SCALE)
-      
-      local is_hover = self.hover_market_skill == skill.id
-      local bg_color = P.bg_btn
-      if is_hover then
-          bg_color = self.show_installed_skills and _COLOR_CACHE_5 or P.bg_btn_hl
+    -- Empty state if 0 matching items
+    if #display_items == 0 then
+      local empty_cy = content_y + math.floor(clip_h / 2) - 50 * SCALE
+      local no_msg = "No " .. (self.show_tools_tab and "MCP tools" or "skills") .. " found"
+      if self.market_search_query and self.market_search_query ~= "" then
+        no_msg = no_msg .. " matching \"" .. self.market_search_query .. "\""
       end
-      renderer.draw_rect(sx, sy, col_w, sh, bg_color)
+      local mw_txt = (style.big_font or style.font):get_width(no_msg)
+      renderer.draw_text((style.big_font or style.font), no_msg, mx + math.floor((mw - mw_txt)/2), empty_cy, P.fg)
       
-      if is_hover then
-          local action_txt = self.show_installed_skills and "Click to Remove" or "Click to Install"
-          local aw = style.font:get_width(action_txt)
-          renderer.draw_text(style.font, action_txt, sx + (col_w - aw)/2, sy + sh - 25 * SCALE, self.show_installed_skills and _COLOR_CACHE_12 or P.fg_accent)
-      end
+      local hint_txt = "Try adjusting your search query or selecting a different category."
+      local hw_txt = style.font:get_width(hint_txt)
+      renderer.draw_text(style.font, hint_txt, mx + math.floor((mw - hw_txt)/2), empty_cy + 28 * SCALE, P.fg_dim)
       
-      -- Skill title (larger font)
-      renderer.draw_text((style.big_font or style.font), skill.title or skill.id, sx + 15 * SCALE, sy + 15 * SCALE, P.fg)
-      
-      -- Skill description (line wrapped)
-      local desc = skill.description or ""
-      local dy_text = sy + 45 * SCALE
-      
-      -- Better naive wrapping for descriptions
-      local current_line = ""
-      for word in desc:gmatch("%S+") do
-          if style.font:get_width(current_line .. word .. " ") > col_w - 30 * SCALE then
-              renderer.draw_text(style.font, current_line, sx + 15 * SCALE, dy_text, P.fg_dim)
-              dy_text = dy_text + style.font:get_height() + 2 * SCALE
-              current_line = word .. " "
-              if dy_text > sy + sh - 40 * SCALE then 
-                  current_line = current_line .. "..."
-                  break 
-              end
-          else
-              current_line = current_line .. word .. " "
-          end
-      end
-      if current_line ~= "" and dy_text <= sy + sh - 20 * SCALE then
-          renderer.draw_text(style.font, current_line, sx + 15 * SCALE, dy_text, P.fg_dim)
-      end
-      
-      -- Skill Domain tag & Author
-      if skill.domain then
-          local tw = style.font:get_width(skill.domain)
-          renderer.draw_text(style.font, skill.domain, sx + col_w - 15 * SCALE - tw, sy + 15 * SCALE, P.fg_accent)
-      end
-      if skill.author then
-        local aw = style.font:get_width(skill.author)
-        renderer.draw_text(style.font, skill.author, sx + col_w - 15 * SCALE - aw, sy + sh - 25 * SCALE, P.fg_muted)
-      end
-      
-      table.insert(self._market_rects, {id = skill.id, x = sx, y = sy, w = col_w, h = sh})
-    end
-    
-    -- Calculate max scroll
-    local total_rows = math.ceil(#self.marketplace_skills / cols)
-    local total_h = total_rows * (sh + 15*SCALE)
-    
-    -- Pagination UI for Marketplace
-    if not self.show_installed_skills and self.market_total_pages and self.market_total_pages > 1 then
-        local p_y = scroll_ty + total_h + 10 * SCALE
-        local p_text = "Page " .. (self.market_page or 1) .. " of " .. self.market_total_pages
-        local p_w = style.font:get_width(p_text)
-        local cx = mx + mw / 2
-        
-        -- Prev button
-        local b_prev = "[ Previous ]"
-        local b_prev_w = style.font:get_width(b_prev)
-        local bx_prev = cx - p_w/2 - 20*SCALE - b_prev_w
-        local is_hover_prev = mx_mouse >= bx_prev and mx_mouse <= bx_prev + b_prev_w and my_mouse >= p_y and my_mouse <= p_y + 20*SCALE
-        self._market_prev_btn = {x = bx_prev, y = p_y, w = b_prev_w, h = 20*SCALE}
-        renderer.draw_text(style.font, b_prev, bx_prev, p_y, is_hover_prev and P.fg_accent or P.fg_dim)
-        
-        -- Center text
-        renderer.draw_text(style.font, p_text, cx - p_w/2, p_y, P.fg)
-        
-        -- Next button
-        local b_next = "[ Next ]"
-        local b_next_w = style.font:get_width(b_next)
-        local bx_next = cx + p_w/2 + 20*SCALE
-        local is_hover_next = mx_mouse >= bx_next and mx_mouse <= bx_next + b_next_w and my_mouse >= p_y and my_mouse <= p_y + 20*SCALE
-        self._market_next_btn = {x = bx_next, y = p_y, w = b_next_w, h = 20*SCALE}
-        renderer.draw_text(style.font, b_next, bx_next, p_y, is_hover_next and P.fg_accent or P.fg_dim)
-        
-        total_h = total_h + 40 * SCALE
+      local clr_btn_txt = "Clear All Filters"
+      local cb_w = style.font:get_width(clr_btn_txt) + 24 * SCALE
+      local cb_h = 28 * SCALE
+      local cb_x = mx + math.floor((mw - cb_w) / 2)
+      local cb_y = empty_cy + 65 * SCALE
+      self._market_clear_filters_btn = {x = cb_x, y = cb_y, w = cb_w, h = cb_h}
+      local is_hov_clr = self.hover_market_clr_filters
+      draw_market_box(cb_x, cb_y, cb_w, cb_h, is_hov_clr and P.bg_btn_hl or P.bg_btn, P.border)
+      renderer.draw_text(style.font, clr_btn_txt, cb_x + 12 * SCALE, cb_y + math.floor((cb_h - style.font:get_height())/2), is_hov_clr and P.fg_accent or P.fg)
     else
-        self._market_prev_btn = nil
-        self._market_next_btn = nil
+      -- Responsive column layout
+      local gw = mw - 2 * pad
+      local cols = gw > 820 * SCALE and 3 or (gw > 480 * SCALE and 2 or 1)
+      local col_gap = 12 * SCALE
+      local row_gap = 12 * SCALE
+      local col_w = math.floor((gw - (cols - 1) * col_gap) / cols)
+      local sh = 145 * SCALE
+      
+      for i, skill in ipairs(display_items) do
+        local row = math.floor((i - 1) / cols)
+        local col = (i - 1) % cols
+        local sx = mx + pad + col * (col_w + col_gap)
+        local sy = scroll_ty + row * (sh + row_gap)
+        
+        -- Cull cards completely outside visible clipping bounds for peak performance
+        if sy + sh >= content_y and sy <= content_y + clip_h then
+          local is_installed = false
+          if self.show_tools_tab then
+            is_installed = self.installed_tools_map and self.installed_tools_map[skill.id]
+          else
+            is_installed = self.installed_skills_map and self.installed_skills_map[skill.id]
+          end
+          
+          local is_hover = self.hover_market_skill == skill.id
+          local card_bg = is_hover and P.bg_btn_hl or P.bg_darker
+          local card_border = is_hover and P.fg_accent or P.border
+          draw_market_box(sx, sy, col_w, sh, card_bg, card_border)
+          
+          -- Card Header: Type Icon + Title + Domain Pill
+          local t_icon = self.show_tools_tab and "🔌" or "⚡"
+          renderer.draw_text(style.font, t_icon, sx + 12 * SCALE, sy + 12 * SCALE, P.fg_accent)
+          
+          local title_str = skill.title or skill.name or skill.id
+          local max_title_w = col_w - 110 * SCALE
+          local trunc_title = truncate_text(style.big_font or style.font, title_str, max_title_w)
+          renderer.draw_text(style.big_font or style.font, trunc_title, sx + 32 * SCALE, sy + 11 * SCALE, P.fg)
+          
+          local cat_label = skill.domain or (self.show_tools_tab and "MCP Tool" or "General")
+          local cat_pill_w = style.font:get_width(cat_label) + 12 * SCALE
+          local cat_pill_x = sx + col_w - 12 * SCALE - cat_pill_w
+          draw_market_badge(cat_pill_x, sy + 11 * SCALE, cat_pill_w, 20 * SCALE, P.bg_btn, P.border, cat_label, style.font, P.fg_accent)
+          
+          -- Subheader: Author handle & Star rating / Verified badge
+          local author_txt = "@" .. (skill.author or skill.namespace or "community")
+          renderer.draw_text(style.font, author_txt, sx + 12 * SCALE, sy + 38 * SCALE, P.fg_muted)
+          
+          if skill.stars and skill.stars > 0 then
+            local star_txt = "★ " .. tostring(skill.stars)
+            local star_w = style.font:get_width(star_txt)
+            renderer.draw_text(style.font, star_txt, sx + col_w - 12 * SCALE - star_w, sy + 38 * SCALE, {242, 201, 76, 255})
+          elseif skill.verified then
+            local ver_txt = "✓ Verified"
+            local ver_w = style.font:get_width(ver_txt)
+            renderer.draw_text(style.font, ver_txt, sx + col_w - 12 * SCALE - ver_w, sy + 38 * SCALE, P.fg_accent)
+          end
+          
+          -- Description: up to 2 wrapped lines with ellipsis
+          local desc_txt = skill.description or "No description provided."
+          draw_wrapped_lines(style.font, desc_txt, sx + 12 * SCALE, sy + 62 * SCALE, col_w - 24 * SCALE, 2, P.fg_dim, 2 * SCALE)
+          
+          -- Card Footer: Status badge (Left) & Dedicated Action Buttons (Right)
+          local footer_y = sy + sh - 34 * SCALE
+          
+          if is_installed then
+            local inst_badge_w = style.font:get_width("✓ Installed") + 14 * SCALE
+            draw_market_badge(sx + 12 * SCALE, footer_y, inst_badge_w, 22 * SCALE, {76, 175, 80, 35}, {76, 175, 80, 255}, "✓ Installed", style.font, {76, 175, 80, 255})
+          else
+            renderer.draw_text(style.font, "Open Source", sx + 12 * SCALE, footer_y + 4 * SCALE, P.fg_muted)
+          end
+          
+          -- Right Action Buttons
+          local det_txt = "Details"
+          local det_w = style.font:get_width(det_txt) + 14 * SCALE
+          local det_h = 24 * SCALE
+          
+          local act_w = 68 * SCALE
+          local act_h = 24 * SCALE
+          local act_x = sx + col_w - 12 * SCALE - act_w
+          local det_x = act_x - 8 * SCALE - det_w
+          
+          -- Details button
+          local is_hov_det = self.hover_market_action == ("details:" .. skill.id)
+          draw_market_box(det_x, footer_y, det_w, det_h, is_hov_det and P.bg_btn_hl or P.bg_btn, P.border)
+          renderer.draw_text(style.font, det_txt, det_x + math.floor((det_w - style.font:get_width(det_txt))/2), footer_y + math.floor((det_h - style.font:get_height())/2), is_hov_det and P.fg_accent or P.fg)
+          table.insert(self._market_action_btns, {key = "details:" .. skill.id, item = skill, action = "details", x = det_x, y = footer_y, w = det_w, h = det_h})
+          
+          -- Primary Action button
+          if self.show_installed_skills then
+            -- Installed View: [ 🗑 Remove ]
+            local is_hov_un = self.hover_market_action == ("uninstall:" .. skill.id)
+            draw_market_box(act_x, footer_y, act_w, act_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
+            local rm_txt = "Remove"
+            renderer.draw_text(style.font, rm_txt, act_x + math.floor((act_w - style.font:get_width(rm_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
+            table.insert(self._market_action_btns, {key = "uninstall:" .. skill.id, item = skill, action = "uninstall", x = act_x, y = footer_y, w = act_w, h = act_h})
+          else
+            -- Marketplace View: [ ⬇ Install ] or [ Installed ]
+            if is_installed then
+              draw_market_box(act_x, footer_y, act_w, act_h, P.bg_btn, P.border)
+              local in_txt = "Installed"
+              renderer.draw_text(style.font, in_txt, act_x + math.floor((act_w - style.font:get_width(in_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), P.fg_dim)
+            else
+              local is_hov_in = self.hover_market_action == ("install:" .. skill.id)
+              draw_market_box(act_x, footer_y, act_w, act_h, is_hov_in and P.fg or P.fg_accent, nil)
+              local in_txt = "Install"
+              renderer.draw_text(style.font, in_txt, act_x + math.floor((act_w - style.font:get_width(in_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), P.bg)
+              table.insert(self._market_action_btns, {key = "install:" .. skill.id, item = skill, action = "install", x = act_x, y = footer_y, w = act_w, h = act_h})
+            end
+          end
+          
+          table.insert(self._market_rects, {id = skill.id, item = skill, x = sx, y = sy, w = col_w, h = sh})
+        end
+      end
+      
+      -- Calculate content height and max scroll
+      local total_rows = math.ceil(#display_items / cols)
+      local total_h = total_rows * (sh + row_gap)
+      
+      -- Pagination UI for Marketplace
+      if not self.show_installed_skills and self.market_total_pages and self.market_total_pages > 1 then
+        local p_y = scroll_ty + total_h + 16 * SCALE
+        local p_text = "Page " .. tostring(self.market_page or 1) .. " of " .. tostring(self.market_total_pages)
+        local p_w = style.font:get_width(p_text)
+        local cx = mx + math.floor(mw / 2)
+        
+        local b_prev = "‹ Previous"
+        local b_prev_w = style.font:get_width(b_prev) + 16 * SCALE
+        local bx_prev = cx - math.floor(p_w / 2) - 20 * SCALE - b_prev_w
+        local is_hov_prev = self.hover_market_prev
+        self._market_prev_btn = {x = bx_prev, y = p_y, w = b_prev_w, h = 24 * SCALE}
+        draw_market_box(bx_prev, p_y, b_prev_w, 24 * SCALE, is_hov_prev and P.bg_btn_hl or P.bg_btn, P.border)
+        renderer.draw_text(style.font, b_prev, bx_prev + 8 * SCALE, p_y + math.floor((24 * SCALE - style.font:get_height())/2), (self.market_page or 1) > 1 and (is_hov_prev and P.fg_accent or P.fg) or P.fg_dim)
+        
+        renderer.draw_text(style.font, p_text, cx - math.floor(p_w / 2), p_y + math.floor((24 * SCALE - style.font:get_height())/2), P.fg)
+        
+        local b_next = "Next ›"
+        local b_next_w = style.font:get_width(b_next) + 16 * SCALE
+        local bx_next = cx + math.floor(p_w / 2) + 20 * SCALE
+        local is_hov_next = self.hover_market_next
+        self._market_next_btn = {x = bx_next, y = p_y, w = b_next_w, h = 24 * SCALE}
+        draw_market_box(bx_next, p_y, b_next_w, 24 * SCALE, is_hov_next and P.bg_btn_hl or P.bg_btn, P.border)
+        renderer.draw_text(style.font, b_next, bx_next + 8 * SCALE, p_y + math.floor((24 * SCALE - style.font:get_height())/2), (self.market_page or 1) < self.market_total_pages and (is_hov_next and P.fg_accent or P.fg) or P.fg_dim)
+        
+        total_h = total_h + 50 * SCALE
+      end
+      
+      self.market_max_scroll = math.max(0, total_h - clip_h + 20 * SCALE)
+      
+      -- Scrollbar indicator
+      if self.market_max_scroll > 0 then
+        local sb_w = 4 * SCALE
+        local sb_x = mx + mw - sb_w - 4 * SCALE
+        local sb_h = math.max(24 * SCALE, math.floor(clip_h * (clip_h / (total_h + clip_h))))
+        local scroll_pct = (self.market_scroll_y or 0) / self.market_max_scroll
+        local sb_y = content_y + math.floor(scroll_pct * (clip_h - sb_h))
+        renderer.draw_rect(sb_x, content_y, sb_w, clip_h, P.bg_darker)
+        renderer.draw_rect(sb_x, sb_y, sb_w, sb_h, P.fg_muted)
+      end
     end
-
-    self.market_max_scroll = math.max(0, total_h - clip_h + 30*SCALE)
     
     core.pop_clip_rect()
     
+    -- ========================================================================
+    -- DETAIL / PREVIEW MODAL SHEET
+    -- ========================================================================
     if self.active_skill_preview then
       local skill = self.active_skill_preview
-      local mw = w - 20 * SCALE
-      local mh = h - 20 * SCALE
-      local modal_x = x + 10 * SCALE
-      local modal_y = y + 10 * SCALE
+      local pw = math.min(mw - 30 * SCALE, 820 * SCALE)
+      local ph = math.min(mh - 30 * SCALE, 680 * SCALE)
+      local px = mx + math.floor((mw - pw) / 2)
+      local py = my + math.floor((mh - ph) / 2)
+      self._preview_modal_rect = {x = px, y = py, w = pw, h = ph}
       
-      -- Dim background
-      renderer.draw_rect(x, y, w, h, _COLOR_CACHE_23)
-      -- Modal window
-      renderer.draw_rect(modal_x, modal_y, mw, mh, P.bg)
-      renderer.draw_rect(modal_x, modal_y, mw, 50 * SCALE, P.bg_btn)
+      -- Backdrop overlay
+      renderer.draw_rect(x, y, w, h, {0, 0, 0, 220})
       
-      local tw = style.font:get_width(skill.domain or "Preview")
-      if mw > 200 * SCALE then
-          renderer.draw_text((style.big_font or style.font), skill.title or skill.id, modal_x + 15 * SCALE, modal_y + 15 * SCALE, P.fg)
-          renderer.draw_text(style.font, skill.domain or "Preview", modal_x + mw - 15 * SCALE - tw, modal_y + 15 * SCALE, P.fg_dim)
+      -- Sheet frame
+      draw_market_box(px, py, pw, ph, P.bg, P.border)
+      
+      -- Sheet Header
+      local ph_h = 44 * SCALE
+      renderer.draw_rect(px, py, pw, ph_h, P.bg_darker)
+      renderer.draw_rect(px, py + ph_h - 1, pw, 1, P.border)
+      
+      local p_title = skill.title or skill.name or skill.id
+      renderer.draw_text(style.big_font or style.font, p_title, px + 16 * SCALE, py + math.floor((ph_h - (style.big_font or style.font):get_height())/2), P.fg)
+      
+      local p_domain = skill.domain or (self.show_tools_tab and "MCP Server" or "AI Skill")
+      local p_dom_w = style.font:get_width(p_domain) + 14 * SCALE
+      local p_dom_x = px + pw - 50 * SCALE - p_dom_w
+      draw_market_badge(p_dom_x, py + math.floor((ph_h - 22 * SCALE)/2), p_dom_w, 22 * SCALE, P.bg_btn, P.border, p_domain, style.font, P.fg_accent)
+      
+      -- Close ✕ button
+      local p_cb_sz = 26 * SCALE
+      local p_cb_x = px + pw - 12 * SCALE - p_cb_sz
+      local p_cb_y = py + math.floor((ph_h - p_cb_sz)/2)
+      self._preview_close_btn = {x = p_cb_x, y = p_cb_y, w = p_cb_sz, h = p_cb_sz}
+      local is_hov_pcb = self.hover_preview_close
+      draw_market_box(p_cb_x, p_cb_y, p_cb_sz, p_cb_sz, is_hov_pcb and _COLOR_CACHE_5 or P.bg_btn, is_hov_pcb and _COLOR_CACHE_12 or P.border)
+      local pxw = style.font:get_width("✕")
+      renderer.draw_text(style.font, "✕", p_cb_x + math.floor((p_cb_sz - pxw)/2), p_cb_y + math.floor((p_cb_sz - style.font:get_height())/2), is_hov_pcb and _COLOR_CACHE_12 or P.fg_muted)
+      
+      -- Metadata bar: Package ID, Author, and Repository link
+      local meta_h = 32 * SCALE
+      local meta_y = py + ph_h
+      renderer.draw_rect(px, meta_y, pw, meta_h, P.bg_input)
+      renderer.draw_rect(px, meta_y + meta_h - 1, pw, 1, P.border)
+      
+      local id_txt = "ID: " .. skill.id
+      local id_w = style.font:get_width(id_txt) + 12 * SCALE
+      draw_market_badge(px + 16 * SCALE, meta_y + math.floor((meta_h - 20 * SCALE)/2), id_w, 20 * SCALE, P.bg_darker, P.border, id_txt, style.font, P.fg_muted)
+      
+      local p_auth_txt = "Author: @" .. (skill.author or skill.namespace or "community")
+      renderer.draw_text(style.font, p_auth_txt, px + 24 * SCALE + id_w, meta_y + math.floor((meta_h - style.font:get_height())/2), P.fg_dim)
+      
+      if skill.repo_url and skill.repo_url ~= "" then
+        local repo_btn_txt = "↗ View Repository"
+        local rb_w = style.font:get_width(repo_btn_txt) + 14 * SCALE
+        local rb_h = 22 * SCALE
+        local rb_x = px + pw - 16 * SCALE - rb_w
+        local rb_y = meta_y + math.floor((meta_h - rb_h)/2)
+        self._preview_repo_btn = {x = rb_x, y = rb_y, w = rb_w, h = rb_h}
+        local is_hov_repo = self.hover_preview_repo
+        draw_market_box(rb_x, rb_y, rb_w, rb_h, is_hov_repo and P.bg_btn_hl or P.bg_btn, P.border)
+        renderer.draw_text(style.font, repo_btn_txt, rb_x + 7 * SCALE, rb_y + math.floor((rb_h - style.font:get_height())/2), is_hov_repo and P.fg_accent or P.fg)
       else
-          renderer.draw_text(style.font, skill.title or skill.id, modal_x + 15 * SCALE, modal_y + 15 * SCALE, P.fg)
+        self._preview_repo_btn = nil
       end
       
-      local dy = modal_y + 60 * SCALE
+      -- Markdown Content Box
+      local ftr_h = 52 * SCALE
+      local mb_y = meta_y + meta_h + 10 * SCALE
+      local mb_h = py + ph - ftr_h - mb_y
       
-      local function draw_wrapped(txt, font, color, max_w, start_y)
-         local cy = start_y
-         for line in (txt .. "\n"):gmatch("([^\n]*)\n") do
-             local cur = ""
-             for word in line:gmatch("%S+") do
-                 if font:get_width(cur .. " " .. word) > max_w then
-                     if cur ~= "" then 
-                        renderer.draw_text(font, cur, modal_x + 15 * SCALE, cy, color)
-                        cy = cy + font:get_height() + 2 * SCALE
-                     end
-                     cur = word
-                 else
-                     cur = cur == "" and word or (cur .. " " .. word)
-                 end
-             end
-             if cur ~= "" then
-                 renderer.draw_text(font, cur, modal_x + 15 * SCALE, cy, color)
-                 cy = cy + font:get_height() + 2 * SCALE
-             else
-                 cy = cy + font:get_height() + 2 * SCALE
-             end
-         end
-         return cy
-      end
-      
-      dy = draw_wrapped(skill.description or "No description", style.font, P.fg_accent, mw - 30 * SCALE, dy)
-      dy = dy + 15 * SCALE
-      
-      -- Markdown Content
-      local md_h = mh - (dy - modal_y) - 60 * SCALE
-      if md_h > 0 then
-          renderer.draw_rect(modal_x + 15 * SCALE, dy, mw - 30 * SCALE, md_h, P.bg_btn)
-          core.push_clip_rect(modal_x + 15 * SCALE, dy, mw - 30 * SCALE, md_h)
-          local text = skill._preview_md or ""
-          
-          self.preview_scroll_y = self.preview_scroll_y or 0
-          local ldy = dy + 10 * SCALE - self.preview_scroll_y
-          
-          for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-              local cur = ""
-              for word in line:gmatch("%S+") do
-                  if style.font:get_width(cur .. " " .. word) > mw - 50 * SCALE then
-                      if cur ~= "" then
-                          if ldy > dy - style.font:get_height() and ldy < dy + md_h then
-                              renderer.draw_text(style.font, cur, modal_x + 25 * SCALE, ldy, P.fg)
-                          end
-                          ldy = ldy + style.font:get_height() + 2 * SCALE
-                      end
-                      cur = word
-                  else
-                      cur = cur == "" and word or (cur .. " " .. word)
+      if mb_h > 0 then
+        draw_market_box(px + 16 * SCALE, mb_y, pw - 32 * SCALE, mb_h, P.bg_darker, P.border)
+        core.push_clip_rect(px + 24 * SCALE, mb_y + 8 * SCALE, pw - 48 * SCALE, mb_h - 16 * SCALE)
+        
+        self.preview_scroll_y = self.preview_scroll_y or 0
+        local ldy = mb_y + 12 * SCALE - self.preview_scroll_y
+        local md_text = skill._preview_md or (skill.description or "No preview available.")
+        
+        for line in (md_text .. "\n"):gmatch("([^\n]*)\n") do
+          if line:match("^#%s+") then
+            -- H1
+            local heading = line:gsub("^#%s+", "")
+            if ldy > mb_y - 20 * SCALE and ldy < mb_y + mb_h then
+              renderer.draw_text(style.big_font or style.font, heading, px + 24 * SCALE, ldy, P.fg)
+            end
+            ldy = ldy + (style.big_font or style.font):get_height() + 8 * SCALE
+          elseif line:match("^##%s+") then
+            -- H2
+            local heading = line:gsub("^##%s+", "")
+            if ldy > mb_y - 20 * SCALE and ldy < mb_y + mb_h then
+              renderer.draw_text(style.font, heading, px + 24 * SCALE, ldy, P.fg_accent)
+              renderer.draw_rect(px + 24 * SCALE, ldy + style.font:get_height() + 2 * SCALE, pw - 64 * SCALE, 1, P.border)
+            end
+            ldy = ldy + style.font:get_height() + 10 * SCALE
+          elseif line:match("^```") then
+            -- Code block fence
+            if ldy > mb_y - 20 * SCALE and ldy < mb_y + mb_h then
+              renderer.draw_rect(px + 24 * SCALE, ldy, pw - 64 * SCALE, 1 * SCALE, P.border)
+            end
+            ldy = ldy + 6 * SCALE
+          elseif line == "" then
+            ldy = ldy + math.floor(style.font:get_height() / 2)
+          else
+            -- Word wrap normal line
+            local max_w = pw - 64 * SCALE
+            local cur = ""
+            for word in line:gmatch("%S+") do
+              if style.font:get_width(cur .. " " .. word) > max_w then
+                if cur ~= "" then
+                  if ldy > mb_y - 20 * SCALE and ldy < mb_y + mb_h then
+                    renderer.draw_text(style.font, cur, px + 24 * SCALE, ldy, P.fg)
                   end
+                  ldy = ldy + style.font:get_height() + 3 * SCALE
+                end
+                cur = word
+              else
+                cur = cur == "" and word or (cur .. " " .. word)
               end
-              if cur ~= "" then
-                  if ldy > dy - style.font:get_height() and ldy < dy + md_h then
-                      renderer.draw_text(style.font, cur, modal_x + 25 * SCALE, ldy, P.fg)
-                  end
+            end
+            if cur ~= "" then
+              if ldy > mb_y - 20 * SCALE and ldy < mb_y + mb_h then
+                renderer.draw_text(style.font, cur, px + 24 * SCALE, ldy, P.fg)
               end
-              ldy = ldy + style.font:get_height() + 2 * SCALE
+              ldy = ldy + style.font:get_height() + 3 * SCALE
+            end
           end
-          core.pop_clip_rect()
-          
-          local total_content_h = (ldy + self.preview_scroll_y) - (dy + 10 * SCALE)
-          self.preview_max_scroll = math.max(0, total_content_h - md_h + 20 * SCALE)
+        end
+        
+        core.pop_clip_rect()
+        
+        local total_md_h = (ldy + self.preview_scroll_y) - (mb_y + 12 * SCALE)
+        self.preview_max_scroll = math.max(0, total_md_h - mb_h + 30 * SCALE)
+        
+        -- Preview scrollbar indicator
+        if self.preview_max_scroll > 0 then
+          local p_sb_w = 4 * SCALE
+          local p_sb_x = px + pw - 22 * SCALE
+          local p_sb_h = math.max(20 * SCALE, math.floor(mb_h * (mb_h / (total_md_h + mb_h))))
+          local p_pct = (self.preview_scroll_y or 0) / self.preview_max_scroll
+          local p_sb_y = mb_y + math.floor(p_pct * (mb_h - p_sb_h))
+          renderer.draw_rect(p_sb_x, mb_y, p_sb_w, mb_h, P.bg_darker)
+          renderer.draw_rect(p_sb_x, p_sb_y, p_sb_w, p_sb_h, P.fg_muted)
+        end
       end
       
-      -- Buttons
-      local btn_w = math.min(100 * SCALE, (mw - 45 * SCALE) / 2)
-      local btn_h = 30 * SCALE
-      local cx, cy = modal_x + 15 * SCALE, modal_y + mh - 45 * SCALE
-      local ix, iy = modal_x + mw - 15 * SCALE - btn_w, modal_y + mh - 45 * SCALE
+      -- Sheet Footer & Action Buttons
+      local ftr_y = py + ph - ftr_h
+      renderer.draw_rect(px, ftr_y, pw, ftr_h, P.bg_darker)
+      renderer.draw_rect(px, ftr_y, pw, 1, P.border)
       
-      renderer.draw_rect(cx, cy, btn_w, btn_h, P.bg_btn)
-      local ctxt = "Close"
-      renderer.draw_text(style.font, ctxt, cx + (btn_w - style.font:get_width(ctxt))/2, cy + (btn_h - style.font:get_height())/2, P.fg)
+      -- Close / Cancel button
+      local btn_cancel_txt = "Close"
+      local bc_w = style.font:get_width(btn_cancel_txt) + 24 * SCALE
+      local bc_h = 30 * SCALE
+      local bc_x = px + 16 * SCALE
+      local bc_y = ftr_y + math.floor((ftr_h - bc_h) / 2)
+      self._preview_cancel_btn = {x = bc_x, y = bc_y, w = bc_w, h = bc_h}
+      local is_hov_can = self.hover_preview_cancel
+      draw_market_box(bc_x, bc_y, bc_w, bc_h, is_hov_can and P.bg_btn_hl or P.bg_btn, P.border)
+      renderer.draw_text(style.font, btn_cancel_txt, bc_x + 12 * SCALE, bc_y + math.floor((bc_h - style.font:get_height())/2), is_hov_can and P.fg_accent or P.fg)
       
-      renderer.draw_rect(ix, iy, btn_w, btn_h, P.fg_accent)
-      local itxt = "Install"
-      renderer.draw_text(style.font, itxt, ix + (btn_w - style.font:get_width(itxt))/2, iy + (btn_h - style.font:get_height())/2, P.bg)
+      -- Install or Uninstall button
+      local is_inst = false
+      if self.show_tools_tab then
+        is_inst = self.installed_tools_map and self.installed_tools_map[skill.id]
+      else
+        is_inst = self.installed_skills_map and self.installed_skills_map[skill.id]
+      end
+      
+      if is_inst then
+        local un_txt = "🗑 Uninstall Extension"
+        local un_w = style.font:get_width(un_txt) + 24 * SCALE
+        local un_h = 30 * SCALE
+        local un_x = px + pw - 16 * SCALE - un_w
+        local un_y = ftr_y + math.floor((ftr_h - un_h) / 2)
+        self._preview_uninstall_btn = {x = un_x, y = un_y, w = un_w, h = un_h}
+        local is_hov_un = self.hover_preview_uninstall
+        draw_market_box(un_x, un_y, un_w, un_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
+        renderer.draw_text(style.font, un_txt, un_x + 12 * SCALE, un_y + math.floor((un_h - style.font:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
+      else
+        local in_txt = "⬇ Install Extension"
+        local in_w = style.font:get_width(in_txt) + 24 * SCALE
+        local in_h = 30 * SCALE
+        local in_x = px + pw - 16 * SCALE - in_w
+        local in_y = ftr_y + math.floor((ftr_h - in_h) / 2)
+        self._preview_install_btn = {x = in_x, y = in_y, w = in_w, h = in_h}
+        local is_hov_in = self.hover_preview_install
+        draw_market_box(in_x, in_y, in_w, in_h, is_hov_in and P.fg or P.fg_accent, nil)
+        renderer.draw_text(style.font, in_txt, in_x + 12 * SCALE, in_y + math.floor((in_h - style.font:get_height())/2), P.bg)
+      end
     end
   end
-end
 
--- ------------------------------------------------------------------------------- -----------------------------------------------------------------------------
+-- -----------------------------------------------------------------------------
 -- SAFE HISTORY TREE INJECTION
 -- -----------------------------------------------------------------------------
 local original_draw = AGView.draw
