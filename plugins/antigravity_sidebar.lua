@@ -94,46 +94,90 @@ local system  = require "system"
 local function lum(r, g, b) return r*0.299 + g*0.587 + b*0.114 end
 
 -- ── Emoji-aware rendering ─────────────────────────────────────────────────────
--- Lite XL's default fonts (FiraCode, etc.) have no emoji glyphs, so emoji
--- codepoints render as '?'. We load the system emoji font once and use it
--- to draw emoji segments, falling back gracefully if unavailable.
-local _emoji_font = nil
-local function get_emoji_font()
-  if _emoji_font ~= false then  -- false = already tried and failed
-    if not _emoji_font then
-      local candidates = {}
-      -- First priority: bundled font in user's Lite XL config dir (installed by setup script)
-      local user_bundled = USERDIR .. PATHSEP .. "fonts/NotoColorEmoji.ttf"
-      table.insert(candidates, user_bundled)
-      if PLATFORM == "Windows" then
-        local windir = os.getenv("WINDIR") or "C:\\Windows"
-        table.insert(candidates, windir .. "\\Fonts\\seguiemj.ttf")  -- Segoe UI Emoji
-      else
-        -- Linux / macOS system candidates
-        for _, p in ipairs({
-          "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-          "/usr/share/fonts/noto/NotoColorEmoji.ttf",
-          "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
-          "/Library/Fonts/Apple Color Emoji.ttc",
-        }) do table.insert(candidates, p) end
-      end
-      for _, path in ipairs(candidates) do
-        local f = io.open(path, "rb")
-        if f then f:close()
-          -- Load at same size as style.font
-          local sz = style.font and style.font:get_height() or 14
-          local ok, fnt = pcall(renderer.font.load, path, sz)
-          if ok then _emoji_font = fnt; break end
+-- Lite XL's default fonts (FiraCode, etc.) have no emoji/symbol glyphs, so they
+-- render as '?'. We discover and load vector outline symbol & emoji fonts,
+-- combining them via renderer.font.group to guarantee clean rendering without
+-- missing-glyph question marks.
+local _emoji_fonts_cache = {}
+local function get_emoji_font(target_sz)
+  target_sz = target_sz or (style.font and (style.font.get_size and style.font:get_size() or style.font:get_height()) or 14)
+  if _emoji_fonts_cache[target_sz] ~= nil then
+    return _emoji_fonts_cache[target_sz] or nil
+  end
+
+  local candidates = {}
+  if PLATFORM == "Windows" then
+    local windir = os.getenv("WINDIR") or "C:\\Windows"
+    -- Segoe UI Emoji and Segoe UI Symbol have vector TrueType outlines (glyf table)
+    table.insert(candidates, windir .. "\\Fonts\\seguiemj.ttf")
+    table.insert(candidates, windir .. "\\Fonts\\seguisym.ttf")
+    table.insert(candidates, windir .. "\\Fonts\\arialuni.ttf")
+    table.insert(candidates, USERDIR .. PATHSEP .. "fonts/NotoEmoji-Regular.ttf")
+    table.insert(candidates, USERDIR .. PATHSEP .. "fonts/NotoColorEmoji.ttf")
+  else
+    table.insert(candidates, USERDIR .. PATHSEP .. "fonts/NotoEmoji-Regular.ttf")
+    for _, p in ipairs({
+      "/System/Library/Fonts/Apple Color Emoji.ttc",
+      "/Library/Fonts/Apple Color Emoji.ttc",
+      "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+      "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+      "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
+      "/usr/share/fonts/truetype/ancient-scripts/Symbola.ttf",
+    }) do table.insert(candidates, p) end
+    table.insert(candidates, USERDIR .. PATHSEP .. "fonts/NotoColorEmoji.ttf")
+  end
+
+  local loaded = {}
+  for _, path in ipairs(candidates) do
+    local f = io.open(path, "rb")
+    if f then
+      f:close()
+      local ok, fnt = pcall(renderer.font.load, path, target_sz)
+      if ok and fnt then
+        table.insert(loaded, fnt)
+        -- On Windows, grouping seguiemj + seguisym covers both emoji pictographs and tech symbols
+        if PLATFORM == "Windows" and #loaded >= 2 then
+          break
+        elseif PLATFORM ~= "Windows" and #loaded >= 1 then
+          break
         end
       end
-      if not _emoji_font then _emoji_font = false end  -- mark as unavailable
     end
   end
-  return _emoji_font or nil
+
+  local result = nil
+  if #loaded > 1 then
+    local ok, grp = pcall(renderer.font.group, loaded)
+    result = (ok and grp) or loaded[1]
+  elseif #loaded == 1 then
+    result = loaded[1]
+  end
+
+  _emoji_fonts_cache[target_sz] = result or false
+  return result
 end
 
--- Returns true if the UTF-8 char starting at byte i in `s` is an emoji.
--- We check the first codepoint of each multi-byte sequence.
+-- Font grouping helper that binds a base font with emoji/symbol fallback
+local _grouped_font_cache = {}
+local function get_ui_font(base_f)
+  base_f = base_f or style.font
+  if not base_f then return style.font end
+  local sz = base_f.get_size and base_f:get_size() or base_f:get_height()
+  local ef = get_emoji_font(sz)
+  if not ef then return base_f end
+  if _grouped_font_cache[base_f] then
+    return _grouped_font_cache[base_f]
+  end
+  local ok, grp = pcall(renderer.font.group, { base_f, ef })
+  if ok and grp then
+    _grouped_font_cache[base_f] = grp
+    return grp
+  end
+  return base_f
+end
+
+-- Returns true if the UTF-8 char starting at byte i in `s` is an emoji/symbol.
+-- Consumes trailing variation selectors (U+FE00-U+FE0F), ZWJs, and skin tone modifiers.
 local function is_emoji_char(s, i)
   local b1 = s:byte(i)
   if not b1 then return false, i+1 end
@@ -159,23 +203,57 @@ local function is_emoji_char(s, i)
   else
     return false, i+1
   end
-  -- Unicode emoji ranges
-  local emoji = (cp >= 0x1F300 and cp <= 0x1FAFF)   -- Misc Symbols / Pictographs / emoticons
-             or (cp >= 0x2600  and cp <= 0x27BF)    -- Misc symbols, dingbats
-             or (cp >= 0x2300  and cp <= 0x23FF)    -- Misc Technical
-             or (cp >= 0x1F000 and cp <= 0x1F02F)   -- Mahjong/domino tiles
-             or (cp >= 0x1F0A0 and cp <= 0x1F0FF)   -- Playing cards
-             or (cp >= 0x231A  and cp <= 0x231B)    -- Watch, Hourglass
-             or (cp >= 0x23E9  and cp <= 0x23F3)    -- Various
-             or cp == 0x2764                         -- Heart
-  return emoji, i + seq_len
+
+  -- Comprehensive Unicode emoji and symbol ranges
+  local emoji = (cp >= 0x1F300 and cp <= 0x1FAFF)   -- Misc Symbols / Pictographs / Emoticons / Supplemental / Transport
+             or (cp >= 0x1F000 and cp <= 0x1F2FF)   -- Tiles, cards, flags, enclosed
+             or (cp >= 0x2600  and cp <= 0x27BF)    -- Misc symbols, dingbats (✅, ❌, ⚡, ⚠️, ⚙, etc.)
+             or (cp >= 0x2B00  and cp <= 0x2BFF)    -- Misc symbols & arrows (⭐, ⬇, ⬡, etc.)
+             or (cp >= 0x25A0  and cp <= 0x25FF)    -- Geometric shapes (●, ■, ▲, etc.)
+             or (cp >= 0x2300  and cp <= 0x23FF)    -- Misc technical (⏱, ⌛, etc.)
+             or (cp >= 0x2190  and cp <= 0x21FF)    -- Arrows (←, ↑, →, ↓, ↗, etc.)
+             or (cp >= 0x2900  and cp <= 0x297F)    -- Supplemental arrows
+             or (cp >= 0x2000  and cp <= 0x206F)    -- General punctuation (• bullet, etc.)
+             or (cp >= 0x3000  and cp <= 0x303F)    -- CJK symbols & punctuation
+  if not emoji then return false, i + seq_len end
+
+  -- Consume trailing variation selectors (U+FE00-U+FE0F: \xEF\xB8[\x80-\x8F])
+  -- or skin tone modifiers or zero-width joiners so they never leak into normal text as '?'
+  local next_i = i + seq_len
+  while next_i <= #s do
+    local nb1 = s:byte(next_i)
+    if nb1 == 0xEF and s:byte(next_i+1) == 0xB8 then
+      local nb3 = s:byte(next_i+2)
+      if nb3 and nb3 >= 0x80 and nb3 <= 0x8F then
+        next_i = next_i + 3
+      else
+        break
+      end
+    elseif nb1 == 0xE2 and s:byte(next_i+1) == 0x80 and (s:byte(next_i+2) == 0x8D or s:byte(next_i+2) == 0x8C) then
+      next_i = next_i + 3
+      local is_sub, sub_next = is_emoji_char(s, next_i)
+      if is_sub then next_i = sub_next else break end
+    elseif nb1 == 0xF0 and s:byte(next_i+1) == 0x9F and s:byte(next_i+2) == 0x8F then
+      local nb4 = s:byte(next_i+3)
+      if nb4 and nb4 >= 0xBB and nb4 <= 0xBF then
+        next_i = next_i + 4
+      else
+        break
+      end
+    else
+      break
+    end
+  end
+  return true, next_i
 end
 
--- Draw text handling emoji segments with the emoji font.
+-- Draw text handling emoji segments with the emoji/symbol font.
 -- Returns the final x position (same interface as renderer.draw_text).
 local function draw_text_emoji(font, text, tx, ty, col)
-  local ef = get_emoji_font()
-  if not ef or not text or text == "" then
+  if not text or text == "" then return tx end
+  local sz = font and (font.get_size and font:get_size() or font:get_height()) or 14
+  local ef = get_emoji_font(sz)
+  if not ef then
     return renderer.draw_text(font, text, tx, ty, col)
   end
   local i = 1
@@ -184,6 +262,8 @@ local function draw_text_emoji(font, text, tx, ty, col)
   local function flush_normal(upto)
     if upto > seg_start then
       local chunk = text:sub(seg_start, upto - 1)
+      -- Strip any rogue variation selectors or ZWJs
+      chunk = chunk:gsub("\239\184[\128-\143]", ""):gsub("\226\128[\140-\141]", "")
       if chunk ~= "" then
         cur_x = renderer.draw_text(font, chunk, cur_x, ty, col)
       end
@@ -194,8 +274,11 @@ local function draw_text_emoji(font, text, tx, ty, col)
     if is_emj then
       flush_normal(i)
       local emj = text:sub(i, next_i - 1)
-      -- Skip zero-width joiner (U+200D) and variation selectors that follow
-      cur_x = renderer.draw_text(ef, emj, cur_x, ty, col)
+      -- Strip variation selectors from emj so FreeType renders the pure outline
+      local clean_emj = emj:gsub("\239\184[\128-\143]", ""):gsub("\226\128[\140-\141]", "")
+      if clean_emj ~= "" then
+        cur_x = renderer.draw_text(ef, clean_emj, cur_x, ty, col)
+      end
       seg_start = next_i
       i = next_i
     else
@@ -809,6 +892,7 @@ local function get_bold_font()
     if not _bold_font then
       _bold_font = style.font
     end
+    _bold_font = get_ui_font(_bold_font)
   end
   return _bold_font
 end
@@ -830,7 +914,8 @@ local function get_heading_font(level)
     if not ok or not fnt then
       ok, fnt = pcall(function() return style.font:copy(target_size) end)
     end
-    _heading_fonts[key] = (ok and fnt) and fnt or (style.big_font or style.font)
+    local raw_fnt = (ok and fnt) and fnt or (style.big_font or style.font)
+    _heading_fonts[key] = get_ui_font(raw_fnt)
   end
   return _heading_fonts[key]
 end
@@ -902,11 +987,11 @@ local function wrap_segments(segments, base_font, bold_font, code_font, max_w)
   
   local function get_font(type)
     if type == "code" or type == "code_link" then
-      return code_font
+      return get_ui_font(code_font)
     elseif type == "bold" and bold_font then
-      return bold_font
+      return get_ui_font(bold_font)
     end
-    return base_font
+    return get_ui_font(base_font)
   end
   
   local function push_word(word, type, url)
@@ -4017,7 +4102,7 @@ function AGView:draw()
             local para_avail_w = math.max(10*SCALE, msg_w - 2 * msg_pad)
             core.push_clip_rect(lx, line_y, para_avail_w, lh)
             if blk.list_prefix and l_idx == 1 then
-              renderer.draw_text(f, blk.list_prefix, lx, line_y, P.fg_accent)
+              draw_text_emoji(f, blk.list_prefix, lx, line_y, P.fg_accent)
               lx = lx + f:get_width(blk.list_prefix)
             elseif blk.list_prefix then
               lx = lx + f:get_width(blk.list_prefix)
@@ -4329,7 +4414,7 @@ function AGView:draw()
       local text_y = loader_y + math.floor((loader_h - style.code_font:get_height()) / 2)
       
       core.push_clip_rect(pill_x, loader_y, pill_w, loader_h)
-      renderer.draw_text(style.code_font, "●", tx, text_y, dot_col)
+      draw_text_emoji(style.code_font, "●", tx, text_y, dot_col)
       tx = tx + dot_w
       renderer.draw_text(style.code_font, status_text .. dots, tx, text_y, P.fg)
       tx = tx + style.code_font:get_width(status_text .. dots)
@@ -7400,9 +7485,10 @@ end
   -- Helper for pill badges
   local function draw_market_badge(bx, by, bw, bh, bg_col, border_col, text, font, text_col)
     draw_market_box(bx, by, bw, bh, bg_col, border_col)
-    local tw = font:get_width(text)
-    local th = font:get_height()
-    renderer.draw_text(font, text, bx + math.floor((bw - tw) / 2), by + math.floor((bh - th) / 2), text_col)
+    local f = get_ui_font(font)
+    local tw = f:get_width(text)
+    local th = f:get_height()
+    draw_text_emoji(f, text, bx + math.floor((bw - tw) / 2), by + math.floor((bh - th) / 2), text_col)
   end
 
   -- Fast binary search text truncation with ellipsis
@@ -7564,15 +7650,16 @@ end
     renderer.draw_rect(mx, my + hdr_h - 1, mw, 1, P.border)
     
     -- Header Title & Subtitle Badge
+    local mf = get_ui_font(style.font)
     local h_title = "Extensions & Skills"
-    local h_title_font = style.big_font or style.font
+    local h_title_font = get_ui_font(style.big_font or style.font)
     renderer.draw_text(h_title_font, h_title, mx + pad, my + math.floor((hdr_h - h_title_font:get_height()) / 2), P.fg)
     
     local mode_pill = self.show_tools_tab and "MCP Servers" or "AI Skills"
-    local mp_w = style.font:get_width(mode_pill) + 14 * SCALE
+    local mp_w = mf:get_width(mode_pill) + 14 * SCALE
     local mp_x = mx + pad + h_title_font:get_width(h_title) + 12 * SCALE
     local mp_y = my + math.floor((hdr_h - 22 * SCALE) / 2)
-    draw_market_badge(mp_x, mp_y, mp_w, 22 * SCALE, P.bg_btn, P.border, mode_pill, style.font, P.fg_accent)
+    draw_market_badge(mp_x, mp_y, mp_w, 22 * SCALE, P.bg_btn, P.border, mode_pill, mf, P.fg_accent)
     
     -- Close button (✕)
     local cb_sz = 26 * SCALE
@@ -7581,15 +7668,15 @@ end
     self._market_close_btn = {x = cb_x, y = cb_y, w = cb_sz, h = cb_sz}
     local is_hov_close = self.hover_market_close
     draw_market_box(cb_x, cb_y, cb_sz, cb_sz, is_hov_close and _COLOR_CACHE_5 or P.bg_btn, is_hov_close and _COLOR_CACHE_12 or P.border)
-    local x_w = style.font:get_width("✕")
-    renderer.draw_text(style.font, "✕", cb_x + math.floor((cb_sz - x_w)/2), cb_y + math.floor((cb_sz - style.font:get_height())/2), is_hov_close and _COLOR_CACHE_12 or P.fg_muted)
+    local x_w = mf:get_width("✕")
+    draw_text_emoji(mf, "✕", cb_x + math.floor((cb_sz - x_w)/2), cb_y + math.floor((cb_sz - mf:get_height())/2), is_hov_close and _COLOR_CACHE_12 or P.fg_muted)
     
     local ty = my + hdr_h + pad
     
     -- Row 1: Segmented Switchers & Action Buttons
     local seg_h = 30 * SCALE
-    local sw_skills_w = style.font:get_width("⚡ AI Skills") + 18 * SCALE
-    local sw_tools_w  = style.font:get_width("🔌 MCP Tools") + 18 * SCALE
+    local sw_skills_w = mf:get_width("⚡ AI Skills") + 18 * SCALE
+    local sw_tools_w  = mf:get_width("🔌 MCP Tools") + 18 * SCALE
     local sw_total_w  = sw_skills_w + sw_tools_w
     
     -- Type Segmented Pill Container
@@ -7608,21 +7695,21 @@ end
     elseif is_hov_tab1 then
       draw_market_box(seg_type_x, ty, sw_skills_w, seg_h, P.bg_btn, nil)
     end
-    renderer.draw_text(style.font, "⚡ AI Skills", seg_type_x + math.floor((sw_skills_w - style.font:get_width("⚡ AI Skills"))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_skills_tab and P.fg_accent or P.fg_dim)
+    draw_text_emoji(mf, "⚡ AI Skills", seg_type_x + math.floor((sw_skills_w - mf:get_width("⚡ AI Skills"))/2), ty + math.floor((seg_h - mf:get_height())/2), is_skills_tab and P.fg_accent or P.fg_dim)
     
     if not is_skills_tab then
       draw_market_box(seg_type_x + sw_skills_w, ty, sw_tools_w, seg_h, P.bg_btn_hl, P.border)
     elseif is_hov_tab2 then
       draw_market_box(seg_type_x + sw_skills_w, ty, sw_tools_w, seg_h, P.bg_btn, nil)
     end
-    renderer.draw_text(style.font, "🔌 MCP Tools", seg_type_x + sw_skills_w + math.floor((sw_tools_w - style.font:get_width("🔌 MCP Tools"))/2), ty + math.floor((seg_h - style.font:get_height())/2), (not is_skills_tab) and P.fg_accent or P.fg_dim)
+    draw_text_emoji(mf, "🔌 MCP Tools", seg_type_x + sw_skills_w + math.floor((sw_tools_w - mf:get_width("🔌 MCP Tools"))/2), ty + math.floor((seg_h - mf:get_height())/2), (not is_skills_tab) and P.fg_accent or P.fg_dim)
     
     -- View Mode Segmented Pill (Marketplace vs Installed)
     local inst_count = self.show_tools_tab and (self.installed_tools_count or 0) or (self.installed_skills_count or 0)
     local v_market_txt = "🌐 Marketplace"
     local v_inst_txt = "📦 Installed (" .. tostring(inst_count) .. ")"
-    local vm_w = style.font:get_width(v_market_txt) + 18 * SCALE
-    local vi_w = style.font:get_width(v_inst_txt) + 18 * SCALE
+    local vm_w = mf:get_width(v_market_txt) + 18 * SCALE
+    local vi_w = mf:get_width(v_inst_txt) + 18 * SCALE
     local seg_view_x = seg_type_x + sw_total_w + 12 * SCALE
     
     draw_market_box(seg_view_x, ty, vm_w + vi_w, seg_h, P.bg_darker, P.border)
@@ -7639,31 +7726,31 @@ end
     elseif is_hov_v1 then
       draw_market_box(seg_view_x, ty, vm_w, seg_h, P.bg_btn, nil)
     end
-    renderer.draw_text(style.font, v_market_txt, seg_view_x + math.floor((vm_w - style.font:get_width(v_market_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), (not is_installed_view) and P.fg_accent or P.fg_dim)
+    draw_text_emoji(mf, v_market_txt, seg_view_x + math.floor((vm_w - mf:get_width(v_market_txt))/2), ty + math.floor((seg_h - mf:get_height())/2), (not is_installed_view) and P.fg_accent or P.fg_dim)
     
     if is_installed_view then
       draw_market_box(seg_view_x + vm_w, ty, vi_w, seg_h, P.bg_btn_hl, P.border)
     elseif is_hov_v2 then
       draw_market_box(seg_view_x + vm_w, ty, vi_w, seg_h, P.bg_btn, nil)
     end
-    renderer.draw_text(style.font, v_inst_txt, seg_view_x + vm_w + math.floor((vi_w - style.font:get_width(v_inst_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_installed_view and P.fg_accent or P.fg_dim)
+    draw_text_emoji(mf, v_inst_txt, seg_view_x + vm_w + math.floor((vi_w - mf:get_width(v_inst_txt))/2), ty + math.floor((seg_h - mf:get_height())/2), is_installed_view and P.fg_accent or P.fg_dim)
     
     -- Right Action Buttons: Refresh & Add
     local ref_txt = "🔄 Refresh"
-    local ref_w = style.font:get_width(ref_txt) + 18 * SCALE
+    local ref_w = mf:get_width(ref_txt) + 18 * SCALE
     local ref_x = mx + mw - pad - ref_w
     self._market_refresh_btn = {x = ref_x, y = ty, w = ref_w, h = seg_h}
     local is_hov_ref = self.hover_market_ref
     draw_market_box(ref_x, ty, ref_w, seg_h, is_hov_ref and P.bg_btn_hl or P.bg_btn, P.border)
-    renderer.draw_text(style.font, ref_txt, ref_x + math.floor((ref_w - style.font:get_width(ref_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_hov_ref and P.fg_accent or P.fg)
+    draw_text_emoji(mf, ref_txt, ref_x + math.floor((ref_w - mf:get_width(ref_txt))/2), ty + math.floor((seg_h - mf:get_height())/2), is_hov_ref and P.fg_accent or P.fg)
     
     local add_txt = self.show_tools_tab and "➕ Add MCP" or "➕ Add Skill"
-    local add_w = style.font:get_width(add_txt) + 18 * SCALE
+    local add_w = mf:get_width(add_txt) + 18 * SCALE
     local add_x = ref_x - 10 * SCALE - add_w
     self._market_add_btn = {x = add_x, y = ty, w = add_w, h = seg_h}
     local is_hov_add = self.hover_market_add
     draw_market_box(add_x, ty, add_w, seg_h, is_hov_add and P.bg_btn_hl or P.bg_btn, P.border)
-    renderer.draw_text(style.font, add_txt, add_x + math.floor((add_w - style.font:get_width(add_txt))/2), ty + math.floor((seg_h - style.font:get_height())/2), is_hov_add and P.fg_accent or P.fg)
+    draw_text_emoji(mf, add_txt, add_x + math.floor((add_w - mf:get_width(add_txt))/2), ty + math.floor((seg_h - mf:get_height())/2), is_hov_add and P.fg_accent or P.fg)
     
     ty = ty + seg_h + 10 * SCALE
     
@@ -7674,12 +7761,12 @@ end
     local is_hov_search = self.hover_market_search
     draw_market_box(mx + pad, ty, s_w, s_h, P.bg_darker, is_hov_search and P.fg_accent or P.border)
     
-    renderer.draw_text(style.font, "🔍", mx + pad + 10 * SCALE, ty + math.floor((s_h - style.font:get_height())/2), P.fg_muted)
+    draw_text_emoji(mf, "🔍", mx + pad + 10 * SCALE, ty + math.floor((s_h - mf:get_height())/2), P.fg_muted)
     
     local has_query = self.market_search_query and self.market_search_query ~= ""
     local q_text = has_query and self.market_search_query or "Search skills, tools, prompts, authors, keywords..."
     local q_color = has_query and P.fg or P.fg_dim
-    renderer.draw_text(style.font, q_text, mx + pad + 32 * SCALE, ty + math.floor((s_h - style.font:get_height())/2), q_color)
+    draw_text_emoji(mf, q_text, mx + pad + 32 * SCALE, ty + math.floor((s_h - mf:get_height())/2), q_color)
     
     if has_query then
       local clr_w = 22 * SCALE
@@ -7688,8 +7775,8 @@ end
       self._market_search_clear_btn = {x = clr_x, y = clr_y, w = clr_w, h = clr_w}
       local is_hov_clr = self.hover_market_search_clear
       draw_market_box(clr_x, clr_y, clr_w, clr_w, is_hov_clr and _COLOR_CACHE_5 or P.bg_btn, P.border)
-      local xw = style.font:get_width("✕")
-      renderer.draw_text(style.font, "✕", clr_x + math.floor((clr_w - xw)/2), clr_y + math.floor((clr_w - style.font:get_height())/2), is_hov_clr and _COLOR_CACHE_12 or P.fg_dim)
+      local xw = mf:get_width("✕")
+      draw_text_emoji(mf, "✕", clr_x + math.floor((clr_w - xw)/2), clr_y + math.floor((clr_w - mf:get_height())/2), is_hov_clr and _COLOR_CACHE_12 or P.fg_dim)
     else
       self._market_search_clear_btn = nil
     end
@@ -7822,44 +7909,44 @@ end
           
           -- Card Header: Type Icon + Title + Domain Pill
           local t_icon = self.show_tools_tab and "🔌" or "⚡"
-          renderer.draw_text(style.font, t_icon, sx + 12 * SCALE, sy + 12 * SCALE, P.fg_accent)
+          draw_text_emoji(mf, t_icon, sx + 12 * SCALE, sy + 12 * SCALE, P.fg_accent)
           
           local title_str = skill.title or skill.name or skill.id
           local max_title_w = col_w - 110 * SCALE
-          local trunc_title = truncate_text(style.big_font or style.font, title_str, max_title_w)
-          renderer.draw_text(style.big_font or style.font, trunc_title, sx + 32 * SCALE, sy + 11 * SCALE, P.fg)
+          local trunc_title = truncate_text(mf_big, title_str, max_title_w)
+          draw_text_emoji(mf_big, trunc_title, sx + 32 * SCALE, sy + 11 * SCALE, P.fg)
           
           local cat_label = skill.domain or (self.show_tools_tab and "MCP Tool" or "General")
-          local cat_pill_w = style.font:get_width(cat_label) + 12 * SCALE
+          local cat_pill_w = mf:get_width(cat_label) + 12 * SCALE
           local cat_pill_x = sx + col_w - 12 * SCALE - cat_pill_w
-          draw_market_badge(cat_pill_x, sy + 11 * SCALE, cat_pill_w, 20 * SCALE, P.bg_btn, P.border, cat_label, style.font, P.fg_accent)
+          draw_market_badge(cat_pill_x, sy + 11 * SCALE, cat_pill_w, 20 * SCALE, P.bg_btn, P.border, cat_label, mf, P.fg_accent)
           
           -- Subheader: Author handle & Star rating / Verified badge
           local author_txt = "@" .. (skill.author or skill.namespace or "community")
-          renderer.draw_text(style.font, author_txt, sx + 12 * SCALE, sy + 38 * SCALE, P.fg_muted)
+          renderer.draw_text(mf, author_txt, sx + 12 * SCALE, sy + 38 * SCALE, P.fg_muted)
           
           if skill.stars and skill.stars > 0 then
             local star_txt = "★ " .. tostring(skill.stars)
-            local star_w = style.font:get_width(star_txt)
-            renderer.draw_text(style.font, star_txt, sx + col_w - 12 * SCALE - star_w, sy + 38 * SCALE, {242, 201, 76, 255})
+            local star_w = mf:get_width(star_txt)
+            draw_text_emoji(mf, star_txt, sx + col_w - 12 * SCALE - star_w, sy + 38 * SCALE, {242, 201, 76, 255})
           elseif skill.verified then
             local ver_txt = "✓ Verified"
-            local ver_w = style.font:get_width(ver_txt)
-            renderer.draw_text(style.font, ver_txt, sx + col_w - 12 * SCALE - ver_w, sy + 38 * SCALE, P.fg_accent)
+            local ver_w = mf:get_width(ver_txt)
+            draw_text_emoji(mf, ver_txt, sx + col_w - 12 * SCALE - ver_w, sy + 38 * SCALE, P.fg_accent)
           end
           
           -- Description: up to 2 wrapped lines with ellipsis
           local desc_txt = skill.description or "No description provided."
-          draw_wrapped_lines(style.font, desc_txt, sx + 12 * SCALE, sy + 62 * SCALE, col_w - 24 * SCALE, 2, P.fg_dim, 2 * SCALE)
+          draw_wrapped_lines(mf, desc_txt, sx + 12 * SCALE, sy + 62 * SCALE, col_w - 24 * SCALE, 2, P.fg_dim, 2 * SCALE)
           
           -- Card Footer: Status badge (Left) & Dedicated Action Buttons (Right)
           local footer_y = sy + sh - 34 * SCALE
           
           if is_installed then
-            local inst_badge_w = style.font:get_width("✓ Installed") + 14 * SCALE
-            draw_market_badge(sx + 12 * SCALE, footer_y, inst_badge_w, 22 * SCALE, {76, 175, 80, 35}, {76, 175, 80, 255}, "✓ Installed", style.font, {76, 175, 80, 255})
+            local inst_badge_w = mf:get_width("✓ Installed") + 14 * SCALE
+            draw_market_badge(sx + 12 * SCALE, footer_y, inst_badge_w, 22 * SCALE, {76, 175, 80, 35}, {76, 175, 80, 255}, "✓ Installed", mf, {76, 175, 80, 255})
           else
-            renderer.draw_text(style.font, "Open Source", sx + 12 * SCALE, footer_y + 4 * SCALE, P.fg_muted)
+            renderer.draw_text(mf, "Open Source", sx + 12 * SCALE, footer_y + 4 * SCALE, P.fg_muted)
           end
           
           -- Right Action Buttons
@@ -7990,8 +8077,8 @@ end
       self._preview_close_btn = {x = p_cb_x, y = p_cb_y, w = p_cb_sz, h = p_cb_sz}
       local is_hov_pcb = self.hover_preview_close
       draw_market_box(p_cb_x, p_cb_y, p_cb_sz, p_cb_sz, is_hov_pcb and _COLOR_CACHE_5 or P.bg_btn, is_hov_pcb and _COLOR_CACHE_12 or P.border)
-      local pxw = style.font:get_width("✕")
-      renderer.draw_text(style.font, "✕", p_cb_x + math.floor((p_cb_sz - pxw)/2), p_cb_y + math.floor((p_cb_sz - style.font:get_height())/2), is_hov_pcb and _COLOR_CACHE_12 or P.fg_muted)
+      local pxw = mf:get_width("✕")
+      draw_text_emoji(mf, "✕", p_cb_x + math.floor((p_cb_sz - pxw)/2), p_cb_y + math.floor((p_cb_sz - mf:get_height())/2), is_hov_pcb and _COLOR_CACHE_12 or P.fg_muted)
       
       -- Metadata bar: Package ID, Author, and Repository link
       local meta_h = 32 * SCALE
@@ -8008,14 +8095,14 @@ end
       
       if skill.repo_url and skill.repo_url ~= "" then
         local repo_btn_txt = "↗ View Repository"
-        local rb_w = style.font:get_width(repo_btn_txt) + 14 * SCALE
+        local rb_w = mf:get_width(repo_btn_txt) + 14 * SCALE
         local rb_h = 22 * SCALE
         local rb_x = px + pw - 16 * SCALE - rb_w
         local rb_y = meta_y + math.floor((meta_h - rb_h)/2)
         self._preview_repo_btn = {x = rb_x, y = rb_y, w = rb_w, h = rb_h}
         local is_hov_repo = self.hover_preview_repo
         draw_market_box(rb_x, rb_y, rb_w, rb_h, is_hov_repo and P.bg_btn_hl or P.bg_btn, P.border)
-        renderer.draw_text(style.font, repo_btn_txt, rb_x + 7 * SCALE, rb_y + math.floor((rb_h - style.font:get_height())/2), is_hov_repo and P.fg_accent or P.fg)
+        draw_text_emoji(mf, repo_btn_txt, rb_x + 7 * SCALE, rb_y + math.floor((rb_h - mf:get_height())/2), is_hov_repo and P.fg_accent or P.fg)
       else
         self._preview_repo_btn = nil
       end
@@ -8126,24 +8213,24 @@ end
       
       if is_inst then
         local un_txt = "🗑 Uninstall Extension"
-        local un_w = style.font:get_width(un_txt) + 24 * SCALE
+        local un_w = mf:get_width(un_txt) + 24 * SCALE
         local un_h = 30 * SCALE
         local un_x = px + pw - 16 * SCALE - un_w
         local un_y = ftr_y + math.floor((ftr_h - un_h) / 2)
         self._preview_uninstall_btn = {x = un_x, y = un_y, w = un_w, h = un_h}
         local is_hov_un = self.hover_preview_uninstall
         draw_market_box(un_x, un_y, un_w, un_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
-        renderer.draw_text(style.font, un_txt, un_x + 12 * SCALE, un_y + math.floor((un_h - style.font:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
+        draw_text_emoji(mf, un_txt, un_x + 12 * SCALE, un_y + math.floor((un_h - mf:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
       else
         local in_txt = "⬇ Install Extension"
-        local in_w = style.font:get_width(in_txt) + 24 * SCALE
+        local in_w = mf:get_width(in_txt) + 24 * SCALE
         local in_h = 30 * SCALE
         local in_x = px + pw - 16 * SCALE - in_w
         local in_y = ftr_y + math.floor((ftr_h - in_h) / 2)
         self._preview_install_btn = {x = in_x, y = in_y, w = in_w, h = in_h}
         local is_hov_in = self.hover_preview_install
         draw_market_box(in_x, in_y, in_w, in_h, is_hov_in and P.fg or P.fg_accent, nil)
-        renderer.draw_text(style.font, in_txt, in_x + 12 * SCALE, in_y + math.floor((in_h - style.font:get_height())/2), P.bg)
+        draw_text_emoji(mf, in_txt, in_x + 12 * SCALE, in_y + math.floor((in_h - mf:get_height())/2), P.bg)
       end
     end
   end

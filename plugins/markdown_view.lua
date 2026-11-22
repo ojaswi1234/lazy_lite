@@ -16,21 +16,46 @@ local MarkdownView = View:extend()
 -- Safely try to load emoji font
 local emoji_font = nil
 pcall(function()
-  local path = USERDIR .. "/fonts/NotoColorEmoji.ttf"
-  local f = io.open(path, "r")
-  if f then
-    f:close()
+  local candidates = {}
+  if PLATFORM == "Windows" then
+    local windir = os.getenv("WINDIR") or "C:\\Windows"
+    table.insert(candidates, windir .. "\\Fonts\\seguiemj.ttf")
+    table.insert(candidates, windir .. "\\Fonts\\seguisym.ttf")
+    table.insert(candidates, windir .. "\\Fonts\\arialuni.ttf")
+    table.insert(candidates, USERDIR .. "/fonts/NotoEmoji-Regular.ttf")
+    table.insert(candidates, USERDIR .. "/fonts/NotoColorEmoji.ttf")
   else
-    if PLATFORM == "Windows" then
-      path = os.getenv("WINDIR") .. "\\Fonts\\seguiemj.ttf"
-    elseif PLATFORM == "Mac OS X" then
-      path = "/System/Library/Fonts/Apple Color Emoji.ttc"
-    else
-      path = "/usr/share/fonts/noto/NotoColorEmoji.ttf"
+    table.insert(candidates, USERDIR .. "/fonts/NotoEmoji-Regular.ttf")
+    for _, p in ipairs({
+      "/System/Library/Fonts/Apple Color Emoji.ttc",
+      "/Library/Fonts/Apple Color Emoji.ttc",
+      "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+      "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+      "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
+      "/usr/share/fonts/truetype/ancient-scripts/Symbola.ttf",
+    }) do table.insert(candidates, p) end
+    table.insert(candidates, USERDIR .. "/fonts/NotoColorEmoji.ttf")
+  end
+
+  local loaded = {}
+  for _, path in ipairs(candidates) do
+    local f = io.open(path, "rb")
+    if f then
+      f:close()
+      local ok, fnt = pcall(renderer.font.load, path, style.font:get_size())
+      if ok and fnt then
+        table.insert(loaded, fnt)
+        if PLATFORM == "Windows" and #loaded >= 2 then break
+        elseif PLATFORM ~= "Windows" and #loaded >= 1 then break end
+      end
     end
   end
-  if path then
-    emoji_font = renderer.font.load(path, style.font:get_size())
+
+  if #loaded > 1 then
+    local ok, grp = pcall(renderer.font.group, loaded)
+    emoji_font = (ok and grp) or loaded[1]
+  elseif #loaded == 1 then
+    emoji_font = loaded[1]
   end
 end)
 
