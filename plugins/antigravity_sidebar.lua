@@ -7697,6 +7697,7 @@ end
     
     -- Header Title & Subtitle Badge
     local mf = get_ui_font(style.font)
+    local mf_big = get_bold_font() or get_ui_font(style.big_font or style.font)
     local h_title = "Extensions & Skills"
     local h_title_font = get_ui_font(style.big_font or style.font)
     renderer.draw_text(h_title_font, h_title, mx + pad, my + math.floor((hdr_h - h_title_font:get_height()) / 2), P.fg)
