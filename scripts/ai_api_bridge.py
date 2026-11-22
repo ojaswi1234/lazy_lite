@@ -7,6 +7,8 @@ import os
 import re
 import uuid
 import subprocess
+import shutil
+from contextlib import asynccontextmanager, AsyncExitStack
 import queue
 import threading
 from typing import Annotated, Literal, TypedDict
@@ -1080,6 +1082,102 @@ class StreamInterceptor:
         self.flushed_text += out
         return out
 
+
+@asynccontextmanager
+async def robust_stdio_client(server):
+    from mcp.client.stdio import (
+        get_default_environment,
+        _get_executable_command,
+        _create_platform_compatible_process,
+        _terminate_process_tree,
+    )
+    from mcp.shared.message import SessionMessage
+    from anyio.streams.text import TextReceiveStream
+    from mcp import types
+    import anyio
+
+    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+
+    cmd = server.command
+    if sys.platform == "win32":
+        cmd = shutil.which(cmd) or cmd
+    command = _get_executable_command(cmd)
+
+    process = await _create_platform_compatible_process(
+        command=command,
+        args=server.args,
+        env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
+        errlog=sys.stderr,
+        cwd=server.cwd,
+    )
+
+    async def stdout_reader():
+        assert process.stdout, "Opened process is missing stdout"
+        try:
+            async with read_stream_writer:
+                buffer = ""
+                async for chunk in TextReceiveStream(
+                    process.stdout,
+                    encoding=server.encoding,
+                    errors="replace",
+                ):
+                    lines = (buffer + chunk).split("\n")
+                    buffer = lines.pop()
+                    for line in lines:
+                        clean = line.strip()
+                        if not clean or not clean.startswith("{"):
+                            # Filter out non-JSON banner/diagnostic lines (e.g. from Smithery, npm, mcp-remote)
+                            continue
+                        try:
+                            msg = types.JSONRPCMessage.model_validate_json(clean)
+                        except Exception:
+                            # Safely discard non-protocol text
+                            continue
+                        session_message = SessionMessage(msg)
+                        await read_stream_writer.send(session_message)
+        except anyio.ClosedResourceError:
+            pass
+
+    async def stdin_writer():
+        assert process.stdin, "Opened process is missing stdin"
+        try:
+            async with write_stream_reader:
+                async for session_message in write_stream_reader:
+                    j = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    await process.stdin.send(
+                        (j + "\n").encode(
+                            encoding=server.encoding,
+                            errors=server.encoding_error_handler,
+                        )
+                    )
+        except anyio.ClosedResourceError:
+            pass
+
+    t_r = asyncio.create_task(stdout_reader())
+    t_w = asyncio.create_task(stdin_writer())
+    try:
+        yield read_stream, write_stream
+    finally:
+        t_r.cancel()
+        t_w.cancel()
+        try:
+            await asyncio.gather(t_r, t_w, return_exceptions=True)
+        except Exception:
+            pass
+        if process.stdin:
+            try:
+                await process.stdin.aclose()
+            except Exception:
+                pass
+        try:
+            with anyio.fail_after(2.0):
+                await process.wait()
+        except Exception:
+            await _terminate_process_tree(process)
+        await read_stream.aclose()
+        await write_stream.aclose()
+
 def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None):
     async def _run_agent_async():
         try:
@@ -1369,50 +1467,57 @@ HOW TO ACT:
 4. SYNTHESIZE & CONCLUDE: Always synthesize findings from the inspected files into a clean, well-formatted response with markdown headings, tables, and bullet points. Avoid endless exploration loops."""
 
         custom_skill_prompt = ""
+        installed_skills_list = []
         try:
+            config_dir = os.path.dirname(os.path.abspath(__file__))
+            skills_file = os.path.join(config_dir, "local_skills.json")
+            if os.path.exists(skills_file):
+                with open(skills_file, "r", encoding="utf-8") as f:
+                    installed_skills_list = json.load(f)
+            
             if prompt.startswith("/"):
                 cmd = prompt.split()[0][1:]
-                pass
-                config_dir = os.path.dirname(os.path.abspath(__file__))
-                skills_file = os.path.join(config_dir, "local_skills.json")
-                if os.path.exists(skills_file):
-                    with open(skills_file, "r") as f:
-                        skills = json.load(f)
-                    for s in skills:
-                        if s.get("id") == cmd:
-                            custom_skill_prompt = f"\n\n[SKILL ACTIVATED: {s.get('title')}]\n{s.get('system_prompt')}"
-                            break
+                for s in installed_skills_list:
+                    if s.get("id") == cmd:
+                        custom_skill_prompt = f"\n\n[ACTIVE SKILL INSTRUCTION: {s.get('title')}]\n{s.get('system_prompt')}"
+                        break
             elif active_skill:
-                pass
-                config_dir = os.path.dirname(os.path.abspath(__file__))
-                skills_file = os.path.join(config_dir, "local_skills.json")
-                if os.path.exists(skills_file):
-                    with open(skills_file, "r") as f:
-                        skills = json.load(f)
-                    for s in skills:
-                        if s.get("id") == active_skill:
-                            custom_skill_prompt = f"\n\n[SKILL ACTIVATED: {s.get('title')}]\n{s.get('system_prompt')}"
-                            break
-        except: pass
+                for s in installed_skills_list:
+                    if s.get("id") == active_skill:
+                        custom_skill_prompt = f"\n\n[ACTIVE SKILL INSTRUCTION: {s.get('title')}]\n{s.get('system_prompt')}"
+                        break
+        except Exception:
+            pass
 
         skill_ui_context = ""
         if active_skill and skill_state:
-            pass
             try:
                 state_data = json.loads(skill_state)
                 skill_ui_context = "\n\n[SKILL CONFIGURATION STATE]\n"
                 for k, v in state_data.items():
                     skill_ui_context += f"- {k}: {v}\n"
-            except: pass
+            except Exception:
+                pass
 
+        # Build list of installed skills for system awareness
+        installed_skills_context = ""
+        if installed_skills_list:
+            sk_lines = []
+            for s in installed_skills_list:
+                s_id = s.get("id", "")
+                s_title = s.get("title", s_id)
+                s_desc = s.get("description", "")
+                if s_desc:
+                    sk_lines.append(f"- {s_id} ({s_title}): {s_desc[:120]}")
+                else:
+                    sk_lines.append(f"- {s_id} ({s_title})")
+            installed_skills_context = "\n\nAVAILABLE INSTALLED SKILLS & EXTENSIONS:\n" + "\n".join(sk_lines[:15]) + "\nIf a user request relates to any installed skill, apply its domain expertise directly.\n"
+
+        # Preserve the complete base system prompt, and augment with skill context
         if custom_skill_prompt:
-            # Strict tool restriction for Skills
-            # We completely remove local_shell, write_file, read_file so the model CANNOT hallucinate them.
-            # MCP tools (if any) are added later and remain available.
-            pass # tools = [t for t in tools if t.name not in ["local_shell", "write_file", "read_file"]]
-            system_prompt = custom_skill_prompt.strip() + "\n" + skill_ui_context + "\n" + ws_context + "\n" + attachments_context
+            system_prompt = system_prompt + custom_skill_prompt + skill_ui_context + installed_skills_context + "\n" + attachments_context
         else:
-            system_prompt = system_prompt + "\n" + skill_ui_context + "\n" + attachments_context
+            system_prompt = system_prompt + skill_ui_context + installed_skills_context + "\n" + attachments_context
 
         # Teams logic
         team_agents = []
@@ -1822,37 +1927,46 @@ HOW TO ACT:
             mcp_config_path = os.path.join(config_dir, "mcp_config.json")
             if enable_tools and not read_only and os.path.exists(mcp_config_path):
                 try:
-                    with open(mcp_config_path, "r") as f:
+                    with open(mcp_config_path, "r", encoding="utf-8") as f:
                         mcp_data = json.load(f)
                 except Exception as e:
                     mcp_data = {}
                     print(f"[ERROR Reading mcp_config.json]: {e}\n", flush=True)
-                    
-                for srv_name, srv_conf in mcp_data.get("mcpServers", {}).items():
+
+                server_items = list(mcp_data.get("mcpServers", {}).items())
+                for srv_name, srv_conf in server_items:
                     try:
                         merged_env = os.environ.copy()
                         tool_env = srv_conf.get("env", {})
                         if isinstance(tool_env, dict):
                             for k, v in tool_env.items():
                                 if v: merged_env[k] = str(v)
+                        
+                        cmd = srv_conf.get("command", "")
+                        if sys.platform == "win32":
+                            cmd = shutil.which(cmd) or cmd
+
                         params = StdioServerParameters(
-                            command=srv_conf["command"], 
-                            args=srv_conf.get("args", []), 
+                            command=cmd,
+                            args=srv_conf.get("args", []),
                             env=merged_env
                         )
-                        async def init_server():
-                            read, write = await stack.enter_async_context(stdio_client(params))
+                        async def init_single_server():
+                            read, write = await stack.enter_async_context(robust_stdio_client(params))
                             session = await stack.enter_async_context(ClientSession(read, write))
-                            await session.initialize()
-                            return await load_mcp_tools(session)
+                            await asyncio.wait_for(session.initialize(), timeout=10.0)
+                            return await asyncio.wait_for(load_mcp_tools(session), timeout=5.0)
 
-                        mcp_tools = await asyncio.wait_for(init_server(), timeout=1.5)
-                        tools.extend(mcp_tools)
-                    except Exception:
-                        pass
+                        srv_tools = await asyncio.wait_for(init_single_server(), timeout=14.0)
+                        if srv_tools:
+                            tools.extend(srv_tools)
+                            print(f"[MCP] Loaded {len(srv_tools)} tools from server '{srv_name}'", flush=True)
+                    except Exception as srv_err:
+                        print(f"[MCP NOTICE] Server '{srv_name}' skipped ({srv_err}).", flush=True)
 
             # Smart tool budgeting to prevent rate limits and model confusion
-            max_tools_budget = 30 if provider in ["groq", "ollama", "nvidia"] else 125
+            # Groq on-demand tier has a strict 7,000 ITPM limit; 8 tools keeps schema size under 1.6k tokens.
+            max_tools_budget = 8 if provider == "groq" else (25 if provider in ["ollama", "nvidia"] else 120)
             if len(tools) > max_tools_budget:
                 print(f"\n[INFO] Bounding tool count to {max_tools_budget} for {provider} to maintain optimal attention and avoid token limits.", flush=True)
                 tools = tools[:max_tools_budget]
@@ -1914,6 +2028,8 @@ def main():
     parser.add_argument("--install-skill", type=str)
     parser.add_argument("--uninstall-skill", type=str)
     parser.add_argument("--preview-skill", type=str)
+    parser.add_argument("--active-skill", type=str)
+    parser.add_argument("--skill-state", type=str)
     args = parser.parse_args()
 
     import re
@@ -2358,7 +2474,10 @@ def main():
         # if arg is FILE:path
         skill_obj = {}
         if args.install_skill.startswith("FILE:"):
-            with open(args.install_skill[5:], "r") as f: skill_obj = json.load(f)
+            with open(args.install_skill[5:], "r", encoding="utf-8") as f: skill_obj = json.load(f)
+        s_id = skill_obj.get("id")
+        if s_id:
+            skills = [s for s in skills if s.get("id") != s_id]
         skills.append(skill_obj)
         with open(skill_db_path, "w") as f: json.dump(skills, f, indent=2)
         print(f"Installed skill {skill_obj.get('id', 'unknown')}")
@@ -2454,6 +2573,8 @@ def main():
             workspace=args.workspace,
             thread_id=args.thread_id,
             enable_tools=enable_t,
+            active_skill=args.active_skill,
+            skill_state=args.skill_state,
             team_config_file=args.team_config
         )
 

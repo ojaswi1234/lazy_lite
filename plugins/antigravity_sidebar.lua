@@ -1252,7 +1252,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
               else
                 local header = line:match("^%s*(#+)%s")
                 local list_bullet = line:match("^%s*[%-%*]%s+(.*)")
-                local list_num = line:match("^%s*(%d+)%.%s+(.*)")
+                local list_num_digits, list_num_text = line:match("^%s*(%d+)[%.)]%s+(.*)")
                 local level = header and #header or 0
                 
                 local list_prefix = nil
@@ -1262,10 +1262,9 @@ local function parse_blocks(text, base_font, code_font, max_w)
                 elseif list_bullet then
                   clean_line = list_bullet
                   list_prefix = "• "
-                elseif list_num then
-                  local num = line:match("^%s*(%d+)%.")
-                  clean_line = list_num
-                  list_prefix = num .. ". "
+                elseif list_num_digits and list_num_text then
+                  clean_line = list_num_text
+                  list_prefix = list_num_digits .. ". "
                 end
                 
                 local f = (level > 0) and get_heading_font(level) or (base_font or style.font)
@@ -3714,8 +3713,8 @@ function AGView:draw()
       elseif blk.type == "paragraph" then
         local f = blk.font or ((blk.level > 0) and get_heading_font(blk.level) or style.font)
         local lh = blk.lh or (f:get_height() + 2 * SCALE)
-        local top_m = (blk.level == 1 and 18 * SCALE) or (blk.level == 2 and 12 * SCALE) or (blk.level == 3 and 8 * SCALE) or 0
-        local bot_m = (blk.level == 1 and 4 * SCALE) or 0
+        local top_m = (blk.level == 1 and 20 * SCALE) or (blk.level == 2 and 14 * SCALE) or (blk.level == 3 and 8 * SCALE) or 0
+        local bot_m = (blk.level == 1 and 10 * SCALE) or (blk.level == 2 and 8 * SCALE) or (blk.level == 3 and 4 * SCALE) or 0
         msg_h = msg_h + #blk.wrapped_lines * lh + top_m + bot_m
       end
     end
@@ -4007,12 +4006,9 @@ function AGView:draw()
         local l_col = (blk.level > 0) and P.fg_accent or fg_col
         local bfont = get_bold_font()
 
-        -- Extra spacing above headers to separate sections
-        local top_m = 0
-        if blk.level == 1 then top_m = 18 * SCALE
-        elseif blk.level == 2 then top_m = 12 * SCALE
-        elseif blk.level == 3 then top_m = 8 * SCALE
-        end
+        -- Extra spacing above headers to separate sections (synchronized with height calc)
+        local top_m = (blk.level == 1 and 20 * SCALE) or (blk.level == 2 and 14 * SCALE) or (blk.level == 3 and 8 * SCALE) or 0
+        local bot_m = (blk.level == 1 and 10 * SCALE) or (blk.level == 2 and 8 * SCALE) or (blk.level == 3 and 4 * SCALE) or 0
         line_y = line_y + top_m
 
         for l_idx, w_line in ipairs(blk.wrapped_lines) do
@@ -4066,19 +4062,28 @@ function AGView:draw()
               end
             end
             core.pop_clip_rect()
-
-            -- Subtle decorative underline for H1
-            if blk.level == 1 and l_idx == #blk.wrapped_lines then
-              local line_w = math.min(para_avail_w, 200 * SCALE)
-              renderer.draw_rect(x + pad + msg_pad, line_y + lh + 2 * SCALE, line_w, 2 * SCALE, { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 90 })
-            end
           end
           line_y = line_y + lh
         end
 
+        -- Horizontal divider line under section titles (H1 and H2)
         if blk.level == 1 then
-          line_y = line_y + 4 * SCALE
+          local div_x = x + pad + msg_pad
+          local div_w = msg_w - 2 * msg_pad
+          local div_y = line_y + 3 * SCALE
+          if div_y >= chat_top and div_y <= chat_bot then
+            renderer.draw_rect(div_x, div_y, div_w, 2 * SCALE, { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 130 })
+          end
+        elseif blk.level == 2 then
+          local div_x = x + pad + msg_pad
+          local div_w = msg_w - 2 * msg_pad
+          local div_y = line_y + 2 * SCALE
+          if div_y >= chat_top and div_y <= chat_bot then
+            renderer.draw_rect(div_x, div_y, div_w, 1 * SCALE, { P.border[1], P.border[2], P.border[3], 140 })
+          end
         end
+
+        line_y = line_y + bot_m
       end
     end
 

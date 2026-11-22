@@ -255,6 +255,13 @@ M.REGISTRY = {
         a[#a+1] = "--thread-id"; a[#a+1] = cfg.session_id
       end
       
+      if cfg.active_skill then
+        a[#a+1] = "--active-skill"; a[#a+1] = cfg.active_skill
+      end
+      if cfg.skill_state then
+        a[#a+1] = "--skill-state"; a[#a+1] = cfg.skill_state
+      end
+      
       local team_cfg = USERDIR .. "/scripts/.team_config.json"
       local tf = io.open(team_cfg, "r")
       if tf then
