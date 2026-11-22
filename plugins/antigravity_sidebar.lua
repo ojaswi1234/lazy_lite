@@ -3078,6 +3078,10 @@ function AGView:fetch_marketplace()
          self.market_page = self.market_page or 1
          table.insert(cmd, "--page")
          table.insert(cmd, tostring(self.market_page))
+         if self.market_source and self.market_source ~= "" then
+           table.insert(cmd, "--source")
+           table.insert(cmd, self.market_source)
+         end
       end
       
       if self.market_search_query and self.market_search_query ~= "" then
@@ -3116,6 +3120,23 @@ function AGView:fetch_marketplace()
       core.redraw = true
     end)
   end
+
+function AGView:add_custom_source_repo(repo_str)
+  if not repo_str or repo_str == "" then return end
+  core.add_thread(function()
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+    local p = process.start({"python", bridge, "--add-source-repo", repo_str})
+    if p then
+      while p:running() do coroutine.yield(0.1) end
+    end
+    core.log("[Antigravity] Added marketplace source: " .. repo_str)
+    self.market_source = "github"
+    self.market_page = 1
+    self.market_scroll_y = 0
+    self:fetch_marketplace()
+    core.redraw = true
+  end)
+end
 
 
 function AGView:open_tool_config(tool_item)
@@ -5490,6 +5511,18 @@ function AGView:on_mouse_moved(mx, my, ...)
       elseif check_btn(self._market_prev_btn) then self.hover_market_prev = true; is_hand = true
       elseif check_btn(self._market_next_btn) then self.hover_market_next = true; is_hand = true
       elseif check_btn(self._market_clear_filters_btn) then self.hover_market_clr_filters = true; is_hand = true
+      elseif check_btn(self._market_add_repo_btn) then self.hover_market_add_repo = true; is_hand = true
+      end
+
+      self.hover_market_source = nil
+      if not is_hand and self._market_source_chips then
+        for _, chip in ipairs(self._market_source_chips) do
+          if check_btn(chip) then
+            self.hover_market_source = chip.id
+            is_hand = true
+            break
+          end
+        end
       end
 
       if not is_hand and self._market_cat_chips then
@@ -6588,6 +6621,32 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
           self.market_page = 1
           self.market_scroll_y = 0
           self:fetch_marketplace()
+          return true
+        end
+      end
+
+      -- Source Selector Chips
+      if self._market_source_chips then
+        for _, chip in ipairs(self._market_source_chips) do
+          if mx >= chip.x and mx <= chip.x + chip.w and my >= chip.y and my <= chip.y + chip.h then
+            self.market_source = chip.id
+            self.market_page = 1
+            self.market_scroll_y = 0
+            self:fetch_marketplace()
+            return true
+          end
+        end
+      end
+
+      -- Add Custom GitHub Repo Source Button
+      if self._market_add_repo_btn then
+        local btn = self._market_add_repo_btn
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          core.command_view:enter("Add GitHub Repository as Source (e.g. NVIDIA/skills or username/repo)", {
+            submit = function(repo)
+              self:add_custom_source_repo(repo)
+            end
+          })
           return true
         end
       end
@@ -7841,6 +7900,13 @@ end
     return y
   end
 
+  local MARKET_SOURCES = {
+    { id = "all",      label = "All Sources", icon = "🌐" },
+    { id = "smithery", label = "Smithery",    icon = "⚡" },
+    { id = "nvidia",   label = "NVIDIA NIM",  icon = "🟩" },
+    { id = "github",   label = "GitHub",      icon = "🐙" },
+  }
+
   local MARKET_CATEGORIES = {
     { id = "all",     label = "All" },
     { id = "coding",  label = "Coding & Dev" },
@@ -8293,6 +8359,40 @@ end
     
     ty = ty + seg_h + 10 * SCALE
     
+    -- Row 1.5: Source Switcher Row (All Sources vs Smithery vs NVIDIA NIM vs GitHub)
+    local src_lbl = "Source:"
+    local src_lbl_w = mf:get_width(src_lbl) + 10 * SCALE
+    renderer.draw_text(mf, src_lbl, mx + pad, ty + math.floor((24 * SCALE - mf:get_height()) / 2), P.fg_muted)
+
+    local s_chip_x = mx + pad + src_lbl_w
+    local s_chip_h = 24 * SCALE
+    self._market_source_chips = {}
+    for _, src in ipairs(MARKET_SOURCES) do
+      local s_txt = src.icon .. " " .. src.label
+      local sw = mf:get_width(s_txt) + 16 * SCALE
+      local is_active = (self.market_source or "all") == src.id
+      local is_hov = self.hover_market_source == src.id
+
+      local bg_col = is_active and P.bg_btn_hl or (is_hov and P.bg_btn_hl or P.bg_darker)
+      local border_col = is_active and (src.id == "nvidia" and {46, 160, 67, 255} or P.fg_accent) or P.border
+      local txt_col = is_active and (src.id == "nvidia" and {76, 175, 80, 255} or P.fg_accent) or (is_hov and P.fg or P.fg_dim)
+
+      draw_market_box(s_chip_x, ty, sw, s_chip_h, bg_col, border_col)
+      draw_text_emoji(mf, s_txt, s_chip_x + 8 * SCALE, ty + math.floor((s_chip_h - mf:get_height()) / 2), txt_col)
+      table.insert(self._market_source_chips, {id = src.id, x = s_chip_x, y = ty, w = sw, h = s_chip_h})
+      s_chip_x = s_chip_x + sw + 8 * SCALE
+    end
+
+    local ar_txt = "➕ Add Repo"
+    local ar_w = mf:get_width(ar_txt) + 16 * SCALE
+    local ar_x = mx + mw - pad - ar_w
+    self._market_add_repo_btn = {x = ar_x, y = ty, w = ar_w, h = s_chip_h}
+    local is_hov_ar = self.hover_market_add_repo
+    draw_market_box(ar_x, ty, ar_w, s_chip_h, is_hov_ar and P.bg_btn_hl or P.bg_btn, is_hov_ar and P.fg_accent or P.border)
+    draw_text_emoji(mf, ar_txt, ar_x + 8 * SCALE, ty + math.floor((s_chip_h - mf:get_height()) / 2), is_hov_ar and P.fg_accent or P.fg_muted)
+
+    ty = ty + s_chip_h + 10 * SCALE
+    
     -- Row 2: Modern Search Input Bar
     local s_h = 28 * SCALE
     local s_w = mw - 2 * pad
@@ -8446,24 +8546,28 @@ end
           local card_border = is_hover and P.fg_accent or P.border
           draw_market_box(sx, sy, col_w, sh, card_bg, card_border)
           
-          -- Card Header: Type Icon + Title + Domain Pill
+          -- Card Header: Type Icon + Title + Branded Source Pill
           local t_icon = self.show_tools_tab and "🔌" or "⚡"
           draw_text_emoji(mf, t_icon, sx + 12 * SCALE, sy + 12 * SCALE, P.fg_accent)
-          
+
+          local src_tag = (skill.source == "nvidia") and "🟩 NVIDIA" or ((skill.source == "github") and "🐙 GitHub" or "⚡ Smithery")
+          local st_col = (skill.source == "nvidia") and {76, 175, 80, 255} or ((skill.source == "github") and {170, 140, 240, 255} or P.fg_accent)
+          local st_bg = (skill.source == "nvidia") and {35, 134, 54, 30} or P.bg_btn
+          local st_border = (skill.source == "nvidia") and {46, 160, 67, 180} or P.border
+          local st_w = mf:get_width(src_tag) + 12 * SCALE
+          local st_x = sx + col_w - 12 * SCALE - st_w
+          draw_market_badge(st_x, sy + 11 * SCALE, st_w, 20 * SCALE, st_bg, st_border, src_tag, mf, st_col)
+
           local title_str = skill.title or skill.name or skill.id
-          local max_title_w = col_w - 110 * SCALE
+          local max_title_w = col_w - 40 * SCALE - st_w - 10 * SCALE
           local trunc_title = truncate_text(mf_big, title_str, max_title_w)
           draw_text_emoji(mf_big, trunc_title, sx + 32 * SCALE, sy + 11 * SCALE, P.fg)
-          
+
+          -- Subheader: Author handle & Domain Pill & Star rating
           local cat_label = skill.domain or (self.show_tools_tab and "MCP Tool" or "General")
-          local cat_pill_w = mf:get_width(cat_label) + 12 * SCALE
-          local cat_pill_x = sx + col_w - 12 * SCALE - cat_pill_w
-          draw_market_badge(cat_pill_x, sy + 11 * SCALE, cat_pill_w, 20 * SCALE, P.bg_btn, P.border, cat_label, mf, P.fg_accent)
-          
-          -- Subheader: Author handle & Star rating / Verified badge
-          local author_txt = "@" .. (skill.author or skill.namespace or "community")
+          local author_txt = "@" .. (skill.author or skill.namespace or "community") .. "  •  " .. cat_label
           renderer.draw_text(mf, author_txt, sx + 12 * SCALE, sy + 38 * SCALE, P.fg_muted)
-          
+
           if skill.stars and skill.stars > 0 then
             local star_txt = "★ " .. tostring(skill.stars)
             local star_w = mf:get_width(star_txt)

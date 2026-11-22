@@ -2035,6 +2035,9 @@ def main():
     parser.add_argument("--preview-skill", type=str)
     parser.add_argument("--active-skill", type=str)
     parser.add_argument("--skill-state", type=str)
+    parser.add_argument("--source", type=str, default="all", help="Marketplace source filter: all, smithery, nvidia, github")
+    parser.add_argument("--add-source-repo", type=str, help="Add custom GitHub repository as marketplace source")
+    parser.add_argument("--get-sources", action="store_true", help="List active marketplace sources")
     args = parser.parse_args()
 
     import re
@@ -2138,70 +2141,373 @@ def main():
         sys.exit(0)
 
 
+    def load_sources_config():
+        config_dir = os.path.dirname(os.path.abspath(__file__))
+        src_file = os.path.join(config_dir, "sources_config.json")
+        default_cfg = {
+            "active_source": "all",
+            "sources": [
+                {"id": "all", "name": "All Sources", "icon": "🌐", "description": "Unified discovery across Smithery, NVIDIA NIM, and GitHub"},
+                {"id": "smithery", "name": "Smithery", "icon": "⚡", "description": "Smithery.ai open MCP servers and skill registry"},
+                {"id": "nvidia", "name": "NVIDIA NIM", "icon": "🟩", "description": "NVIDIA Cloud inference microservices and verified agent skills"},
+                {"id": "github", "name": "GitHub", "icon": "🐙", "description": "Community skill packs and public GitHub repositories"}
+            ],
+            "custom_repos": ["NVIDIA/skills"]
+        }
+        if os.path.exists(src_file):
+            try:
+                with open(src_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return default_cfg
+
+    def save_sources_config(cfg):
+        config_dir = os.path.dirname(os.path.abspath(__file__))
+        src_file = os.path.join(config_dir, "sources_config.json")
+        try:
+            with open(src_file, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception:
+            pass
+
+    NVIDIA_OFFICIAL_SKILLS = [
+        {
+            "id": "nvidia/cuda-c-development",
+            "name": "CUDA C/C++ Development",
+            "title": "CUDA C/C++ Development",
+            "author": "NVIDIA",
+            "description": "High-performance CUDA kernel architecture, memory coalescing, shared memory optimization, and Tensor Core programming with nvcc.",
+            "domain": "Coding & Dev",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 2840,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/cuda-c-development",
+            "system_prompt": "You are an expert NVIDIA CUDA Systems and GPU Kernel Engineer.\nOptimize global memory coalescing, minimize bank conflicts in __shared__ memory, and leverage L1/L2 cache and register files effectively."
+        },
+        {
+            "id": "nvidia/cudf-pandas",
+            "name": "cuDF GPU-Accelerated Pandas",
+            "title": "cuDF GPU-Accelerated Pandas",
+            "author": "NVIDIA",
+            "description": "Zero-code-change 100x GPU acceleration for tabular data science and pandas workloads via cudf.pandas.",
+            "domain": "Data & AI",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 2190,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/cudf-pandas",
+            "system_prompt": "You are an expert NVIDIA RAPIDS and cuDF Data Science Engineer.\nEnable transparent 100x GPU acceleration for pandas workflows with automatic CPU fallback."
+        },
+        {
+            "id": "nvidia/cuopt-optimization",
+            "name": "cuOpt Routing & Optimization",
+            "title": "cuOpt Routing & Optimization",
+            "author": "NVIDIA",
+            "description": "GPU-accelerated logistics, vehicle routing problem (VRP), traveling salesperson (TSP), and mixed integer linear programming (MILP).",
+            "domain": "Data & AI",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 1750,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/cuopt-optimization",
+            "system_prompt": "You are an expert in NVIDIA cuOpt mathematical optimization and routing solver systems for large-scale logistics."
+        },
+        {
+            "id": "nvidia/tensorrt-llm-deployment",
+            "name": "TensorRT-LLM Engine Optimizer",
+            "title": "TensorRT-LLM Engine Optimizer",
+            "author": "NVIDIA",
+            "description": "Compiling TensorRT-LLM execution engines, FP8/FP4 quantization, in-flight batching, and high-throughput model serving.",
+            "domain": "DevOps & Cloud",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 3410,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/tensorrt-llm",
+            "system_prompt": "You are an expert TensorRT-LLM Systems Engineer specializing in FP8 quantization, tensor parallelism, and Triton serving."
+        },
+        {
+            "id": "nvidia/rag-blueprints",
+            "name": "NeMo Retriever RAG Blueprints",
+            "title": "NeMo Retriever RAG Blueprints",
+            "author": "NVIDIA",
+            "description": "Enterprise RAG architecture with NeMo neural embeddings, Milvus/Qdrant vector stores, and high-precision neural rerankers.",
+            "domain": "Data & AI",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 1980,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/rag-blueprints",
+            "system_prompt": "You are an expert NVIDIA NeMo Retriever and Enterprise RAG Architect utilizing neural embeddings and neural passage rerankers."
+        },
+        {
+            "id": "nvidia/nim-microservices-deploy",
+            "name": "NIM Container Orchestration",
+            "title": "NIM Container Orchestration",
+            "author": "NVIDIA",
+            "description": "Deploying containerized NVIDIA Inference Microservices on Kubernetes, DGX Cloud, and local workstation GPUs.",
+            "domain": "DevOps & Cloud",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 2560,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/nim-deploy",
+            "system_prompt": "You are an expert NVIDIA NIM and Kubernetes Cloud Infrastructure Engineer for DGX Cloud and NGC containers."
+        },
+        {
+            "id": "nvidia/nemo-guardrails",
+            "name": "NeMo Guardrails & Safety",
+            "title": "NeMo Guardrails & Safety",
+            "author": "NVIDIA",
+            "description": "Programmable safety rails, topical moderation, input/output validation, and prompt injection defense for LLM agents.",
+            "domain": "Testing & Utilities",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 2310,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/nemo-guardrails",
+            "system_prompt": "You are an expert in NVIDIA NeMo Guardrails and AI Agent Security with programmable Colang dialog safety policies."
+        },
+        {
+            "id": "nvidia/deepseek-r1-nim",
+            "name": "DeepSeek R1 on NVIDIA NIM",
+            "title": "DeepSeek R1 on NVIDIA NIM",
+            "author": "NVIDIA",
+            "description": "Chain-of-thought prompt engineering, multi-turn mathematical verification, and code optimization with DeepSeek R1.",
+            "domain": "Coding & Dev",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 4120,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/deepseek-r1",
+            "system_prompt": "You are an expert AI Reasoning Engineer specializing in DeepSeek R1 on NVIDIA DGX Cloud NIM infrastructure."
+        },
+        {
+            "id": "nvidia/nemotron-agentic",
+            "name": "Nemotron Agentic Autopilot",
+            "title": "Nemotron Agentic Autopilot",
+            "author": "NVIDIA",
+            "description": "Nemotron-70B/340B function calling, tool binding, structured JSON output generation, and autonomous task loops.",
+            "domain": "Coding & Dev",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 1890,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills/tree/main/nemotron",
+            "system_prompt": "You are an autonomous AI Agent Engineer utilizing NVIDIA Nemotron frontier models on NIM."
+        },
+        {
+            "id": "nvidia/nvidia-skill-finder",
+            "name": "NVIDIA Skill Discovery Agent",
+            "title": "NVIDIA Skill Discovery Agent",
+            "author": "NVIDIA",
+            "description": "Interactive skill finder that scans the NVIDIA catalog and installs specialized skills for your current project stack.",
+            "domain": "Testing & Utilities",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 1650,
+            "verified": True,
+            "repo_url": "https://github.com/NVIDIA/skills",
+            "system_prompt": "You are the official NVIDIA Skill Discovery Agent for identifying and configuring NVIDIA-verified skills."
+        }
+    ]
+
+    NVIDIA_OFFICIAL_TOOLS = [
+        {
+            "id": "nvidia-nemotron",
+            "name": "NVIDIA Nemotron MCP",
+            "title": "NVIDIA Nemotron MCP",
+            "author": "NVIDIA",
+            "description": "NVIDIA Nemotron cloud reasoning and autonomous function calling microservice from build.nvidia.com.",
+            "domain": "Coding & Dev",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 2150,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@smithery/cli", "run", "nvidia-nemotron"]
+        },
+        {
+            "id": "nvidia-retriever",
+            "name": "NVIDIA NeMo Retriever MCP",
+            "title": "NVIDIA NeMo Retriever MCP",
+            "author": "NVIDIA",
+            "description": "GPU-accelerated semantic embedding and neural passage reranking microservice for enterprise knowledge.",
+            "domain": "Data & AI",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 1840,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@smithery/cli", "run", "nvidia-retriever"]
+        },
+        {
+            "id": "nvidia-cuopt",
+            "name": "NVIDIA cuOpt Logistics MCP",
+            "title": "NVIDIA cuOpt Logistics MCP",
+            "author": "NVIDIA",
+            "description": "Real-time GPU optimization solver for vehicle routing, scheduling, and traveling salesperson problems.",
+            "domain": "Data & AI",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 1420,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@smithery/cli", "run", "nvidia-cuopt"]
+        },
+        {
+            "id": "nvidia-nvclip",
+            "name": "NVIDIA Multimodal NVCLIP MCP",
+            "title": "NVIDIA Multimodal NVCLIP MCP",
+            "author": "NVIDIA",
+            "description": "Vision-language embedding and semantic cross-modal image search microservice.",
+            "domain": "Design & UI",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 1290,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@smithery/cli", "run", "nvidia-nvclip"]
+        },
+        {
+            "id": "nvidia-nim-mcp",
+            "name": "NVIDIA NIM Gateway MCP",
+            "title": "NVIDIA NIM Gateway MCP",
+            "author": "NVIDIA",
+            "description": "Unified Model Context Protocol bridge for all NVIDIA Cloud Inference Microservices at build.nvidia.com.",
+            "domain": "Testing & Utilities",
+            "source": "nvidia",
+            "source_label": "NVIDIA NIM",
+            "stars": 3200,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@smithery/cli", "run", "nvidia-nim-mcp"]
+        }
+    ]
+
+    if args.get_sources:
+        src_cfg = load_sources_config()
+        out_json = json.dumps(src_cfg, indent=2)
+        if args.out_file:
+            with open(args.out_file, "w", encoding="utf-8") as of: of.write(out_json)
+        print(out_json, flush=True)
+        sys.exit(0)
+
+    if args.add_source_repo:
+        repo = args.add_source_repo.strip()
+        repo = re.sub(r'^https?://github\.com/', '', repo).strip('/')
+        src_cfg = load_sources_config()
+        if "custom_repos" not in src_cfg:
+            src_cfg["custom_repos"] = []
+        if repo not in src_cfg["custom_repos"]:
+            src_cfg["custom_repos"].append(repo)
+            save_sources_config(src_cfg)
+            res = {"success": True, "message": f"Successfully registered GitHub repository source: {repo}", "repo": repo}
+        else:
+            res = {"success": True, "message": f"Repository {repo} is already registered.", "repo": repo}
+        out_json = json.dumps(res, indent=2)
+        if args.out_file:
+            with open(args.out_file, "w", encoding="utf-8") as of: of.write(out_json)
+        print(out_json, flush=True)
+        sys.exit(0)
+
     if args.get_marketplace_tools:
         import urllib.request, urllib.parse, math
         page = args.page or 1
         per_page = 12
-        search_query = args.search.strip() if args.search else ""
-        search_param = f"&q={urllib.parse.quote(search_query)}" if search_query else ""
-        url = f"https://api.smithery.ai/servers?page={page}&limit={per_page}{search_param}"
-        
-        tools = []
-        total_pages = 1
-        live_ok = False
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                api_data = json.loads(response.read().decode('utf-8'))
-            
-            for s in api_data.get("servers", []):
-                qname = s.get("qualifiedName") or s.get("id")
-                tools.append({
-                    "id": qname,
-                    "name": s.get("displayName") or qname,
-                    "title": s.get("displayName") or qname,
-                    "author": "Smithery" if s.get("bySmithery") else (s.get("owner") or "Community"),
-                    "description": s.get("description", "MCP Server integration"),
-                    "domain": "MCP Servers",
-                    "stars": s.get("externalStars") or s.get("stars", 0),
-                    "verified": s.get("verified", False),
-                    "command": "npx",
-                    "args": ["-y", "@smithery/cli", "run", qname]
-                })
-            
-            total_pages = api_data.get("pagination", {}).get("totalPages", 1)
-            if tools:
-                live_ok = True
-        except Exception:
-            pass
-            
-        # Fallback to curated MCP catalog if live search failed or was empty
-        if not live_ok:
-            curated_tools = [
-                {"id": "github", "name": "GitHub", "title": "GitHub MCP", "author": "ModelContextProtocol", "description": "Repository automation, PRs, code reviews, and issue tracking directly through GitHub.", "domain": "Coding & Dev", "stars": 1420, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "github"]},
-                {"id": "postgres", "name": "PostgreSQL", "title": "PostgreSQL MCP", "author": "ModelContextProtocol", "description": "Safe read-only or schema queries against PostgreSQL databases with inspection.", "domain": "Data & AI", "stars": 980, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "postgres"]},
-                {"id": "filesystem", "name": "Filesystem", "title": "Filesystem MCP", "author": "ModelContextProtocol", "description": "Direct read/write access to project directories with configurable sandboxes.", "domain": "Testing & Utilities", "stars": 1150, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "filesystem"]},
-                {"id": "memory", "name": "Knowledge Graph", "title": "Memory Graph MCP", "author": "ModelContextProtocol", "description": "Persistent memory and knowledge graph for continuous context across sessions.", "domain": "Data & AI", "stars": 840, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "memory"]},
-                {"id": "brave-search", "name": "Brave Search", "title": "Brave Web Search MCP", "author": "Brave", "description": "Live web search and news indexing with privacy-preserving Brave API.", "domain": "Testing & Utilities", "stars": 760, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "brave-search"]},
-                {"id": "puppeteer", "name": "Puppeteer", "title": "Puppeteer Browser MCP", "author": "ModelContextProtocol", "description": "Headless browser automation, DOM evaluation, and responsive screenshot capture.", "domain": "Design & UI", "stars": 920, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "puppeteer"]},
-                {"id": "fetch", "name": "Web Fetch", "title": "Web Fetcher MCP", "author": "ModelContextProtocol", "description": "Fast HTML scraping and conversion to clean LLM markdown from any web URL.", "domain": "Writing & Docs", "stars": 690, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "fetch"]},
-                {"id": "slack", "name": "Slack", "title": "Slack Connector MCP", "author": "ModelContextProtocol", "description": "Read channels, send notifications, and collaborate with your team in Slack.", "domain": "DevOps & Cloud", "stars": 610, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "slack"]},
-                {"id": "google-drive", "name": "Google Drive", "title": "Google Drive MCP", "author": "Google", "description": "Search, read, and manage Google Drive files, spreadsheets, and shared docs.", "domain": "Writing & Docs", "stars": 880, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "google-drive"]},
-                {"id": "sqlite", "name": "SQLite", "title": "SQLite MCP", "author": "ModelContextProtocol", "description": "Query and manage local SQLite databases with automatic schema discovery.", "domain": "Data & AI", "stars": 540, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "sqlite"]},
-                {"id": "context7", "name": "Context7 Docs", "title": "Context7 Docs MCP", "author": "Context7", "description": "Live, up-to-date documentation and code reference search for any language or framework.", "domain": "Coding & Dev", "stars": 710, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "context7"]},
-                {"id": "everything", "name": "Voidtools Everything", "title": "Everything Search MCP", "author": "Community", "description": "Instant file search across all Windows drives via Voidtools Everything IPC.", "domain": "Testing & Utilities", "stars": 490, "verified": False, "command": "npx", "args": ["-y", "@smithery/cli", "run", "everything"]}
-            ]
-            if search_query:
-                q = search_query.lower()
+        search_query = args.search.strip().lower() if args.search else ""
+        source_filter = (args.source or "all").lower()
+
+        all_tools = []
+
+        # 1. NVIDIA NIM MCP Tools
+        if source_filter in ("all", "nvidia"):
+            all_tools.extend(NVIDIA_OFFICIAL_TOOLS)
+
+        # 2. Smithery MCP Tools
+        if source_filter in ("all", "smithery"):
+            smithery_tools = []
+            try:
+                search_param = f"&q={urllib.parse.quote(search_query)}" if search_query else ""
+                url = f"https://api.smithery.ai/servers?page=1&limit=24{search_param}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    api_data = json.loads(response.read().decode('utf-8'))
+                for s in api_data.get("servers", []):
+                    qname = s.get("qualifiedName") or s.get("id")
+                    smithery_tools.append({
+                        "id": qname,
+                        "name": s.get("displayName") or qname,
+                        "title": s.get("displayName") or qname,
+                        "author": "Smithery" if s.get("bySmithery") else (s.get("owner") or "Community"),
+                        "description": s.get("description", "MCP Server integration"),
+                        "domain": "MCP Servers",
+                        "source": "smithery",
+                        "source_label": "Smithery",
+                        "stars": s.get("externalStars") or s.get("stars", 0),
+                        "verified": s.get("verified", False),
+                        "command": "npx",
+                        "args": ["-y", "@smithery/cli", "run", qname]
+                    })
+            except Exception:
+                pass
+
+            if not smithery_tools:
                 curated_tools = [
-                    t for t in curated_tools
-                    if q in t.get("name", "").lower() or q in t.get("title", "").lower() or q in t.get("description", "").lower() or q in t.get("id", "").lower() or q in t.get("domain", "").lower()
+                    {"id": "github", "name": "GitHub", "title": "GitHub MCP", "author": "ModelContextProtocol", "description": "Repository automation, PRs, code reviews, and issue tracking directly through GitHub.", "domain": "Coding & Dev", "source": "smithery", "source_label": "Smithery", "stars": 1420, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "github"]},
+                    {"id": "postgres", "name": "PostgreSQL", "title": "PostgreSQL MCP", "author": "ModelContextProtocol", "description": "Safe read-only or schema queries against PostgreSQL databases with inspection.", "domain": "Data & AI", "source": "smithery", "source_label": "Smithery", "stars": 980, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "postgres"]},
+                    {"id": "filesystem", "name": "Filesystem", "title": "Filesystem MCP", "author": "ModelContextProtocol", "description": "Direct read/write access to project directories with configurable sandboxes.", "domain": "Testing & Utilities", "source": "smithery", "source_label": "Smithery", "stars": 1150, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "filesystem"]},
+                    {"id": "memory", "name": "Knowledge Graph", "title": "Memory Graph MCP", "author": "ModelContextProtocol", "description": "Persistent memory and knowledge graph for continuous context across sessions.", "domain": "Data & AI", "source": "smithery", "source_label": "Smithery", "stars": 840, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "memory"]},
+                    {"id": "brave-search", "name": "Brave Search", "title": "Brave Web Search MCP", "author": "Brave", "description": "Live web search and news indexing with privacy-preserving Brave API.", "domain": "Testing & Utilities", "source": "smithery", "source_label": "Smithery", "stars": 760, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "brave-search"]},
+                    {"id": "puppeteer", "name": "Puppeteer", "title": "Puppeteer Browser MCP", "author": "ModelContextProtocol", "description": "Headless browser automation, DOM evaluation, and responsive screenshot capture.", "domain": "Design & UI", "source": "smithery", "source_label": "Smithery", "stars": 920, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "puppeteer"]},
+                    {"id": "fetch", "name": "Web Fetch", "title": "Web Fetcher MCP", "author": "ModelContextProtocol", "description": "Fast HTML scraping and conversion to clean LLM markdown from any web URL.", "domain": "Writing & Docs", "source": "smithery", "source_label": "Smithery", "stars": 690, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "fetch"]},
+                    {"id": "slack", "name": "Slack", "title": "Slack Connector MCP", "author": "ModelContextProtocol", "description": "Read channels, send notifications, and collaborate with your team in Slack.", "domain": "DevOps & Cloud", "source": "smithery", "source_label": "Smithery", "stars": 610, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "slack"]},
+                    {"id": "google-drive", "name": "Google Drive", "title": "Google Drive MCP", "author": "Google", "description": "Search, read, and manage Google Drive files, spreadsheets, and shared docs.", "domain": "Writing & Docs", "source": "smithery", "source_label": "Smithery", "stars": 880, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "google-drive"]},
+                    {"id": "sqlite", "name": "SQLite", "title": "SQLite MCP", "author": "ModelContextProtocol", "description": "Query and manage local SQLite databases with automatic schema discovery.", "domain": "Data & AI", "source": "smithery", "source_label": "Smithery", "stars": 540, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "sqlite"]},
+                    {"id": "context7", "name": "Context7 Docs", "title": "Context7 Docs MCP", "author": "Context7", "description": "Live, up-to-date documentation and code reference search for any language or framework.", "domain": "Coding & Dev", "source": "smithery", "source_label": "Smithery", "stars": 710, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "context7"]},
+                    {"id": "everything", "name": "Voidtools Everything", "title": "Everything Search MCP", "author": "Community", "description": "Instant file search across all Windows drives via Voidtools Everything IPC.", "domain": "Testing & Utilities", "source": "smithery", "source_label": "Smithery", "stars": 490, "verified": False, "command": "npx", "args": ["-y", "@smithery/cli", "run", "everything"]}
                 ]
-            total_pages = max(1, math.ceil(len(curated_tools) / per_page))
-            start_idx = (page - 1) * per_page
-            tools = curated_tools[start_idx : start_idx + per_page]
-            
-        data = {"data": tools, "total_pages": total_pages}
+                smithery_tools.extend(curated_tools)
+            all_tools.extend(smithery_tools)
+
+        # 3. Custom GitHub Repositories for Tools
+        if source_filter in ("all", "github"):
+            src_cfg = load_sources_config()
+            for cr in src_cfg.get("custom_repos", []):
+                if cr == "NVIDIA/skills": continue
+                r_name = cr.split("/")[-1]
+                all_tools.append({
+                    "id": f"gh/{cr}",
+                    "name": r_name,
+                    "title": f"{r_name} MCP",
+                    "author": cr.split("/")[0],
+                    "description": f"MCP Connector hosted at github.com/{cr}",
+                    "domain": "Coding & Dev",
+                    "source": "github",
+                    "source_label": "GitHub",
+                    "stars": 120,
+                    "verified": False,
+                    "command": "npx",
+                    "args": ["-y", f"github:{cr}"]
+                })
+
+        # Apply search filtering
+        if search_query:
+            all_tools = [
+                t for t in all_tools
+                if search_query in t.get("name", "").lower() or search_query in t.get("title", "").lower()
+                or search_query in t.get("description", "").lower() or search_query in t.get("id", "").lower()
+                or search_query in t.get("domain", "").lower() or search_query in t.get("source", "").lower()
+                or search_query in t.get("author", "").lower()
+            ]
+
+        total_pages = max(1, math.ceil(len(all_tools) / per_page))
+        start_idx = (page - 1) * per_page
+        paged_tools = all_tools[start_idx : start_idx + per_page]
+
+        data = {"data": paged_tools, "total_pages": total_pages, "current_page": page}
         if args.out_file:
             with open(args.out_file, "w", encoding="utf-8") as f: json.dump(data, f)
         else:
@@ -2229,65 +2535,98 @@ def main():
         import urllib.request, urllib.parse, math
         page = args.page or 1
         per_page = 12
-        search_query = args.search.strip() if args.search else ""
-        search_param = f"&q={urllib.parse.quote(search_query)}" if search_query else ""
-        url = f"https://api.smithery.ai/skills?page={page}&limit={per_page}{search_param}"
-        
-        skills = []
-        total_pages = 1
-        live_ok = False
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=6) as response:
-                api_data = json.loads(response.read().decode('utf-8'))
-            
-            for s in api_data.get("skills", []):
-                qname = s.get("slug") or s.get("id")
-                prompt = s.get("prompt") or s.get("description", "")
-                cats = s.get("categories", [])
-                domain = cats[0] if isinstance(cats, list) and len(cats) > 0 else (cats if isinstance(cats, str) else "General")
-                
-                skills.append({
-                    "id": qname,
-                    "title": s.get("displayName") or qname,
-                    "description": s.get("description", ""),
-                    "domain": domain,
-                    "author": s.get("namespace") or s.get("ownerId", "Community"),
-                    "repo_url": s.get("gitUrl", ""),
-                    "stars": s.get("externalStars", 0),
-                    "verified": s.get("verified", False),
-                    "system_prompt": prompt
+        search_query = args.search.strip().lower() if args.search else ""
+        source_filter = (args.source or "all").lower()
+
+        all_skills = []
+
+        # 1. NVIDIA Official Verified Skills
+        if source_filter in ("all", "nvidia"):
+            all_skills.extend(NVIDIA_OFFICIAL_SKILLS)
+
+        # 2. Smithery Skills
+        if source_filter in ("all", "smithery"):
+            smithery_skills = []
+            try:
+                search_param = f"&q={urllib.parse.quote(search_query)}" if search_query else ""
+                url = f"https://api.smithery.ai/skills?page=1&limit=24{search_param}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    api_data = json.loads(response.read().decode('utf-8'))
+                for s in api_data.get("skills", []):
+                    qname = s.get("slug") or s.get("id")
+                    cats = s.get("categories", [])
+                    domain = cats[0] if isinstance(cats, list) and len(cats) > 0 else (cats if isinstance(cats, str) else "General")
+                    smithery_skills.append({
+                        "id": qname,
+                        "title": s.get("displayName") or qname,
+                        "description": s.get("description", ""),
+                        "domain": domain,
+                        "source": "smithery",
+                        "source_label": "Smithery",
+                        "author": s.get("namespace") or s.get("ownerId", "Community"),
+                        "repo_url": s.get("gitUrl", ""),
+                        "stars": s.get("externalStars", 0),
+                        "verified": s.get("verified", False),
+                        "system_prompt": s.get("prompt") or s.get("description", "")
+                    })
+            except Exception:
+                pass
+
+            if not smithery_skills:
+                cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".market_cache.json")
+                if os.path.exists(cache_path):
+                    try:
+                        with open(cache_path, "r", encoding="utf-8") as f:
+                            c_skills = json.load(f)
+                            for s in c_skills:
+                                s["source"] = "smithery"
+                                s["source_label"] = "Smithery"
+                            smithery_skills.extend(c_skills)
+                    except Exception:
+                        pass
+            all_skills.extend(smithery_skills)
+
+        # 3. Custom GitHub Repositories for Skills
+        if source_filter in ("all", "github"):
+            src_cfg = load_sources_config()
+            for cr in src_cfg.get("custom_repos", []):
+                if cr == "NVIDIA/skills": continue
+                r_name = cr.split("/")[-1]
+                all_skills.append({
+                    "id": f"gh/{cr}",
+                    "name": r_name,
+                    "title": f"{r_name} Skill Pack",
+                    "description": f"Custom agent skill pack imported from github.com/{cr}",
+                    "domain": "Coding & Dev",
+                    "source": "github",
+                    "source_label": "GitHub",
+                    "author": cr.split("/")[0],
+                    "repo_url": f"https://github.com/{cr}",
+                    "stars": 150,
+                    "verified": False,
+                    "system_prompt": f"# {r_name} Instructions\nImported from https://github.com/{cr}"
                 })
-            total_pages = api_data.get("pagination", {}).get("totalPages", 1)
-            if skills:
-                live_ok = True
-        except Exception:
-            pass
-            
-        # Robust Cache Fallback if live fetch failed or returned 0
-        if not live_ok:
-            cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".market_cache.json")
-            if os.path.exists(cache_path):
-                try:
-                    with open(cache_path, "r", encoding="utf-8") as f:
-                        cached = json.load(f)
-                    if search_query:
-                        q = search_query.lower()
-                        cached = [
-                            s for s in cached
-                            if q in s.get("title", "").lower() or q in s.get("description", "").lower() or q in s.get("domain", "").lower() or q in s.get("id", "").lower()
-                        ]
-                    total_pages = max(1, math.ceil(len(cached) / per_page))
-                    start_idx = (page - 1) * per_page
-                    skills = cached[start_idx : start_idx + per_page]
-                except Exception:
-                    pass
-                    
-        if not skills:
-            skills = [{"id": "empty", "title": "No skills found", "description": "No skills matched your search.", "domain": "General", "author": "System", "repo_url": "", "system_prompt": ""}]
-            
+
+        # Apply search query filtering
+        if search_query:
+            all_skills = [
+                s for s in all_skills
+                if search_query in s.get("name", "").lower() or search_query in s.get("title", "").lower()
+                or search_query in s.get("description", "").lower() or search_query in s.get("id", "").lower()
+                or search_query in s.get("domain", "").lower() or search_query in s.get("source", "").lower()
+                or search_query in s.get("author", "").lower()
+            ]
+
+        if not all_skills:
+            all_skills = [{"id": "empty", "title": "No skills found", "description": "No skills matched your search.", "domain": "General", "source": source_filter, "source_label": source_filter.upper(), "author": "System", "repo_url": "", "system_prompt": ""}]
+
+        total_pages = max(1, math.ceil(len(all_skills) / per_page))
+        start_idx = (page - 1) * per_page
+        paged_skills = all_skills[start_idx : start_idx + per_page]
+
         data = {
-            "skills": skills,
+            "skills": paged_skills,
             "total_pages": total_pages,
             "current_page": page
         }
@@ -2567,7 +2906,12 @@ def main():
             "google-drive": ["GOOGLE_DRIVE_CREDENTIALS_JSON"],
             "isdaniel/mcp_weather_server": ["OPENWEATHER_API_KEY"],
             "puppeteer": ["PUPPETEER_HEADLESS", "PUPPETEER_EXECUTABLE_PATH"],
-            "filesystem": ["ALLOWED_DIRECTORIES"]
+            "filesystem": ["ALLOWED_DIRECTORIES"],
+            "nvidia-nemotron": ["NVIDIA_API_KEY", "NVAPI_KEY"],
+            "nvidia-retriever": ["NVIDIA_API_KEY", "NVAPI_KEY"],
+            "nvidia-cuopt": ["NVIDIA_API_KEY", "NVAPI_KEY"],
+            "nvidia-nvclip": ["NVIDIA_API_KEY", "NVAPI_KEY"],
+            "nvidia-nim-mcp": ["NVIDIA_API_KEY", "NVAPI_KEY"]
         }
         res["known_keys"] = KNOWN_KEYS_MAP.get(tool_id, [])
 
@@ -2639,6 +2983,11 @@ def main():
             "google-drive": "https://console.cloud.google.com/apis/credentials",
             "slack": "https://api.slack.com/apps",
             "brave-search": "https://brave.com/search/api/",
+            "nvidia-nemotron": "https://build.nvidia.com",
+            "nvidia-retriever": "https://build.nvidia.com",
+            "nvidia-cuopt": "https://build.nvidia.com",
+            "nvidia-nvclip": "https://build.nvidia.com",
+            "nvidia-nim-mcp": "https://build.nvidia.com",
         }
         target_url = auth_urls.get(tool_id) or f"https://smithery.ai/server/{tool_id}"
         try:

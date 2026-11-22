@@ -1,0 +1,33 @@
+{
+  "active_source": "all",
+  "sources": [
+    {
+      "id": "all",
+      "name": "All Sources",
+      "icon": "\ud83c\udf10",
+      "description": "Unified discovery across Smithery, NVIDIA NIM, and GitHub"
+    },
+    {
+      "id": "smithery",
+      "name": "Smithery",
+      "icon": "\u26a1",
+      "description": "Smithery.ai open MCP servers and skill registry"
+    },
+    {
+      "id": "nvidia",
+      "name": "NVIDIA NIM",
+      "icon": "\ud83d\udfe9",
+      "description": "NVIDIA Cloud inference microservices and verified agent skills"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "icon": "\ud83d\udc19",
+      "description": "Community skill packs and public GitHub repositories"
+    }
+  ],
+  "custom_repos": [
+    "NVIDIA/skills",
+    "modelcontextprotocol/servers"
+  ]
+}
