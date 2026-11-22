@@ -111,12 +111,68 @@ if not ok_theme then
   pcall(require, "colors.everforest_lite_xl")
 end
 
--- ── 2. Font — Auto-Native OS Fonts ──────────────────────────────────────────────
--- First tries custom user fonts (Fira Code), then elegantly falls back to 
--- native high-quality OS monospace fonts if they aren't installed.
+-- ── 2. Font — Auto-Native OS Fonts & Universal Fallback ─────────────────────────
+-- Global Universal Font Fallback Builder
+-- Combines any primary typeface with vector outlines for modern emojis (Segoe UI Emoji),
+-- box/technical symbols (Segoe UI Symbol), and Nerd Font icons (FiraCodeNerdFont)
+-- so that missing-glyph question marks '?' never appear anywhere in the editor.
+function core.create_font_fallback_group(primary, size, opts)
+  if not primary then return nil end
+  local primary_font = primary
+  local sz = size
+  if type(primary) == "string" then
+    sz = sz or (15 * SCALE)
+    local ok, f = pcall(renderer.font.load, primary, sz, opts or {})
+    if not ok or not f then return nil end
+    primary_font = f
+  else
+    sz = sz or (primary_font.get_size and primary_font:get_size()) or (primary_font.get_height and primary_font:get_height()) or (15 * SCALE)
+  end
+
+  local candidates = {}
+  if PLATFORM == "Windows" then
+    local windir = os.getenv("WINDIR") or "C:\\Windows"
+    table.insert(candidates, windir .. "\\Fonts\\seguiemj.ttf")
+    table.insert(candidates, windir .. "\\Fonts\\seguisym.ttf")
+    table.insert(candidates, windir .. "\\Fonts\\arialuni.ttf")
+  else
+    for _, p in ipairs({
+      "/System/Library/Fonts/Apple Color Emoji.ttc",
+      "/Library/Fonts/Apple Color Emoji.ttc",
+      "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+      "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+      "/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf",
+      "/usr/share/fonts/truetype/ancient-scripts/Symbola.ttf",
+    }) do table.insert(candidates, p) end
+  end
+  table.insert(candidates, USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf")
+  table.insert(candidates, USERDIR .. "/fonts/NotoEmoji-Regular.ttf")
+  table.insert(candidates, USERDIR .. "/fonts/NotoColorEmoji.ttf")
+
+  local chain = { primary_font }
+  for _, path in ipairs(candidates) do
+    local f_test = io.open(path, "rb")
+    if f_test then
+      f_test:close()
+      local ok, f_extra = pcall(renderer.font.load, path, sz, opts or {})
+      if ok and f_extra then
+        table.insert(chain, f_extra)
+        if #chain >= 5 then break end
+      end
+    end
+  end
+
+  if #chain > 1 then
+    local ok, grp = pcall(renderer.font.group, chain)
+    if ok and grp then
+      return grp
+    end
+  end
+  return primary_font
+end
+
 local function try_load_font(path, size, opts)
-  local ok, f = pcall(renderer.font.load, path, size, opts or {})
-  return ok and f or nil
+  return core.create_font_fallback_group(path, size, opts)
 end
 
 local os_fonts = {
@@ -575,8 +631,8 @@ end)
 core.add_thread(function()
   coroutine.yield(0.5) -- wait for plugins to load
   if config.native_code_font and config.native_code_font ~= "" then
-    local ok, f = pcall(renderer.font.load, config.native_code_font, 15 * SCALE)
-    if ok and f then
+    local f = core.create_font_fallback_group(config.native_code_font, 15 * SCALE)
+    if f then
       style.code_font = f
       style.font = f
       core.redraw = true

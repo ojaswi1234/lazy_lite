@@ -311,6 +311,48 @@ local function utf8_next(text, i)
   return i
 end
 
+-- Safely slice a UTF-8 string at codepoint boundaries so streaming typewriter
+-- animations never cut multi-byte emojis or unicode sequences in half, avoiding '?' glyphs.
+local function utf8_safe_sub(s, i, j)
+  if not s or s == "" then return "" end
+  local len = #s
+  i = i or 1
+  j = math.min(j or len, len)
+  if j <= 0 or j < i then return "" end
+
+  -- If j lands inside a multibyte sequence (i.e. byte j+1 is a continuation byte 0x80..0xBF)
+  while j > 0 and j < len do
+    local next_b = s:byte(j + 1)
+    if not next_b or next_b < 0x80 or next_b >= 0xC0 then
+      break
+    end
+    j = j - 1
+  end
+
+  -- Check if j ends on an incomplete lead byte at the end of the buffer
+  local k = j
+  while k > 0 and k > j - 4 do
+    local b = s:byte(k)
+    if b < 0x80 then
+      break
+    elseif b >= 0xC0 then
+      local needed
+      if b >= 0xF0 then needed = 4
+      elseif b >= 0xE0 then needed = 3
+      else needed = 2 end
+      local available = j - k + 1
+      if available < needed then
+        j = k - 1
+      end
+      break
+    end
+    k = k - 1
+  end
+
+  if j < i then return "" end
+  return s:sub(i, j)
+end
+
 local function wrap_input_lines(text, font, max_w)
   text = text or ""
   if #text == 0 then
@@ -1267,6 +1309,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
   local bold_font = get_bold_font()
   
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    line = line:gsub("\r$", "")
     local lang_match = line:match("^%s*```(%w*)")
     if lang_match then
       if #cur_text > 0 then
@@ -1316,6 +1359,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
       end
       
       for line in (blk.raw .. "\n"):gmatch("([^\n]*)\n") do
+        line = line:gsub("\r$", "")
         if line:match("^%s*%[AGENT%]%s*Using tool:") or line:match("^%s*Using tool:") then
           -- ignore leaked raw tool execution lines from history
         else
@@ -1337,7 +1381,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
               else
                 local header = line:match("^%s*(#+)%s")
                 local list_bullet = line:match("^%s*[%-%*]%s+(.*)")
-                local list_num_digits, list_num_text = line:match("^%s*(%d+)[%.)]%s+(.*)")
+                local list_num_digits, list_num_text = line:match("^%s*(%d+)[%.)]%s*(.*)")
                 local level = header and #header or 0
                 
                 local list_prefix = nil
@@ -1349,6 +1393,8 @@ local function parse_blocks(text, base_font, code_font, max_w)
                   list_prefix = "• "
                 elseif list_num_digits and list_num_text then
                   clean_line = list_num_text
+                  -- Strip accidental double-numbering (e.g. '1. 1. text' or '1. 1 text')
+                  clean_line = clean_line:gsub("^%s*%d+[%.)]%s*", "")
                   list_prefix = list_num_digits .. ". "
                 end
                 
@@ -2699,7 +2745,7 @@ function AGView:update()
       
       -- Update text if dirty
       if dirty and tab.sessions[#tab.sessions] and tab.sessions[#tab.sessions].role == "ai" then
-        tab.sessions[#tab.sessions].text = tab._ai_buf:sub(1, tab._ai_displayed_chars or 0)
+        tab.sessions[#tab.sessions].text = utf8_safe_sub(tab._ai_buf, 1, tab._ai_displayed_chars or 0)
         tab.sessions[#tab.sessions].blocks = nil -- invalidate cache
         tab.scroll_to_bottom = true
         core.redraw = true

@@ -139,8 +139,14 @@ end
 
 local function apply_font(path, size)
   size = size or (config.native_code_font_size or 15)
-  local ok, fnt = pcall(renderer.font.load, path, size * SCALE)
-  if ok and fnt then
+  local fnt
+  if core.create_font_fallback_group then
+    fnt = core.create_font_fallback_group(path, size * SCALE)
+  else
+    local ok, res = pcall(renderer.font.load, path, size * SCALE)
+    if ok and res then fnt = res end
+  end
+  if fnt then
     style.code_font = fnt
     style.font      = fnt
     core.redraw     = true
@@ -215,7 +221,13 @@ settings.add("Fonts", {
             save_font_config("", "Default", config.native_code_font_size)
             -- Restore default font
             local sz = (config.native_code_font_size or 15) * SCALE
-            local function try(p) local ok,f = pcall(renderer.font.load, p, sz); return ok and f or nil end
+            local function try(p)
+              if core.create_font_fallback_group then
+                return core.create_font_fallback_group(p, sz)
+              else
+                local ok,f = pcall(renderer.font.load, p, sz); return ok and f or nil
+              end
+            end
             local def = try(USERDIR .. "/fonts/FiraCode-iScript.ttf")
                      or try(USERDIR .. "/fonts/FiraCodeNerdFont-Regular.ttf")
             if def then style.code_font = def; style.font = def; core.redraw = true end
