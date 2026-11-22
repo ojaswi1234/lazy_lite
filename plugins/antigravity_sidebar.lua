@@ -3055,6 +3055,9 @@ function AGView:fetch_marketplace()
             for k, _ in pairs(mc_data.mcpServers) do
               self.installed_tools_map[k] = true
               count = count + 1
+              if not self.tool_health_map or not self.tool_health_map[k] then
+                self:test_tool_health(k)
+              end
             end
             self.installed_tools_count = count
           end
@@ -3115,6 +3118,118 @@ function AGView:fetch_marketplace()
   end
 
 
+function AGView:open_tool_config(tool_item)
+  local tool_id = type(tool_item) == "table" and tool_item.id or tool_item
+  local tool_title = (type(tool_item) == "table" and (tool_item.title or tool_item.name)) or tool_id
+  local ok_json, json = pcall(require, "plugins.lsp.json")
+
+  self.active_tool_config = {
+    id = tool_id,
+    title = tool_title,
+    is_loading = true,
+    test_result = nil,
+    config = {
+      command = "npx",
+      args = {"-y", "@smithery/cli", "run", tool_id},
+      env = {},
+      known_keys = {}
+    }
+  }
+  core.redraw = true
+
+  core.add_thread(function()
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+    local tmp_file = USERDIR .. PATHSEP .. "scripts/.cfg_tmp.json"
+    local p = process.start({"python", bridge, "--get-tool-config", tool_id, "--out-file", tmp_file})
+    if p then
+      while p:running() do coroutine.yield(0.1) end
+    end
+    local f = io.open(tmp_file, "r")
+    if f then
+      local raw = f:read("*a"); f:close()
+      if ok_json then
+        local ok, data = pcall(json.decode, raw)
+        if ok and type(data) == "table" and self.active_tool_config and self.active_tool_config.id == tool_id then
+          self.active_tool_config.config = data
+        end
+      end
+    end
+    if self.active_tool_config and self.active_tool_config.id == tool_id then
+      self.active_tool_config.is_loading = false
+      self:test_tool_health(tool_id)
+    end
+    core.redraw = true
+  end)
+end
+
+function AGView:test_tool_health(tool_id, on_done)
+  self.tool_health_map = self.tool_health_map or {}
+  self.tool_health_map[tool_id] = { status = "testing", message = "Testing handshake..." }
+  if self.active_tool_config and self.active_tool_config.id == tool_id then
+    self.active_tool_config.test_result = { status = "testing", message = "Testing handshake..." }
+  end
+  core.redraw = true
+
+  core.add_thread(function()
+    local ok_json, json = pcall(require, "plugins.lsp.json")
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+    local tmp_file = USERDIR .. PATHSEP .. "scripts/.test_tmp.json"
+    local p = process.start({"python", bridge, "--test-tool", tool_id, "--out-file", tmp_file})
+    if p then
+      while p:running() do coroutine.yield(0.1) end
+    end
+    local res = { status = "error", message = "Process failed to execute." }
+    local f = io.open(tmp_file, "r")
+    if f then
+      local raw = f:read("*a"); f:close()
+      if ok_json then
+        local ok, data = pcall(json.decode, raw)
+        if ok and type(data) == "table" then res = data end
+      end
+    end
+    self.tool_health_map[tool_id] = res
+    if self.active_tool_config and self.active_tool_config.id == tool_id then
+      self.active_tool_config.test_result = res
+    end
+    if on_done then on_done(res) end
+    core.redraw = true
+  end)
+end
+
+function AGView:save_tool_config(tool_id, new_cfg, on_done)
+  core.add_thread(function()
+    local ok_json, json = pcall(require, "plugins.lsp.json")
+    if not ok_json then return end
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+    local tmp_file = USERDIR .. PATHSEP .. "scripts/.save_tmp.json"
+    local f = io.open(tmp_file, "w")
+    if f then
+      f:write(json.encode(new_cfg))
+      f:close()
+    end
+    local p = process.start({"python", bridge, "--save-tool-config", tool_id, "--config-data", "FILE:" .. tmp_file})
+    if p then
+      while p:running() do coroutine.yield(0.1) end
+    end
+    core.log("[Antigravity] Saved MCP configuration for " .. tool_id)
+    self:test_tool_health(tool_id, function(res)
+      self:fetch_marketplace()
+      if on_done then on_done(res) end
+    end)
+  end)
+end
+
+function AGView:launch_tool_browser_auth(tool_id)
+  core.add_thread(function()
+    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+    local p = process.start({"python", bridge, "--open-tool-auth", tool_id})
+    if p then
+      while p:running() do coroutine.yield(0.1) end
+    end
+    core.log("[Antigravity] Launched browser authorization for " .. tool_id)
+  end)
+end
+
 function AGView:uninstall_skill(skill_id)
   core.add_thread(function()
       local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
@@ -3142,62 +3257,27 @@ function AGView:install_skill(skill_input)
     end
   end
   if not skill_obj then return end
-  
-  core.add_thread(function()
-    local env_vals = {}
-    if self.show_tools_tab and skill_obj.env_requirements and #skill_obj.env_requirements > 0 then
-      for _, req in ipairs(skill_obj.env_requirements) do
-        local done = false
-        core.command_view:enter("Enter value for " .. req, {
-          submit = function(text)
-            env_vals[req] = text
-            done = true
-          end,
-            cancel = function() done = true end
-          })
-        while not done do coroutine.yield(0.1) end
-      end
-    end
 
-    local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
-    if self.show_tools_tab then
+  if self.show_tools_tab then
+    -- For MCP tools: immediately register and open the Pre-Flight Configuration Wizard!
+    core.add_thread(function()
+      local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
       local p = process.start({"python", bridge, "--install-tool", skill_obj.id})
-      local out_text = ""
-      while p:running() do 
-        local chunk = p:read_stdout(4096)
-        if chunk and #chunk > 0 then out_text = out_text .. chunk end
-        coroutine.yield(0.1) 
+      if p then
+        while p:running() do coroutine.yield(0.1) end
       end
-      local chunk = p:read_stdout(4096)
-      if chunk and #chunk > 0 then out_text = out_text .. chunk end
-      
-      for env_key in out_text:gmatch("%[REQUIRED_ENV%]%s*(%S+)") do
-         local done = false
-         core.command_view:enter("Required API Key (" .. env_key .. ") for " .. skill_obj.id, {
-             submit = function(val)
-                 if val and val ~= "" then
-                     local p2 = process.start({"python", bridge, "--set-tool-env", skill_obj.id, env_key, val})
-                     while p2:running() do coroutine.yield(0.1) end
-                     core.log("Saved " .. env_key .. " for " .. skill_obj.id)
-                 end
-                 done = true
-             end,
-               cancel = function() done = true end
-           })
-         while not done do coroutine.yield(0.1) end
-      end
-      
-      -- Send fallback envs if any (from UI if manually defined)
-      for k, v in pairs(env_vals) do
-        local p2 = process.start({"python", bridge, "--set-tool-env", skill_obj.id, k, v})
-        while p2:running() do coroutine.yield(0.1) end
-      end
-      
-      core.log("Installed MCP Tool: " .. (skill_obj.title or skill_obj.name or skill_obj.id))
+      self.installed_tools_map = self.installed_tools_map or {}
+      self.installed_tools_map[skill_obj.id] = true
+      core.log("[Antigravity] Launching Setup Wizard for " .. (skill_obj.title or skill_obj.id) .. "...")
+      self:open_tool_config(skill_obj)
       self:fetch_marketplace()
-    else
-      local ok_json, json = pcall(require, "plugins.lsp.json")
-      if not ok_json then return end
+      core.redraw = true
+    end)
+  else
+    local ok_json, json = pcall(require, "plugins.lsp.json")
+    if not ok_json then return end
+    core.add_thread(function()
+      local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
       local tmp_file = USERDIR .. PATHSEP .. "scripts/.tmp_skill.json"
       local f = io.open(tmp_file, "w")
       if f then
@@ -3208,8 +3288,8 @@ function AGView:install_skill(skill_input)
       while p:running() do coroutine.yield(0.1) end
       core.log("Installed AI Skill: " .. (skill_obj.title or "Custom Skill"))
       self:fetch_marketplace()
-    end
-  end)
+    end)
+  end
 end
 
 function AGView:draw()
@@ -5328,11 +5408,59 @@ function AGView:on_mouse_moved(mx, my, ...)
     self.hover_market_clr_filters = nil
     self.hover_preview_close = nil
     self.hover_preview_cancel = nil
+    self.hover_preview_config = nil
     self.hover_preview_install = nil
     self.hover_preview_uninstall = nil
     self.hover_preview_repo = nil
 
     local is_hand = false
+
+    if self.active_tool_config then
+      local function check_btn(btn)
+        return btn and (mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h)
+      end
+      self.hover_cfg_close = nil
+      self.hover_cfg_cancel = nil
+      self.hover_cfg_test = nil
+      self.hover_cfg_save = nil
+      self.hover_cfg_auth = nil
+      self.hover_cfg_add_var = nil
+      self.hover_cfg_edit_cmd = nil
+      self.hover_cfg_env_edit = nil
+      self.hover_cfg_env_clear = nil
+
+      if check_btn(self._cfg_close_btn) then self.hover_cfg_close = true; is_hand = true
+      elseif check_btn(self._cfg_cancel_btn) then self.hover_cfg_cancel = true; is_hand = true
+      elseif check_btn(self._cfg_test_btn) then self.hover_cfg_test = true; is_hand = true
+      elseif check_btn(self._cfg_save_btn) then self.hover_cfg_save = true; is_hand = true
+      elseif check_btn(self._cfg_auth_btn) then self.hover_cfg_auth = true; is_hand = true
+      elseif check_btn(self._cfg_add_var_btn) then self.hover_cfg_add_var = true; is_hand = true
+      elseif check_btn(self._cfg_edit_cmd_btn) then self.hover_cfg_edit_cmd = true; is_hand = true
+      end
+
+      if not is_hand and self._cfg_env_edit_btns then
+        for _, eb in ipairs(self._cfg_env_edit_btns) do
+          if check_btn(eb) then
+            self.hover_cfg_env_edit = eb.key
+            is_hand = true
+            break
+          end
+        end
+      end
+      if not is_hand and self._cfg_env_clear_btns then
+        for _, cb in ipairs(self._cfg_env_clear_btns) do
+          if check_btn(cb) then
+            self.hover_cfg_env_clear = cb.key
+            is_hand = true
+            break
+          end
+        end
+      end
+
+      system.set_cursor(is_hand and "hand" or "arrow")
+      core.redraw = true
+      return
+    end
 
     if self.active_skill_preview then
       local function check_btn(btn)
@@ -5340,6 +5468,7 @@ function AGView:on_mouse_moved(mx, my, ...)
       end
       if check_btn(self._preview_close_btn) then self.hover_preview_close = true; is_hand = true
       elseif check_btn(self._preview_cancel_btn) then self.hover_preview_cancel = true; is_hand = true
+      elseif check_btn(self._preview_config_btn) then self.hover_preview_config = true; is_hand = true
       elseif check_btn(self._preview_install_btn) then self.hover_preview_install = true; is_hand = true
       elseif check_btn(self._preview_uninstall_btn) then self.hover_preview_uninstall = true; is_hand = true
       elseif check_btn(self._preview_repo_btn) then self.hover_preview_repo = true; is_hand = true
@@ -6200,6 +6329,105 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     end
 
     if self.show_skills_modal then
+      -- 0. Active Tool Configuration Sheet clicks
+      if self.active_tool_config then
+        local function check_btn(btn)
+          return btn and (mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h)
+        end
+        if check_btn(self._cfg_close_btn) or check_btn(self._cfg_cancel_btn) then
+          self.active_tool_config = nil
+          core.redraw = true
+          return true
+        end
+        if check_btn(self._cfg_test_btn) then
+          self:test_tool_health(self.active_tool_config.id)
+          return true
+        end
+        if check_btn(self._cfg_auth_btn) then
+          self:launch_tool_browser_auth(self.active_tool_config.id)
+          return true
+        end
+        if check_btn(self._cfg_save_btn) then
+          local tool_id = self.active_tool_config.id
+          local cfg = self.active_tool_config.config
+          self:save_tool_config(tool_id, cfg, function()
+            core.log("[Antigravity] Successfully saved & verified " .. tool_id)
+            self.active_tool_config = nil
+          end)
+          return true
+        end
+        if check_btn(self._cfg_add_var_btn) then
+          core.command_view:enter("Environment Variable Name (e.g. GITHUB_TOKEN)", {
+            submit = function(key_name)
+              if key_name and key_name ~= "" then
+                core.command_view:enter("Value for " .. key_name, {
+                  submit = function(val)
+                    if self.active_tool_config and self.active_tool_config.config then
+                      self.active_tool_config.config.env = self.active_tool_config.config.env or {}
+                      self.active_tool_config.config.env[key_name] = val
+                      core.redraw = true
+                    end
+                  end
+                })
+              end
+            end
+          })
+          return true
+        end
+        if check_btn(self._cfg_edit_cmd_btn) then
+          local current_args = table.concat(self.active_tool_config.config.args or {}, " ")
+          core.command_view:enter("Command Arguments (space-separated)", {
+            text = current_args,
+            submit = function(arg_str)
+              if self.active_tool_config and self.active_tool_config.config then
+                local new_args = {}
+                for a in arg_str:gmatch("%S+") do table.insert(new_args, a) end
+                self.active_tool_config.config.args = new_args
+                core.redraw = true
+              end
+            end
+          })
+          return true
+        end
+        if self._cfg_env_edit_btns then
+          for _, eb in ipairs(self._cfg_env_edit_btns) do
+            if check_btn(eb) then
+              core.command_view:enter("Value for " .. eb.key, {
+                text = eb.current_val or "",
+                submit = function(new_val)
+                  if self.active_tool_config and self.active_tool_config.config then
+                    self.active_tool_config.config.env = self.active_tool_config.config.env or {}
+                    self.active_tool_config.config.env[eb.key] = new_val
+                    core.redraw = true
+                  end
+                end
+              })
+              return true
+            end
+          end
+        end
+        if self._cfg_env_clear_btns then
+          for _, cb in ipairs(self._cfg_env_clear_btns) do
+            if check_btn(cb) then
+              if self.active_tool_config and self.active_tool_config.config and self.active_tool_config.config.env then
+                self.active_tool_config.config.env[cb.key] = nil
+                core.redraw = true
+              end
+              return true
+            end
+          end
+        end
+        if self._cfg_modal_rect then
+          local mr = self._cfg_modal_rect
+          if mx < mr.x or mx > mr.x + mr.w or my < mr.y or my > mr.y + mr.h then
+            self.active_tool_config = nil
+            core.redraw = true
+            return true
+          end
+        end
+        return true
+      end
+
       -- 1. Preview Modal clicks
       if self.active_skill_preview then
         local function check_btn(btn)
@@ -6209,6 +6437,12 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
           self.active_skill_preview = nil
           self.preview_scroll_y = 0
           core.redraw = true
+          return true
+        end
+        if check_btn(self._preview_config_btn) then
+          local item = self.active_skill_preview
+          self.active_skill_preview = nil
+          self:open_tool_config(item)
           return true
         end
         if check_btn(self._preview_install_btn) then
@@ -6444,7 +6678,10 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         if self._market_action_btns then
           for _, btn in ipairs(self._market_action_btns) do
             if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
-              if btn.action == "install" then
+              if btn.action == "config" then
+                self:open_tool_config(btn.item)
+                return true
+              elseif btn.action == "install" then
                 self:install_skill(btn.item)
                 return true
               elseif btn.action == "uninstall" then
@@ -7673,6 +7910,261 @@ end
     end
   end
 
+  function AGView:draw_tool_config_sheet(x, y, w, h)
+    local P = get_palette()
+    local pad = 12 * SCALE
+    local cfg_state = self.active_tool_config
+    if not cfg_state then return end
+
+    local tool_id = cfg_state.id
+    local tool_title = cfg_state.title or tool_id
+    local cfg = cfg_state.config or {}
+    local env = cfg.env or {}
+    local known_keys = cfg.known_keys or {}
+    local test_res = cfg_state.test_result
+
+    local cw = math.min(math.floor(w * 0.92), 800 * SCALE)
+    local ch = math.min(math.floor(h * 0.92), 650 * SCALE)
+    local cx = x + math.floor((w - cw) / 2)
+    local cy = y + math.floor((h - ch) / 2)
+    self._cfg_modal_rect = { x = cx, y = cy, w = cw, h = ch }
+
+    -- Backdrop overlay
+    renderer.draw_rect(x, y, w, h, {0, 0, 0, 230})
+
+    -- Dialog box frame
+    draw_market_box(cx, cy, cw, ch, P.bg, P.border)
+
+    -- Header Bar
+    local hdr_h = 44 * SCALE
+    renderer.draw_rect(cx, cy, cw, hdr_h, P.bg_darker)
+    renderer.draw_rect(cx, cy + hdr_h - 1, cw, 1, P.border)
+
+    local mf = get_ui_font(style.font)
+    local mf_big = get_bold_font() or get_ui_font(style.big_font or style.font)
+
+    draw_text_emoji(mf, "⚙️", cx + pad, cy + math.floor((hdr_h - mf:get_height()) / 2), P.fg_accent)
+
+    local h_title = "Configure MCP Server: " .. tool_title
+    local trunc_ht = truncate_text(mf_big, h_title, cw - 120 * SCALE)
+    draw_text_emoji(mf_big, trunc_ht, cx + pad + 24 * SCALE, cy + math.floor((hdr_h - mf_big:get_height()) / 2), P.fg)
+
+    -- Close (✕) button
+    local cb_sz = 26 * SCALE
+    local cb_x = cx + cw - pad - cb_sz
+    local cb_y = cy + math.floor((hdr_h - cb_sz) / 2)
+    self._cfg_close_btn = { x = cb_x, y = cb_y, w = cb_sz, h = cb_sz }
+    local is_hov_close = self.hover_cfg_close
+    draw_market_box(cb_x, cb_y, cb_sz, cb_sz, is_hov_close and _COLOR_CACHE_5 or P.bg_btn, is_hov_close and _COLOR_CACHE_12 or P.border)
+    local xw = mf:get_width("✕")
+    draw_text_emoji(mf, "✕", cb_x + math.floor((cb_sz - xw) / 2), cb_y + math.floor((cb_sz - mf:get_height()) / 2), is_hov_close and _COLOR_CACHE_12 or P.fg_muted)
+
+    -- Content layout
+    local cur_y = cy + hdr_h + pad
+    local inner_w = cw - 2 * pad
+
+    -- 1. Live Health Handshake Banner
+    local banner_h = 54 * SCALE
+    local b_bg = P.bg_darker
+    local b_border = P.border
+    local b_status_icon = "🔄"
+    local b_status_text = "Testing Handshake & Stdio Connection..."
+    local b_sub_text = "Verifying MCP protocol handshake..."
+    local b_color = P.fg_dim
+
+    if test_res then
+      if test_res.status == "connected" then
+        b_bg = {35, 134, 54, 30}
+        b_border = {46, 160, 67, 220}
+        b_status_icon = "🟢"
+        local count = test_res.tool_count or 0
+        b_status_text = "Handshake Successful — " .. tostring(count) .. " Tools Active & Ready"
+        local tools_list = ""
+        if test_res.tools and #test_res.tools > 0 then
+          local names = {}
+          for idx, t in ipairs(test_res.tools) do
+            if idx <= 4 then table.insert(names, type(t) == "table" and (t.name or t.id) or tostring(t)) end
+          end
+          tools_list = "Tools: " .. table.concat(names, ", ") .. (#test_res.tools > 4 and "..." or "")
+        end
+        b_sub_text = tools_list ~= "" and tools_list or "Stdio process is responding normally."
+        b_color = {76, 175, 80, 255}
+      elseif test_res.status == "error" then
+        b_bg = {218, 54, 51, 30}
+        b_border = {248, 81, 73, 220}
+        b_status_icon = "🔴"
+        b_status_text = "Connection Failed / Needs Auth"
+        b_sub_text = test_res.message or "Unable to complete MCP initialize handshake."
+        b_color = _COLOR_CACHE_12
+      end
+    end
+
+    draw_market_box(cx + pad, cur_y, inner_w, banner_h, b_bg, b_border)
+    draw_text_emoji(mf_big, b_status_icon, cx + pad + 12 * SCALE, cur_y + 10 * SCALE, b_color)
+    draw_text_emoji(mf_big, truncate_text(mf_big, b_status_text, inner_w - 175 * SCALE), cx + pad + 38 * SCALE, cur_y + 10 * SCALE, b_color)
+    renderer.draw_text(mf, truncate_text(mf, b_sub_text, inner_w - 175 * SCALE), cx + pad + 38 * SCALE, cur_y + 32 * SCALE, P.fg_muted)
+
+    -- Test Ping Button on Right of Banner
+    local tb_w = mf:get_width("⚡ Test Handshake") + 16 * SCALE
+    local tb_h = 28 * SCALE
+    local tb_x = cx + pad + inner_w - tb_w - 10 * SCALE
+    local tb_y = cur_y + math.floor((banner_h - tb_h) / 2)
+    self._cfg_test_btn = { x = tb_x, y = tb_y, w = tb_w, h = tb_h }
+    local is_hov_tb = self.hover_cfg_test
+    draw_market_box(tb_x, tb_y, tb_w, tb_h, is_hov_tb and P.bg_btn_hl or P.bg_btn, P.border)
+    draw_text_emoji(mf, "⚡ Test Handshake", tb_x + 8 * SCALE, tb_y + math.floor((tb_h - mf:get_height()) / 2), is_hov_tb and P.fg_accent or P.fg)
+
+    cur_y = cur_y + banner_h + 10 * SCALE
+
+    -- 2. Browser Auth Card (OAuth & Web Tokens)
+    local auth_h = 42 * SCALE
+    draw_market_box(cx + pad, cur_y, inner_w, auth_h, P.bg_darker, P.border)
+    draw_text_emoji(mf_big, "🌐", cx + pad + 12 * SCALE, cur_y + math.floor((auth_h - mf:get_height()) / 2), P.fg_accent)
+    draw_text_emoji(mf_big, "OAuth / Browser Authorization", cx + pad + 36 * SCALE, cur_y + 6 * SCALE, P.fg)
+    renderer.draw_text(mf, "Authenticate via browser OAuth or view developer settings.", cx + pad + 36 * SCALE, cur_y + 24 * SCALE, P.fg_muted)
+
+    local ab_w = mf:get_width("Open Auth Page ↗") + 16 * SCALE
+    local ab_h = 26 * SCALE
+    local ab_x = cx + pad + inner_w - ab_w - 10 * SCALE
+    local ab_y = cur_y + math.floor((auth_h - ab_h) / 2)
+    self._cfg_auth_btn = { x = ab_x, y = ab_y, w = ab_w, h = ab_h }
+    local is_hov_ab = self.hover_cfg_auth
+    draw_market_box(ab_x, ab_y, ab_w, ab_h, is_hov_ab and P.bg_btn_hl or P.bg_btn, is_hov_ab and P.fg_accent or P.border)
+    draw_text_emoji(mf, "Open Auth Page ↗", ab_x + 8 * SCALE, ab_y + math.floor((ab_h - mf:get_height()) / 2), is_hov_ab and P.fg_accent or P.fg)
+
+    cur_y = cur_y + auth_h + 12 * SCALE
+
+    -- 3. Environment Variables & API Keys Section
+    renderer.draw_text(mf_big, "Environment Variables & Credentials", cx + pad, cur_y, P.fg)
+
+    local av_w = mf:get_width("+ Add Variable") + 14 * SCALE
+    local av_h = 22 * SCALE
+    local av_x = cx + pad + inner_w - av_w
+    local av_y = cur_y - 2 * SCALE
+    self._cfg_add_var_btn = { x = av_x, y = av_y, w = av_w, h = av_h }
+    local is_hov_av = self.hover_cfg_add_var
+    draw_market_box(av_x, av_y, av_w, av_h, is_hov_av and P.bg_btn_hl or P.bg_btn, P.border)
+    renderer.draw_text(mf, "+ Add Variable", av_x + 7 * SCALE, av_y + math.floor((av_h - mf:get_height()) / 2), is_hov_av and P.fg_accent or P.fg_muted)
+
+    cur_y = cur_y + 24 * SCALE
+
+    local all_keys_set = {}
+    local all_keys_list = {}
+    for _, k in ipairs(known_keys) do
+      if not all_keys_set[k] then
+        all_keys_set[k] = true
+        table.insert(all_keys_list, k)
+      end
+    end
+    for k, _ in pairs(env) do
+      if not all_keys_set[k] then
+        all_keys_set[k] = true
+        table.insert(all_keys_list, k)
+      end
+    end
+
+    self._cfg_env_edit_btns = {}
+    self._cfg_env_clear_btns = {}
+
+    local env_table_h = 160 * SCALE
+    draw_market_box(cx + pad, cur_y, inner_w, env_table_h, P.bg_darker, P.border)
+
+    if #all_keys_list == 0 then
+      local no_env_txt = "No specific environment variables configured."
+      local no_sub_txt = "Click '+ Add Variable' above if this tool requires API keys or tokens."
+      renderer.draw_text(mf, no_env_txt, cx + pad + 16 * SCALE, cur_y + 20 * SCALE, P.fg_dim)
+      renderer.draw_text(mf, no_sub_txt, cx + pad + 16 * SCALE, cur_y + 40 * SCALE, P.fg_muted)
+    else
+      local row_h = 30 * SCALE
+      local r_y = cur_y + 4 * SCALE
+      for idx, key_name in ipairs(all_keys_list) do
+        if idx <= 5 then
+          local val = env[key_name]
+          local is_set = (val ~= nil and val ~= "")
+
+          local kn_w = mf:get_width(key_name) + 12 * SCALE
+          draw_market_badge(cx + pad + 8 * SCALE, r_y + 3 * SCALE, kn_w, 22 * SCALE, P.bg_input, P.border, key_name, mf, is_set and P.fg or _COLOR_CACHE_12)
+
+          local val_x = cx + pad + 8 * SCALE + kn_w + 12 * SCALE
+          if is_set then
+            local masked = string.rep("•", math.min(#val, 16)) .. (#val > 16 and "..." or "")
+            renderer.draw_text(mf, masked, val_x, r_y + 6 * SCALE, {76, 175, 80, 255})
+          else
+            renderer.draw_text(mf, "(not set / required)", val_x, r_y + 6 * SCALE, P.fg_muted)
+          end
+
+          local ed_w = mf:get_width(is_set and "Edit" or "Set") + 16 * SCALE
+          local ed_h = 22 * SCALE
+          local clr_w = mf:get_width("Clear") + 16 * SCALE
+          local clr_h = 22 * SCALE
+          local clr_x = cx + pad + inner_w - clr_w - 8 * SCALE
+          local ed_x = is_set and (clr_x - ed_w - 6 * SCALE) or clr_x
+
+          local is_hov_ed = self.hover_cfg_env_edit == key_name
+          draw_market_box(ed_x, r_y + 3 * SCALE, ed_w, ed_h, is_hov_ed and P.bg_btn_hl or P.bg_btn, P.border)
+          renderer.draw_text(mf, is_set and "Edit" or "Set", ed_x + 8 * SCALE, r_y + 3 * SCALE + math.floor((ed_h - mf:get_height()) / 2), is_hov_ed and P.fg_accent or P.fg)
+          table.insert(self._cfg_env_edit_btns, { key = key_name, current_val = val or "", x = ed_x, y = r_y + 3 * SCALE, w = ed_w, h = ed_h })
+
+          if is_set then
+            local is_hov_clr = self.hover_cfg_env_clear == key_name
+            draw_market_box(clr_x, r_y + 3 * SCALE, clr_w, clr_h, is_hov_clr and _COLOR_CACHE_5 or P.bg_btn, is_hov_clr and _COLOR_CACHE_12 or P.border)
+            renderer.draw_text(mf, "Clear", clr_x + 8 * SCALE, r_y + 3 * SCALE + math.floor((clr_h - mf:get_height()) / 2), is_hov_clr and _COLOR_CACHE_12 or P.fg_muted)
+            table.insert(self._cfg_env_clear_btns, { key = key_name, x = clr_x, y = r_y + 3 * SCALE, w = clr_w, h = clr_h })
+          end
+
+          r_y = r_y + row_h
+        end
+      end
+    end
+
+    cur_y = cur_y + env_table_h + 10 * SCALE
+
+    -- 4. Command & Process Arguments
+    local cmd_str = (cfg.command or "npx") .. " " .. table.concat(cfg.args or {}, " ")
+    renderer.draw_text(mf_big, "Command & Process Arguments", cx + pad, cur_y, P.fg)
+    cur_y = cur_y + 18 * SCALE
+
+    local cmd_box_h = 30 * SCALE
+    draw_market_box(cx + pad, cur_y, inner_w, cmd_box_h, P.bg_input, P.border)
+    local trunc_cmd = truncate_text(mf, cmd_str, inner_w - 95 * SCALE)
+    renderer.draw_text(mf, trunc_cmd, cx + pad + 10 * SCALE, cur_y + math.floor((cmd_box_h - mf:get_height()) / 2), P.fg_dim)
+
+    local ec_w = mf:get_width("Edit Args") + 16 * SCALE
+    local ec_h = 22 * SCALE
+    local ec_x = cx + pad + inner_w - ec_w - 6 * SCALE
+    local ec_y = cur_y + math.floor((cmd_box_h - ec_h) / 2)
+    self._cfg_edit_cmd_btn = { x = ec_x, y = ec_y, w = ec_w, h = ec_h }
+    local is_hov_ec = self.hover_cfg_edit_cmd
+    draw_market_box(ec_x, ec_y, ec_w, ec_h, is_hov_ec and P.bg_btn_hl or P.bg_btn, P.border)
+    renderer.draw_text(mf, "Edit Args", ec_x + 8 * SCALE, ec_y + math.floor((ec_h - mf:get_height()) / 2), is_hov_ec and P.fg_accent or P.fg)
+
+    -- 5. Footer Actions (Cancel, Save & Connect)
+    local ftr_h = 52 * SCALE
+    local ftr_y = cy + ch - ftr_h
+    renderer.draw_rect(cx, ftr_y, cw, ftr_h, P.bg_darker)
+    renderer.draw_rect(cx, ftr_y, cw, 1, P.border)
+
+    local can_txt = "Close"
+    local c_w = mf:get_width(can_txt) + 24 * SCALE
+    local c_h = 30 * SCALE
+    local c_x = cx + pad
+    local c_y = ftr_y + math.floor((ftr_h - c_h) / 2)
+    self._cfg_cancel_btn = { x = c_x, y = c_y, w = c_w, h = c_h }
+    local is_hov_can = self.hover_cfg_cancel
+    draw_market_box(c_x, c_y, c_w, c_h, is_hov_can and P.bg_btn_hl or P.bg_btn, P.border)
+    renderer.draw_text(mf, can_txt, c_x + 12 * SCALE, c_y + math.floor((c_h - mf:get_height()) / 2), is_hov_can and P.fg_accent or P.fg)
+
+    local save_txt = "💾 Save Configuration & Connect"
+    local s_w = mf:get_width(save_txt) + 24 * SCALE
+    local s_h = 30 * SCALE
+    local s_x = cx + cw - pad - s_w
+    local s_y = ftr_y + math.floor((ftr_h - s_h) / 2)
+    self._cfg_save_btn = { x = s_x, y = s_y, w = s_w, h = s_h }
+    local is_hov_save = self.hover_cfg_save
+    draw_market_box(s_x, s_y, s_w, s_h, is_hov_save and P.fg or P.fg_accent, nil)
+    draw_text_emoji(mf, save_txt, s_x + 12 * SCALE, s_y + math.floor((s_h - mf:get_height()) / 2), P.bg)
+  end
+
   function AGView:draw_skills_modal(x, y, w, h)
     local P = get_palette()
     local pad = 12 * SCALE
@@ -7990,48 +8482,94 @@ end
           local footer_y = sy + sh - 34 * SCALE
           
           if is_installed then
-            local inst_badge_w = mf:get_width("✓ Installed") + 14 * SCALE
-            draw_market_badge(sx + 12 * SCALE, footer_y, inst_badge_w, 22 * SCALE, {76, 175, 80, 35}, {76, 175, 80, 255}, "✓ Installed", mf, {76, 175, 80, 255})
+            if self.show_tools_tab then
+              local h_info = self.tool_health_map and self.tool_health_map[skill.id]
+              if h_info and h_info.status == "connected" then
+                local b_txt = "🟢 Active"
+                local bw = mf:get_width(b_txt) + 14 * SCALE
+                draw_market_badge(sx + 12 * SCALE, footer_y, bw, 22 * SCALE, {35, 134, 54, 35}, {46, 160, 67, 255}, b_txt, mf, {76, 175, 80, 255})
+              elseif h_info and h_info.status == "error" then
+                local b_txt = "🔴 Needs Auth"
+                local bw = mf:get_width(b_txt) + 14 * SCALE
+                draw_market_badge(sx + 12 * SCALE, footer_y, bw, 22 * SCALE, _COLOR_CACHE_5, _COLOR_CACHE_12, b_txt, mf, _COLOR_CACHE_12)
+              elseif h_info and h_info.status == "testing" then
+                local b_txt = "🔄 Testing"
+                local bw = mf:get_width(b_txt) + 14 * SCALE
+                draw_market_badge(sx + 12 * SCALE, footer_y, bw, 22 * SCALE, P.bg_btn, P.border, b_txt, mf, P.fg_accent)
+              else
+                local inst_badge_w = mf:get_width("✓ Installed") + 14 * SCALE
+                draw_market_badge(sx + 12 * SCALE, footer_y, inst_badge_w, 22 * SCALE, {76, 175, 80, 35}, {76, 175, 80, 255}, "✓ Installed", mf, {76, 175, 80, 255})
+              end
+            else
+              local inst_badge_w = mf:get_width("✓ Installed") + 14 * SCALE
+              draw_market_badge(sx + 12 * SCALE, footer_y, inst_badge_w, 22 * SCALE, {76, 175, 80, 35}, {76, 175, 80, 255}, "✓ Installed", mf, {76, 175, 80, 255})
+            end
           else
             renderer.draw_text(mf, "Open Source", sx + 12 * SCALE, footer_y + 4 * SCALE, P.fg_muted)
           end
           
           -- Right Action Buttons
           local det_txt = "Details"
-          local det_w = style.font:get_width(det_txt) + 14 * SCALE
+          local det_w = style.font:get_width(det_txt) + 12 * SCALE
           local det_h = 24 * SCALE
           
-          local act_w = 68 * SCALE
+          local act_w = 64 * SCALE
           local act_h = 24 * SCALE
           local act_x = sx + col_w - 12 * SCALE - act_w
-          local det_x = act_x - 8 * SCALE - det_w
-          
-          -- Details button
-          local is_hov_det = self.hover_market_action == ("details:" .. skill.id)
-          draw_market_box(det_x, footer_y, det_w, det_h, is_hov_det and P.bg_btn_hl or P.bg_btn, P.border)
-          renderer.draw_text(style.font, det_txt, det_x + math.floor((det_w - style.font:get_width(det_txt))/2), footer_y + math.floor((det_h - style.font:get_height())/2), is_hov_det and P.fg_accent or P.fg)
-          table.insert(self._market_action_btns, {key = "details:" .. skill.id, item = skill, action = "details", x = det_x, y = footer_y, w = det_w, h = det_h})
-          
-          -- Primary Action button
-          if self.show_installed_skills then
-            -- Installed View: [ 🗑 Remove ]
+
+          if self.show_tools_tab and is_installed then
+            local cfg_txt = "⚙️ Config"
+            local cfg_w = mf:get_width(cfg_txt) + 12 * SCALE
+            local cfg_h = 24 * SCALE
+            local cfg_x = act_x - 6 * SCALE - cfg_w
+            local det_pos_x = cfg_x - 6 * SCALE - det_w
+
+            -- Details button
+            local is_hov_det = self.hover_market_action == ("details:" .. skill.id)
+            draw_market_box(det_pos_x, footer_y, det_w, det_h, is_hov_det and P.bg_btn_hl or P.bg_btn, P.border)
+            renderer.draw_text(style.font, det_txt, det_pos_x + math.floor((det_w - style.font:get_width(det_txt))/2), footer_y + math.floor((det_h - style.font:get_height())/2), is_hov_det and P.fg_accent or P.fg)
+            table.insert(self._market_action_btns, {key = "details:" .. skill.id, item = skill, action = "details", x = det_pos_x, y = footer_y, w = det_w, h = det_h})
+
+            -- Config button
+            local is_hov_cfg = self.hover_market_action == ("config:" .. skill.id)
+            draw_market_box(cfg_x, footer_y, cfg_w, cfg_h, is_hov_cfg and P.bg_btn_hl or P.bg_btn, is_hov_cfg and P.fg_accent or P.border)
+            draw_text_emoji(mf, cfg_txt, cfg_x + 6 * SCALE, footer_y + math.floor((cfg_h - mf:get_height())/2), is_hov_cfg and P.fg_accent or P.fg)
+            table.insert(self._market_action_btns, {key = "config:" .. skill.id, item = skill, action = "config", x = cfg_x, y = footer_y, w = cfg_w, h = cfg_h})
+
+            -- Remove button
             local is_hov_un = self.hover_market_action == ("uninstall:" .. skill.id)
             draw_market_box(act_x, footer_y, act_w, act_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
             local rm_txt = "Remove"
             renderer.draw_text(style.font, rm_txt, act_x + math.floor((act_w - style.font:get_width(rm_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
             table.insert(self._market_action_btns, {key = "uninstall:" .. skill.id, item = skill, action = "uninstall", x = act_x, y = footer_y, w = act_w, h = act_h})
           else
-            -- Marketplace View: [ ⬇ Install ] or [ Installed ]
-            if is_installed then
-              draw_market_box(act_x, footer_y, act_w, act_h, P.bg_btn, P.border)
-              local in_txt = "Installed"
-              renderer.draw_text(style.font, in_txt, act_x + math.floor((act_w - style.font:get_width(in_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), P.fg_dim)
+            local det_x = act_x - 6 * SCALE - det_w
+            
+            -- Details button
+            local is_hov_det = self.hover_market_action == ("details:" .. skill.id)
+            draw_market_box(det_x, footer_y, det_w, det_h, is_hov_det and P.bg_btn_hl or P.bg_btn, P.border)
+            renderer.draw_text(style.font, det_txt, det_x + math.floor((det_w - style.font:get_width(det_txt))/2), footer_y + math.floor((det_h - style.font:get_height())/2), is_hov_det and P.fg_accent or P.fg)
+            table.insert(self._market_action_btns, {key = "details:" .. skill.id, item = skill, action = "details", x = det_x, y = footer_y, w = det_w, h = det_h})
+            
+            -- Primary Action button
+            if self.show_installed_skills then
+              local is_hov_un = self.hover_market_action == ("uninstall:" .. skill.id)
+              draw_market_box(act_x, footer_y, act_w, act_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
+              local rm_txt = "Remove"
+              renderer.draw_text(style.font, rm_txt, act_x + math.floor((act_w - style.font:get_width(rm_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
+              table.insert(self._market_action_btns, {key = "uninstall:" .. skill.id, item = skill, action = "uninstall", x = act_x, y = footer_y, w = act_w, h = act_h})
             else
-              local is_hov_in = self.hover_market_action == ("install:" .. skill.id)
-              draw_market_box(act_x, footer_y, act_w, act_h, is_hov_in and P.fg or P.fg_accent, nil)
-              local in_txt = "Install"
-              renderer.draw_text(style.font, in_txt, act_x + math.floor((act_w - style.font:get_width(in_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), P.bg)
-              table.insert(self._market_action_btns, {key = "install:" .. skill.id, item = skill, action = "install", x = act_x, y = footer_y, w = act_w, h = act_h})
+              if is_installed then
+                draw_market_box(act_x, footer_y, act_w, act_h, P.bg_btn, P.border)
+                local in_txt = "Installed"
+                renderer.draw_text(style.font, in_txt, act_x + math.floor((act_w - style.font:get_width(in_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), P.fg_dim)
+              else
+                local is_hov_in = self.hover_market_action == ("install:" .. skill.id)
+                draw_market_box(act_x, footer_y, act_w, act_h, is_hov_in and P.fg or P.fg_accent, nil)
+                local in_txt = self.show_tools_tab and "Install" or "Install"
+                renderer.draw_text(style.font, in_txt, act_x + math.floor((act_w - style.font:get_width(in_txt))/2), footer_y + math.floor((act_h - style.font:get_height())/2), P.bg)
+                table.insert(self._market_action_btns, {key = "install:" .. skill.id, item = skill, action = "install", x = act_x, y = footer_y, w = act_w, h = act_h})
+              end
             end
           end
           
@@ -8259,17 +8797,41 @@ end
       end
       
       if is_inst then
-        local un_txt = "🗑 Uninstall Extension"
-        local un_w = mf:get_width(un_txt) + 24 * SCALE
-        local un_h = 30 * SCALE
-        local un_x = px + pw - 16 * SCALE - un_w
-        local un_y = ftr_y + math.floor((ftr_h - un_h) / 2)
-        self._preview_uninstall_btn = {x = un_x, y = un_y, w = un_w, h = un_h}
-        local is_hov_un = self.hover_preview_uninstall
-        draw_market_box(un_x, un_y, un_w, un_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
-        draw_text_emoji(mf, un_txt, un_x + 12 * SCALE, un_y + math.floor((un_h - mf:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
+        if self.show_tools_tab then
+          local cfg_txt = "⚙️ Configure"
+          local cfb_w = mf:get_width(cfg_txt) + 20 * SCALE
+          local cfb_h = 30 * SCALE
+          local cfb_x = px + pw - 16 * SCALE - cfb_w
+          local cfb_y = ftr_y + math.floor((ftr_h - cfb_h) / 2)
+          self._preview_config_btn = {x = cfb_x, y = cfb_y, w = cfb_w, h = cfb_h}
+          local is_hov_pcfg = self.hover_preview_config
+          draw_market_box(cfb_x, cfb_y, cfb_w, cfb_h, is_hov_pcfg and P.bg_btn_hl or P.bg_btn, is_hov_pcfg and P.fg_accent or P.border)
+          draw_text_emoji(mf, cfg_txt, cfb_x + 10 * SCALE, cfb_y + math.floor((cfb_h - mf:get_height())/2), is_hov_pcfg and P.fg_accent or P.fg)
+
+          local un_txt = "🗑 Uninstall"
+          local un_w = mf:get_width(un_txt) + 20 * SCALE
+          local un_h = 30 * SCALE
+          local un_x = cfb_x - 10 * SCALE - un_w
+          local un_y = ftr_y + math.floor((ftr_h - un_h) / 2)
+          self._preview_uninstall_btn = {x = un_x, y = un_y, w = un_w, h = un_h}
+          local is_hov_un = self.hover_preview_uninstall
+          draw_market_box(un_x, un_y, un_w, un_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
+          draw_text_emoji(mf, un_txt, un_x + 10 * SCALE, un_y + math.floor((un_h - mf:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
+        else
+          self._preview_config_btn = nil
+          local un_txt = "🗑 Uninstall Extension"
+          local un_w = mf:get_width(un_txt) + 24 * SCALE
+          local un_h = 30 * SCALE
+          local un_x = px + pw - 16 * SCALE - un_w
+          local un_y = ftr_y + math.floor((ftr_h - un_h) / 2)
+          self._preview_uninstall_btn = {x = un_x, y = un_y, w = un_w, h = un_h}
+          local is_hov_un = self.hover_preview_uninstall
+          draw_market_box(un_x, un_y, un_w, un_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
+          draw_text_emoji(mf, un_txt, un_x + 12 * SCALE, un_y + math.floor((un_h - mf:get_height())/2), is_hov_un and _COLOR_CACHE_12 or P.fg_muted)
+        end
       else
-        local in_txt = "⬇ Install Extension"
+        self._preview_config_btn = nil
+        local in_txt = self.show_tools_tab and "⚡ Setup & Install" or "⬇ Install Extension"
         local in_w = mf:get_width(in_txt) + 24 * SCALE
         local in_h = 30 * SCALE
         local in_x = px + pw - 16 * SCALE - in_w
@@ -8279,6 +8841,10 @@ end
         draw_market_box(in_x, in_y, in_w, in_h, is_hov_in and P.fg or P.fg_accent, nil)
         draw_text_emoji(mf, in_txt, in_x + 12 * SCALE, in_y + math.floor((in_h - mf:get_height())/2), P.bg)
       end
+    end
+
+    if self.active_tool_config then
+      self:draw_tool_config_sheet(x, y, w, h)
     end
   end
 

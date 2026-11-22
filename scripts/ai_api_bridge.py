@@ -2025,6 +2025,11 @@ def main():
     parser.add_argument("--install-tool", type=str)
     parser.add_argument("--uninstall-tool", type=str)
     parser.add_argument("--set-tool-env", nargs=3, metavar=("TOOL_ID", "KEY", "VAL"))
+    parser.add_argument("--test-tool", type=str, help="Test MCP tool connection via stdio handshake")
+    parser.add_argument("--get-tool-config", type=str, help="Get MCP tool configuration and schema")
+    parser.add_argument("--save-tool-config", type=str, help="Save MCP tool configuration")
+    parser.add_argument("--config-data", type=str, help="JSON or FILE:path for save-tool-config")
+    parser.add_argument("--open-tool-auth", type=str, help="Open browser auth for MCP tool")
     parser.add_argument("--install-skill", type=str)
     parser.add_argument("--uninstall-skill", type=str)
     parser.add_argument("--preview-skill", type=str)
@@ -2464,6 +2469,183 @@ def main():
             with open(cfg_path, "w") as f: json.dump(cfg, f, indent=2)
         except: pass
         print(f"Set env for {args.set_tool_env[0]}")
+        sys.exit(0)
+
+    if args.test_tool:
+        tool_id = args.test_tool
+        from mcp import StdioServerParameters, ClientSession
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
+        result = {"success": False, "status": "error", "tool_count": 0, "tools": [], "message": ""}
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            srv_conf = cfg.get("mcpServers", {}).get(tool_id)
+            if not srv_conf:
+                result["message"] = f"Tool '{tool_id}' not found in mcp_config.json"
+            else:
+                merged_env = os.environ.copy()
+                tool_env = srv_conf.get("env", {})
+                if isinstance(tool_env, dict):
+                    for k, v in tool_env.items():
+                        if v: merged_env[k] = str(v)
+                
+                cmd = srv_conf.get("command", "")
+                if sys.platform == "win32":
+                    cmd = shutil.which(cmd) or cmd
+
+                params = StdioServerParameters(
+                    command=cmd,
+                    args=srv_conf.get("args", []),
+                    env=merged_env
+                )
+                
+                async def _do_handshake():
+                    from contextlib import AsyncExitStack
+                    async with AsyncExitStack() as stack:
+                        read, write = await stack.enter_async_context(robust_stdio_client(params))
+                        session = await stack.enter_async_context(ClientSession(read, write))
+                        await asyncio.wait_for(session.initialize(), timeout=7.0)
+                        tools_res = await asyncio.wait_for(session.list_tools(), timeout=5.0)
+                        names = [t.name for t in tools_res.tools]
+                        return names
+
+                tool_names = asyncio.run(_do_handshake())
+                result["success"] = True
+                result["status"] = "connected"
+                result["tool_count"] = len(tool_names)
+                result["tools"] = tool_names
+                result["message"] = f"Connected! {len(tool_names)} tools active."
+        except Exception as e:
+            result["success"] = False
+            result["status"] = "error"
+            err_msg = str(e)
+            if "TaskGroup" in err_msg or "closed" in err_msg.lower():
+                err_msg = "Process closed unexpectedly. Missing required authentication token or invalid credentials."
+            elif "timeout" in err_msg.lower():
+                err_msg = "Handshake timed out (server took >7s to respond). Credentials may be required."
+            result["error"] = err_msg
+            result["message"] = f"Connection failed: {err_msg[:120]}"
+
+        out_json = json.dumps(result, indent=2)
+        if args.out_file:
+            with open(args.out_file, "w", encoding="utf-8") as of:
+                of.write(out_json)
+        print(out_json, flush=True)
+        sys.exit(0)
+
+    if args.get_tool_config:
+        tool_id = args.get_tool_config
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
+        res = {
+            "id": tool_id,
+            "installed": False,
+            "command": "npx",
+            "args": ["-y", "@smithery/cli", "run", tool_id],
+            "env": {},
+            "known_keys": [],
+            "description": ""
+        }
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            if "mcpServers" in cfg and tool_id in cfg["mcpServers"]:
+                srv = cfg["mcpServers"][tool_id]
+                res["installed"] = True
+                res["command"] = srv.get("command", "npx")
+                res["args"] = srv.get("args", [])
+                res["env"] = srv.get("env", {})
+        except: pass
+
+        KNOWN_KEYS_MAP = {
+            "github": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+            "gmail": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"],
+            "slack": ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
+            "postgres": ["POSTGRES_CONNECTION_STRING"],
+            "sqlite": ["SQLITE_DATABASE_PATH"],
+            "everything": ["EVERYTHING_SDK_DLL_PATH"],
+            "brave-search": ["BRAVE_API_KEY"],
+            "google-drive": ["GOOGLE_DRIVE_CREDENTIALS_JSON"],
+            "isdaniel/mcp_weather_server": ["OPENWEATHER_API_KEY"],
+            "puppeteer": ["PUPPETEER_HEADLESS", "PUPPETEER_EXECUTABLE_PATH"],
+            "filesystem": ["ALLOWED_DIRECTORIES"]
+        }
+        res["known_keys"] = KNOWN_KEYS_MAP.get(tool_id, [])
+
+        if not res["known_keys"]:
+            try:
+                import urllib.request
+                req = urllib.request.Request(f"https://api.smithery.ai/servers/{tool_id}", headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    sdata = json.loads(resp.read().decode())
+                    if "connections" in sdata and len(sdata["connections"]) > 0:
+                        cschema = sdata["connections"][0].get("configSchema", {})
+                        props = cschema.get("properties", {})
+                        reqs = cschema.get("required", [])
+                        if isinstance(reqs, str): reqs = [reqs]
+                        all_keys = list(set(list(props.keys()) + list(reqs)))
+                        res["known_keys"] = [re.sub(r'(?<!^)(?=[A-Z])', '_', k).upper() for k in all_keys]
+            except: pass
+
+        out_json = json.dumps(res, indent=2)
+        if args.out_file:
+            with open(args.out_file, "w", encoding="utf-8") as of:
+                of.write(out_json)
+        print(out_json, flush=True)
+        sys.exit(0)
+
+    if args.save_tool_config:
+        tool_id = args.save_tool_config
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except: cfg = {}
+        if "mcpServers" not in cfg: cfg["mcpServers"] = {}
+
+        new_data = {}
+        if args.config_data:
+            try:
+                if args.config_data.startswith("FILE:"):
+                    with open(args.config_data[5:], "r", encoding="utf-8") as cf:
+                        new_data = json.load(cf)
+                else:
+                    new_data = json.loads(args.config_data)
+            except Exception as e:
+                print(f"Error parsing config data: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        current = cfg["mcpServers"].get(tool_id, {
+            "command": "npx",
+            "args": ["-y", "@smithery/cli", "run", tool_id],
+            "env": {}
+        })
+
+        if "command" in new_data: current["command"] = new_data["command"]
+        if "args" in new_data: current["args"] = new_data["args"]
+        if "env" in new_data: current["env"] = new_data["env"]
+
+        cfg["mcpServers"][tool_id] = current
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        print(f"Saved configuration for {tool_id}", flush=True)
+        sys.exit(0)
+
+    if args.open_tool_auth:
+        tool_id = args.open_tool_auth
+        import webbrowser
+        auth_urls = {
+            "github": "https://github.com/settings/tokens/new?scopes=repo,read:org,user&description=Lite-XL+MCP",
+            "gmail": "https://console.cloud.google.com/apis/credentials",
+            "google-drive": "https://console.cloud.google.com/apis/credentials",
+            "slack": "https://api.slack.com/apps",
+            "brave-search": "https://brave.com/search/api/",
+        }
+        target_url = auth_urls.get(tool_id) or f"https://smithery.ai/server/{tool_id}"
+        try:
+            webbrowser.open(target_url)
+            print(f"Opened browser auth page: {target_url}", flush=True)
+        except Exception as e:
+            print(f"Could not open browser: {e}", file=sys.stderr)
         sys.exit(0)
     if args.install_skill:
         import urllib.request
