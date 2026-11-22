@@ -136,6 +136,15 @@ if (-not $ghCmd) {
     }
 }
 
+# 1.6. Check Node.js and npx (Recommended for Smithery & MCP Tools)
+$npxCmd = Get-Command "npx" -ErrorAction SilentlyContinue
+if (-not $npxCmd) {
+    Write-Host "[!] Notice: 'npx' / Node.js not detected in PATH." -ForegroundColor Yellow
+    Write-Host "    Node.js is strongly recommended for running Smithery and MCP server tools." -ForegroundColor Gray
+} else {
+    Write-Host "[+] Node.js / npx detected for MCP and Smithery tools." -ForegroundColor Gray
+}
+
 # 1.7. Download Nerd Font for icons (Safe fallback)
 $fontDir = "$configDir\fonts"
 if (-not (Test-Path -LiteralPath $fontDir)) {
@@ -253,7 +262,7 @@ if ($setupMongo) {
 
 if ($realPython) {
     Write-Host "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..." -ForegroundColor Cyan
-    try { & python -m pip install pypdfium2 pypdf Pillow --quiet 2>$null } catch {}
+    try { & python -m pip install requests pypdfium2 pypdf Pillow --quiet 2>$null } catch {}
     try { & python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>$null } catch {}
 }
 
@@ -312,6 +321,12 @@ if (Test-Path -LiteralPath "$srcDir\scripts") {
             # skip
         } else {
             Copy-Item -LiteralPath $_.FullName -Destination "$configDir\scripts\" -Force
+        }
+    }
+    # Ensure critical multi-source marketplace configurations are preserved
+    foreach ($cfg in @("sources_config.json", "mcp_config.json", "local_skills.json")) {
+        if (Test-Path -LiteralPath "$srcDir\scripts\$cfg") {
+            Copy-Item -LiteralPath "$srcDir\scripts\$cfg" -Destination "$configDir\scripts\$cfg" -Force
         }
     }
 }

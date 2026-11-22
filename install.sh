@@ -211,6 +211,14 @@ if ! command -v gh &> /dev/null; then
     fi
 fi
 
+# 1.6. Check Node.js and npx (Recommended for Smithery & MCP Tools)
+if ! command -v npx &> /dev/null; then
+    echo -e "\033[1;33m[!] Notice: 'npx' / Node.js not detected in PATH.\033[0m"
+    echo "    Node.js is strongly recommended for running Smithery and MCP server tools."
+else
+    echo "[+] Node.js / npx detected for MCP and Smithery tools."
+fi
+
 # 1.7. Download Nerd Font for icons (Safe fallback)
 mkdir -p "$CONFIG_DIR/fonts"
 NERD_FONT_DEST="$CONFIG_DIR/fonts/FiraCodeNerdFont-Regular.ttf"
@@ -257,24 +265,26 @@ if ! command -v agy &> /dev/null && [ "$INSTALL_AGY" = true ]; then
     fi
 fi
 
-# 3. LeetCode & Assessment Suite Dependencies
+# 3. Core AI Dependencies (LangGraph, MCP, LangChain, Graphify, Requests, etc.)
+if command -v python3 &> /dev/null; then
+    echo "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..."
+    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --break-system-packages --quiet 2>/dev/null || \
+    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --user --quiet 2>/dev/null || \
+    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>/dev/null || true
+    
+    echo "Installing PDF Engine Dependencies..."
+    python3 -m pip install pypdfium2 pypdf Pillow --break-system-packages --quiet 2>/dev/null || \
+    python3 -m pip install pypdfium2 pypdf Pillow --user --quiet 2>/dev/null || \
+    python3 -m pip install pypdfium2 pypdf Pillow --quiet 2>/dev/null || true
+fi
+
+# 3.5. LeetCode & Assessment Suite Dependencies
 if [ "$INSTALL_LEETCODE" = true ]; then
     if [ "$UNATTENDED" = false ]; then
         read -p "Do you want to setup LeetCode plugin & assessment suite? (y/n) [default: y]: " prompt_lc || prompt_lc="y"
         if [[ "$prompt_lc" =~ ^[Nn]$ ]]; then INSTALL_LEETCODE=false; fi
     fi
     if [ "$INSTALL_LEETCODE" = true ] && command -v python3 &> /dev/null; then
-        
-    if command -v python3 &> /dev/null; then
-        echo "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..."
-        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --break-system-packages --quiet 2>/dev/null || \
-        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --user --quiet 2>/dev/null || \
-        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>/dev/null || true
-        
-        echo "Installing PDF Engine Dependencies..."
-        python3 -m pip install pypdfium2 pypdf Pillow --break-system-packages --quiet 2>/dev/null ||         python3 -m pip install pypdfium2 pypdf Pillow --user --quiet 2>/dev/null ||         python3 -m pip install pypdfium2 pypdf Pillow --quiet 2>/dev/null || true
-    fi
-
         echo "Installing Python dependencies for LeetCode API & ranking engine..."
         python3 -m pip install requests --break-system-packages --quiet 2>/dev/null || \
         python3 -m pip install requests --user --quiet 2>/dev/null || \
@@ -355,6 +365,12 @@ if [ -d "$SRC_DIR/scripts" ]; then
         if [ "$script_name" = "leetcode_api.py" ] && [ "$INSTALL_LEETCODE" = false ]; then continue; fi
         if [ "$script_name" = "mongodb_bridge.py" ] && [ "$INSTALL_MONGO" = false ]; then continue; fi
         cp -f "$script" "$CONFIG_DIR/scripts/"
+    done
+    # Ensure critical multi-source marketplace configurations are preserved
+    for cfg in sources_config.json mcp_config.json local_skills.json; do
+        if [ -f "$SRC_DIR/scripts/$cfg" ]; then
+            cp -f "$SRC_DIR/scripts/$cfg" "$CONFIG_DIR/scripts/$cfg"
+        fi
     done
     chmod +x "$CONFIG_DIR"/scripts/*.py "$CONFIG_DIR"/scripts/*.js 2>/dev/null || true
 fi

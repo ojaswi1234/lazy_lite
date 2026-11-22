@@ -76,6 +76,15 @@ if %errorlevel% neq 0 (
     )
 )
 
+:: 1.6. Check Node.js and npx (Recommended for Smithery & MCP Tools)
+where npx >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [!] Notice: 'npx' / Node.js not detected in PATH.
+    echo     Node.js is strongly recommended for running Smithery and MCP server tools.
+) else (
+    echo [+] Node.js / npx detected for MCP and Smithery tools.
+)
+
 :: 1.7. Download Nerd Font for icons
 echo Downloading FiraCode Nerd Font...
 if not exist "%CONFIG_DIR%\fonts" mkdir "%CONFIG_DIR%\fonts" >nul 2>nul
@@ -141,7 +150,7 @@ if %errorlevel% equ 0 (
         python -m pip install pymongo --quiet >nul 2>nul
     )
     echo Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)...
-    python -m pip install pypdfium2 pypdf Pillow --quiet >nul 2>nul
+    python -m pip install requests pypdfium2 pypdf Pillow --quiet >nul 2>nul
     python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet >nul 2>nul
 )
 
@@ -205,6 +214,9 @@ copy /y "%SRC_DIR%fonts\*.otf" "%CONFIG_DIR%\fonts\" >nul 2>nul
 :: Copy scripts
 if exist "%SRC_DIR%scripts" (
     xcopy /e /i /y /q "%SRC_DIR%scripts\*" "%CONFIG_DIR%\scripts\" >nul 2>nul
+    if exist "%SRC_DIR%scripts\sources_config.json" copy /y "%SRC_DIR%scripts\sources_config.json" "%CONFIG_DIR%\scripts\sources_config.json" >nul 2>nul
+    if exist "%SRC_DIR%scripts\mcp_config.json" copy /y "%SRC_DIR%scripts\mcp_config.json" "%CONFIG_DIR%\scripts\mcp_config.json" >nul 2>nul
+    if exist "%SRC_DIR%scripts\local_skills.json" copy /y "%SRC_DIR%scripts\local_skills.json" "%CONFIG_DIR%\scripts\local_skills.json" >nul 2>nul
 )
 
 :: Copy sub-directories (third-party and custom plugins)

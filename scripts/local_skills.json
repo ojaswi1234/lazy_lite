@@ -58,5 +58,18 @@
     "author": "org_01KNEE1P5FRBD227N1AR4HAVP9",
     "repo_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/powershell-windows",
     "description": "PowerShell Windows patterns. Critical pitfalls, operator syntax, error handling."
+  },
+  {
+    "verified": true,
+    "title": "web-artifacts-builder",
+    "id": "web-artifacts-builder",
+    "author": "anthropics",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder",
+    "domain": "Design",
+    "stars": 66293,
+    "system_prompt": "Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern frontend web technologies (React, Tailwind CSS, shadcn/ui). Use for complex artifacts requiring state management, routing, or shadcn/ui components - not for simple single-file HTML/JSX artifacts.",
+    "source": "smithery",
+    "source_label": "Smithery",
+    "description": "Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern frontend web technologies (React, Tailwind CSS, shadcn/ui). Use for complex artifacts requiring state management, routing, or shadcn/ui components - not for simple single-file HTML/JSX artifacts."
   }
 ]
