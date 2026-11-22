@@ -42,18 +42,20 @@ local function is_editor_split_boundary(node)
 end
 
 local GAP_SIZE = 12
+local BASE_DIVIDER_SIZE = style.divider_size or 1
 
 local old_update_layout = Node.update_layout
 function Node:update_layout(...)
-  local is_editor_split = false
-  if self.type ~= "leaf" then
-    is_editor_split = is_editor_split_boundary(self)
+  if self.type == "leaf" then
+    return old_update_layout(self, ...)
   end
+
+  local is_editor_split = is_editor_split_boundary(self)
+  self._is_editor_split = is_editor_split
   
   local old_size = style.divider_size
-  if is_editor_split then
-    style.divider_size = GAP_SIZE * SCALE
-  end
+  -- Set divider_size for this node's split calculation:
+  style.divider_size = is_editor_split and (GAP_SIZE * SCALE) or (BASE_DIVIDER_SIZE * SCALE)
   
   old_update_layout(self, ...)
   
@@ -62,8 +64,8 @@ end
 
 local old_get_divider_rect = Node.get_divider_rect
 function Node:get_divider_rect(...)
-  local is_editor_split = false
-  if self.type ~= "leaf" then
+  local is_editor_split = self._is_editor_split
+  if is_editor_split == nil and self.type ~= "leaf" then
     is_editor_split = is_editor_split_boundary(self)
   end
   
@@ -80,8 +82,8 @@ end
 
 local old_draw = Node.draw
 function Node:draw(...)
-  local is_editor_split = false
-  if self.type ~= "leaf" then
+  local is_editor_split = self._is_editor_split
+  if is_editor_split == nil and self.type ~= "leaf" then
     is_editor_split = is_editor_split_boundary(self)
   end
 

@@ -181,6 +181,27 @@ local function get_active_scope(doc)
   return active_level, scope_start, scope_end
 end
 
+-- Cache active scope to avoid 24,000 redundant line iterations per frame across visible lines
+local _scope_cache_doc = nil
+local _scope_cache_cid = nil
+local _scope_cache_line = nil
+local _scope_cache_res = {0, 0, 0}
+
+local function get_cached_active_scope(doc)
+  local sel_line = doc:get_selection()
+  if not sel_line or not doc.lines[sel_line] then return 0, 0, 0 end
+  local cid = (doc.get_change_id and doc:get_change_id()) or 0
+  if _scope_cache_doc == doc and _scope_cache_cid == cid and _scope_cache_line == sel_line then
+    return _scope_cache_res[1], _scope_cache_res[2], _scope_cache_res[3]
+  end
+  local a, b, c = get_active_scope(doc)
+  _scope_cache_doc = doc
+  _scope_cache_cid = cid
+  _scope_cache_line = sel_line
+  _scope_cache_res = {a, b, c}
+  return a, b, c
+end
+
 -- Helper to get palette-aware subtle colors
 local function get_guide_colors()
   local bg = style.background or _COLOR_CACHE_0
@@ -225,7 +246,7 @@ local function draw_indent_guides(dv, line, x, y)
   local depth = get_effective_indent(doc, line)
   local active_level, scope_start, scope_end = 0, 0, 0
   if config.plugins.indentguide.highlight_active and core.active_view == dv then
-    active_level, scope_start, scope_end = get_active_scope(doc)
+    active_level, scope_start, scope_end = get_cached_active_scope(doc)
   end
 
   local is_in_active_scope = (line >= scope_start and line <= scope_end and active_level > 0)

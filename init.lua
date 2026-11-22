@@ -1,5 +1,5 @@
 -- ~/.config/lite-xl/init.lua
--- VS Code Everforest Light layout for Lite-XL
+-- Dynamic theme and layout configuration for Lite-XL
 -- Load order is critical — do NOT reorder these blocks.
 
 local core    = require "core"
@@ -8,6 +8,54 @@ local style   = require "core.style"
 local keymap  = require "core.keymap"
 local command = require "core.command"
 local common  = require "core.common"
+
+-- ── Notification & Error/Warning Stream Listener ──────────────────────────────
+do
+  local notif_log_path = USERDIR .. "/notifications_stream.log"
+  local function log_entry(level, text, trace)
+    pcall(function()
+      local fp = io.open(notif_log_path, "a")
+      if fp then
+        local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+        fp:write(string.format("[%s] [%s] %s\n", timestamp, level, tostring(text)))
+        if trace and trace ~= "" then
+          fp:write(string.format("    Traceback:\n      %s\n", tostring(trace):gsub("\n", "\n      ")))
+        end
+        fp:flush()
+        fp:close()
+      end
+    end)
+  end
+
+  local orig_custom_log = core.custom_log
+  function core.custom_log(level, show, backtrace, fmt, ...)
+    local msg
+    if select("#", ...) > 0 and type(fmt) == "string" then
+      local ok, res = pcall(string.format, fmt, ...)
+      msg = ok and res or tostring(fmt)
+    else
+      msg = tostring(fmt)
+    end
+
+    if level == "WARN" or level == "ERROR" then
+      local tb = backtrace and debug.traceback("", 2) or ""
+      log_entry(level, msg, tb)
+    elseif show then
+      log_entry("NOTIFICATION", msg, nil)
+    end
+
+    return orig_custom_log(level, show, backtrace, fmt, ...)
+  end
+
+  local orig_on_error = core.on_error
+  function core.on_error(err)
+    local tb = debug.traceback("", 2)
+    log_entry("FATAL", tostring(err), tb)
+    if orig_on_error then
+      return orig_on_error(err)
+    end
+  end
+end
 
 -- Global Process Spawn Protection
 -- Wraps process.start to prevent fatal Lua crashes when executables (like bash, gh, powershell) are missing.
@@ -18,9 +66,50 @@ function process.start(...)
   if ok then return a, b, c else return nil, a end
 end
 
--- ── 1. Color scheme (must load before any rendering) ──────────────────────────
--- NOTE: Lua module names cannot contain hyphens. File is everforest_lite_xl.lua
-require "colors.everforest_lite_xl"
+-- Global Active View Guard
+-- Prevents fatal crashes when core components or plugins attempt to restore active view to nil (e.g. NagView, TitleView, or closed tabs)
+local function get_fallback_view()
+  if not core.root_view then return nil end
+  local node = core.root_view.get_primary_node and core.root_view:get_primary_node()
+  if node then
+    if node.active_view and node.active_view ~= core.nag_view then
+      return node.active_view
+    end
+    if node.views and #node.views > 0 then
+      for _, v in ipairs(node.views) do
+        if v ~= core.nag_view then return v end
+      end
+    end
+  end
+  local default_node = core.root_view.get_active_node_default and core.root_view:get_active_node_default()
+  return default_node and default_node.active_view
+end
+
+local orig_core_set_active_view = core.set_active_view
+function core.set_active_view(view)
+  if not view or (core.nag_view and view == core.nag_view and not core.nag_view.visible) then
+    view = get_fallback_view()
+  end
+  if not view then return end
+  return orig_core_set_active_view(view)
+end
+
+-- ── 1. Color scheme — Dynamic Theme Resolution ───────────────────────────────
+-- Dynamically loads user's saved theme from user_settings.lua to ensure
+-- persistence across restarts and eliminate hardcoded overrides.
+local function get_saved_theme()
+  local ok, t = pcall(dofile, USERDIR .. "/user_settings.lua")
+  if ok and type(t) == "table" and t.config and t.config.theme and t.config.theme ~= "" then
+    return t.config.theme
+  end
+  return "everforest_lite_xl"
+end
+
+local active_theme = get_saved_theme()
+local ok_theme = pcall(require, "colors." .. active_theme)
+if not ok_theme then
+  pcall(require, "colors.everforest_lite_xl")
+end
 
 -- ── 2. Font — Auto-Native OS Fonts ──────────────────────────────────────────────
 -- First tries custom user fonts (Fira Code), then elegantly falls back to 
@@ -300,17 +389,87 @@ end
 
 
 
--- ── 13. Fix Theme Inconsistency ──────────────────────────────────────────────
+-- ── 13. Fix Theme Inconsistency & State Cleanup ──────────────────────────────
 -- When switching themes, Lua doesn't delete unknown keys from the style table.
--- We hook module reloading to explicitly wipe style.mossy when a new theme loads,
--- so the mossy colors don't permanently bleed into standard themes.
+-- We hook module reloading to explicitly wipe custom theme override properties
+-- so colors from previous themes don't permanently bleed into newly selected themes.
 local old_reload = core.reload_module
 function core.reload_module(name)
   if type(name) == "string" and name:match("^colors%.") then
     style.mossy = nil
+    style.tab_bar_background = nil
+    style.titlebar_background = nil
+    style.titlebar_text = nil
   end
   return old_reload(name)
 end
+
+function core.set_theme(theme_name)
+  style.mossy = nil
+  style.tab_bar_background = nil
+  style.titlebar_background = nil
+  style.titlebar_text = nil
+
+  local ok, err = pcall(core.reload_module, "colors." .. theme_name)
+  if not ok then
+    core.error("Failed to load theme %q: %s", theme_name, tostring(err))
+    return false
+  end
+
+  config.theme = theme_name
+
+  local settings_ok, settings = pcall(require, "plugins.settings")
+  if settings_ok and settings.config then
+    settings.config.theme = theme_name
+  end
+
+  local ok_read, user_cfg = pcall(dofile, USERDIR .. "/user_settings.lua")
+  if not ok_read or type(user_cfg) ~= "table" then
+    user_cfg = { config = {} }
+  end
+  user_cfg.config = user_cfg.config or {}
+  user_cfg.config.theme = theme_name
+
+  local fp = io.open(USERDIR .. "/user_settings.lua", "w")
+  if fp then
+    fp:write("return " .. common.serialize(user_cfg) .. "\n")
+    fp:close()
+  end
+
+  core.log("Switched theme to %q", theme_name)
+  core.redraw = true
+  return true
+end
+
+command.add(nil, {
+  ["theme:select"] = function()
+    local colors = {}
+    local seen = {}
+    for _, root in ipairs({ DATADIR, USERDIR }) do
+      local dir = root .. "/colors"
+      for _, file in ipairs(system.list_dir(dir) or {}) do
+        local name = file:match("^(.-)%.lua$")
+        if name and not seen[name] then
+          seen[name] = true
+          table.insert(colors, name)
+        end
+      end
+    end
+    table.sort(colors)
+
+    core.command_view:enter("Select Theme", {
+      submit = function(text, item)
+        local theme_name = item and item.text or text
+        if theme_name and theme_name ~= "" then
+          core.set_theme(theme_name)
+        end
+      end,
+      suggest = function(text)
+        return common.fuzzy_match(colors, text)
+      end
+    })
+  end
+})
 
 -- ── 14. Hide Tab Overflow Arrows Visually ────────────────────────────────────
 local Node = require "core.node"

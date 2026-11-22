@@ -856,7 +856,9 @@ function TermView:draw()
   local div_color = (style.mossy and style.mossy.border) or style.divider or {common.color("#444444")}
   renderer.draw_rect(x, y + hdr_h - 1 * SCALE, w, 1 * SCALE, div_color)
   
-  -- Draw TERMINAL and PORTS major tabs
+  -- Draw TERMINAL and PORTS major tabs (bounded by clip rect so they never bleed over buttons)
+  local max_tabs_w = math.max(0, w - 160 * SCALE)
+  core.push_clip_rect(x, y, max_tabs_w, hdr_h)
   local tx = x + 10 * SCALE
   local is_pm_active = self:state() and self:state().shell.is_port_manager
   
@@ -885,7 +887,7 @@ function TermView:draw()
 
   -- Draw vertical separator
   renderer.draw_rect(tx, y + 5 * SCALE, 1 * SCALE, hdr_h - 10 * SCALE, style.divider or {common.color("#444444")})
-  tx = tx + 10 * SCALE
+  core.pop_clip_rect()
 
   -- (Horizontal session tabs removed, moved to right vertical sidebar)
   
@@ -900,7 +902,12 @@ function TermView:draw()
   }
   self.right_btns = {}
   for _, b in ipairs(btns) do
-    renderer.draw_text(style.icon_font, b.icon, btn_x, y + math.floor((hdr_h - style.icon_font:get_height()) / 2), style.text)
+    local is_hov = (self.hovered_btn == b.name)
+    if is_hov then
+      renderer.draw_rect(btn_x, y, 30 * SCALE, hdr_h, style.background3 or style.line_highlight)
+    end
+    local col = is_hov and (style.accent or style.text) or style.text
+    renderer.draw_text(style.icon_font, b.icon, btn_x + math.floor((30 * SCALE - style.icon_font:get_width(b.icon)) / 2), y + math.floor((hdr_h - style.icon_font:get_height()) / 2), col)
     table.insert(self.right_btns, { name = b.name, x = btn_x, y = y, w = 30 * SCALE, h = hdr_h })
     btn_x = btn_x - 30 * SCALE
   end
@@ -1868,7 +1875,42 @@ function TermView:on_mouse_moved(x, y, dx, dy)
 
   local hdr_h = 26 * SCALE
   local out_top = self.position.y + hdr_h + 3 * SCALE
-    if y > out_top then
+  if y >= self.position.y and y <= self.position.y + hdr_h then
+    local hov_btn = nil
+    if self.right_btns then
+      for _, b in ipairs(self.right_btns) do
+        if x >= b.x and x <= b.x + b.w then
+          hov_btn = b.name
+          break
+        end
+      end
+    end
+    if hov_btn ~= self.hovered_btn then
+      self.hovered_btn = hov_btn
+      core.redraw = true
+    end
+    if self.hovered_btn then
+      self.cursor = "hand"
+      core.request_cursor("hand")
+      return true
+    end
+    if (self.terminal_tab_rect and x >= self.terminal_tab_rect.x and x <= self.terminal_tab_rect.x + self.terminal_tab_rect.w) or
+       (self.ports_tab_rect and x >= self.ports_tab_rect.x and x <= self.ports_tab_rect.x + self.ports_tab_rect.w) then
+      self.cursor = "hand"
+      core.request_cursor("hand")
+      return true
+    end
+    self.cursor = "arrow"
+    core.request_cursor("arrow")
+    return false
+  else
+    if self.hovered_btn then
+      self.hovered_btn = nil
+      core.redraw = true
+    end
+  end
+
+  if y > out_top then
       local right_w = 0
       if self.show_sidebar ~= false then
         local max_w = 100 * SCALE
@@ -1914,6 +1956,16 @@ function TermView:on_mouse_released(button, x, y)
   if button == "left" then
     self.dragging_selection = false
   end
+end
+
+function TermView:on_mouse_left()
+  TermView.super.on_mouse_left(self)
+  if self.hovered_btn then
+    self.hovered_btn = nil
+    core.redraw = true
+  end
+  self.cursor = "arrow"
+  core.request_cursor("arrow")
 end
 
 function TermView:on_mouse_wheel(dy, dx)

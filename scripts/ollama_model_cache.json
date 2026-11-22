@@ -1,0 +1,103 @@
+{
+  "_last_fetch": 1795357691.4798176,
+  "beam": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "deepseek-v4.1-flash": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "nemotron-3-ultra": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "muse-spark-open": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "kimi-k3": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "hy4": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "nemotron-3-super": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "glm-5.3": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "kimi-k3.1-pro": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "gemma4:31b": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "kimi-k2.6": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "gpt-oss:120b": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "mimo-v2.6-flash": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "glm-5.2": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "deepseek-v4-pro:0813": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "mistral-large-4": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "mimo-v2.6-pro": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "kimi-k2.7-code": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "minimax-m3": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "minimax-m3.1-flash": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "clef:27b": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "glm-5.3-flash": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "deepseek-v4.1-flash:1017": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "inkling-2-small": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  },
+  "gpt-oss:20b": {
+    "is_free": false,
+    "time": 1795357691.4798176
+  }
+}

@@ -267,7 +267,9 @@ if [ "$INSTALL_LEETCODE" = true ]; then
         
     if command -v python3 &> /dev/null; then
         echo "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..."
-        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --break-system-packages --quiet 2>/dev/null ||         python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --user --quiet 2>/dev/null ||         python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --quiet 2>/dev/null || true
+        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --break-system-packages --quiet 2>/dev/null || \
+        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --user --quiet 2>/dev/null || \
+        python3 -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>/dev/null || true
         
         echo "Installing PDF Engine Dependencies..."
         python3 -m pip install pypdfium2 pypdf Pillow --break-system-packages --quiet 2>/dev/null ||         python3 -m pip install pypdfium2 pypdf Pillow --user --quiet 2>/dev/null ||         python3 -m pip install pypdfium2 pypdf Pillow --quiet 2>/dev/null || true
@@ -394,6 +396,22 @@ fi
 
 if [ -d "$SRC_DIR/plugins/python_runtime" ]; then 
     cp -rf "$SRC_DIR/plugins/python_runtime" "$CONFIG_DIR/plugins/"
+fi
+
+if [ -d "$SRC_DIR/plugins/ai_project_visualizer" ]; then
+    cp -rf "$SRC_DIR/plugins/ai_project_visualizer" "$CONFIG_DIR/plugins/"
+fi
+
+if [ -d "$SRC_DIR/plugins/yt_player" ]; then
+    cp -rf "$SRC_DIR/plugins/yt_player" "$CONFIG_DIR/plugins/"
+    if command -v go >/dev/null 2>&1; then
+        (cd "$CONFIG_DIR/plugins/yt_player" && go build -o yt_backend yt_backend.go) 2>/dev/null || true
+        chmod +x "$CONFIG_DIR/plugins/yt_player/yt_backend" 2>/dev/null || true
+    fi
+fi
+
+if [ -f "$SRC_DIR/model_cache.json" ]; then
+    cp -f "$SRC_DIR/model_cache.json" "$CONFIG_DIR/model_cache.json"
 fi
 
 # Copy Antigravity custom skills

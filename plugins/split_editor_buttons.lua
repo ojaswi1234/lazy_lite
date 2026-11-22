@@ -91,7 +91,7 @@ local old_draw_tabs = Node.draw_tabs
 function Node:draw_tabs(...)
   old_draw_tabs(self, ...)
 
-  if not is_editor_node(self) then return end
+  if not is_editor_node(self) or self.size.x < 180 * SCALE then return end
 
   local real_right = self.position.x + (self._real_size_x or self.size.x)
   local btn_w = 25 * SCALE
@@ -150,7 +150,7 @@ end
 local old_on_mouse_moved = Node.on_mouse_moved
 function Node:on_mouse_moved(x, y, ...)
   local res = old_on_mouse_moved(self, x, y, ...)
-  if not is_editor_node(self) then return res end
+  if not is_editor_node(self) or self.size.x < 180 * SCALE then return res end
 
   local th = style.font:get_height() + (style.padding.y * 2)
   if self.tab_height then th = self.tab_height end
@@ -193,6 +193,27 @@ end
 local old_on_mouse_pressed = RootView.on_mouse_pressed
 function RootView:on_mouse_pressed(button, x, y, clicks)
   local node = self.root_node:get_child_overlapping_point(x, y)
+  if button == "left" and node and is_editor_node(node) and (node.size.x or 0) >= 180 * SCALE then
+    local th = style.font:get_height() + (style.padding.y * 2)
+    if node.tab_height then th = node.tab_height end
+    if y >= node.position.y and y <= node.position.y + th then
+      local real_right = node.position.x + (node._real_size_x or node.size.x)
+      local btn_w = 25 * SCALE
+      local bx_down = real_right - btn_w
+      local bx_right = real_right - 2 * btn_w
+      if x >= bx_down and x < bx_down + btn_w then
+        toggle_split(node, "down")
+        node.hovered_split = nil
+        core.redraw = true
+        return true
+      elseif x >= bx_right and x < bx_right + btn_w then
+        toggle_split(node, "right")
+        node.hovered_split = nil
+        core.redraw = true
+        return true
+      end
+    end
+  end
   if button == "left" and node and node.hovered_split then
     toggle_split(node, node.hovered_split)
     node.hovered_split = nil

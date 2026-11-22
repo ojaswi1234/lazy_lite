@@ -25,6 +25,8 @@ Thumbs.db
 
 # Test outputs & binaries
 *.exe
+!plugins/yt_player/yt_backend.exe
+!plugins/lazy_lite_preview_server.exe
 *.obj
 *.o
 *.log

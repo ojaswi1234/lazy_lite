@@ -212,6 +212,7 @@ keymap.add({
 local DocView = require "core.docview"
 
 local _cx_cache = {}   -- key → { tc, sc, cid }
+local _cx_pending = {}
 
 local function is_leetcode_doc(doc)
   if not doc then return false end
@@ -243,11 +244,18 @@ DocView.draw = function(self, ...)
   local cid = (self.doc.get_change_id and self.doc:get_change_id()) or 0
   local cached = _cx_cache[key]
 
-  -- Instant real-time calculation: updates synchronously on the exact frame of any change
+  -- Asynchronous calculation: prevents frame drops and keystroke lag in large files
   if not cached or cached.cid ~= cid then
-    local tc, sc = compute_complexity_for_doc(self.doc)
-    _cx_cache[key] = { tc = tc, sc = sc, cid = cid }
-    cached = _cx_cache[key]
+    if not _cx_pending[key] then
+      _cx_pending[key] = true
+      local target_doc = self.doc
+      core.add_thread(function()
+        local tc, sc = compute_complexity_for_doc(target_doc)
+        _cx_cache[key] = { tc = tc, sc = sc, cid = cid }
+        _cx_pending[key] = nil
+        core.redraw = true
+      end)
+    end
   end
 
 

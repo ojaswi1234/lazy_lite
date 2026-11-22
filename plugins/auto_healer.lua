@@ -30,8 +30,30 @@ local function show_healer_toast(msg)
   _G.auto_healer_toast.error_msg = clean:sub(1, 60) .. (#clean > 60 and "..." or "")
 end
 
-local old_root_draw = core.root_view.draw
-function core.root_view:draw()
+-- Intercept mouse clicks on the toast to prevent transparent click-through
+local RootView = require "core.rootview"
+local old_on_view_mouse_pressed = RootView.on_view_mouse_pressed
+function RootView.on_view_mouse_pressed(button, px, py, clicks)
+  if _G.auto_healer_toast and _G.auto_healer_toast.active then
+    local w = 550 * SCALE
+    local h = 80 * SCALE
+    local x = (core.root_view.size.x - w) / 2
+    local y = core.root_view.size.y - h - 50 * SCALE
+    if px >= x and px <= x + w and py >= y and py <= y + h then
+      -- Click inside toast dismisses it cleanly and consumes the click event
+      _G.auto_healer_toast.active = false
+      core.redraw = true
+      return true
+    end
+  end
+  if old_on_view_mouse_pressed then
+    return old_on_view_mouse_pressed(button, px, py, clicks)
+  end
+end
+
+local old_root_draw = RootView.draw
+local last_toast_redraw = 0
+function RootView:draw()
   old_root_draw(self)
   
   if _G.auto_healer_toast.active then
@@ -62,6 +84,9 @@ function core.root_view:draw()
     renderer.draw_rect(x, y, border, h, { r, g, b, 255 })
     renderer.draw_rect(x + w - border, y, border, h, { r, g, b, 255 })
 
+    -- Close indicator [x]
+    renderer.draw_text(font, "✕", x + w - 24 * SCALE, y + 12 * SCALE, _COLOR_CACHE_1)
+
     -- Spinner
     local spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
     local spin_idx = (math.floor(t * 12) % #spinner_chars) + 1
@@ -87,7 +112,11 @@ function core.root_view:draw()
     local pct_w = font:get_width(pct_text)
     renderer.draw_text(font, pct_text, x + w - 15 * SCALE - pct_w, y + 15 * SCALE, { r, g, b, 255 })
 
-    core.redraw = true
+    -- Throttle redraw to 30 FPS to save CPU/GPU cycles while remaining silky smooth
+    if t - last_toast_redraw >= 0.033 then
+      last_toast_redraw = t
+      core.redraw = true
+    end
   end
 end
 
@@ -231,8 +260,14 @@ local KNOWN_PATTERNS = {
 
 local function check_known_patterns(err_str)
   for _, p in ipairs(KNOWN_PATTERNS) do
-    if err_str:find(p.match, 1, true) then
-      return p
+    if p.plain then
+      if err_str:find(p.match, 1, true) then
+        return p
+      end
+    else
+      if err_str:find(p.match) then
+        return p
+      end
     end
   end
   return nil
@@ -305,8 +340,23 @@ function core.error(fmt, ...)
       -- Git / External Tool outputs
       "fatal: not a git repository",
       
-      -- Safe / Benign Warnings
-      "Too many files in project directory"
+      -- Safe / Benign Warnings & User Action Validation Errors
+      "Too many files in project directory",
+      "is a folder",
+      "Cannot open",
+      "File already exists",
+      "already exists",
+      "Unsaved changes",
+      "Invalid regex",
+      "Invalid pattern",
+      "No file name",
+      "Discard changes",
+      "File not found",
+      "Cannot rename",
+      "Cannot remove",
+      "Cannot delete",
+      "No selection",
+      "No text selected"
     }
     for _, pattern in ipairs(ignore_list) do
       if err_str:find(pattern) then
@@ -320,6 +370,12 @@ function core.error(fmt, ...)
     if is_duplicate(err_str) then _healer_in_error = false; return ret end
 
     local trace = debug.traceback("", 2)
+
+    -- Ignore command palette validation errors (user entered bad/invalid argument)
+    if trace and (trace:find("commandview.lua") and trace:find("'validate'")) then
+      _healer_in_error = false
+      return ret
+    end
 
   core.add_thread(function()
     coroutine.yield(0.1)
@@ -356,14 +412,7 @@ function core.error(fmt, ...)
 
     local success = command.perform("antigravity:submit", prompt)
     if not success then
-      core.command_view:enter("AI Sidebar broken! Run Auto-Healer in background? (y/n)", {
-        submit = function(text)
-          if text:lower() == "y" or text:lower() == "yes" then
-            core.log("Auto-Healer running in background...")
-            run_headless(prompt .. " APPLY FIX IMMEDIATELY.")
-          end
-        end
-      })
+      core.log_quiet("[Auto-Healer] AI Sidebar unavailable for auto-fix.")
     end
   end)
   _healer_in_error = false
@@ -373,7 +422,7 @@ end
 -- ── 2. Hook fatal errors ──────────────────────────────────────────────────────
 local old_on_error = core.on_error
 function core.on_error(err)
-  local trace = debug.traceback("", 2)
+  local trace = debug.traceback(tostring(err), 2)
   local fp = io.open(USERDIR .. "/auto_heal_pending.txt", "w")
   if fp then
     fp:write(tostring(err) .. "\n" .. trace)

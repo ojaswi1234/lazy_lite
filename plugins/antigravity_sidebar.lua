@@ -455,6 +455,79 @@ local function muted(fg, factor)
   return { math.floor(fg[1]*factor), math.floor(fg[2]*factor), math.floor(fg[3]*factor), 255 }
 end
 
+local function get_model_category_badge(name)
+  if not name or type(name) ~= "string" then return nil end
+  local n = name:lower()
+
+  -- 1. Reasoning / Thinking: OpenAI o1/o3/o4, DeepSeek R1, QwQ, Gemini Thinking
+  if n:match("[/%-_%.]o[134]") or n:match("^o[134]") or
+     n:find("r1") or n:find("reason") or n:find("qwq") or n:find("thinking") or n:find("thought") then
+    return "Reasoning", { 185, 130, 255, 255 }
+  end
+
+  -- 2. Coder / Code / Codex
+  if n:find("coder") or n:find("starcoder") or n:find("code") or n:find("codex") then
+    return "Coder", { 80, 205, 240, 255 }
+  end
+
+  -- 3. Speed Brands & Mini variants
+  if n:find("bolt") then
+    return "Bolt", { 255, 195, 50, 255 }
+  elseif n:find("lightning") then
+    return "Lightning", { 255, 215, 0, 255 }
+  elseif n:find("flash") then
+    if n:find("lite") then
+      return "Lite", { 240, 190, 60, 255 }
+    end
+    return "Flash", { 255, 180, 40, 255 }
+  elseif n:find("lite") then
+    return "Lite", { 240, 190, 60, 255 }
+  elseif n:match("[/%-_%.:]mini") or n:match("^mini") then
+    return "Mini", { 240, 180, 70, 255 }
+  end
+
+  -- 4. Omni (OpenAI GPT-4o family)
+  if n:find("gpt%-4o") or n:find("chatgpt%-4o") then
+    return "Omni", { 80, 220, 180, 255 }
+  end
+
+  -- 5. Pro (Gemini Pro, etc.) - checks token boundary to avoid matching 'provider'
+  if n:match("[/%-_%.:]pro") or n:match("^pro") then
+    return "Pro", { 130, 160, 255, 255 }
+  end
+
+  -- 6. Flagship / Heavy models (405b, 550b, 675b, 120b, 70b, ultra, super, 1t, large, gpt-4)
+  if n:find("405b") or n:find("550b") or n:find("675b") or n:find("120b") or n:find("70b") or
+     n:find("ultra") or n:find("super") or n:find("1t") or n:find("large") or n:find("gpt%-4") then
+    return "Flagship", { 255, 110, 110, 255 }
+  end
+
+  -- 7. Fast / Small parameters / Turbo
+  if n:find("nano") or n:find("xs") or n:find(":0%.5b") or n:find(":1b") or n:find(":2b") or n:find(":3b") or
+     n:find("tiny") or n:find("instant") or n:find("turbo") then
+    return "Fast", { 240, 180, 70, 255 }
+  end
+
+  -- 8. Preview / Exp
+  if n:find("preview") then
+    return "Preview", { 205, 160, 255, 255 }
+  elseif n:find("exp") then
+    return "Exp", { 220, 150, 240, 255 }
+  end
+
+  -- 9. Instruct / It
+  if n:find("%-instruct") or n:find("instruct") or n:find("%-it") or n:find(":it") or n:find("gemma") then
+    return "Instruct", { 120, 215, 140, 255 }
+  end
+
+  -- 10. Chat
+  if n:find("chat") then
+    return "Chat", { 100, 205, 180, 255 }
+  end
+
+  return nil, nil
+end
+
 -- Recomputed every draw — automatically tracks theme changes
 local _pal_cache = nil
 local _pal_sig   = nil
@@ -708,38 +781,109 @@ end
 
 
 
+-- Cached typography fonts for markdown rendering
+local _heading_fonts = {}
+local _bold_font = nil
+
+local function get_bold_font()
+  if _bold_font == nil then
+    local bold_candidates = {
+      USERDIR .. "/fonts/FiraCodeiScript-Bold.ttf",
+      USERDIR .. "/fonts/JetBrainsMono-Bold.ttf",
+      USERDIR .. "/fonts/Outfit-Bold.ttf",
+    }
+    if PLATFORM == "Windows" then
+      local windir = os.getenv("WINDIR") or "C:\\Windows"
+      table.insert(bold_candidates, windir .. "\\Fonts\\consolab.ttf")
+      table.insert(bold_candidates, windir .. "\\Fonts\\seguisb.ttf")
+    end
+    for _, path in ipairs(bold_candidates) do
+      local f = io.open(path, "rb")
+      if f then
+        f:close()
+        local sz = style.font and (style.font.get_size and style.font:get_size() or style.font:get_height()) or (15 * (SCALE or 1))
+        local ok, fnt = pcall(renderer.font.load, path, sz)
+        if ok and fnt then _bold_font = fnt; break end
+      end
+    end
+    if not _bold_font then
+      _bold_font = style.font
+    end
+  end
+  return _bold_font
+end
+
+local function get_heading_font(level)
+  local base_size = style.font and (style.font.get_size and style.font:get_size() or style.font:get_height()) or (15 * (SCALE or 1))
+  local scales = {
+    [1] = 1.35,
+    [2] = 1.20,
+    [3] = 1.10,
+    [4] = 1.00,
+  }
+  local s = scales[level] or 1.00
+  local target_size = math.floor(base_size * s)
+  local key = tostring(target_size)
+  if not _heading_fonts[key] then
+    local bfont = get_bold_font()
+    local ok, fnt = pcall(function() return bfont:copy(target_size) end)
+    if not ok or not fnt then
+      ok, fnt = pcall(function() return style.font:copy(target_size) end)
+    end
+    _heading_fonts[key] = (ok and fnt) and fnt or (style.big_font or style.font)
+  end
+  return _heading_fonts[key]
+end
+
 -- Wrap text into lines that fit within max_w pixels using given font
 local function parse_inline(text)
   local segments = {}
   local s_idx = 1
   while s_idx <= #text do
-    local b_s, b_e = text:find("%*%*.-%*%*", s_idx)
-    local c_s, c_e = text:find("`.-`", s_idx)
-    local l_s, l_e = text:find("%[.-%]%([^%)]+%)", s_idx) -- [link](url)
-    
+    local bi_s, bi_e = text:find("%*%*%*.-%*%*%*", s_idx)
+    local b_s, b_e   = text:find("%*%*.-%*%*", s_idx)
+    local c_s, c_e   = text:find("`.-`", s_idx)
+    local l_s, l_e   = text:find("%[.-%]%([^%)]+%)", s_idx) -- [link](url)
+    local i_s, i_e   = text:find("%*[^%*\n]+%*", s_idx)     -- *italic*
+    local u_s, u_e   = text:find("_[^_\n]+_", s_idx)        -- _italic_
+
     local next_s, next_e, type
     local min_s = math.huge
-    
+
+    if bi_s and bi_s < min_s then min_s = bi_s; next_s, next_e, type = bi_s, bi_e, "bold" end
     if b_s and b_s < min_s then min_s = b_s; next_s, next_e, type = b_s, b_e, "bold" end
     if c_s and c_s < min_s then min_s = c_s; next_s, next_e, type = c_s, c_e, "code" end
     if l_s and l_s < min_s then min_s = l_s; next_s, next_e, type = l_s, l_e, "link" end
-    
+    if i_s and i_s < min_s and text:sub(i_s, i_s + 1) ~= "**" then
+      min_s = i_s; next_s, next_e, type = i_s, i_e, "italic"
+    end
+    if u_s and u_s < min_s then
+      min_s = u_s; next_s, next_e, type = u_s, u_e, "italic"
+    end
+
     if next_s then
       if next_s > s_idx then table.insert(segments, { text = text:sub(s_idx, next_s - 1), type = "normal" }) end
-      
+
       local inner_text = text:sub(next_s, next_e)
       if type == "bold" then
-        table.insert(segments, { text = inner_text:sub(3, -3), type = "bold" })
+        if inner_text:sub(1, 3) == "***" and inner_text:sub(-3) == "***" then
+          table.insert(segments, { text = inner_text:sub(4, -4), type = "bold" })
+        else
+          table.insert(segments, { text = inner_text:sub(3, -3), type = "bold" })
+        end
+      elseif type == "italic" then
+        table.insert(segments, { text = inner_text:sub(2, -2), type = "italic" })
       elseif type == "code" then
         table.insert(segments, { text = inner_text:sub(2, -2), type = "code" })
       elseif type == "link" then
         local label, url = inner_text:match("%[(.-)%]%(([^%)]+)%)")
-        -- If the link label itself contains code, e.g. [`code`](url), unwrap it
-        if label:match("^`.-`$") then
+        if label and label:match("^`.-`$") then
           label = label:sub(2, -2)
           table.insert(segments, { text = label, type = "code_link", url = url })
-        else
+        elseif label then
           table.insert(segments, { text = label, type = "link", url = url })
+        else
+          table.insert(segments, { text = inner_text, type = "normal" })
         end
       end
       s_idx = next_e + 1
@@ -751,17 +895,28 @@ local function parse_inline(text)
   return segments
 end
 
-local function wrap_segments(segments, base_font, code_font, max_w)
+local function wrap_segments(segments, base_font, bold_font, code_font, max_w)
   local lines = {}
   local cur_line = {}
   local cur_w = 0
   
-  local function get_font(type) return (type == "code" or type == "code_link") and code_font or base_font end
+  local function get_font(type)
+    if type == "code" or type == "code_link" then
+      return code_font
+    elseif type == "bold" and bold_font then
+      return bold_font
+    end
+    return base_font
+  end
   
-  local function push_word(word, type)
+  local function push_word(word, type, url)
     local f = get_font(type)
     local w = f:get_width(word)
-    if w > max_w then
+    local is_code_type = (type == "code" or type == "code_link")
+    local extra_pad = is_code_type and math.floor(6 * (SCALE or 1)) or 0
+    local total_w = w + extra_pad
+    
+    if total_w > max_w then
       if cur_w > 0 then
         table.insert(lines, cur_line)
         cur_line = {}
@@ -769,9 +924,10 @@ local function wrap_segments(segments, base_font, code_font, max_w)
       end
       local chunk = ""
       for char in word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-        if f:get_width(chunk .. char) > max_w then
+        local cw = f:get_width(chunk .. char) + extra_pad
+        if cw > max_w then
           if #chunk > 0 then
-            table.insert(lines, {{ text = chunk, type = type, font = f, width = f:get_width(chunk) }})
+            table.insert(lines, {{ text = chunk, type = type, font = f, width = f:get_width(chunk) + extra_pad, url = url }})
           end
           chunk = char
         else
@@ -779,35 +935,37 @@ local function wrap_segments(segments, base_font, code_font, max_w)
         end
       end
       if #chunk > 0 then
-        local cw = f:get_width(chunk)
-        table.insert(cur_line, { text = chunk, type = type, font = f, width = cw })
+        local cw = f:get_width(chunk) + extra_pad
+        table.insert(cur_line, { text = chunk, type = type, font = f, width = cw, url = url })
         cur_w = cw
       end
       return
     end
 
-    if cur_w + w > max_w and cur_w > 0 then
+    if cur_w + total_w > max_w and cur_w > 0 then
       table.insert(lines, cur_line)
       cur_line = {}
       cur_w = 0
       -- drop leading space on new line if normal text
-      if word == " " then return end
+      if word:match("^%s+$") then return end
     end
-    table.insert(cur_line, { text = word, type = type, font = f, width = w })
-    cur_w = cur_w + w
+    if cur_w == 0 and #lines > 0 and word:match("^%s+$") then return end
+
+    table.insert(cur_line, { text = word, type = type, font = f, width = total_w, url = url })
+    cur_w = cur_w + total_w
   end
 
   for _, seg in ipairs(segments) do
     if seg.type == "code" or seg.type == "code_link" then
-      -- don't split inline code if possible, just push it whole or split by chunks if truly massive
-      push_word(seg.text, seg.type)
+      push_word(seg.text, seg.type, seg.url)
     else
-      -- split text by spaces but keep the spaces
-      for word in seg.text:gmatch("%S+%s*") do
-        push_word(word, seg.type)
+      local leading_space = seg.text:match("^(%s+)")
+      if leading_space then
+        push_word(leading_space, seg.type, seg.url)
       end
-      -- capture trailing space if any
-      if seg.text:match("%s$") and not seg.text:match("%S") then push_word(" ", seg.type) end
+      for word in seg.text:gmatch("%S+%s*") do
+        push_word(word, seg.type, seg.url)
+      end
     end
   end
   if #cur_line > 0 then table.insert(lines, cur_line) end
@@ -851,54 +1009,169 @@ local function wrap_raw_text(font, text, max_w)
   return lines
 end
 
-
-local function format_markdown_table(table_text)
-  local rows = {}
-  for line in (table_text.."\n"):gmatch("([^\n]*)\n") do
+local function parse_table_block(table_text, base_font, bold_font, code_font, max_w)
+  local raw_lines = {}
+  for line in (table_text .. "\n"):gmatch("([^\n]*)\n") do
+    line = line:match("^%s*(.-)%s*$")
     if #line > 0 then
-      local cells = {}
-      local inner = line:match("^%s*|?(.*)|?%s*$") or line
-      if inner:sub(1,1) == "|" then inner = inner:sub(2) end
-      if inner:sub(-1) == "|" then inner = inner:sub(1, -2) end
-      
-      for cell in (inner.."|"):gmatch("(.-)|") do
-        table.insert(cells, cell:match("^%s*(.-)%s*$") or "")
-      end
-      table.insert(rows, cells)
+      table.insert(raw_lines, line)
     end
   end
-  
-  local col_widths = {}
-  for _, row in ipairs(rows) do
-    for i, cell in ipairs(row) do
-      if not cell:match("^%-+$") then
-        col_widths[i] = math.max(col_widths[i] or 0, #cell)
-      end
+  if #raw_lines == 0 then return nil end
+
+  local function split_row(line)
+    local inner = line
+    if inner:sub(1, 1) == "|" then inner = inner:sub(2) end
+    if inner:sub(-1) == "|" then inner = inner:sub(1, -2) end
+    local cells = {}
+    for cell in (inner .. "|"):gmatch("(.-)|") do
+      table.insert(cells, cell:match("^%s*(.-)%s*$") or "")
     end
+    return cells
   end
-  
-  local out = {}
-  for _, row in ipairs(rows) do
+
+  local all_rows = {}
+  for _, line in ipairs(raw_lines) do
+    table.insert(all_rows, split_row(line))
+  end
+
+  if #all_rows == 0 then return nil end
+
+  local headers = all_rows[1]
+  local aligns = {}
+  local data_start = 2
+
+  -- Check if second row is divider row: |:---|:---:|---:|
+  if #all_rows >= 2 then
     local is_sep = true
-    for _, cell in ipairs(row) do
-      if not cell:match("^%-+$") and cell ~= "" then is_sep = false end
-    end
-    
-    local out_row = {}
-    for i, cell in ipairs(row) do
-      local w = col_widths[i] or 3
-      if is_sep then
-        table.insert(out_row, string.rep("-", w))
-      else
-        local pad = w - #cell
-        if pad < 0 then pad = 0 end
-        table.insert(out_row, cell .. string.rep(" ", pad))
+    local row2 = all_rows[2]
+    for _, cell in ipairs(row2) do
+      if not cell:match("^:?%-+:?$") and cell ~= "" then
+        is_sep = false
+        break
       end
     end
-    table.insert(out, "| " .. table.concat(out_row, " | ") .. " |")
+    if is_sep then
+      data_start = 3
+      for c_idx, cell in ipairs(row2) do
+        local left = cell:sub(1, 1) == ":"
+        local right = cell:sub(-1) == ":"
+        if left and right then
+          aligns[c_idx] = "center"
+        elseif right then
+          aligns[c_idx] = "right"
+        else
+          aligns[c_idx] = "left"
+        end
+      end
+    end
   end
-  
-  return table.concat(out, "\n")
+
+  local num_cols = #headers
+  if num_cols == 0 then return nil end
+  for i = 1, num_cols do
+    if not aligns[i] then aligns[i] = "left" end
+  end
+
+  local rows = {}
+  for i = data_start, #all_rows do
+    local r = all_rows[i]
+    local row_cells = {}
+    for c = 1, num_cols do
+      table.insert(row_cells, r[c] or "")
+    end
+    table.insert(rows, row_cells)
+  end
+
+  local font = base_font or style.font
+  local bfont = bold_font or font
+  local cfont = code_font or style.code_font
+
+  local col_widths = {}
+  local parsed_headers = {}
+  for c = 1, num_cols do
+    local segs = parse_inline(headers[c])
+    local w = 0
+    for _, s in ipairs(segs) do
+      local sf = (s.type == "code" or s.type == "code_link") and cfont or bfont
+      w = w + sf:get_width(s.text)
+    end
+    col_widths[c] = math.max(col_widths[c] or 0, w)
+    parsed_headers[c] = segs
+  end
+
+  local parsed_rows = {}
+  for r_idx, r in ipairs(rows) do
+    local row_segs = {}
+    for c = 1, num_cols do
+      local segs = parse_inline(r[c])
+      local w = 0
+      for _, s in ipairs(segs) do
+        local sf = (s.type == "code" or s.type == "code_link") and cfont or ((s.type == "bold") and bfont or font)
+        w = w + sf:get_width(s.text)
+      end
+      col_widths[c] = math.max(col_widths[c] or 0, w)
+      row_segs[c] = segs
+    end
+    table.insert(parsed_rows, row_segs)
+  end
+
+  local pad_x = math.floor(10 * (SCALE or 1))
+  local total_w = 0
+  for c = 1, num_cols do
+    col_widths[c] = col_widths[c] + 2 * pad_x
+    total_w = total_w + col_widths[c]
+  end
+
+  local avail_w = math.max(100, max_w - math.floor(16 * (SCALE or 1)))
+  if total_w < avail_w and total_w > 0 then
+    local diff = avail_w - total_w
+    for c = 1, num_cols do
+      local add = math.floor(diff * (col_widths[c] / total_w))
+      col_widths[c] = col_widths[c] + add
+    end
+    local sum = 0
+    for c = 1, num_cols do sum = sum + col_widths[c] end
+    if sum < avail_w and num_cols > 0 then
+      col_widths[num_cols] = col_widths[num_cols] + (avail_w - sum)
+    end
+    total_w = avail_w
+  elseif total_w > avail_w and total_w > 0 then
+    local min_col_w = math.floor(45 * (SCALE or 1))
+    local min_total = min_col_w * num_cols
+    if avail_w > min_total then
+      local ratio = avail_w / total_w
+      local sum = 0
+      for c = 1, num_cols do
+        col_widths[c] = math.max(min_col_w, math.floor(col_widths[c] * ratio))
+        sum = sum + col_widths[c]
+      end
+      if sum < avail_w and num_cols > 0 then
+        col_widths[num_cols] = col_widths[num_cols] + (avail_w - sum)
+      end
+      total_w = avail_w
+    end
+  end
+
+  local hdr_h = math.floor(bfont:get_height() + 14 * (SCALE or 1))
+  local row_h = math.floor(font:get_height() + 12 * (SCALE or 1))
+  local tbl_h = hdr_h + #rows * row_h
+
+  return {
+    type = "table",
+    headers = headers,
+    parsed_headers = parsed_headers,
+    aligns = aligns,
+    rows = rows,
+    parsed_rows = parsed_rows,
+    col_widths = col_widths,
+    total_w = total_w,
+    total_h = tbl_h,
+    hdr_h = hdr_h,
+    row_h = row_h,
+    pad_x = pad_x,
+    raw_text = table_text,
+  }
 end
 
 local function parse_blocks(text, base_font, code_font, max_w)
@@ -906,6 +1179,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
   local is_code = false
   local cur_text = ""
   local cur_lang = ""
+  local bold_font = get_bold_font()
   
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     local lang_match = line:match("^%s*```(%w*)")
@@ -935,7 +1209,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
     end
   end
   
-  -- post-process text blocks line by line for headers and lists
+  -- post-process text blocks line by line for headers, tables, dividers, quotes, and lists
   local final_blocks = {}
   for _, blk in ipairs(blocks) do
     if blk.type == "code" then
@@ -946,33 +1220,72 @@ local function parse_blocks(text, base_font, code_font, max_w)
       local function flush_table()
         if #cur_table > 0 then
           cur_table = cur_table:gsub("\n$", "")
-          local formatted = format_markdown_table(cur_table)
-          -- Use a massive max_w so tables never word-wrap
-          table.insert(final_blocks, { type = "code", lang = "table", raw_lines = wrap_raw_text(code_font, formatted, 999999) })
+          local tbl_blk = parse_table_block(cur_table, base_font, bold_font, code_font, max_w)
+          if tbl_blk then
+            table.insert(final_blocks, tbl_blk)
+          else
+            table.insert(final_blocks, { type = "code", lang = "txt", raw_lines = wrap_raw_text(code_font, cur_table, max_w) })
+          end
           cur_table = ""
         end
       end
       
       for line in (blk.raw .. "\n"):gmatch("([^\n]*)\n") do
-        local is_table = line:match("^%s*|.*|%s*$") ~= nil
-        if is_table then
-          cur_table = cur_table .. line .. "\n"
+        if line:match("^%s*%[AGENT%]%s*Using tool:") or line:match("^%s*Using tool:") then
+          -- ignore leaked raw tool execution lines from history
         else
-          flush_table()
-          if #line > 0 then
-            local header = line:match("^%s*(#+)%s")
-            local list = line:match("^%s*[%-%*]%s")
-            local level = header and #header or 0
-            
-            if header then line = line:gsub("^%s*#+%s", "") end
-            if list then line = line:gsub("^%s*[%-%*]%s", "") end
-            
-            local segments = parse_inline(line)
-            local f = (level > 0) and (style.big_font or base_font) or base_font
-            local wrapped = wrap_segments(segments, f, code_font, max_w - (list and f:get_width("• ") or 0))
-            table.insert(final_blocks, { type = "paragraph", level = level, list = list ~= nil, wrapped_lines = wrapped })
+          local is_table = line:match("^%s*|.*|%s*$") ~= nil
+          if is_table then
+            cur_table = cur_table .. line .. "\n"
           else
-            table.insert(final_blocks, { type = "empty" })
+            flush_table()
+            if #line > 0 then
+              -- Check for divider line: --- or *** or ___
+              if line:match("^%s*[%-%*_][%-%*_][%-%*_]+%s*$") then
+                table.insert(final_blocks, { type = "divider" })
+              -- Check for blockquote: > text
+              elseif line:match("^%s*>%s?(.*)") then
+                local q_text = line:match("^%s*>%s?(.*)")
+                local segments = parse_inline(q_text)
+                local wrapped = wrap_segments(segments, style.font, bold_font, style.code_font, max_w - 16 * (SCALE or 1))
+                table.insert(final_blocks, { type = "quote", wrapped_lines = wrapped })
+              else
+                local header = line:match("^%s*(#+)%s")
+                local list_bullet = line:match("^%s*[%-%*]%s+(.*)")
+                local list_num = line:match("^%s*(%d+)%.%s+(.*)")
+                local level = header and #header or 0
+                
+                local list_prefix = nil
+                local clean_line = line
+                if header then
+                  clean_line = line:gsub("^%s*#+%s*", "")
+                elseif list_bullet then
+                  clean_line = list_bullet
+                  list_prefix = "• "
+                elseif list_num then
+                  local num = line:match("^%s*(%d+)%.")
+                  clean_line = list_num
+                  list_prefix = num .. ". "
+                end
+                
+                local f = (level > 0) and get_heading_font(level) or (base_font or style.font)
+                local lh = (level > 0) and math.floor(f:get_height() * 1.3) or (f:get_height() + 2 * (SCALE or 1))
+                local prefix_w = list_prefix and f:get_width(list_prefix) or 0
+                local segments = parse_inline(clean_line)
+                local wrapped = wrap_segments(segments, f, bold_font, code_font, max_w - prefix_w)
+                
+                table.insert(final_blocks, {
+                  type = "paragraph",
+                  level = level,
+                  font = f,
+                  lh = lh,
+                  list_prefix = list_prefix,
+                  wrapped_lines = wrapped,
+                })
+              end
+            else
+              table.insert(final_blocks, { type = "empty" })
+            end
           end
         end
       end
@@ -1144,6 +1457,22 @@ end
 function AGView:_sync_model_list()
   local id = config.ai_sidebar.active_tool or "agy"
   if self.tool_model_lists[id] and #self.tool_model_lists[id] > 0 then
+    if id == "cloud_api" then
+      local tc = self:_tool_cfg("cloud_api")
+      local prov = tc.active_provider or (tc.selected_model and tc.selected_model:match("^([^/]+)/"))
+      if prov then
+        local filtered = {}
+        for _, m in ipairs(self.tool_model_lists["cloud_api"]) do
+          if m.name and m.name:match("^" .. prov .. "[/\\]") then
+            table.insert(filtered, m)
+          end
+        end
+        if #filtered > 0 then
+          self.model_list = filtered
+          return
+        end
+      end
+    end
     self.model_list = self.tool_model_lists[id]
   end
 end
@@ -1729,7 +2058,7 @@ function AGView:submit(prompt)
     end
 
     if tool_id == "cloud_api" then
-      self.usage_text = "Cloud AI (API) Usage:\n\nBecause you are using a direct API integration, usage tracking and billing are managed by your respective API provider.\n\nPlease check your provider's dashboard to view your token quotas and limits:\n\n- Google (Gemini): https://aistudio.google.com/app/plan_information\n- Groq: https://console.groq.com/settings/billing\n- OpenAI: https://platform.openai.com/settings/organization/billing/overview\n- Anthropic: https://console.anthropic.com/settings/billing\n- Ollama Cloud: https://ollama.com/settings/billing"
+      self.usage_text = "Cloud AI (API) Usage:\n\nBecause you are using a direct API integration, usage tracking and billing are managed by your respective API provider.\n\nPlease check your provider's dashboard to view your token quotas and limits:\n\n- Google (Gemini): https://aistudio.google.com/app/plan_information\n- Groq: https://console.groq.com/settings/billing\n- NVIDIA (NIM): https://build.nvidia.com\n- OpenAI: https://platform.openai.com/settings/organization/billing/overview\n- Anthropic: https://console.anthropic.com/settings/billing\n- Ollama Cloud: https://ollama.com/settings/billing"
       core.redraw = true
       return
     end
@@ -1863,6 +2192,8 @@ function AGView:submit(prompt)
   self:state()._ai_buf             = ""
   self:state()._ai_displayed_chars = 0
   self:state().started_at          = os.time()
+  self:state()._chat_start_time    = system.get_time()
+  self:state().progress_status     = nil
   self:state().warned_slow         = false
   self:_add_session("ai", "")
   self:state().scroll_to_bottom = true
@@ -1884,14 +2215,17 @@ function AGView:submit(prompt)
   if tool and tool.build_run_argv then
     -- Use the tool's registered argv builder
     local tc = self:_tool_cfg(tool_id)
+    local is_auto = config.ai_sidebar and config.ai_sidebar.autopilot or false
     argv = tool.build_run_argv({
-      bin         = bin,
-      prompt      = full_prompt,
-      model       = self:_active_model(),
-      session_id  = self:state().cid,   -- tool-specific session id (for OpenCode, Devin)
-      has_session = self:state().has_session,
-      project_dir = project_root,
-      extra_files = nil,
+      bin          = bin,
+      prompt       = full_prompt,
+      model        = self:_active_model(),
+      session_id   = self:state().cid,   -- tool-specific session id (for OpenCode, Devin)
+      has_session  = self:state().has_session,
+      project_dir  = project_root,
+      extra_files  = nil,
+      autopilot    = is_auto,
+      enable_tools = is_auto,
     })
     needs_pty = tool.needs_pty or false
   else
@@ -1944,6 +2278,7 @@ function AGView:submit(prompt)
     self:state().process = p
     self:state().has_session = true
     self:state()._chat_started_at = os.time()
+    self:state()._chat_start_time = system.get_time()
   else
     local tool_name = (tool and tool.name) or "agy"
     self:state().sessions[#self:state().sessions].text =
@@ -2073,7 +2408,7 @@ function AGView:update()
         end
         self.tool_model_lists[fetch_tool_id] = parsed
         if fetch_tool_id == (config.ai_sidebar.active_tool or "agy") then
-          self.model_list = parsed
+          self:_sync_model_list()
           if self.show_usage_view and fetch_tool_id == "agy" then
             self:_build_agy_usage_text()
           end
@@ -2128,10 +2463,31 @@ function AGView:update()
 
       -- Read stdout and stderr if process is alive
       if is_active_process then
+        core.redraw = true
         while true do
           local out = tab.process:read_stdout(65536)
           if not out or #out == 0 then break end
-          tab._ai_buf = (tab._ai_buf or "") .. out
+          out = out:gsub("%[STATUS:([^\r\n]*%])\r?\n?", function(st_block)
+            local st = st_block:match("^(.-)%]%s*$") or st_block:gsub("%]%s*$", "")
+            tab.progress_status = st
+            return ""
+          end)
+          out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
+          out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
+          out = out:gsub("Using tool:[^\n]*\r?\n?", "")
+          out = out:gsub("<tool_call.-</tool_call>%s*", "")
+          out = out:gsub("<function.-</function>%s*", "")
+          out = out:gsub("<function_call.-</function_call>%s*", "")
+          out = out:gsub("%[TOOL_CALLS%].-%]%s*", "")
+          out = out:gsub("%[WARNING%][^\r\n]*\r?\n?", "")
+          out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
+          out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
+          out = out:gsub("^%s*%]%s*\r?\n", "")
+          out = out:gsub("%s*%]%s*$", "")
+          out = out:gsub("\n\n\n+", "\n\n")
+          if #out > 0 then
+            tab._ai_buf = (tab._ai_buf or "") .. out
+          end
         end
         while true do
           local out = tab.process:read_stderr(65536)
@@ -2145,7 +2501,27 @@ function AGView:update()
           while true do
             local out = tab.process:read_stdout(65536)
             if not out or #out == 0 then break end
-            tab._ai_buf = (tab._ai_buf or "") .. out
+            out = out:gsub("%[STATUS:([^\r\n]*%])\r?\n?", function(st_block)
+              local st = st_block:match("^(.-)%]%s*$") or st_block:gsub("%]%s*$", "")
+              tab.progress_status = st
+              return ""
+            end)
+            out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
+            out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
+            out = out:gsub("Using tool:[^\n]*\r?\n?", "")
+            out = out:gsub("<tool_call.-</tool_call>%s*", "")
+            out = out:gsub("<function.-</function>%s*", "")
+            out = out:gsub("<function_call.-</function_call>%s*", "")
+            out = out:gsub("%[TOOL_CALLS%].-%]%s*", "")
+            out = out:gsub("%[WARNING%][^\r\n]*\r?\n?", "")
+            out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
+            out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
+            out = out:gsub("^%s*%]%s*\r?\n", "")
+            out = out:gsub("%s*%]%s*$", "")
+            out = out:gsub("\n\n\n+", "\n\n")
+            if #out > 0 then
+              tab._ai_buf = (tab._ai_buf or "") .. out
+            end
           end
           while true do
             local out = tab.process:read_stderr(65536)
@@ -2154,30 +2530,43 @@ function AGView:update()
           end
           tab.process = nil
           tab.status = (rc == 0) and "idle" or "error"
+          tab.progress_status = nil
           
           -- Automatically refresh the Chat Memory Tree if it's currently open
           if self.show_history_tree then
               self:fetch_history()
           end
-          if not tab._ai_buf or tab._ai_buf == "" then
+          if tab._ai_buf then
+            tab._ai_buf = tab._ai_buf:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
+            tab._ai_buf = tab._ai_buf:gsub("\r?\n%s*%]%s*\r?\n", "\n")
+            tab._ai_buf = tab._ai_buf:gsub("^%s*%]%s*\r?\n", "")
+            tab._ai_buf = tab._ai_buf:gsub("%s*%]%s*$", "")
+            tab._ai_buf = tab._ai_buf:gsub("^%s+", ""):gsub("%s+$", "")
+          end
+          if not tab._ai_buf or tab._ai_buf:match("^%s*$") then
             local elapsed = os.time() - (tab._chat_started_at or os.time())
             local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
             local hint
-            if tab._err_buf and tab._err_buf ~= "" then
-              hint = "Process error:\n" .. tab._err_buf
+            if tab._err_buf and tab._err_buf:match("%S") then
+              hint = string.format("### ⚠️ Process Terminated (Code %s)\n\n```\n%s\n```", tostring(rc), tab._err_buf:match("^%s*(.-)%s*$") or tab._err_buf)
+            elseif rc == 0 then
+              hint = "*(The model completed the request without generating text.)*"
             elseif cur_tool == "agy" then
-              hint = "Try the AGY Auth button if you just logged in."
+              hint = "### ⚠️ Authentication Required\n\nClick the **AGY Auth** button in the sidebar or run `agy auth` in a terminal."
             else
               local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
               local tname = (tdef and tdef.name) or cur_tool
-              hint = tname .. " exited immediately.\n" ..
-                     "Make sure it is installed and authenticated.\n" ..
-                     "Run  " .. (tdef and tdef.bins and tdef.bins[1] or cur_tool) ..
-                     " --help  in a terminal to verify."
+              local bin_cmd = (tdef and tdef.bins and tdef.bins[1]) or cur_tool
+              hint = string.format(
+                "### ⚠️ %s Exited Unexpectedly (Code %s)\n\n" ..
+                "The process closed without producing output (after %.0fs).\n\n" ..
+                "**Recommended Solutions:**\n" ..
+                "• Verify `%s` is installed and in your system PATH.\n" ..
+                "• Run `%s --help` in a terminal to check configuration.\n" ..
+                "• Check your API key and network connection.",
+                tname, tostring(rc), elapsed, bin_cmd, bin_cmd)
             end
-            tab._ai_buf = string.format(
-              "(no output after %.0fs — process exited with code %s)\n\n%s",
-              elapsed, tostring(rc), hint)
+            tab._ai_buf = hint
           end
           dirty = true
           core.redraw = true
@@ -2727,8 +3116,9 @@ function AGView:draw()
   local seg_h = fh1 + 2 * SCALE
   
   -- Status text width
-    local status_str = self:state().status == "running"
-    and (self:state().warned_slow and "slow..." or "thinking...")
+  local cur_elapsed = system.get_time() - (self:state()._chat_start_time or system.get_time())
+  local status_str = self:state().status == "running"
+    and string.format("%.1fs...", cur_elapsed)
     or  self:state().status == "error" and "error"
     or  "ready"
   local status_w = sf:get_width(status_str) + 8 * SCALE
@@ -2797,7 +3187,7 @@ function AGView:draw()
 
   -- ── ROW 1 right: status text ─────────────────────────────────────────
   local status_str = self:state().status == "running"
-    and (self:state().warned_slow and "slow..." or "thinking...")
+    and string.format("%.1fs...", cur_elapsed)
     or  self:state().status == "error" and "error"
     or  "ready"
   local scol = self:state().status == "running" and { acol[1], acol[2], acol[3], 210 }
@@ -3240,6 +3630,7 @@ function AGView:draw()
   local ty    = chat_top + 4 * SCALE - self:state().scroll_y
   local total_h = 0
   self._copy_rects = {}
+  self._link_rects = {}
 
     if #self:state().sessions == 0 then
       local msg = "Type /help for commands"
@@ -3281,18 +3672,38 @@ function AGView:draw()
     for _b, blk in ipairs(sess.blocks) do
       if blk.type == "code" then
         msg_h = msg_h + #blk.raw_lines * lh_c + 8 * SCALE + 24 * SCALE
+      elseif blk.type == "table" then
+        msg_h = msg_h + blk.total_h + 16 * SCALE
+      elseif blk.type == "divider" then
+        msg_h = msg_h + 16 * SCALE
+      elseif blk.type == "quote" then
+        local f = style.font
+        local lh = math.floor(f:get_height() * 1.25)
+        msg_h = msg_h + #blk.wrapped_lines * lh + 8 * SCALE
       elseif blk.type == "empty" then
         msg_h = msg_h + lh_f
       elseif blk.type == "paragraph" then
-        local f = (blk.level > 0) and (style.big_font or style.font) or style.font
-        local lh = f:get_height() + 2 * SCALE
-        msg_h = msg_h + #blk.wrapped_lines * lh
+        local f = blk.font or ((blk.level > 0) and get_heading_font(blk.level) or style.font)
+        local lh = blk.lh or (f:get_height() + 2 * SCALE)
+        local top_m = (blk.level == 1 and 18 * SCALE) or (blk.level == 2 and 12 * SCALE) or (blk.level == 3 and 8 * SCALE) or 0
+        local bot_m = (blk.level == 1 and 4 * SCALE) or 0
+        msg_h = msg_h + #blk.wrapped_lines * lh + top_m + bot_m
       end
     end
     msg_h = math.max(lh_f + 2 * msg_pad, msg_h)
 
+    local is_running_ai = (self:state().status == "running" and not is_user and sess == self:state().sessions[#self:state().sessions])
+    local loader_h = style.code_font:get_height() + 8 * SCALE
+    if is_running_ai then
+      if sess.text == "" or #sess.blocks == 0 then
+        msg_h = loader_h + 2 * msg_pad
+      else
+        msg_h = msg_h + loader_h + 8 * SCALE
+      end
+    end
+
     local has_hitl = not is_user and sess.text:find("[HITL_APPROVAL_REQUIRED]", 1, true)
-    if has_hitl and self:state().status == "running" and sess == self:state().sessions[#self:state().sessions] then
+    if has_hitl and is_running_ai then
       msg_h = msg_h + 36 * SCALE
     end
 
@@ -3388,39 +3799,256 @@ function AGView:draw()
         end
         line_y = line_y + 4 * SCALE
         
+      elseif blk.type == "table" then
+        line_y = line_y + 8 * SCALE
+        local tbl_x = x + pad + 4 * SCALE
+        local tbl_w = math.min(msg_w - 8 * SCALE, blk.total_w)
+        local tbl_h = blk.total_h
+        local hdr_h = blk.hdr_h
+        local row_h = blk.row_h
+        local pad_x = blk.pad_x
+        local bfont = get_bold_font()
+
+        -- Check visibility
+        if line_y + tbl_h >= chat_top and line_y <= chat_bot then
+          -- Table background & outer border
+          renderer.draw_rect(tbl_x, line_y, tbl_w, tbl_h, P.bg_btn)
+          draw_rect_outline(tbl_x, line_y, tbl_w, tbl_h, P.border)
+
+          -- Header background
+          renderer.draw_rect(tbl_x, line_y, tbl_w, hdr_h, P.bg_darker)
+          -- Header bottom border
+          renderer.draw_rect(tbl_x, line_y + hdr_h - 1, tbl_w, 1, P.border)
+
+          -- Draw table copy button in top right of header
+          local t_id = tostring(_) .. "_tbl_" .. tostring(_b)
+          local is_copied = (self.copy_flash_idx == t_id)
+          local cw = is_copied and (style.font:get_width("Copied!") + 8 * SCALE) or 16 * SCALE
+          local c_x = tbl_x + tbl_w - cw - 6 * SCALE
+          local c_y = line_y + math.floor((hdr_h - 14 * SCALE) / 2)
+          if is_copied then
+            renderer.draw_text(style.font, "Copied!", c_x, c_y, P.fg_accent)
+          else
+            local ix = c_x + math.floor((cw - 8 * SCALE) / 2)
+            local iy = c_y
+            draw_rect_outline(ix + 2 * SCALE, iy, 6 * SCALE, 6 * SCALE, P.fg_muted)
+            renderer.draw_rect(ix, iy + 2 * SCALE, 6 * SCALE, 6 * SCALE, P.bg_darker)
+            draw_rect_outline(ix, iy + 2 * SCALE, 6 * SCALE, 6 * SCALE, P.fg_muted)
+          end
+          table.insert(self._copy_rects, {
+            x = c_x - 4 * SCALE, y = line_y, w = cw + 8 * SCALE, h = hdr_h,
+            text = blk.raw_text, idx = t_id
+          })
+
+          -- Header columns
+          local cur_cx = tbl_x
+          for c = 1, #blk.col_widths do
+            local cw = blk.col_widths[c]
+            local align = blk.aligns[c] or "left"
+            local segs = blk.parsed_headers[c] or {}
+            
+            local seg_w = 0
+            for _, s in ipairs(segs) do
+              local sf = (s.type == "code" or s.type == "code_link") and style.code_font or bfont
+              seg_w = seg_w + sf:get_width(s.text)
+            end
+
+            local tx = cur_cx + pad_x
+            if align == "center" then
+              tx = cur_cx + math.floor((cw - seg_w) / 2)
+            elseif align == "right" then
+              tx = cur_cx + cw - seg_w - pad_x
+            end
+
+            core.push_clip_rect(cur_cx + 2 * SCALE, line_y, cw - 4 * SCALE, hdr_h)
+            local sx = tx
+            for _, s in ipairs(segs) do
+              local sf = (s.type == "code" or s.type == "code_link") and style.code_font or bfont
+              local scol = P.fg_accent
+              draw_text_emoji(sf, s.text, sx, line_y + math.floor((hdr_h - sf:get_height()) / 2), scol)
+              sx = sx + sf:get_width(s.text)
+            end
+            core.pop_clip_rect()
+
+            -- Column divider line in header
+            if c < #blk.col_widths then
+              renderer.draw_rect(cur_cx + cw - 1, line_y, 1, hdr_h, P.border)
+            end
+            cur_cx = cur_cx + cw
+          end
+
+          -- Data rows
+          for r_idx, row_segs in ipairs(blk.parsed_rows) do
+            local ry = line_y + hdr_h + (r_idx - 1) * row_h
+            if ry + row_h >= chat_top and ry <= chat_bot then
+              -- Zebra striping (even rows have subtle contrast)
+              if r_idx % 2 == 0 then
+                renderer.draw_rect(tbl_x, ry, tbl_w, row_h, { P.bg_darker[1], P.bg_darker[2], P.bg_darker[3], 70 })
+              end
+              -- Horizontal divider line between rows
+              if r_idx < #blk.parsed_rows then
+                renderer.draw_rect(tbl_x, ry + row_h - 1, tbl_w, 1, { P.border[1], P.border[2], P.border[3], 60 })
+              end
+
+              local cur_cx = tbl_x
+              for c = 1, #blk.col_widths do
+                local cw = blk.col_widths[c]
+                local align = blk.aligns[c] or "left"
+                local segs = row_segs[c] or {}
+
+                local seg_w = 0
+                for _, s in ipairs(segs) do
+                  local sf = (s.type == "code" or s.type == "code_link") and style.code_font or ((s.type == "bold") and bfont or style.font)
+                  seg_w = seg_w + sf:get_width(s.text)
+                end
+
+                local tx = cur_cx + pad_x
+                if align == "center" then
+                  tx = cur_cx + math.floor((cw - seg_w) / 2)
+                elseif align == "right" then
+                  tx = cur_cx + cw - seg_w - pad_x
+                end
+
+                core.push_clip_rect(cur_cx + 4 * SCALE, ry, cw - 8 * SCALE, row_h)
+                local sx = tx
+                for _, s in ipairs(segs) do
+                  local sf = (s.type == "code" or s.type == "code_link") and style.code_font or ((s.type == "bold") and bfont or style.font)
+                  local scol = (s.type == "bold") and P.fg_accent or fg_col
+                  if s.type == "code" or s.type == "code_link" then
+                    -- Pill badge for inline code inside table cell
+                    local pill_pad = 2 * SCALE
+                    local pill_h = sf:get_height() + 2 * SCALE
+                    local pill_w = sf:get_width(s.text) + 2 * pill_pad
+                    local pill_y = ry + math.floor((row_h - pill_h) / 2)
+                    renderer.draw_rect(sx - pill_pad, pill_y, pill_w, pill_h, P.bg_darker)
+                    draw_rect_outline(sx - pill_pad, pill_y, pill_w, pill_h, { P.border[1], P.border[2], P.border[3], 90 })
+                    scol = style.syntax["keyword"] or P.fg_accent
+                  end
+                  draw_text_emoji(sf, s.text, sx, ry + math.floor((row_h - sf:get_height()) / 2), scol)
+                  sx = sx + sf:get_width(s.text)
+                end
+                core.pop_clip_rect()
+
+                -- Vertical divider line between columns
+                if c < #blk.col_widths then
+                  renderer.draw_rect(cur_cx + cw - 1, ry, 1, row_h, { P.border[1], P.border[2], P.border[3], 60 })
+                end
+                cur_cx = cur_cx + cw
+              end
+            end
+          end
+        end
+
+        line_y = line_y + tbl_h + 8 * SCALE
+
+      elseif blk.type == "divider" then
+        line_y = line_y + 4 * SCALE
+        if line_y + 8 * SCALE >= chat_top and line_y <= chat_bot then
+          local div_x = x + pad + msg_pad
+          local div_w = msg_w - 2 * msg_pad
+          renderer.draw_rect(div_x, line_y + 4 * SCALE, div_w, 1 * SCALE, { P.border[1], P.border[2], P.border[3], 100 })
+        end
+        line_y = line_y + 12 * SCALE
+
+      elseif blk.type == "quote" then
+        local f = style.font
+        local lh = math.floor(f:get_height() * 1.25)
+        local q_h = #blk.wrapped_lines * lh
+        line_y = line_y + 4 * SCALE
+        if line_y + q_h >= chat_top and line_y <= chat_bot then
+          local q_x = x + pad + msg_pad
+          renderer.draw_rect(q_x, line_y, 3 * SCALE, q_h, P.fg_accent)
+          renderer.draw_rect(q_x + 3 * SCALE, line_y, msg_w - 2 * msg_pad - 3 * SCALE, q_h, { P.bg_btn[1], P.bg_btn[2], P.bg_btn[3], 40 })
+          for l_idx, w_line in ipairs(blk.wrapped_lines) do
+            local lx = q_x + 10 * SCALE
+            for _, seg in ipairs(w_line) do
+              draw_text_emoji(seg.font, seg.text, lx, line_y + (l_idx - 1) * lh, P.fg_muted)
+              lx = lx + seg.width
+            end
+          end
+        end
+        line_y = line_y + q_h + 4 * SCALE
+
       elseif blk.type == "empty" then
         line_y = line_y + lh_f
         
       elseif blk.type == "paragraph" then
-        local f = (blk.level > 0) and (style.big_font or style.font) or style.font
-        local lh = f:get_height() + 2 * SCALE
+        local f = blk.font or ((blk.level > 0) and get_heading_font(blk.level) or style.font)
+        local lh = blk.lh or (f:get_height() + 2 * SCALE)
         local l_col = (blk.level > 0) and P.fg_accent or fg_col
-        
+        local bfont = get_bold_font()
+
+        -- Extra spacing above headers to separate sections
+        local top_m = 0
+        if blk.level == 1 then top_m = 18 * SCALE
+        elseif blk.level == 2 then top_m = 12 * SCALE
+        elseif blk.level == 3 then top_m = 8 * SCALE
+        end
+        line_y = line_y + top_m
+
         for l_idx, w_line in ipairs(blk.wrapped_lines) do
           if line_y + lh >= chat_top and line_y <= chat_bot then
             local lx = x + pad + msg_pad
             local para_avail_w = math.max(10*SCALE, msg_w - 2 * msg_pad)
             core.push_clip_rect(lx, line_y, para_avail_w, lh)
-            if blk.list and l_idx == 1 then
-              renderer.draw_text(f, "• ", lx, line_y, P.fg_accent)
-              lx = lx + f:get_width("• ")
-            elseif blk.list then
-              lx = lx + f:get_width("• ")
+            if blk.list_prefix and l_idx == 1 then
+              renderer.draw_text(f, blk.list_prefix, lx, line_y, P.fg_accent)
+              lx = lx + f:get_width(blk.list_prefix)
+            elseif blk.list_prefix then
+              lx = lx + f:get_width(blk.list_prefix)
             end
             
             for _, seg in ipairs(w_line) do
               local cfont = seg.font
               local ccol = l_col
-              if seg.type == "code" or seg.type == "code_link" then ccol = style.syntax["keyword"] or P.fg_accent
-              elseif seg.type == "bold" then ccol = P.fg_accent
-              elseif seg.type == "link" then ccol = style.syntax["function"] or P.fg_accent end
-              
-              draw_text_emoji(cfont, seg.text, lx, line_y, ccol)
-              lx = lx + seg.width
+              if seg.type == "code" or seg.type == "code_link" then
+                -- Pill badge for inline code
+                local pill_pad = math.floor(3 * (SCALE or 1))
+                local pill_h = cfont:get_height() + math.floor(2 * (SCALE or 1))
+                local pill_y = line_y - math.floor(1 * (SCALE or 1))
+                local pill_w = seg.width
+                renderer.draw_rect(lx, pill_y, pill_w, pill_h, P.bg_btn)
+                draw_rect_outline(lx, pill_y, pill_w, pill_h, { P.border[1], P.border[2], P.border[3], 120 })
+                ccol = style.syntax["keyword"] or P.fg_accent
+                draw_text_emoji(cfont, seg.text, lx + pill_pad, line_y, ccol)
+                if seg.url and self._link_rects then
+                  table.insert(self._link_rects, { x = lx, y = line_y, w = pill_w, h = pill_h, url = seg.url })
+                  if self.hover_link_url == seg.url then
+                    renderer.draw_rect(lx + pill_pad, line_y + cfont:get_height() - 1, pill_w - 2 * pill_pad, 1, ccol)
+                  end
+                end
+                lx = lx + pill_w
+              else
+                if seg.type == "bold" then
+                  ccol = P.fg_accent
+                elseif seg.type == "italic" then
+                  ccol = P.fg_muted
+                elseif seg.type == "link" then
+                  ccol = style.syntax["function"] or P.fg_accent
+                  if seg.url and self._link_rects then
+                    table.insert(self._link_rects, { x = lx, y = line_y, w = seg.width, h = lh, url = seg.url })
+                    if self.hover_link_url == seg.url then
+                      renderer.draw_rect(lx, line_y + cfont:get_height() - 1, seg.width, 1, ccol)
+                    end
+                  end
+                end
+                draw_text_emoji(cfont, seg.text, lx, line_y, ccol)
+                lx = lx + seg.width
+              end
             end
             core.pop_clip_rect()
+
+            -- Subtle decorative underline for H1
+            if blk.level == 1 and l_idx == #blk.wrapped_lines then
+              local line_w = math.min(para_avail_w, 200 * SCALE)
+              renderer.draw_rect(x + pad + msg_pad, line_y + lh + 2 * SCALE, line_w, 2 * SCALE, { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 90 })
+            end
           end
           line_y = line_y + lh
+        end
+
+        if blk.level == 1 then
+          line_y = line_y + 4 * SCALE
         end
       end
     end
@@ -3481,18 +4109,198 @@ function AGView:draw()
       end
     end
 
-    -- Spinner on last AI message while running
-    if self:state().status == "running" and not is_user
-       and sess == self:state().sessions[#self:state().sessions]
-       and sess.text == "" then
+    -- Modern dynamic step loader capsule pill on active AI message while running
+    if is_running_ai then
+      local elapsed = system.get_time() - (self:state()._chat_start_time or system.get_time())
       
-      -- Buttery smooth 60fps opacity sine pulse
-      local pulse = (math.sin(self.tick / 12) + 1) / 2
-      local alpha = math.floor(80 + 175 * pulse)
-      local col = { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], alpha }
+      -- Determine provider name for context
+      local cur_tool = config.ai_sidebar.active_tool or "agy"
+      local prov_name = "AI"
+      if cur_tool == "cloud_api" then
+        local tc = self:_tool_cfg("cloud_api")
+        local p = tc.active_provider or (tc.selected_model and tc.selected_model:match("^([^/]+)/"))
+        if p == "nvidia" then prov_name = "NVIDIA"
+        elseif p == "gemini" then prov_name = "Gemini"
+        elseif p == "groq" then prov_name = "Groq"
+        elseif p == "openai" then prov_name = "OpenAI"
+        elseif p == "ollama" then prov_name = "Ollama"
+        elseif p then prov_name = p:sub(1,1):upper() .. p:sub(2)
+        else prov_name = "Cloud"
+        end
+      elseif cur_tool == "ollama" then
+        prov_name = "Ollama"
+      elseif cur_tool == "agy" then
+        prov_name = "Antigravity"
+      end
+
+      local function compact_status(st)
+        if not st or st == "" then return "" end
+        st = st:gsub("%.+$", "")
+        
+        -- Handle "[AGENT] Using tool: foo" or "Using tool: foo"
+        local agent_t = st:match("Using tool:%s*([%w_]+)")
+        if agent_t then
+          if agent_t == "read_file" then return "Reading file"
+          elseif agent_t == "write_file" then return "Writing file"
+          elseif agent_t == "local_shell" then return "Running command"
+          elseif agent_t == "web_search" then return "Searching web"
+          else return "Running " .. agent_t:gsub("^mcp__", ""):gsub("^tool_", "")
+          end
+        end
+
+        -- Handle "Reading <filename> (<pct>%) [step]"
+        local f, pct, step = st:match("^Reading%s+(.-)%s+%((%d+%%)%)(.*)")
+        if f and pct then
+          f = f:match("^%s*(.-)%s*$")
+          if #f > 18 then f = f:sub(1, 8) .. "..." .. f:sub(-7) end
+          return string.format("Reading %s (%s)%s", f, pct, step or "")
+        end
+        
+        -- Handle "Reading <filename>"
+        local f = st:match("^Reading%s+(.-)$")
+        if f and not f:find("%(") then
+          f = f:match("^%s*(.-)%s*$")
+          if #f > 18 then f = f:sub(1, 8) .. "..." .. f:sub(-7) end
+          return string.format("Reading %s", f)
+        end
+        
+        -- Handle "Writing <filename> (<lines> lines) [step]"
+        local f, lines, step = st:match("^Writing%s+(.-)%s+%((%d+%s+lines)%)(.*)")
+        if f and lines then
+          f = f:match("^%s*(.-)%s*$")
+          if #f > 18 then f = f:sub(1, 8) .. "..." .. f:sub(-7) end
+          return string.format("Writing %s (%s)%s", f, lines, step or "")
+        end
+        local f = st:match("^Writing%s+(.-)$")
+        if f and not f:find("%(") then
+          f = f:match("^%s*(.-)%s*$")
+          if #f > 18 then f = f:sub(1, 8) .. "..." .. f:sub(-7) end
+          return string.format("Writing %s", f)
+        end
+        
+        -- Handle "Scanning directory (<cmd>) [step]"
+        local cmd, step = st:match("^Scanning directory%s+%((.-)%)(.*)")
+        if cmd then
+          if #cmd > 16 then cmd = cmd:sub(1, 13) .. "..." end
+          return string.format("Scanning directory (%s)%s", cmd, step or "")
+        end
+
+        -- Handle "Running <cmd> [step]"
+        local cmd, step = st:match("^Running%s+(.-)%s*(%[.*%])$")
+        if cmd then
+          if #cmd > 16 then cmd = cmd:sub(1, 13) .. "..." end
+          return string.format("Running %s %s", cmd, step)
+        end
+        local cmd = st:match("^Running%s+(.-)$")
+        if cmd then
+          if #cmd > 16 then cmd = cmd:sub(1, 13) .. "..." end
+          return string.format("Running %s", cmd)
+        end
+        
+        -- Handle "Searching '<query>' [step]"
+        local q = st:match("^Searching%s+(.-)$")
+        if q then
+          if #q > 16 then q = q:sub(1, 13) .. "..." end
+          return string.format("Searching %s", q)
+        end
+        
+        -- Legacy "Executing tool: ..."
+        local f, pct = st:match("^Executing tool:%s*read_file%s*%((.-),%s*(%d+%%)%)")
+        if f and pct then
+          f = f:match("^%s*(.-)%s*$")
+          if #f > 18 then f = f:sub(1, 8) .. "..." .. f:sub(-7) end
+          return string.format("Reading %s (%s)", f, pct)
+        end
+        local f = st:match("^Executing tool:%s*read_file%s*%((.-)%)")
+        if f then
+          f = f:match("^%s*(.-)%s*$")
+          if #f > 18 then f = f:sub(1, 8) .. "..." .. f:sub(-7) end
+          return string.format("Reading %s", f)
+        end
+        local f = st:match("^Executing tool:%s*write_file%s*%((.-)%)")
+        if f then
+          f = f:match("^%s*(.-)%s*$")
+          if #f > 18 then f = f:sub(1, 8) .. "..." .. f:sub(-7) end
+          return string.format("Writing %s", f)
+        end
+        local cmd = st:match("^Executing tool:%s*local_shell%s*%((.-)%)")
+        if cmd then
+          cmd = cmd:gsub("%.+$", ""):match("^%s*(.-)%s*$")
+          if #cmd > 16 then cmd = cmd:sub(1, 13) .. "..." end
+          return string.format("Running %s", cmd)
+        end
+        local q = st:match("^Executing tool:%s*web_search%s*%((.-)%)")
+        if q then
+          q = q:gsub("%.+$", ""):match("^%s*(.-)%s*$")
+          if #q > 16 then q = q:sub(1, 13) .. "..." end
+          return string.format("Searching %s", q)
+        end
+        local tool = st:match("^Executing tool:%s*(.-)$")
+        if tool then
+          tool = tool:gsub("^mcp__", ""):gsub("^tool_", "")
+          return string.format("Running %s", tool)
+        end
+        
+        return st
+      end
+
+      -- Dynamic stage status text
+      local status_text
+      if self:state().progress_status and self:state().progress_status ~= "" then
+        status_text = compact_status(self:state().progress_status)
+      elseif elapsed < 1.2 then
+        status_text = "Connecting (" .. prov_name .. ")"
+      elseif elapsed < 3.5 then
+        status_text = "Analyzing context"
+      elseif elapsed < 8.0 then
+        status_text = "Generating response"
+      else
+        status_text = "Deep computing"
+      end
+
+      -- Animated trailing dots and elapsed time
+      local dots = string.rep(".", (math.floor(self.tick / 12) % 4))
+      local time_str = string.format(" (%.1fs)", elapsed)
+      local avail_w = math.max(10 * SCALE, msg_w - 2 * msg_pad)
       
-      renderer.draw_text(style.code_font, "● AI thinking...",
-        x + pad + msg_pad, ty + msg_pad, col)
+      -- Dot width and time string width
+      local dot_w = style.code_font:get_width("● ")
+      local time_w = style.code_font:get_width(time_str)
+      
+      -- Responsively trim status_text if total string exceeds available bubble width
+      local max_status_w = avail_w - dot_w - time_w - 18 * SCALE
+      if max_status_w > 20 * SCALE and style.code_font:get_width(status_text) > max_status_w then
+        while #status_text > 4 and style.code_font:get_width(status_text .. "…") > max_status_w do
+          status_text = status_text:sub(1, -2)
+        end
+        status_text = status_text .. "…"
+      end
+
+      local loader_h = style.code_font:get_height() + 6 * SCALE
+      local loader_y = (sess.text == "" or #sess.blocks == 0) and (ty + msg_pad) or (line_y + 4 * SCALE)
+      local content_w = dot_w + style.code_font:get_width(status_text .. dots) + time_w
+      local pill_w = math.min(avail_w, content_w + 14 * SCALE)
+      local pill_x = x + pad + msg_pad
+      
+      -- Modern capsule pill container with subtle accent outline
+      renderer.draw_rect(pill_x, loader_y, pill_w, loader_h, P.bg_btn)
+      draw_rect_outline(pill_x, loader_y, pill_w, loader_h, { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 })
+      
+      -- Smooth 60fps opacity sine pulse on accent dot
+      local pulse = (math.sin(self.tick / 10) + 1) / 2
+      local alpha = math.floor(130 + 125 * pulse)
+      local dot_col = { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], alpha }
+      
+      local tx = pill_x + 7 * SCALE
+      local text_y = loader_y + math.floor((loader_h - style.code_font:get_height()) / 2)
+      
+      core.push_clip_rect(pill_x, loader_y, pill_w, loader_h)
+      renderer.draw_text(style.code_font, "●", tx, text_y, dot_col)
+      tx = tx + dot_w
+      renderer.draw_text(style.code_font, status_text .. dots, tx, text_y, P.fg)
+      tx = tx + style.code_font:get_width(status_text .. dots)
+      renderer.draw_text(style.code_font, time_str, tx, text_y, P.fg_muted)
+      core.pop_clip_rect()
     end
 
     ty = ty + msg_h + 6 * SCALE
@@ -3562,6 +4370,21 @@ function AGView:draw()
     local mf     = style.font
     local item_h = mf:get_height() + 4 * SCALE -- Reduced height for compactness
     local list   = self.model_list
+    if (config.ai_sidebar.active_tool or "agy") == "cloud_api" then
+      local tc = self:_tool_cfg("cloud_api")
+      local prov = tc.active_provider or (tc.selected_model and tc.selected_model:match("^([^/]+)/"))
+      if prov and self.tool_model_lists and self.tool_model_lists["cloud_api"] then
+        local filtered = {}
+        for _, m in ipairs(self.tool_model_lists["cloud_api"]) do
+          if m.name and m.name:match("^" .. prov .. "[/\\]") then
+            table.insert(filtered, m)
+          end
+        end
+        if #filtered > 0 then
+          list = filtered
+        end
+      end
+    end
     local total_items = (#list == 0) and 1 or #list
     local max_rows = 12
     local rows   = math.min(max_rows, total_items)
@@ -3606,31 +4429,64 @@ function AGView:draw()
           else
             fg = P.fg
           end
-          renderer.draw_text(mf, label, x + pad,
-            ry + math.floor((item_h - mf:get_height()) / 2), fg)
 
-          -- Right side: usage counter OR checkmark for selected
+          -- Clean display label for cloud_api when provider prefix is present
+          local disp_name = label
+          if (config.ai_sidebar.active_tool or "agy") == "cloud_api" and disp_name:find("/") then
+            disp_name = disp_name:match("^[^/]+/(.+)") or disp_name
+          end
+
+          -- Right side elements (drawn from right to left)
+          local right_x = x + w - pad
           if m.usage then
             local ufg = is_limited and _COLOR_CACHE_7 or P.fg_muted
             local disp_usage = m.usage
             if is_limited then disp_usage = disp_usage .. " [No Quota]" end
-            renderer.draw_text(mf, disp_usage,
-              x + w - pad - mf:get_width(disp_usage),
+            local uw = mf:get_width(disp_usage)
+            renderer.draw_text(mf, disp_usage, right_x - uw,
               ry + math.floor((item_h - mf:get_height()) / 2), ufg)
+            right_x = right_x - uw - 6 * SCALE
           end
+
           if is_limited and not m.usage then
             local tag = "[Pro Tier]"
-            renderer.draw_text(mf, tag,
-              x + w - pad - mf:get_width(tag),
+            local tw = mf:get_width(tag)
+            renderer.draw_text(mf, tag, right_x - tw,
               ry + math.floor((item_h - mf:get_height()) / 2),
               _COLOR_CACHE_7)
+            right_x = right_x - tw - 6 * SCALE
           elseif is_sel and not m.usage then
-            renderer.draw_text(mf, "[v]",
-              x + w - pad - mf:get_width("[v]"),
+            local tag = "[v]"
+            local tw = mf:get_width(tag)
+            renderer.draw_text(mf, tag, right_x - tw,
               ry + math.floor((item_h - mf:get_height()) / 2), P.dot_run)
+            right_x = right_x - tw - 6 * SCALE
           end
+
+          -- Category label badge (e.g. [Instruct], [Coder], [Reasoning], [Bolt], [Lightning], etc.)
+          local cat_label, cat_col = get_model_category_badge(label)
+          if cat_label then
+            local badge_str = "[" .. cat_label .. "]"
+            local bw = mf:get_width(badge_str)
+            renderer.draw_text(mf, badge_str, right_x - bw,
+              ry + math.floor((item_h - mf:get_height()) / 2), cat_col or P.fg_muted)
+            right_x = right_x - bw - 6 * SCALE
+          end
+
+          -- Truncate left label if it exceeds remaining width
+          local max_name_w = math.max(20 * SCALE, right_x - (x + pad) - 4 * SCALE)
+          while mf:get_width(disp_name) > max_name_w and #disp_name > 4 do
+            disp_name = disp_name:sub(1, -2)
+          end
+          if disp_name ~= label and disp_name ~= (label:match("^[^/]+/(.+)") or label) then
+            disp_name = disp_name:match("^%s*(.-)%s*$") .. ".."
+          end
+
+          renderer.draw_text(mf, disp_name, x + pad,
+            ry + math.floor((item_h - mf:get_height()) / 2), fg)
+
           -- Insert rect for hit testing only if it is visible
-          table.insert(self._mpicker_rects, { x=x, y=ry, w=w, h=item_h, idx=i })
+          table.insert(self._mpicker_rects, { x=x, y=ry, w=w, h=item_h, idx=i, model=m })
         end
       end
     end
@@ -3746,18 +4602,21 @@ function AGView:draw()
     -- Close X
     local cx = mx + mw - pad - style.icon_font:get_width("C")
     local cy = my + pad
-    renderer.draw_text(style.icon_font, "C", cx, cy, P.fg_muted)
+    local close_col = self._api_hover_close and P.fg_accent or P.fg_muted
+    renderer.draw_text(style.icon_font, "C", cx, cy, close_col)
     self._api_close_rect = { x = cx, y = cy, w = style.icon_font:get_width("C") + 8 * SCALE, h = style.icon_font:get_height() }
     
     local div_y = my + pad + style.font:get_height() + 8 * SCALE
     renderer.draw_rect(mx + pad, div_y, mw - 2 * pad, 1 * SCALE, P.border)
     
-    -- Text area
+    -- Text area with clipping & scrolling
     local text_y = div_y + 8 * SCALE
-    local ty = text_y
+    local ty = text_y - (self.api_scroll_y or 0)
     local lh = style.font:get_height()
+    local text_h = my + mh - text_y - pad
     
     self._api_btns = {}
+    core.push_clip_rect(mx + pad, text_y, mw - 2 * pad, text_h)
     
     if not self.api_key_status then
       renderer.draw_text(style.font, "Loading API Keys...", mx + pad, ty, P.fg_muted)
@@ -3768,7 +4627,7 @@ function AGView:draw()
         renderer.draw_text(style.font, "Validating keys in background...", mx + pad, ty, P.fg_muted)
         ty = ty + lh + 4 * SCALE
       end
-      local providers = { "gemini", "groq", "openai", "anthropic", "ollama", "omniroute" }
+      local providers = { "gemini", "groq", "nvidia", "openai", "anthropic", "ollama", "omniroute" }
       local data = (self.api_key_status and self.api_key_status.data) or {}
       local seen = {}
       for _, p in ipairs(providers) do seen[p] = true end
@@ -3781,6 +4640,7 @@ function AGView:draw()
       for _, p in ipairs(providers) do
         local stat = data[p] or (self.api_key_status.status == "loading" and "checking..." or "missing")
         local p_name = p:sub(1,1):upper() .. p:sub(2)
+        if p == "nvidia" then p_name = "NVIDIA" end
         if p:find("MCP::") then
            local srv_name, ek = p:match("MCP::(.-)::(.*)")
            p_name = "[MCP:" .. (srv_name or "unknown") .. "] " .. (ek or "Key")
@@ -3806,7 +4666,9 @@ function AGView:draw()
         renderer.draw_rect(btn_x, ty, btn_w, lh, btn_bg)
         renderer.draw_text(style.font, btn_text, btn_x + (btn_w - style.font:get_width(btn_text))/2, ty, P.fg)
         
-        table.insert(self._api_btns, { p = p, text = btn_text, action = btn_text, x = btn_x, y = ty, w = btn_w, h = lh })
+        if ty + lh >= text_y and ty <= text_y + text_h then
+          table.insert(self._api_btns, { p = p, text = btn_text, action = btn_text, x = btn_x, y = ty, w = btn_w, h = lh })
+        end
         
         if stat == "valid" then
           local edit_w = 38 * SCALE
@@ -3814,19 +4676,25 @@ function AGView:draw()
           local is_edit_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == "Edit"
           renderer.draw_rect(edit_x, ty, edit_w, lh, is_edit_hover and P.bg_btn_hl or P.bg_btn)
           renderer.draw_text(style.font, "Edit", edit_x + (edit_w - style.font:get_width("Edit"))/2, ty, P.fg)
-          table.insert(self._api_btns, { p = p, text = "Edit", action = "Edit", x = edit_x, y = ty, w = edit_w, h = lh })
+          if ty + lh >= text_y and ty <= text_y + text_h then
+            table.insert(self._api_btns, { p = p, text = "Edit", action = "Edit", x = edit_x, y = ty, w = edit_w, h = lh })
+          end
 
           local use_w = 38 * SCALE
           local use_x = edit_x - use_w - 4 * SCALE
           local is_use_hover = self._api_hover_btn and self._api_hover_btn == p and self._api_hover_action == "Use"
           renderer.draw_rect(use_x, ty, use_w, lh, is_use_hover and P.bg_btn_hl or P.bg_btn)
           renderer.draw_text(style.font, "Use", use_x + (use_w - style.font:get_width("Use"))/2, ty, P.fg)
-          table.insert(self._api_btns, { p = p, text = "Use", action = "Use", x = use_x, y = ty, w = use_w, h = lh })
+          if ty + lh >= text_y and ty <= text_y + text_h then
+            table.insert(self._api_btns, { p = p, text = "Use", action = "Use", x = use_x, y = ty, w = use_w, h = lh })
+          end
         end
         
         ty = ty + lh + 10 * SCALE
       end
     end
+    core.pop_clip_rect()
+    self.api_max_scroll = math.max(0, (ty + (self.api_scroll_y or 0)) - text_y - text_h)
   end
 end
 
@@ -4245,6 +5113,40 @@ function AGView:on_mouse_moved(mx, my, ...)
   self.hover_cloud_team = false
   self.hover_market_skill = nil
   
+  -- 1. Full isolation for API Management View (prevent any background click-through or hovers)
+  if self.show_api_view then
+    self._api_hover_btn = nil
+    self._api_hover_action = nil
+    self._api_hover_close = false
+    
+    if self._api_close_rect then
+      local c = self._api_close_rect
+      if mx >= c.x and mx <= c.x + c.w and my >= c.y and my <= c.y + c.h then
+        self._api_hover_close = true
+        system.set_cursor("hand")
+        core.redraw = true
+        return
+      end
+    end
+    
+    if self._api_btns then
+      for _, btn in ipairs(self._api_btns) do
+        if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+          self._api_hover_btn = btn.p
+          self._api_hover_action = btn.action
+          system.set_cursor("hand")
+          core.redraw = true
+          return
+        end
+      end
+    end
+    
+    system.set_cursor("arrow")
+    core.redraw = true
+    return
+  end
+
+  -- 2. Full isolation for Skills Modal
   if self.show_skills_modal then
       for _, r in ipairs(self._market_rects or {}) do
           if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
@@ -4258,6 +5160,25 @@ function AGView:on_mouse_moved(mx, my, ...)
       system.set_cursor("arrow")
       return
   end
+
+  -- 3. Full isolation for Usage View
+  self._usage_links_hover = nil
+  if self.show_usage_view then
+    local hovering = false
+    if self._usage_links then
+      for _, link in ipairs(self._usage_links) do
+        if mx >= link.x and mx <= link.x + link.w and my >= link.y and my <= link.y + link.h then
+          self._usage_links_hover = link.url
+          system.set_cursor("hand")
+          hovering = true
+          core.redraw = true
+          break
+        end
+      end
+    end
+    if not hovering then system.set_cursor("arrow") end
+    return
+  end
   
   for _, r in ipairs(self._cloud_ctrl_rects or {}) do
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
@@ -4268,39 +5189,6 @@ function AGView:on_mouse_moved(mx, my, ...)
           core.redraw = true
           return
       end
-  end
-
-  
-  self._usage_links_hover = nil
-  if self.show_usage_view and self._usage_links then
-    local hovering = false
-    for _, link in ipairs(self._usage_links) do
-      if mx >= link.x and mx <= link.x + link.w and my >= link.y and my <= link.y + link.h then
-        self._usage_links_hover = link.url
-        system.set_cursor("hand")
-        hovering = true
-        core.redraw = true
-        break
-      end
-    end
-    if not hovering then system.set_cursor("arrow") end
-  end
-
-  self._api_hover_btn = nil
-  self._api_hover_action = nil
-  if self.show_api_view and self._api_btns then
-    local hovering = false
-    for _, btn in ipairs(self._api_btns) do
-      if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
-        self._api_hover_btn = btn.p
-        self._api_hover_action = btn.action
-        system.set_cursor("hand")
-        hovering = true
-        core.redraw = true
-        break
-      end
-    end
-    if not hovering then system.set_cursor("arrow") end
   end
 
   self.hover_btn  = nil
@@ -4369,6 +5257,17 @@ function AGView:on_mouse_moved(mx, my, ...)
     for _, r in ipairs(self._copy_rects) do
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
         self.hover_copy_idx = r.idx
+        break
+      end
+    end
+  end
+
+  self.hover_link_url = nil
+  if self._link_rects then
+    for _, r in ipairs(self._link_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_link_url = r.url
+        system.set_cursor("hand")
         break
       end
     end
@@ -4459,6 +5358,7 @@ function AGView:on_mouse_moved(mx, my, ...)
                   .. tostring(self.hover_hist_node) .. tostring(self.hover_hist_btn)
                   .. tostring(self.hover_model_btn) .. tostring(self.hover_model_idx)
                   .. tostring(self.hover_copy_idx) .. tostring(self.hover_hitl)
+                  .. tostring(self.hover_link_url)
                   .. tostring(self.hover_auto_btn) .. tostring(self.hover_ro_btn)
                   .. tostring(self._usage_links_hover) .. tostring(self._api_hover_btn)
   if new_sig ~= self._last_hover_sig then
@@ -4875,6 +5775,7 @@ function AGView:_launch_team_builder()
       self:fetch_models()
       table.insert(items, "gemini/gemini-2.5-flash")
       table.insert(items, "groq/llama3-70b-8192")
+      table.insert(items, "nvidia/meta/llama-3.3-70b-instruct")
     end
     
     core.command_view:enter("Select Model for " .. role, {
@@ -4928,6 +5829,107 @@ end
 function AGView:on_mouse_pressed(button, mx, my, clicks)
   AGView.super.on_mouse_pressed(self, button, mx, my, clicks)
   core.set_active_view(self)
+
+  -- 1. Full isolation for API Management View (prevent any background click-through)
+  if self.show_api_view then
+    if button == "left" then
+      if self._api_close_rect then
+        local c = self._api_close_rect
+        if mx >= c.x and mx <= c.x + c.w and my >= c.y and my <= c.y + c.h then
+          self.show_api_view = false
+          core.redraw = true
+          return true
+        end
+      end
+      local mw = self.size.x - 40 * SCALE
+      local mh = self.size.y - 60 * SCALE
+      local mx_modal = self.position.x + 20 * SCALE
+      local my_modal = self.position.y + 30 * SCALE
+      if mx < mx_modal or mx > mx_modal + mw or my < my_modal or my > my_modal + mh then
+        self.show_api_view = false
+        core.redraw = true
+        return true
+      end
+      if self._api_btns then
+        for _, btn in ipairs(self._api_btns) do
+          if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
+            if btn.action == "Delete" then
+              local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+              core.add_thread(function()
+                local p = process.start({ "python", bridge, "--provider", btn.p, "--delete-key" })
+                if p then
+                  while p:running() do coroutine.yield(0.1) end
+                end
+                self:submit("/api")
+              end)
+            elseif btn.action == "URL/Key" or btn.action == "Edit" or btn.action == "Set Key" then
+              self:_prompt_for_api_key(btn.p)
+            elseif btn.action == "Use" then
+              local chosen_model = nil
+              if self.tool_model_lists and self.tool_model_lists["cloud_api"] then
+                for _, m in ipairs(self.tool_model_lists["cloud_api"]) do
+                  if m.name:match("^" .. btn.p .. "[/\\]") then
+                    chosen_model = m.name
+                    break
+                  end
+                end
+              end
+              if not chosen_model then
+                local defaults = {
+                  groq      = "groq/qwen/qwen3.8-27b",
+                  gemini    = "gemini/gemini-2.5-flash",
+                  nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
+                  openai    = "openai/gpt-4o",
+                  anthropic = "anthropic/claude-3-7-sonnet-20250219",
+                  ollama    = "ollama/mistral-large-3:675b",
+                  omniroute = "omniroute/default",
+                }
+                chosen_model = defaults[btn.p] or (btn.p .. "/default")
+              end
+              config.ai_sidebar.active_tool = "cloud_api"
+              local tc = self:_tool_cfg("cloud_api")
+              tc.active_provider = btn.p
+              tc.selected_model = chosen_model
+              config.antigravity.selected_model = chosen_model
+              self:_sync_model_list()
+              self:state().has_session = false
+              self.show_api_view = false
+              core.log("AI Sidebar: Switched to " .. btn.p:upper() .. " (" .. chosen_model .. ")")
+              core.redraw = true
+            else
+              self:_prompt_for_api_key(btn.p)
+            end
+            return true
+          end
+        end
+      end
+    end
+    return true
+  end
+
+  -- 2. Full isolation for Usage View
+  if self.show_usage_view then
+    if button == "left" then
+      if self._usage_close_rect then
+        local c = self._usage_close_rect
+        if mx >= c.x and mx <= c.x + c.w and my >= c.y and my <= c.y + c.h then
+          self.show_usage_view = false
+          core.redraw = true
+          return true
+        end
+      end
+      local mw = self.size.x - 40 * SCALE
+      local mh = self.size.y - 60 * SCALE
+      local mx_modal = self.position.x + 20 * SCALE
+      local my_modal = self.position.y + 30 * SCALE
+      if mx < mx_modal or mx > mx_modal + mw or my < my_modal or my > my_modal + mh then
+        self.show_usage_view = false
+        core.redraw = true
+        return true
+      end
+    end
+    return true
+  end
   
   if button == "left" then
     if self._form_rects then
@@ -5511,9 +6513,17 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   if self.show_model_picker and self._mpicker_rects then
     for _, r in ipairs(self._mpicker_rects) do
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-        local m = self.model_list[r.idx]
+        local m = r.model or (self.model_list and self.model_list[r.idx])
         if m and not m.limited then
           self:_set_active_model(m.name)
+          if (config.ai_sidebar.active_tool or "agy") == "cloud_api" then
+            local prov = m.name:match("^([^/]+)/")
+            if prov then
+              local tc = self:_tool_cfg("cloud_api")
+              tc.active_provider = prov
+              self:_sync_model_list()
+            end
+          end
           self.show_model_picker = false
           self:state().has_session = false  -- reset session so next prompt doesn't inherit old model's -c
           core.log("AI Sidebar: switched to model '" .. m.name .. "'")
@@ -5549,6 +6559,27 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         core.redraw = true
         return true
       end
+    end
+  end
+
+  -- Markdown link click
+  if button == "left" and self.hover_link_url then
+    local url = self.hover_link_url
+    if url:match("^file:///(.+)") then
+      local path = url:match("^file:///(.+)")
+      path = path:gsub("/", PATHSEP)
+      local info = system.get_file_info(path)
+      if info then
+        core.root_view:open_doc(core.open_doc(path))
+        return true
+      end
+    elseif url:match("^https?://") then
+      if system.open_url then
+        system.open_url(url)
+      elseif PLATFORM == "Windows" then
+        system.exec("start \"\" \"" .. url .. "\"")
+      end
+      return true
     end
   end
 
@@ -5625,6 +6656,7 @@ function AGView:on_mouse_released(button, mx, my)
               local defaults = {
                 groq      = "groq/qwen/qwen3.8-27b",
                 gemini    = "gemini/gemini-2.5-flash",
+                nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
                 openai    = "openai/gpt-4o",
                 anthropic = "anthropic/claude-3-7-sonnet-20250219",
                 ollama    = "ollama/mistral-large-3:675b",
@@ -5634,6 +6666,7 @@ function AGView:on_mouse_released(button, mx, my)
             end
             config.ai_sidebar.active_tool = "cloud_api"
             local tc = self:_tool_cfg("cloud_api")
+            tc.active_provider = btn.p
             tc.selected_model = chosen_model
             config.antigravity.selected_model = chosen_model
             self:_sync_model_list()
@@ -5696,6 +6729,9 @@ function AGView:on_mouse_wheel(dy)
       else
         self.market_scroll_y = math.max(0, math.min(self.market_max_scroll or 0, (self.market_scroll_y or 0) - dy * 45 * SCALE))
       end
+  elseif self.show_api_view then
+    local item_h = style.font:get_height() + 10 * SCALE
+    self.api_scroll_y = math.max(0, math.min(self.api_max_scroll or 0, (self.api_scroll_y or 0) - dy * item_h * 2))
   elseif self.show_usage_view then
     local item_h = style.code_font:get_height()
     self.usage_scroll_y = math.max(0, math.min(self.usage_max_scroll or 0, (self.usage_scroll_y or 0) - dy * item_h * 3))
@@ -5742,6 +6778,7 @@ function AGView:_prompt_for_api_key(provider)
             local defaults = {
               groq      = "groq/qwen/qwen3.8-27b",
               gemini    = "gemini/gemini-2.5-flash",
+              nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
               openai    = "openai/gpt-4o",
               anthropic = "anthropic/claude-3-7-sonnet-20250219",
               ollama    = "ollama/mistral-large-3:675b",
@@ -5750,6 +6787,7 @@ function AGView:_prompt_for_api_key(provider)
             local chosen_model = defaults[provider] or (provider .. "/default")
             config.ai_sidebar.active_tool = "cloud_api"
             local tc = self:_tool_cfg("cloud_api")
+            tc.active_provider = provider
             tc.selected_model = chosen_model
             config.antigravity.selected_model = chosen_model
             self:_sync_model_list()
@@ -6609,7 +7647,7 @@ local RootView = require "core.rootview"
 local old_root_pressed = RootView.on_mouse_pressed
 function RootView:on_mouse_pressed(button, x, y, clicks, ...)
   local ag = rawget(_G, "AG_INSTANCE")
-  if ag and ag.show_skills_modal then
+  if ag and (ag.show_skills_modal or ag.show_api_view or ag.show_usage_view) then
     ag:on_mouse_pressed(button, x, y, clicks)
     return true -- intercept!
   end
@@ -6619,7 +7657,7 @@ end
 local old_root_moved = RootView.on_mouse_moved
 function RootView:on_mouse_moved(x, y, dx, dy)
   local ag = rawget(_G, "AG_INSTANCE")
-  if ag and ag.show_skills_modal then
+  if ag and (ag.show_skills_modal or ag.show_api_view or ag.show_usage_view) then
     ag:on_mouse_moved(x, y, dx, dy)
     return true
   end
@@ -6629,7 +7667,7 @@ end
 local old_root_wheel = RootView.on_mouse_wheel
 function RootView:on_mouse_wheel(y, x, dx, dy, ...)
   local ag = rawget(_G, "AG_INSTANCE")
-  if ag and ag.show_skills_modal then
+  if ag and (ag.show_skills_modal or ag.show_api_view or ag.show_usage_view) then
     ag:on_mouse_wheel(y)
     return true
   end

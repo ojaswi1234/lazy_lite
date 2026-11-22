@@ -235,10 +235,11 @@ M.REGISTRY = {
       if model_id then a[#a+1] = "--model"; a[#a+1] = model_id end
       
       local config = require "core.config"
-      if config.ai_sidebar and config.ai_sidebar.autopilot then
+      local is_auto = (cfg.autopilot) or (config.ai_sidebar and config.ai_sidebar.autopilot)
+      if is_auto then
         a[#a+1] = "--autopilot"
-      end
-      if cfg.enable_tools then
+        a[#a+1] = "--enable-tools"
+      elseif cfg.enable_tools then
         a[#a+1] = "--enable-tools"
       end
       if config.ai_sidebar and config.ai_sidebar.read_only then
@@ -293,9 +294,20 @@ M.REGISTRY = {
     hardcoded_models = {
       { name = "gemini/gemini-2.5-flash", limited = false },
       { name = "gemini/gemini-2.5-pro", limited = false },
-      { name = "groq/llama3-70b-8192", limited = false },
+      { name = "groq/qwen/qwen3.8-27b", limited = false },
+      { name = "groq/openai/gpt-oss-120b", limited = false },
+      { name = "nvidia/meta/llama-3.3-70b-instruct", limited = false },
+      { name = "nvidia/deepseek-ai/deepseek-r1", limited = false },
+      { name = "nvidia/qwen/qwen2.5-coder-32b-instruct", limited = false },
+      { name = "nvidia/nvidia/llama-3.3-nemotron-super-49b", limited = false },
       { name = "openai/gpt-4o", limited = false },
       { name = "anthropic/claude-3-7-sonnet-20250219", limited = false },
+      { name = "ollama/gpt-oss:120b", limited = false },
+      { name = "ollama/gemma4:31b", limited = false },
+      { name = "ollama/nemotron-3-nano:30b", limited = false },
+      { name = "ollama/llama3.3", limited = false },
+      { name = "ollama/mistral-large-3:675b", limited = false },
+      { name = "omniroute/gpt-4o", limited = false },
     },
     needs_pty = false,
     session_flag = nil,

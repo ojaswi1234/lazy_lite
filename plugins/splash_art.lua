@@ -65,7 +65,10 @@ end
 -- ── Override EmptyView.draw ───────────────────────────────────────────────────
 
 local EmptyView = require "core.emptyview"
+local old_empty_draw = EmptyView.draw
 EmptyView.draw = function(self)
+  if old_empty_draw then old_empty_draw(self) end
+  core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
   self:draw_background(style.background)
 
   local sf  = style.code_font or style.font  -- monospace for art
@@ -157,6 +160,7 @@ EmptyView.draw = function(self)
     renderer.draw_text(lf, txt, hx, cy, dim)
     cy = cy + hfh
   end
+  core.pop_clip_rect()
 end
 
 -- ── Terminal banner on startup ────────────────────────────────────────────────

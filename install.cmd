@@ -142,7 +142,7 @@ if %errorlevel% equ 0 (
     )
     echo Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)...
     python -m pip install pypdfium2 pypdf Pillow --quiet >nul 2>nul
-    python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --quiet >nul 2>nul
+    python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet >nul 2>nul
 )
 
 if /i "!SETUP_MONGO!"=="y" (
@@ -200,6 +200,7 @@ copy /y "%SRC_DIR%colors\*.lua" "%CONFIG_DIR%\colors\" >nul 2>nul
 
 :: Copy bundled fonts
 copy /y "%SRC_DIR%fonts\*.ttf" "%CONFIG_DIR%\fonts\" >nul 2>nul
+copy /y "%SRC_DIR%fonts\*.otf" "%CONFIG_DIR%\fonts\" >nul 2>nul
 
 :: Copy scripts
 if exist "%SRC_DIR%scripts" (
@@ -214,6 +215,9 @@ if exist "%SRC_DIR%plugins\loader_games" xcopy /e /i /y /q "%SRC_DIR%plugins\loa
 if exist "%SRC_DIR%plugins\toggle_terminal" xcopy /e /i /y /q "%SRC_DIR%plugins\toggle_terminal" "%CONFIG_DIR%\plugins\toggle_terminal\" >nul 2>nul
 if exist "%SRC_DIR%plugins\tunnel_monitor" xcopy /e /i /y /q "%SRC_DIR%plugins\tunnel_monitor" "%CONFIG_DIR%\plugins\tunnel_monitor\" >nul 2>nul
 if exist "%SRC_DIR%plugins\python_runtime" xcopy /e /i /y /q "%SRC_DIR%plugins\python_runtime" "%CONFIG_DIR%\plugins\python_runtime\" >nul 2>nul
+  if exist "%SRC_DIR%plugins\ai_project_visualizer" xcopy /e /i /y /q "%SRC_DIR%plugins\ai_project_visualizer" "%CONFIG_DIR%\plugins\ai_project_visualizer\" >nul 2>nul
+  if exist "%SRC_DIR%plugins\yt_player"           xcopy /e /i /y /q "%SRC_DIR%plugins\yt_player"           "%CONFIG_DIR%\plugins\yt_player\"           >nul 2>nul
+  if exist "%SRC_DIR%model_cache.json" copy /y "%SRC_DIR%model_cache.json" "%CONFIG_DIR%\model_cache.json" >nul 2>nul
 echo [+] Copied plugins, scripts, fonts, and color schemes.
 
 :: Install WSL Wrapper if WSL is present

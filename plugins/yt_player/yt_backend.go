@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -91,6 +92,9 @@ type Backend struct {
 	mlModel         *MLModelCfg
 	keepSegments    [][2]float64
 	sponsorSegments [][2]float64
+	skippedSponsors map[string]bool
+	lastSkipTime    time.Time
+	playStartTime   time.Time
 	segIdx          int
 	ffmpegProcs  []*exec.Cmd
 	vlcProcess   *exec.Cmd
@@ -414,29 +418,66 @@ func (b *Backend) vlcStatus() map[string]interface{} {
 }
 
 func fetchSponsorBlock(videoID string) [][2]float64 {
-	url := "https://sponsor.ajay.app/api/skipSegments?videoID=" + videoID + "&categories=[\"sponsor\",\"intro\",\"outro\",\"interaction\",\"selfpromo\",\"music_offtopic\"]"
-	resp, err := http.Get(url)
+	// Query only real advertisements/promotions, requiring actionTypes=skip
+	url := "https://sponsor.ajay.app/api/skipSegments?videoID=" + videoID + "&categories=[\"sponsor\",\"selfpromo\"]&actionTypes=[\"skip\"]"
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil { return nil }
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK { return nil }
+	
 	var res []map[string]interface{}
 	if json.NewDecoder(resp.Body).Decode(&res) != nil { return nil }
 	
-	var skips [][2]float64
+	var rawSkips [][2]float64
 	for _, s := range res {
+		if at, ok := s["actionType"].(string); ok && at != "skip" {
+			continue
+		}
 		if seg, ok := s["segment"].([]interface{}); ok && len(seg) == 2 {
 			if start, ok := seg[0].(float64); ok {
 				if end, ok := seg[1].(float64); ok {
-					skips = append(skips, [2]float64{start, end})
+					if end > start+0.5 && start >= 0 {
+						rawSkips = append(rawSkips, [2]float64{start, end})
+					}
 				}
 			}
 		}
 	}
-	return skips
+	if len(rawSkips) == 0 {
+		return nil
+	}
+	sort.Slice(rawSkips, func(i, j int) bool {
+		return rawSkips[i][0] < rawSkips[j][0]
+	})
+	var merged [][2]float64
+	for _, cur := range rawSkips {
+		if len(merged) == 0 {
+			merged = append(merged, cur)
+			continue
+		}
+		last := &merged[len(merged)-1]
+		if cur[0] <= last[1]+0.5 {
+			if cur[1] > last[1] {
+				last[1] = cur[1]
+			}
+		} else {
+			merged = append(merged, cur)
+		}
+	}
+	return merged
 }
 
 func (b *Backend) Play(videoID string, mlConcised bool, mlModel *MLModelCfg, language string, sponsorBlock bool) {
 	send(Event{"event": "producing", "message": "Extracting stream..."})
 	
+	b.mu.Lock()
+	b.sponsorSegments = nil
+	b.skippedSponsors = make(map[string]bool)
+	b.lastSkipTime = time.Now()
+	b.playStartTime = time.Now()
+	b.mu.Unlock()
+
 	if sponsorBlock {
 		go func() {
 			skips := fetchSponsorBlock(videoID)
@@ -502,6 +543,13 @@ func (b *Backend) Play(videoID string, mlConcised bool, mlModel *MLModelCfg, lan
 
 func (b *Backend) OpenVideo(videoID string, language string, sponsorBlock bool) {
 	sendInfo("Preparing stream...")
+
+	b.mu.Lock()
+	b.sponsorSegments = nil
+	b.skippedSponsors = make(map[string]bool)
+	b.lastSkipTime = time.Now()
+	b.playStartTime = time.Now()
+	b.mu.Unlock()
 
 	if sponsorBlock {
 		go func() {
@@ -724,13 +772,34 @@ func (b *Backend) monitorLoop() {
 		b.mu.Lock()
 		segs := b.keepSegments; idx := b.segIdx; ml := b.mlConcised
 		spSkips := b.sponsorSegments
+		skipped := b.skippedSponsors
+		lastSkip := b.lastSkipTime
+		playStart := b.playStartTime
 		b.mu.Unlock()
 
-		if isPlaying && len(spSkips) > 0 {
+		if isPlaying && len(spSkips) > 0 && time.Since(lastSkip) > 3*time.Second && time.Since(playStart) > 2*time.Second && ln > 0 {
 			for _, skip := range spSkips {
+				key := fmt.Sprintf("%.1f-%.1f", skip[0], skip[1])
+				if skipped != nil && skipped[key] {
+					continue
+				}
 				if pos >= skip[0] && pos < skip[1] {
-					b.vlcHTTP("seek&val=" + strconv.Itoa(int(skip[1])))
-					send(Event{"event": "skipped_sponsor", "to": skip[1]})
+					b.mu.Lock()
+					if b.skippedSponsors == nil {
+						b.skippedSponsors = make(map[string]bool)
+					}
+					b.skippedSponsors[key] = true
+					b.lastSkipTime = time.Now()
+					b.mu.Unlock()
+
+					target := math.Ceil(skip[1]) + 1.0
+					if ln > 0 && target >= ln {
+						target = ln - 1.0
+					}
+					if target > skip[1] {
+						b.vlcHTTP(fmt.Sprintf("seek&val=%d", int(target)))
+						send(Event{"event": "skipped_sponsor", "from": skip[0], "to": target})
+					}
 					break
 				}
 			}
@@ -770,7 +839,12 @@ func main() {
 	killZombiesOnPort("9090")
 	killZombiesOnPort("9091")
 
-	bk = &Backend{prefetch: make(map[string]*YTInfo)}
+	bk = &Backend{
+		prefetch:        make(map[string]*YTInfo),
+		skippedSponsors: make(map[string]bool),
+		lastSkipTime:    time.Now(),
+		playStartTime:   time.Now(),
+	}
 	bk.ctx, bk.cancel = context.WithCancel(context.Background())
 	defer bk.cancel()
 
@@ -871,12 +945,18 @@ func main() {
 				bk.mu.Unlock()
 			}()
 		case "seek":
+			bk.mu.Lock()
+			bk.lastSkipTime = time.Now()
+			bk.mu.Unlock()
 			go func(off float64) {
 				val := ""
 				if off > 0 { val = "%2B" + strconv.Itoa(int(off)) } else { val = strconv.Itoa(int(off)) }
 				bk.vlcHTTP("seek&val=" + val)
 			}(req.Offset)
 		case "seek_abs":
+			bk.mu.Lock()
+			bk.lastSkipTime = time.Now()
+			bk.mu.Unlock()
 			go func(time float64) {
 				bk.vlcHTTP("seek&val=" + strconv.Itoa(int(time)))
 			}(req.Offset) // Reuse req.Offset as the time parameter from Lua

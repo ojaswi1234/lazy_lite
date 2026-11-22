@@ -10,6 +10,7 @@ local keymap = require "core.keymap"
 local config = require "core.config"
 local lspconfig = pcall(require, "plugins.lsp.config") and require("plugins.lsp.config")
 local lsp = require "plugins.lsp"
+local util = require "plugins.lsp.util"
 
 -- Fix autocomplete empty needle (vital for dot triggers & instant dropdowns)
 local orig_fuzzy_match = common.fuzzy_match
@@ -50,57 +51,96 @@ config.plugins.lsp.force_verbosity_off = true    -- Disables heavy server loggin
 
 if lspconfig then
   --------------------------------------------------------------------------------
-  -- RESOURCE OPTIMIZED LANGUAGE SERVERS
+  -- RESOURCE OPTIMIZED LANGUAGE SERVERS WITH PRE-FLIGHT EXISTENCE CHECKS
   --------------------------------------------------------------------------------
   
   -- 1. Rust: Disable heavy `cargo check` on every keystroke/save
-  lspconfig.rust_analyzer.setup({
-    settings = {
-      ["rust-analyzer"] = {
-        checkOnSave = { enable = false }, -- Stops heavy compiling on save
-        cargo = { autoreload = false },   -- Stops background polling
-        diagnostics = { disabled = {"unresolved-proc-macro"} }
-      }
-    }
-  })
-  
-  -- 2. Go: Standard lightweight setup
-  lspconfig.gopls.setup({
-    settings = { gopls = { analyses = { unusedparams = true } } }
-  })
-  
-  -- 3. Java (JDTLS): Restrict JVM Memory to 512MB to stop RAM hogging
-  local jdtls_cmd = { "jdtls" }
-  if PLATFORM == "Windows" then
-    -- Often JDTLS on Windows accepts JVM args via env variables, but we can pass standard args
-  end
-  lspconfig.jdtls.setup({
-    -- Depending on jdtls launcher, passing args here can restrict RAM
-    -- command = { "jdtls", "-J-Xmx512m", "-J-Xms128m" }
-  })
-  
-  -- 4. Python (Pyright): Strictly limit to OPEN files (No workspace indexing)
-  lspconfig.pyright.setup({
-    settings = {
-      python = {
-        pythonVersion = "3.12",
-        analysis = {
-          diagnosticMode = "openFilesOnly",  -- Crucial: Kills workspace-wide CPU spikes
-          typeCheckingMode = "basic",        -- Avoid deep type-checking overhead
-          autoSearchPaths = true
+  if util.command_exists("rust-analyzer") then
+    lspconfig.rust_analyzer.setup({
+      settings = {
+        ["rust-analyzer"] = {
+          checkOnSave = { enable = false }, -- Stops heavy compiling on save
+          cargo = { autoreload = false },   -- Stops background polling
+          diagnostics = { disabled = {"unresolved-proc-macro"} }
         }
       }
-    }
-  })
+    })
+  end
   
-  -- Python (Ruff): Lightning fast Rust-based formatter
-  lsp.add_server({
-    name = "ruff_lsp", language = "python",
-    file_patterns = { "%.py$" }, command = { "ruff", "server" }, verbose = false
-  })
+  -- 2. Go: Standard lightweight setup (only active when gopls is installed)
+  if util.command_exists("gopls") then
+    lspconfig.gopls.setup({
+      settings = { gopls = { analyses = { unusedparams = true } } }
+    })
+  else
+    core.log_quiet("[LSP Setup] 'gopls' not found on system. Go LSP will remain disabled until installed.")
+  end
   
-  -- 5. JS/TS (TSServer): Disable automatic typings acquisition
+  -- 3. Java (JDTLS): Restrict JVM Memory and provide dedicated data directory
+  local jdtls_bat = "C:\\Users\\ojasw\\.config\\lite-xl\\jdtls\\bin\\jdtls.bat"
+  local jdtls_cmd = nil
+  if util.file_exists(jdtls_bat) then
+    jdtls_cmd = { jdtls_bat, "-data", "C:\\Users\\ojasw\\.config\\lite-xl\\jdtls_data" }
+  elseif util.command_exists("jdtls") then
+    jdtls_cmd = { "jdtls", "-data", "C:\\Users\\ojasw\\.config\\lite-xl\\jdtls_data" }
+  end
+
+  if jdtls_cmd then
+    lspconfig.jdtls.setup({
+      command = jdtls_cmd
+    })
+  else
+    core.log_quiet("[LSP Setup] JDTLS executable not found. Java LSP disabled.")
+  end
+  
+  -- 4. Python (Pyright): Strictly limit to OPEN files (No workspace indexing)
+  if util.command_exists("pyright-langserver") or util.command_exists("pyright") then
+    lspconfig.pyright.setup({
+      settings = {
+        python = {
+          pythonVersion = "3.12",
+          analysis = {
+            diagnosticMode = "openFilesOnly",  -- Crucial: Kills workspace-wide CPU spikes
+            typeCheckingMode = "basic",        -- Avoid deep type-checking overhead
+            autoSearchPaths = true
+          }
+        }
+      }
+    })
+  end
+  
+  -- Python (Ruff): Lightning fast Rust-based formatter and linter
+  if util.command_exists("ruff") then
+    lsp.add_server({
+      name = "ruff_lsp", language = "python",
+      file_patterns = { "%.py$" }, command = { "ruff", "server" }, verbose = false
+    })
+  end
+  
+  -- 5. JS/TS (TSServer): Auto-resolve tsserver.js for reliable startup
+  local tsserver_path = nil
+  local ts_candidates = {
+    core.project_dir and (core.project_dir .. "/node_modules/typescript/lib/tsserver.js"),
+    "C:/Users/ojasw/AppData/Roaming/npm/node_modules/eas-cli/node_modules/typescript/lib/tsserver.js",
+    "C:/Users/ojasw/AppData/Roaming/npm/node_modules/typescript/lib/tsserver.js"
+  }
+  for _, p in ipairs(ts_candidates) do
+    if p and util.file_exists(p) then
+      tsserver_path = p
+      break
+    end
+  end
+
+  local ts_init = {
+    typescript = { disableAutomaticTypeAcquisition = true },
+    javascript = { disableAutomaticTypeAcquisition = true }
+  }
+  if tsserver_path then
+    ts_init.tsserver = { path = tsserver_path }
+  end
+
   lspconfig.tsserver.setup({
+    init_options = ts_init,
     settings = {
       typescript = { disableAutomaticTypeAcquisition = true },
       javascript = { disableAutomaticTypeAcquisition = true }

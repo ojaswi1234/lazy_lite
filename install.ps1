@@ -254,7 +254,7 @@ if ($setupMongo) {
 if ($realPython) {
     Write-Host "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..." -ForegroundColor Cyan
     try { & python -m pip install pypdfium2 pypdf Pillow --quiet 2>$null } catch {}
-    try { & python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil --quiet 2>$null } catch {}
+    try { & python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>$null } catch {}
 }
 
 Animate-Progress "Installing Lite-XL Mossy Configuration & Plugins..."
@@ -265,7 +265,8 @@ $dirsToCreate = @(
     "$configDir\colors",
     "$configDir\fonts",
     "$configDir\scripts",
-    "$configDir\attachments"
+    "$configDir\attachments",
+    "$configDir\libraries"
 )
 foreach ($d in $dirsToCreate) {
     if (-not (Test-Path -LiteralPath $d)) {
@@ -297,14 +298,14 @@ if (Test-Path -LiteralPath "$srcDir\colors") {
 
 # Copy bundled fonts
 if (Test-Path -LiteralPath "$srcDir\fonts") {
-    Get-ChildItem -LiteralPath "$srcDir\fonts" -Filter "*.ttf" | ForEach-Object {
+    Get-ChildItem -LiteralPath "$srcDir\fonts" -Include "*.ttf", "*.otf" -Recurse | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination "$configDir\fonts\" -Force
     }
 }
 
 # Copy scripts
 if (Test-Path -LiteralPath "$srcDir\scripts") {
-    Get-ChildItem -LiteralPath "$srcDir\scripts" | ForEach-Object {
+    Get-ChildItem -LiteralPath "$srcDir\scripts" -File | ForEach-Object {
         if ($_.Name -eq "leetcode_api.py" -and -not $setupLeetcode) {
             # skip
         } elseif ($_.Name -eq "mongodb_bridge.py" -and -not $setupMongo) {
@@ -315,8 +316,22 @@ if (Test-Path -LiteralPath "$srcDir\scripts") {
     }
 }
 
+# Copy libraries
+if (Test-Path -LiteralPath "$srcDir\libraries") {
+    $destLib = "$configDir\libraries"
+    if (-not (Test-Path -LiteralPath $destLib)) {
+        New-Item -ItemType Directory -Force -Path $destLib | Out-Null
+    }
+    Copy-Item -LiteralPath "$srcDir\libraries\*" -Destination "$destLib\" -Recurse -Force
+}
+
+# Copy model cache
+if (Test-Path -LiteralPath "$srcDir\model_cache.json") {
+    Copy-Item -LiteralPath "$srcDir\model_cache.json" -Destination "$configDir\model_cache.json" -Force
+}
+
 # Copy sub-directories (third-party and custom plugins)
-$subDirs = @("lsp", "widget", "lintplus", "loader_games", "toggle_terminal", "tunnel_monitor", "python_runtime")
+$subDirs = @("lsp", "widget", "lintplus", "loader_games", "toggle_terminal", "tunnel_monitor", "python_runtime", "ai_project_visualizer", "yt_player")
 foreach ($sub in $subDirs) {
     $srcSub = "$srcDir\plugins\$sub"
     if (Test-Path -LiteralPath $srcSub) {

@@ -17,6 +17,20 @@ echo "Removing LazyLite configuration from $CONFIG_DIR..."
 
 # Individual plugin files
 FILES=(
+    "model_cache.json"
+    "plugins/ai_project_visualizer.lua"
+    "plugins/ai_tool_registry.lua"
+    "plugins/autoreload.lua"
+    "plugins/detectindent.lua"
+    "plugins/git_diff_view.lua"
+    "plugins/git_tree_integration.lua"
+    "plugins/youtube_player.lua"
+    "scripts/ai_api_bridge.py"
+    "scripts/local_skills.json"
+    "scripts/marketplace_skills_db.json"
+    "scripts/mcp_config.json"
+    "scripts/ollama_model_cache.json"
+    "scripts/resources.json"
     "plugins/activity_bar.lua"
     "plugins/agy_pty_bridge.py"
     "plugins/ai_plugin_gen.lua"
@@ -95,7 +109,10 @@ SUBDIRS=(
     "plugins/toggle_terminal"
     "plugins/tunnel_monitor"
     "plugins/python_runtime"
-    "codespaces"
+    "plugins/ai_project_visualizer"
+    "plugins/yt_player"
+    "libraries"
+    "codespaces" 
 )
 
 for dir in "${SUBDIRS[@]}"; do

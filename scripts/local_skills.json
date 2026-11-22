@@ -1,0 +1,62 @@
+[
+  {
+    "_preview_md": "Previewing skill FILE:C:\\Users\\ojasw\\.config\\lite-xl/scripts/.tmp_skill.json\r\n(Mock preview data)\r\n# Skill Preview\r\nThis is a placeholder.\r\n",
+    "id": "docx",
+    "system_prompt": "Word document processing. USE WHEN docx, Word document. SkillSearch('docx') for docs.",
+    "repo_url": "https://github.com/danielmiessler/Personal_AI_Infrastructure/tree/main/Releases/v2.5/.claude/skills/Documents/Docx",
+    "description": "Word document processing. USE WHEN docx, Word document. SkillSearch('docx') for docs.",
+    "author": "org_01KNEE1P5FRBD227N1AR4HAVP9",
+    "title": "docx",
+    "domain": "Writing"
+  },
+  {
+    "_preview_md": "Previewing skill FILE:C:\\Users\\ojasw\\.config\\lite-xl/scripts/.tmp_skill.json\r\n(Mock preview data)\r\n# Skill Preview\r\nThis is a placeholder.\r\n",
+    "author": "org_01KNEE1P5FRBD227N1AR4HAVP9",
+    "system_prompt": "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, flow fields, or particle systems. Create original algorithmic art rather than copying existing artists' work to avoid copyright violations.",
+    "description": "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, flow fields, or particle systems. Create original algorithmic art rather than copying existing artists' work to avoid copyright violations.",
+    "title": "algorithmic-art",
+    "id": "algorithmic-art",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/algorithmic-art",
+    "domain": "Design"
+  },
+  {
+    "_preview_md": "Previewing skill FILE:C:\\Users\\ojasw\\.config\\lite-xl/scripts/.tmp_skill.json\r\n(Mock preview data)\r\n# Skill Preview\r\nThis is a placeholder.\r\n",
+    "author": "org_01KNEE1P5FRBD227N1AR4HAVP9",
+    "system_prompt": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path \u00e2\u20ac\u201d even casually (like \"the xlsx in my downloads\") \u00e2\u20ac\u201d and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved.",
+    "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path \u00e2\u20ac\u201d even casually (like \"the xlsx in my downloads\") \u00e2\u20ac\u201d and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved.",
+    "title": "xlsx",
+    "id": "xlsx",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/xlsx",
+    "domain": "Data & Analytics"
+  },
+  {
+    "id": "frontend-design",
+    "repo_url": "https://github.com/anthropics/claude-code/tree/main/plugins/frontend-design/skills/frontend-design",
+    "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids generic AI aesthetics.",
+    "_preview_md": "Previewing skill FILE:C:\\Users\\ojasw\\.config\\lite-xl/scripts/.tmp_skill.json\r\n(Mock preview data)\r\n# Skill Preview\r\nThis is a placeholder.\r\n",
+    "domain": "Design",
+    "title": "frontend-design",
+    "system_prompt": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids generic AI aesthetics.",
+    "author": "org_01KNEE1P5FRBD227N1AR4HAVP9"
+  },
+  {
+    "id": "web-design-reviewer",
+    "repo_url": "https://github.com/github/awesome-copilot/tree/main/skills/web-design-reviewer",
+    "description": "This skill enables visual inspection of websites running locally or remotely to identify and fix design issues. Triggers on requests like \"review website design\", \"check the UI\", \"fix the layout\", \"find design problems\". Detects issues with responsive design, accessibility, visual consistency, and layout breakage, then performs fixes at the source code level.",
+    "_preview_md": "Previewing skill FILE:C:\\Users\\ojasw\\.config\\lite-xl/scripts/.tmp_skill.json\r\n(Mock preview data)\r\n# Skill Preview\r\nThis is a placeholder.\r\n",
+    "domain": "Design",
+    "title": "web-design-reviewer",
+    "system_prompt": "This skill enables visual inspection of websites running locally or remotely to identify and fix design issues. Triggers on requests like \"review website design\", \"check the UI\", \"fix the layout\", \"find design problems\". Detects issues with responsive design, accessibility, visual consistency, and layout breakage, then performs fixes at the source code level.",
+    "author": "org_01KPBXJTDN7ASH7MJ3958C05QY"
+  },
+  {
+    "title": "powershell-windows",
+    "id": "powershell-windows",
+    "_preview_md": "Previewing skill FILE:C:\\Users\\ojasw\\.config\\lite-xl\\scripts/.tmp_skill.json\r\n(Mock preview data)\r\n# Skill Preview\r\nThis is a placeholder.\r\n",
+    "domain": "Coding",
+    "system_prompt": "PowerShell Windows patterns. Critical pitfalls, operator syntax, error handling.",
+    "author": "org_01KNEE1P5FRBD227N1AR4HAVP9",
+    "repo_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/powershell-windows",
+    "description": "PowerShell Windows patterns. Critical pitfalls, operator syntax, error handling."
+  }
+]

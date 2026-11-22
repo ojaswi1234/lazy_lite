@@ -387,6 +387,11 @@ local function draw_empty_placeholder_guide(dv)
   local guide = get_stack_for_doc(dv.doc)
 
   local vx, vy, vw, vh = dv.position.x, dv.position.y, dv.size.x, dv.size.y
+  if vw < 240 * SCALE or vh < 180 * SCALE then
+    return
+  end
+
+  core.push_clip_rect(vx, vy, vw, vh)
   local font = style.font
   local big_font = style.big_font or font
   local code_font = style.code_font or font
@@ -455,6 +460,7 @@ local function draw_empty_placeholder_guide(dv)
   local hint_str = "✦ Start typing or press [Tab] to dismiss this guide..."
   local footer_y = card_y + card_h - font:get_height() - 12 * SCALE
   common.draw_text(font, p.hint_col, hint_str, "center", card_x, footer_y, card_w, font:get_height())
+  core.pop_clip_rect()
 end
 
 -- Hook into DocView Drawing

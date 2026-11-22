@@ -185,8 +185,8 @@ local function compute_ghost_text(doc, line, col)
   -- This provides instant word completions without hanging the UI on large files.
   if #current_word >= config.plugins.ghost_text.min_trigger_len then
     local word_pat = "^" .. current_word:gsub("(%W)", "%%%1") .. "([%w_]+)$"
-    local min_l = math.max(1, line - 60)
-    local max_l = math.min(#doc.lines, line + 60)
+    local min_l = math.max(1, line - 20)
+    local max_l = math.min(#doc.lines, line + 20)
     for l = min_l, max_l do
       local lstr = doc.lines[l]
       if lstr then
@@ -360,6 +360,7 @@ function DocView:draw_overlay()
       local ghost_color = config.plugins.ghost_text.color or style.syntax["comment"] or _COLOR_CACHE_0
       local _, sy = self:get_line_screen_position(ghost.line, ghost.col)
 
+      core.push_clip_rect(self.position.x, self.position.y, self.size.x, self.size.y)
       for i = 2, #ghost.lines do
         local target_line = ghost.line + i - 1
         -- Only draw continuation if target line is beyond EOF or entirely whitespace
@@ -371,6 +372,7 @@ function DocView:draw_overlay()
           renderer.draw_text(font, gline, line_base_x, next_y, ghost_color)
         end
       end
+      core.pop_clip_rect()
     end
   end
 end

@@ -441,14 +441,20 @@ local function get_suggestions_rect(av)
   local item_h = th + style.padding.y
   local total_height = show_count * item_h + item_h + (style.padding.y * 2)
 
+  local bottom_margin = ((core.status_view and core.status_view.visible and core.status_view.size.y) or 0) + 10 * SCALE
+  local left_margin = 10
+  if package.loaded["plugins.activity_bar"] then
+    left_margin = math.max(left_margin, 48 * SCALE + 6 * SCALE)
+  end
+
   local final_x = x - style.padding.x
   if final_x + max_width > core.root_view.size.x - 10 then
-    final_x = math.max(10, core.root_view.size.x - max_width - 10)
+    final_x = math.max(left_margin, core.root_view.size.x - max_width - 10)
   end
-  if final_x < 10 then final_x = 10 end
+  if final_x < left_margin then final_x = left_margin end
 
   local final_y = y + lh + 2
-  if final_y + total_height > core.root_view.size.y - 10 then
+  if final_y + total_height > core.root_view.size.y - bottom_margin then
     final_y = math.max(10, y - total_height - 2)
   end
 
@@ -554,12 +560,28 @@ local function draw_description_box(text, av, sx, sy, sw, sh)
     x = sx - width - (style.padding.x * 2) - 4
   end
 
-  local height = #lines * font:get_height()
+  local left_limit = 10
+  if package.loaded["plugins.activity_bar"] then
+    left_limit = math.max(left_limit, 48 * SCALE + 6 * SCALE)
+  end
+  if x < left_limit then x = left_limit end
+  if x + width + style.padding.x * 2 > core.root_view.size.x - 10 then
+    x = math.max(left_limit, core.root_view.size.x - width - style.padding.x * 2 - 10)
+  end
+
+  local desc_box_h = #lines * lh + (style.padding.y * 2)
+  local desc_y = sy
+  local bottom_limit = core.root_view.size.y - (((core.status_view and core.status_view.visible and core.status_view.size.y) or 0) + 10 * SCALE)
+  if desc_y + desc_box_h > bottom_limit then
+    desc_y = math.max(10, bottom_limit - desc_box_h)
+  end
+  y = desc_y + style.padding.y
+
   local bg_color = style.background2 or style.background3 or _COLOR_CACHE_3
   local border_color = style.divider or _COLOR_CACHE_11
 
-  renderer.draw_rect(x - 1, sy - 1, width + (style.padding.x * 2) + 2, height + (style.padding.y * 2) + 2, border_color)
-  renderer.draw_rect(x, sy, width + (style.padding.x * 2), height + (style.padding.y * 2), bg_color)
+  renderer.draw_rect(x - 1, desc_y - 1, width + (style.padding.x * 2) + 2, desc_box_h + 2, border_color)
+  renderer.draw_rect(x, desc_y, width + (style.padding.x * 2), desc_box_h, bg_color)
 
   for _, line in pairs(lines) do
     common.draw_text(font, style.text, line, "left", x + style.padding.x, y, width, lh)
@@ -573,6 +595,7 @@ local function draw_suggestions_box(av)
   -- Direct unclipped overlay rendering
   core.push_clip_rect(0, 0, core.root_view.size.x, core.root_view.size.y)
 
+  local ok, err = pcall(function()
   local ah = config.plugins.autocomplete.max_height or 9
   local rx, ry, rw, rh = get_suggestions_rect(av)
   local bg_color = style.background3 or _COLOR_CACHE_8
@@ -658,14 +681,18 @@ local function draw_suggestions_box(av)
   renderer.draw_rect(rx, y, rw, 1, style.caret or style.accent)
   renderer.draw_rect(rx, y + 1, rw, lh, style.background or _COLOR_CACHE_5)
   common.draw_text(style.font, style.accent or _COLOR_CACHE_6, "Suggestions", "left", rx + style.padding.x, y + 1, rw, lh)
-  common.draw_text(
-    style.font,
-    style.accent or _COLOR_CACHE_6,
-    tostring(suggestions_idx) .. "/" .. tostring(#suggestions),
-    "right",
-    rx, y + 1, rw - style.padding.x, lh
-  )
+    common.draw_text(
+      style.font,
+      style.accent or _COLOR_CACHE_6,
+      tostring(suggestions_idx) .. "/" .. tostring(#suggestions),
+      "right",
+      rx, y + 1, rw - style.padding.x, lh
+    )
+  end)
   core.pop_clip_rect()
+  if not ok then
+    core.log_quiet("autocomplete draw error: %s", tostring(err))
+  end
 end
 
 local function is_assessment_active()
@@ -697,17 +724,106 @@ end
 local on_text_input = RootView.on_text_input
 RootView.on_text_input = function(self, text)
   on_text_input(self, text)
-  local av = get_active_view()
-  if av and not is_command_view_active() then
-    show_autocomplete()
-  else
+  -- Note: Doc:raw_insert already triggers show_autocomplete() on keystroke,
+  -- so we only need to reset when command view is entered, avoiding duplicate runs.
+  if is_command_view_active() and #suggestions > 0 then
     reset_suggestions()
   end
+end
+
+-- Intercept mouse pressed on RootView to select suggestions or prevent click-through
+local old_on_view_mouse_pressed = RootView.on_view_mouse_pressed
+RootView.on_view_mouse_pressed = function(button, x, y, clicks)
+  if #suggestions > 0 and box_rect.w > 0 and box_rect.h > 0 then
+    if x >= box_rect.x and x <= box_rect.x + box_rect.w and y >= box_rect.y and y <= box_rect.y + box_rect.h then
+      if button == "left" then
+        local av = get_active_view()
+        local font = av and av:get_font() or style.font
+        local lh = font:get_height() + style.padding.y
+        local rel_y = y - (box_rect.y + style.padding.y / 2)
+        local idx_offset = math.floor(rel_y / lh)
+        local ah = config.plugins.autocomplete.max_height or 9
+        local show_count = math.min(#suggestions, ah)
+        local clicked_idx = suggestions_offset + idx_offset
+        if idx_offset >= 0 and idx_offset < show_count and clicked_idx >= 1 and clicked_idx <= #suggestions then
+          suggestions_idx = clicked_idx
+          command.perform("autocomplete:complete")
+          return true
+        end
+      end
+      -- Intercept all other mouse clicks inside box_rect (right/middle/header/footer) to prevent clicking through to editor
+      return true
+    else
+      -- Click was outside autocomplete popup: dismiss cleanly
+      reset_suggestions()
+    end
+  end
+  if old_on_view_mouse_pressed then
+    return old_on_view_mouse_pressed(button, x, y, clicks)
+  end
+end
+
+-- Intercept mouse wheel on RootView to scroll autocomplete list without scrolling underlying document
+local old_root_view_on_mouse_wheel = RootView.on_mouse_wheel
+RootView.on_mouse_wheel = function(self, y_delta, x_delta, ...)
+  if #suggestions > 0 and box_rect.w > 0 and box_rect.h > 0 then
+    local mx, my = self.mouse.x, self.mouse.y
+    if mx >= box_rect.x and mx <= box_rect.x + box_rect.w and my >= box_rect.y and my <= box_rect.y + box_rect.h then
+      local ah = config.plugins.autocomplete.max_height or 9
+      if y_delta > 0 then
+        -- Scroll up
+        if suggestions_idx > 1 then
+          suggestions_idx = suggestions_idx - 1
+          if suggestions_idx < suggestions_offset then
+            suggestions_offset = suggestions_idx
+          end
+          core.redraw = true
+        end
+      elseif y_delta < 0 then
+        -- Scroll down
+        if suggestions_idx < #suggestions then
+          suggestions_idx = suggestions_idx + 1
+          if suggestions_idx >= suggestions_offset + ah then
+            suggestions_offset = suggestions_offset + 1
+          end
+          core.redraw = true
+        end
+      end
+      return true -- Consumed! Do not scroll underlying docview
+    end
+  end
+  return old_root_view_on_mouse_wheel(self, y_delta, x_delta, ...)
+end
+
+-- Intercept mouse move on RootView to highlight hovered suggestion
+local old_root_view_on_mouse_moved = RootView.on_mouse_moved
+RootView.on_mouse_moved = function(self, x, y, dx, dy)
+  if #suggestions > 0 and box_rect.w > 0 and box_rect.h > 0 then
+    if x >= box_rect.x and x <= box_rect.x + box_rect.w and y >= box_rect.y and y <= box_rect.y + box_rect.h then
+      local av = get_active_view()
+      local font = av and av:get_font() or style.font
+      local lh = font:get_height() + style.padding.y
+      local rel_y = y - (box_rect.y + style.padding.y / 2)
+      local idx_offset = math.floor(rel_y / lh)
+      local ah = config.plugins.autocomplete.max_height or 9
+      local show_count = math.min(#suggestions, ah)
+      if idx_offset >= 0 and idx_offset < show_count then
+        local hovered_idx = suggestions_offset + idx_offset
+        if hovered_idx >= 1 and hovered_idx <= #suggestions and hovered_idx ~= suggestions_idx then
+          suggestions_idx = hovered_idx
+          core.redraw = true
+        end
+      end
+      core.request_cursor("arrow")
+    end
+  end
+  return old_root_view_on_mouse_moved(self, x, y, dx, dy)
 end
 
 local doc_raw_insert = Doc.raw_insert
 function Doc:raw_insert(line, col, text, undo_stack, time)
   doc_raw_insert(self, line, col, text, undo_stack, time)
+  if core.active_view and core.active_view.doc ~= self then return end
   local av = get_active_view()
   if av and av.doc == self and not is_command_view_active() then
     show_autocomplete()
@@ -717,6 +833,7 @@ end
 local doc_raw_remove = Doc.raw_remove
 function Doc:raw_remove(line1, col1, line2, col2, undo_stack, time)
   doc_raw_remove(self, line1, col1, line2, col2, undo_stack, time)
+  if core.active_view and core.active_view.doc ~= self then return end
   local av = get_active_view()
   if av and av.doc == self and not is_command_view_active() then
     show_autocomplete()
@@ -738,7 +855,7 @@ RootView.update = function(self, ...)
   if av and av.doc and #suggestions > 0 then
     local line, col = av.doc:get_selection()
     if last_line and last_col then
-      if line ~= last_line or col < last_col - #partial - 1 or col > last_col + 50 then
+      if line ~= last_line or col < last_col - #partial - 1 or col > last_col + 20 then
         reset_suggestions()
       end
     end

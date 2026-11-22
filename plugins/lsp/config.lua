@@ -897,6 +897,19 @@ lspconfig.taplo = add_lsp {
 --- __Status__: Works
 --- __Site__: https://github.com/typescript-language-server/typescript-language-server
 --- __Installation__: https://github.com/typescript-language-server/typescript-language-server?tab=readme-ov-file#installing
+local default_ts_init = {}
+local default_ts_candidates = {
+  core.project_dir and (core.project_dir .. "/node_modules/typescript/lib/tsserver.js"),
+  "C:/Users/ojasw/AppData/Roaming/npm/node_modules/eas-cli/node_modules/typescript/lib/tsserver.js",
+  "C:/Users/ojasw/AppData/Roaming/npm/node_modules/typescript/lib/tsserver.js"
+}
+for _, p in ipairs(default_ts_candidates) do
+  if p and util.file_exists(p) then
+    default_ts_init = { tsserver = { path = p } }
+    break
+  end
+end
+
 lspconfig.typescript_ls = add_lsp {
   name = "typescript_ls",
   language = {
@@ -907,6 +920,7 @@ lspconfig.typescript_ls = add_lsp {
   },
   file_patterns = { "%.jsx?$", "%.[cm]js$", "%.tsx?$" },
   command = { "typescript-language-server", "--stdio" },
+  init_options = default_ts_init,
   verbose = false
 }
 -- NOTE: for retro-compatibility

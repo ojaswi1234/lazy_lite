@@ -145,7 +145,7 @@ local old_draw = TitleView.draw
 
 function TitleView:draw()
   old_draw(self)
-  if self.size.y == 0 then return end
+  if self.size.y == 0 or self.size.x < 480 * SCALE then return end
 
   local icon_w = style.icon_font:get_width("_")
   local controls_width = (icon_w + icon_w) * 3 + icon_w
@@ -159,6 +159,8 @@ function TitleView:draw()
   local bar_w = cw / n
   
   local current_x = self.size.x - controls_width - 15 * SCALE
+  local safe_right = current_x
+  core.push_clip_rect(self.position.x, self.position.y, safe_right, self.size.y)
 
   local function draw_chart(history, current, label, col)
     local txt = string.format("%d%% %s", current, label)
@@ -196,6 +198,8 @@ function TitleView:draw()
     renderer.draw_rect(current_x, y, tw + 4 * SCALE, style.font:get_height() + 4 * SCALE, style.background2 or style.background)
     renderer.draw_text(style.font, txt, current_x, y, _COLOR_CACHE_0)
   end
+
+  core.pop_clip_rect()
 end
 
 local old_quit = core.quit

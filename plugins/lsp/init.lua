@@ -200,6 +200,10 @@ lsp.servers = {}
 ---@type table<string, lsp.server>
 lsp.servers_running = {}
 
+---Tracking state for server restarts to prevent infinite crash loops
+---@type table<string, { count: integer, last_start: number, last_shutdown: number }>
+lsp.server_restart_state = {}
+
 ---Flag that indicates if last autocomplete request was a trigger
 ---to prevent requesting another autocompletion request until the
 ---autocomplete box is hidden since some lsp servers loose context
@@ -620,26 +624,33 @@ function lsp.add_server(options)
     return false
   end
 
+  -- Clone options to prevent mutating caller's tables in-place
+  local opts = util.deep_merge({}, options)
+
   -- On Windows using cmd.exe allows us to take advantage of its ability to run
-  -- the correct executable, as well as running scripts.
-  if PLATFORM == "Windows" and not options.windows_skip_cmd then
-    local escaped_commands = { }
-    if type(options.command) == "string" then
-      options.command = { options.command }
+  -- the correct executable, as well as running scripts (.cmd, .bat).
+  -- Note: core/process.lua automatically escapes table arguments correctly on Windows.
+  if PLATFORM == "Windows" and not opts.windows_skip_cmd then
+    if type(opts.command) == "string" then
+      opts.command = { opts.command }
     end
-    -- We need to escape `"` as `"""`
-    for _, v in ipairs(options.command) do
-      table.insert(escaped_commands, '"' .. string.gsub(v, '"', '"""') .. '"')
+    if type(opts.command) == "table" then
+      local first_cmd = tostring(opts.command[1] or ""):lower()
+      if first_cmd ~= "cmd.exe" and first_cmd ~= "cmd" then
+        local new_cmd = { "cmd.exe", "/c" }
+        for _, v in ipairs(opts.command) do
+          table.insert(new_cmd, v)
+        end
+        opts.command = new_cmd
+      end
     end
-    -- The result should be something like `cmd.exe /C ""first" "second" "third""`
-    options.command = 'cmd.exe /C "' .. table.concat(escaped_commands, " ") .. '"'
   end
 
   if config.plugins.lsp.force_verbosity_off then
-    options.verbose = false
+    opts.verbose = false
   end
 
-  lsp.servers[options.name] = options
+  lsp.servers[opts.name] = opts
 
   return true
 end
@@ -760,9 +771,38 @@ end
 --- @param filename string
 --- @param project_directory string
 function lsp.start_server(filename, project_directory)
+  if config.plugins.lsp.is_enabled == false then return end
+
   for name, server in pairs(lsp.servers) do
     if common.match_pattern(filename, server.file_patterns) then
       if not lsp.servers_running[name] then
+        -- Check if server has exceeded maximum restart attempts
+        local restart_info = lsp.server_restart_state[name]
+        if restart_info and restart_info.count >= 3 then
+          -- Auto-restart aborted to prevent infinite loop
+          goto continue
+        end
+
+        -- Pre-flight executable existence check to prevent spawning dead processes
+        local target_binary = nil
+        if type(server.command) == "table" then
+          if server.command[1] == "cmd.exe" or server.command[1] == "cmd" then
+            target_binary = server.command[3]
+          else
+            target_binary = server.command[1]
+          end
+        elseif type(server.command) == "string" then
+          target_binary = server.command:match('^cmd%.exe%s+/[cC]%s+"?([^"%s]+)') or server.command:match('^"?([^"%s]+)')
+        end
+
+        if target_binary and not util.command_exists(target_binary) then
+          if not server._warned_missing then
+            core.log_quiet("[LSP]: '%s' executable ('%s') not found on system. Server disabled.", name, target_binary)
+            server._warned_missing = true
+          end
+          goto continue
+        end
+
         core.log("[LSP]: Starting " .. name)
         ---@type boolean, lsp.server
         local success, client = pcall(function() return Server(server) end)
@@ -773,6 +813,8 @@ function lsp.start_server(filename, project_directory)
         client.yield_on_reads = config.plugins.lsp.more_yielding
 
         lsp.servers_running[name] = client
+        lsp.server_restart_state[name] = lsp.server_restart_state[name] or { count = 0, last_start = 0, last_shutdown = 0 }
+        lsp.server_restart_state[name].last_start = system.get_time()
 
         -- We overwrite the default log function to log messages on lite
         function client:log(message, ...)
@@ -785,25 +827,60 @@ function lsp.start_server(filename, project_directory)
 
         function client:on_shutdown()
           local sname = self.name
+          local now = system.get_time()
+          local s_info = lsp.server_restart_state[sname] or { count = 0, last_start = 0, last_shutdown = 0 }
+          lsp.server_restart_state[sname] = s_info
+
           core.log(
             "[LSP]: %s was shutdown, revise your configuration",
             sname
           )
-          local last_shutdown = lsp.servers_running[sname].last_shutdown or 0
           lsp.servers_running = util.table_remove_key(
             lsp.servers_running,
             sname
           )
-          if system.get_time() - last_shutdown >= 5 then
-            lsp.start_servers()
-            if lsp.servers_running[sname] then
-              lsp.servers_running[sname].last_shutdown = system.get_time()
-              core.log(
-                "[LSP]: %s automatically restarted",
-                sname
-              )
-            end
+
+          local uptime = now - (s_info.last_start or 0)
+          if uptime < 10 then
+            -- Rapid failure on startup
+            s_info.count = s_info.count + 1
+          else
+            -- Was running stably for >10s, reset crash count
+            s_info.count = 1
           end
+          s_info.last_shutdown = now
+
+          if s_info.count > 3 then
+            core.warn(
+              "[LSP]: %s failed repeatedly (%d times). Auto-restart aborted to prevent loop. Run 'LSP: Restart Servers' to retry.",
+              sname,
+              s_info.count
+            )
+            return
+          end
+
+          -- Progressive backoff: 5s, 10s, 15s
+          local delay = s_info.count * 5
+          core.add_thread(function()
+            local start_wait = system.get_time()
+            while system.get_time() - start_wait < delay do
+              coroutine.yield(0.5)
+            end
+            if not lsp.servers_running[sname] and config.plugins.lsp.is_enabled ~= false then
+              local s_def = lsp.servers[sname]
+              if s_def then
+                for _, doc in ipairs(core.docs) do
+                  if doc.filename and common.match_pattern(doc.filename, s_def.file_patterns) then
+                    lsp.start_server(doc.filename, core.project_dir)
+                    if lsp.servers_running[sname] then
+                      core.log("[LSP]: %s automatically restarted (attempt %d/3)", sname, s_info.count)
+                    end
+                    break
+                  end
+                end
+              end
+            end
+          end)
         end
 
         -- Respond to workspace/configuration request
@@ -2135,7 +2212,7 @@ local root_view_on_mouse_moved = RootView.on_mouse_moved
 function Doc:load(...)
   local res = doc_load(self, ...)
   -- skip new files
-  if self.filename and config.plugins.lsp.autostart_server then
+  if self.filename and config.plugins.lsp.autostart_server and config.plugins.lsp.is_enabled ~= false then
     diagnostics.lintplus_init_doc(self)
     core.add_thread(function()
       lsp.start_server(self.filename, core.project_dir)
@@ -2511,6 +2588,9 @@ command.add(nil, {
   end,
 
   ["lsp:restart-servers"] = function()
+    lsp.server_restart_state = {}
+    if util.clear_command_cache then util.clear_command_cache() end
+    for _, s in pairs(lsp.servers) do s._warned_missing = nil end
     lsp.stop_servers()
     lsp.start_servers()
   end

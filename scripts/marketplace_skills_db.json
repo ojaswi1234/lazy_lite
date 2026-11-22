@@ -1,0 +1,709 @@
+[
+  {
+    "id": "clarify_requirements",
+    "title": "Clarify requirements",
+    "description": "`brainstorming`, `/grill-with-docs`",
+    "domain": "\u2b50 Featured: Agentic Engineering Starter-Stack",
+    "repo_url": "obra, mattpocock"
+  },
+  {
+    "id": "specify_plan",
+    "title": "Specify & plan",
+    "description": "`writing-plans`, optional Spec-Kit",
+    "domain": "\u2b50 Featured: Agentic Engineering Starter-Stack",
+    "repo_url": "obra, GitHub"
+  },
+  {
+    "id": "implement",
+    "title": "Implement",
+    "description": "`test-driven-development`, `/tdd`",
+    "domain": "\u2b50 Featured: Agentic Engineering Starter-Stack",
+    "repo_url": "obra, mattpocock"
+  },
+  {
+    "id": "debug_review",
+    "title": "Debug & review",
+    "description": "`systematic-debugging`, subagent review, `/diagnose`",
+    "domain": "\u2b50 Featured: Agentic Engineering Starter-Stack",
+    "repo_url": "obra, mattpocock"
+  },
+  {
+    "id": "skill_security_auditor",
+    "title": "skill-security-auditor",
+    "description": "Static analysis of a skill (code-execution risks, prompt injection in docs, dependency supply-chain, filesystem boundaries) \u2192 PASS/WARN/FAIL verdict",
+    "domain": "\ud83d\udee1\ufe0f Skill Safety & Auditing",
+    "repo_url": "Claude skill (MIT)"
+  },
+  {
+    "id": "cisco_skill_scanner",
+    "title": "Cisco Skill Scanner",
+    "description": "Open-source CLI combining signature, LLM-as-judge, and behavioral dataflow detection; SARIF/HTML/JSON output",
+    "domain": "\ud83d\udee1\ufe0f Skill Safety & Auditing",
+    "repo_url": "CLI tool (open source)"
+  },
+  {
+    "id": "snyk_agent_scan",
+    "title": "Snyk Agent Scan",
+    "description": "Scanning extended to skills alongside agents and MCP servers",
+    "domain": "\ud83d\udee1\ufe0f Skill Safety & Auditing",
+    "repo_url": "Commercial service"
+  },
+  {
+    "id": "docx",
+    "title": "docx",
+    "description": "Create and edit Microsoft Word documents with formatting, comments, and tracked changes",
+    "domain": "\ud83d\udcc4 Document Skills",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/docx"
+  },
+  {
+    "id": "pdf",
+    "title": "pdf",
+    "description": "Extract content from PDFs, split/merge documents, or create new ones",
+    "domain": "\ud83d\udcc4 Document Skills",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/pdf"
+  },
+  {
+    "id": "pptx",
+    "title": "pptx",
+    "description": "Generate and edit PowerPoint presentations",
+    "domain": "\ud83d\udcc4 Document Skills",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/pptx"
+  },
+  {
+    "id": "xlsx",
+    "title": "xlsx",
+    "description": "Manipulate Excel files, formulas, tables, and charts",
+    "domain": "\ud83d\udcc4 Document Skills",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/xlsx"
+  },
+  {
+    "id": "revealjs_skill",
+    "title": "revealjs-skill",
+    "description": "Generate polished, professional presentations using the Reveal.js HTML framework",
+    "domain": "\ud83d\udcc4 Document Skills",
+    "repo_url": "https://github.com/ryanbbrown/revealjs-skill/tree/main"
+  },
+  {
+    "id": "markdown_to_epub_converter",
+    "title": "Markdown to EPUB Converter",
+    "description": "Convert markdown documents and chat summaries into professional EPUB ebooks (and parse/analyze existing EPUBs) *(updated 2025)*",
+    "domain": "\ud83d\udcc4 Document Skills",
+    "repo_url": "https://github.com/smerchek/claude-epub-skill"
+  },
+  {
+    "id": "algorithmic_art",
+    "title": "algorithmic-art",
+    "description": "Create generative art using p5.js",
+    "domain": "\ud83c\udfa8 Creative & Design",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/algorithmic-art"
+  },
+  {
+    "id": "canvas_design",
+    "title": "canvas-design",
+    "description": "Render layout-based visual designs in PNG/PDF using design principles",
+    "domain": "\ud83c\udfa8 Creative & Design",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/canvas-design"
+  },
+  {
+    "id": "slack_gif_creator",
+    "title": "slack-gif-creator",
+    "description": "Generate Slack-optimized animated GIFs",
+    "domain": "\ud83c\udfa8 Creative & Design",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/slack-gif-creator"
+  },
+  {
+    "id": "brand_guidelines",
+    "title": "brand-guidelines",
+    "description": "Apply company branding (colors, typography) to outputs",
+    "domain": "\ud83c\udfa8 Creative & Design",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/brand-guidelines"
+  },
+  {
+    "id": "theme_factory",
+    "title": "theme-factory",
+    "description": "Create and apply visual themes for documents, slides, and artifacts",
+    "domain": "\ud83c\udfa8 Creative & Design",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/theme-factory"
+  },
+  {
+    "id": "nano_banana_image_generation",
+    "title": "nano-banana-image-generation",
+    "description": "Create images using Nano Banana Pro *(updated 2025)*",
+    "domain": "\ud83c\udfa8 Creative & Design",
+    "repo_url": "https://github.com/livelabs-ventures/nano-skills/tree/main/skills/nano-image-generator"
+  },
+  {
+    "id": "web_artifacts_builder",
+    "title": "web-artifacts-builder",
+    "description": "Create elaborate, multi-component claude.ai HTML artifacts with React, Tailwind CSS, and shadcn/ui",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/web-artifacts-builder"
+  },
+  {
+    "id": "mcp_server_builder",
+    "title": "MCP Server / Builder",
+    "description": "Build high-quality, Claude-compatible MCP servers to integrate APIs with LLMs",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/mcp-builder"
+  },
+  {
+    "id": "changelog_generator",
+    "title": "Changelog Generator",
+    "description": "Create changelogs from commit history",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/changelog-generator"
+  },
+  {
+    "id": "using_git_worktrees",
+    "title": "using-git-worktrees",
+    "description": "Manage feature branches safely in isolated Git worktrees",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/using-git-worktrees"
+  },
+  {
+    "id": "test_driven_development",
+    "title": "test-driven-development",
+    "description": "Write tests before implementation to drive development",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/test-driven-development"
+  },
+  {
+    "id": "subagent_driven_development",
+    "title": "subagent-driven-development",
+    "description": "Use multiple Claude subagents to coordinate complex implementations",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/subagent-driven-development"
+  },
+  {
+    "id": "executing_plans",
+    "title": "executing-plans",
+    "description": "Execute structured plans with checkpoints and verification steps",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/executing-plans"
+  },
+  {
+    "id": "finishing_a_development_branch",
+    "title": "finishing-a-development-branch",
+    "description": "Complete development branches with testing and review flow",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/finishing-a-development-branch"
+  },
+  {
+    "id": "preserving_productive_tensions",
+    "title": "preserving-productive-tensions",
+    "description": "Manage architectural decisions by preserving competing viewpoints \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/architecture/preserving-productive-tensions"
+  },
+  {
+    "id": "feature_planning",
+    "title": "feature-planning",
+    "description": "Break down feature requests into detailed, implementable plans",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/mhattingpete/claude-skills-marketplace/tree/main/engineering-workflow-plugin/skills/feature-planning"
+  },
+  {
+    "id": "pypict_claude_skill",
+    "title": "pypict-claude-skill",
+    "description": "Design comprehensive test cases using PICT for optimized test suites",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/omkamal/pypict-claude-skill"
+  },
+  {
+    "id": "aws_skills",
+    "title": "aws-skills",
+    "description": "AWS development with CDK best practices, cost optimization, and serverless/event-driven patterns",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/zxkane/aws-skills"
+  },
+  {
+    "id": "aws_cdk_plugin",
+    "title": "AWS CDK Plugin",
+    "description": "AWS CDK development with an integrated MCP server for Infrastructure as Code",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/zxkane/aws-skills/tree/main/plugins/aws-iac"
+  },
+  {
+    "id": "claude_starter",
+    "title": "claude-starter",
+    "description": "Production-ready Claude Code configuration template with 40 auto-activating skills and TOON format support",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/raintree-technology/claude-starter"
+  },
+  {
+    "id": "move_code_quality_skill",
+    "title": "move-code-quality-skill",
+    "description": "Analyze Move language packages against the official Move Book Code Quality Checklist *(updated 2025)*",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/1NickPappas/move-code-quality-skill"
+  },
+  {
+    "id": "claude_code_terminal_title",
+    "title": "claude-code-terminal-title",
+    "description": "Give each Claude Code terminal window a dynamic title describing the current work",
+    "domain": "\ud83d\udcbb Development & Code Tools",
+    "repo_url": "https://github.com/bluzername/claude-code-terminal-title"
+  },
+  {
+    "id": "csv_data_summarizer",
+    "title": "csv-data-summarizer",
+    "description": "Generate statistics and charts from CSVs *(updated 2025)*",
+    "domain": "\ud83d\udcca Data & Analysis",
+    "repo_url": "https://github.com/coffeefuelbump/csv-data-summarizer-claude-skill"
+  },
+  {
+    "id": "root_cause_tracing",
+    "title": "root-cause-tracing",
+    "description": "Trace and diagnose the source of data or logic errors",
+    "domain": "\ud83d\udcca Data & Analysis",
+    "repo_url": "https://github.com/obra/superpowers/blob/main/skills/systematic-debugging/root-cause-tracing.md"
+  },
+  {
+    "id": "postgres",
+    "title": "postgres",
+    "description": "Execute safe read-only SQL queries against PostgreSQL databases with multi-connection support",
+    "domain": "\ud83d\udcca Data & Analysis",
+    "repo_url": "https://github.com/sanjay3290/ai-skills/tree/main/skills/postgres"
+  },
+  {
+    "id": "claude_scientific_skills",
+    "title": "claude-scientific-skills",
+    "description": "125+ scientific skills for bioinformatics, cheminformatics, clinical research, and machine learning",
+    "domain": "\ud83d\udd2c Scientific & Research Tools",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills"
+  },
+  {
+    "id": "materials_simulation_skills",
+    "title": "materials-simulation-skills",
+    "description": "Agent skills for computational materials science: numerical stability, time-stepping, linear solvers, and simulation validation",
+    "domain": "\ud83d\udd2c Scientific & Research Tools",
+    "repo_url": "https://github.com/HeshamFS/materials-simulation-skills"
+  },
+  {
+    "id": "single_cell_analysis_scanpy",
+    "title": "Single-cell analysis (Scanpy)",
+    "description": "Analyze single-cell RNA-seq data with Scanpy and AnnData",
+    "domain": "\ud83d\udd2c Scientific & Research Tools",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "molecular_manipulation_rdkit",
+    "title": "Molecular manipulation (RDKit)",
+    "description": "Handle molecular structures and predictions with RDKit",
+    "domain": "\ud83d\udd2c Scientific & Research Tools",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "deep_learning_pytorch_lightning",
+    "title": "Deep learning (PyTorch Lightning)",
+    "description": "Build and train ML models with PyTorch Lightning",
+    "domain": "\ud83d\udd2c Scientific & Research Tools",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "clinical_databases_clinvar",
+    "title": "Clinical databases (ClinVar)",
+    "description": "Access and analyze clinical variant data from ClinVar",
+    "domain": "\ud83d\udd2c Scientific & Research Tools",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "article_extractor",
+    "title": "article-extractor",
+    "description": "Extract full content from web articles",
+    "domain": "\ud83d\udcdd Writing & Research",
+    "repo_url": "https://github.com/michalparkola/tapestry-skills/tree/main/article-extractor"
+  },
+  {
+    "id": "content_research_writer",
+    "title": "Content Research Writer",
+    "description": "Research and write high-quality content with feedback, sources, and citations",
+    "domain": "\ud83d\udcdd Writing & Research",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/content-research-writer"
+  },
+  {
+    "id": "internal_comms",
+    "title": "internal-comms",
+    "description": "Draft formal internal communications and reports using company formats",
+    "domain": "\ud83d\udcdd Writing & Research",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/internal-comms"
+  },
+  {
+    "id": "writing_plans",
+    "title": "writing-plans",
+    "description": "Create structured written plans with clear milestones",
+    "domain": "\ud83d\udcdd Writing & Research",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/writing-plans"
+  },
+  {
+    "id": "writing_skills",
+    "title": "writing-skills",
+    "description": "Enhance instructional and technical writing quality",
+    "domain": "\ud83d\udcdd Writing & Research",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/writing-skills"
+  },
+  {
+    "id": "brainstorming",
+    "title": "brainstorming",
+    "description": "Facilitate creative idea generation sessions",
+    "domain": "\ud83d\udcdd Writing & Research",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/brainstorming"
+  },
+  {
+    "id": "family_history_research",
+    "title": "family-history-research",
+    "description": "Plan family history and genealogy research projects",
+    "domain": "\ud83d\udcdd Writing & Research",
+    "repo_url": "https://github.com/emaynard/claude-family-history-research-skill"
+  },
+  {
+    "id": "ship_learn_next",
+    "title": "ship-learn-next",
+    "description": "Recommend next steps based on feedback loops",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/michalparkola/tapestry-skills/tree/main/ship-learn-next"
+  },
+  {
+    "id": "using_superpowers",
+    "title": "using-superpowers",
+    "description": "Learn and apply best practices for Superpowers workflows",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/using-superpowers"
+  },
+  {
+    "id": "collision_zone_thinking",
+    "title": "collision-zone-thinking",
+    "description": "Combine unrelated concepts to find new creative or problem-solving connections \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/problem-solving/collision-zone-thinking"
+  },
+  {
+    "id": "inversion_exercise",
+    "title": "inversion-exercise",
+    "description": "Flip assumptions to uncover hidden insights and constraints \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/problem-solving/inversion-exercise"
+  },
+  {
+    "id": "meta_pattern_recognition",
+    "title": "meta-pattern-recognition",
+    "description": "Identify patterns across domains to uncover universal principles \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/problem-solving/meta-pattern-recognition"
+  },
+  {
+    "id": "scale_game",
+    "title": "scale-game",
+    "description": "Stress-test ideas at extreme scales to expose hidden weaknesses or truths \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/problem-solving/scale-game"
+  },
+  {
+    "id": "simplification_cascades",
+    "title": "simplification-cascades",
+    "description": "Reduce complexity by discovering insights that simplify multiple elements at once \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/problem-solving/simplification-cascades"
+  },
+  {
+    "id": "tracing_knowledge_lineages",
+    "title": "tracing-knowledge-lineages",
+    "description": "Track how ideas evolve across iterations and influences \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83d\udcda Learning & Knowledge",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/research/tracing-knowledge-lineages"
+  },
+  {
+    "id": "youtube_transcript",
+    "title": "youtube-transcript",
+    "description": "Summarize YouTube transcripts",
+    "domain": "\ud83c\udfa5 Media & Content",
+    "repo_url": "https://github.com/michalparkola/tapestry-skills/tree/main/youtube-transcript"
+  },
+  {
+    "id": "video_downloader",
+    "title": "Video Downloader",
+    "description": "Download YouTube videos for use in Claude",
+    "domain": "\ud83c\udfa5 Media & Content",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/video-downloader"
+  },
+  {
+    "id": "image_enhancer",
+    "title": "Image Enhancer",
+    "description": "Improve resolution and clarity of screenshots and images",
+    "domain": "\ud83c\udfa5 Media & Content",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/image-enhancer"
+  },
+  {
+    "id": "imagen",
+    "title": "imagen",
+    "description": "Generate images with Google Gemini's image API for UI mockups, icons, and visual assets",
+    "domain": "\ud83c\udfa5 Media & Content",
+    "repo_url": "https://github.com/sanjay3290/ai-skills/tree/main/skills/imagen"
+  },
+  {
+    "id": "meeting_insights_analyzer",
+    "title": "Meeting Insights Analyzer",
+    "description": "Analyze meeting transcripts for dynamics, communication patterns, and behavior",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/meeting-insights-analyzer"
+  },
+  {
+    "id": "notion_integration_skills",
+    "title": "Notion Integration Skills",
+    "description": "Official Notion connectors for Claude",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://notiondevs.notion.site/Notion-Skills-for-Claude-28da4445d27180c7af1df7d8615723d0"
+  },
+  {
+    "id": "receiving_code_review",
+    "title": "receiving-code-review",
+    "description": "Process and apply code review feedback",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/receiving-code-review"
+  },
+  {
+    "id": "requesting_code_review",
+    "title": "requesting-code-review",
+    "description": "Request and manage structured code reviews",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review"
+  },
+  {
+    "id": "dispatching_parallel_agents",
+    "title": "dispatching-parallel-agents",
+    "description": "Coordinate multiple Claude subagents on shared tasks",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/dispatching-parallel-agents"
+  },
+  {
+    "id": "remembering_conversations",
+    "title": "remembering-conversations",
+    "description": "Recall facts, insights, and context from past Claude Code sessions \u26a0\ufe0f *(archived)*",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/collaboration/remembering-conversations"
+  },
+  {
+    "id": "git_pushing",
+    "title": "git-pushing",
+    "description": "Automate git operations and repository interactions",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/mhattingpete/claude-skills-marketplace/tree/main/engineering-workflow-plugin/skills/git-pushing"
+  },
+  {
+    "id": "linear_claude_skill",
+    "title": "linear-claude-skill",
+    "description": "Manage Linear issues, projects, and teams with MCP tools and GraphQL fallbacks",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/wrsmith108/linear-claude-skill"
+  },
+  {
+    "id": "linear_cli_skill",
+    "title": "linear-cli-skill",
+    "description": "Teach Claude to use linear-CLI as an alternative to the Linear MCP *(updated 2025)*",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/Valian/linear-cli-skill"
+  },
+  {
+    "id": "review_implementing",
+    "title": "review-implementing",
+    "description": "Evaluate code implementation plans and align them with specs",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/mhattingpete/claude-skills-marketplace/tree/main/engineering-workflow-plugin/skills/review-implementing"
+  },
+  {
+    "id": "test_fixing",
+    "title": "test-fixing",
+    "description": "Detect failing tests and propose patches or fixes",
+    "domain": "\ud83e\udd1d Collaboration & Project Management",
+    "repo_url": "https://github.com/mhattingpete/claude-skills-marketplace/tree/main/engineering-workflow-plugin/skills/test-fixing"
+  },
+  {
+    "id": "webapp_testing",
+    "title": "webapp-testing",
+    "description": "UI test automation using Playwright to verify local web apps",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/webapp-testing"
+  },
+  {
+    "id": "ffuf_claude_skill",
+    "title": "ffuf_claude_skill",
+    "description": "Fuzz test web apps with FFUF + Claude *(updated 2025)*",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/jthack/ffuf_claude_skill"
+  },
+  {
+    "id": "defense_in_depth",
+    "title": "defense-in-depth",
+    "description": "Implement multi-layered testing and security best practices",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/obra/superpowers/blob/main/skills/systematic-debugging/defense-in-depth.md"
+  },
+  {
+    "id": "systematic_debugging",
+    "title": "systematic-debugging",
+    "description": "Structured debugging with hypothesis testing and validation",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging"
+  },
+  {
+    "id": "testing_anti_patterns",
+    "title": "testing-anti-patterns",
+    "description": "Identify and prevent testing anti-patterns",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/obra/superpowers/blob/main/skills/test-driven-development/testing-anti-patterns.md"
+  },
+  {
+    "id": "testing_skills_with_subagents",
+    "title": "testing-skills-with-subagents",
+    "description": "Verify new skills using subagents and test cycles",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/obra/superpowers/blob/main/skills/writing-skills/testing-skills-with-subagents.md"
+  },
+  {
+    "id": "verification_before_completion",
+    "title": "verification-before-completion",
+    "description": "Run verification checks before closing tasks",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion"
+  },
+  {
+    "id": "condition_based_waiting",
+    "title": "condition-based-waiting",
+    "description": "Use logical conditions to control test flow timing",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/obra/superpowers/blob/main/skills/systematic-debugging/condition-based-waiting.md"
+  },
+  {
+    "id": "varlock_claude_skill",
+    "title": "varlock-claude-skill",
+    "description": "Secure environment-variable management so secrets never appear in sessions, terminals, logs, or git commits",
+    "domain": "\ud83d\udd10 Security & Testing",
+    "repo_url": "https://github.com/wrsmith108/varlock-claude-skill"
+  },
+  {
+    "id": "skill_creator",
+    "title": "skill-creator",
+    "description": "Build your own skill interactively",
+    "domain": "\u2699\ufe0f Utility & Automation",
+    "repo_url": "https://github.com/anthropics/skills/tree/main/skills/skill-creator"
+  },
+  {
+    "id": "gardening_skills_wiki",
+    "title": "gardening-skills-wiki",
+    "description": "Maintain a skills wiki, ensuring naming consistency and metadata quality \u26a0\ufe0f *(archived)*",
+    "domain": "\u2699\ufe0f Utility & Automation",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/meta/gardening-skills-wiki"
+  },
+  {
+    "id": "pulling_updates_from_skills_repository",
+    "title": "pulling-updates-from-skills-repository",
+    "description": "Sync and pull the latest skill updates from repositories \u26a0\ufe0f *(archived)*",
+    "domain": "\u2699\ufe0f Utility & Automation",
+    "repo_url": "https://github.com/obra/superpowers-skills/tree/main/skills/meta/pulling-updates-from-skills-repository"
+  },
+  {
+    "id": "deep_learning_transformers",
+    "title": "Deep learning (Transformers)",
+    "description": "Use Hugging Face Transformers for NLP tasks",
+    "domain": "\ud83e\udd16 AI & Machine Learning",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "graph_ml_torch_geometric",
+    "title": "Graph ML (Torch Geometric)",
+    "description": "Build graph neural networks with PyTorch Geometric",
+    "domain": "\ud83e\udd16 AI & Machine Learning",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "bayesian_methods_pymc",
+    "title": "Bayesian methods (PyMC)",
+    "description": "Perform Bayesian inference and modeling",
+    "domain": "\ud83e\udd16 AI & Machine Learning",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "reinforcement_learning_stable_baselines3",
+    "title": "Reinforcement learning (Stable Baselines3)",
+    "description": "Train RL agents with Stable Baselines3",
+    "domain": "\ud83e\udd16 AI & Machine Learning",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "model_interpretability_shap",
+    "title": "Model interpretability (SHAP)",
+    "description": "Explain ML model predictions with SHAP",
+    "domain": "\ud83e\udd16 AI & Machine Learning",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "aws_agentic_ai_plugin",
+    "title": "AWS Agentic AI Plugin",
+    "description": "Deploy and manage AI agents with AWS Bedrock",
+    "domain": "\ud83e\udd16 AI & Machine Learning",
+    "repo_url": "https://github.com/zxkane/aws-skills/tree/main/plugins/aws-agentic-ai"
+  },
+  {
+    "id": "aws_cost_operations_plugin",
+    "title": "AWS Cost & Operations Plugin",
+    "description": "Cost optimization, monitoring, and operational excellence with MCP servers",
+    "domain": "\u2601\ufe0f Cloud & Infrastructure",
+    "repo_url": "https://github.com/zxkane/aws-skills/tree/main/plugins/aws-cost-ops"
+  },
+  {
+    "id": "aws_serverless_event_driven_architecture_plugin",
+    "title": "AWS Serverless & Event-Driven Architecture Plugin",
+    "description": "Serverless patterns based on the Well-Architected Framework",
+    "domain": "\u2601\ufe0f Cloud & Infrastructure",
+    "repo_url": "https://github.com/zxkane/aws-skills/tree/main/plugins/serverless-eda"
+  },
+  {
+    "id": "cloud_compute_modal",
+    "title": "Cloud compute (Modal)",
+    "description": "Integrate with Modal for cloud-based compute",
+    "domain": "\u2601\ufe0f Cloud & Infrastructure",
+    "repo_url": "https://github.com/K-Dense-AI/scientific-agent-skills/blob/main/docs/skills.md"
+  },
+  {
+    "id": "competitive_ads_extractor",
+    "title": "Competitive Ads Extractor",
+    "description": "Extract and analyze competitors' ads",
+    "domain": "\ud83d\udcbc Business & Marketing",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/competitive-ads-extractor"
+  },
+  {
+    "id": "domain_name_brainstormer",
+    "title": "Domain Name Brainstormer",
+    "description": "Generate domain ideas and check availability",
+    "domain": "\ud83d\udcbc Business & Marketing",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/domain-name-brainstormer"
+  },
+  {
+    "id": "lead_research_assistant",
+    "title": "Lead Research Assistant",
+    "description": "Identify and qualify leads with outreach strategies",
+    "domain": "\ud83d\udcbc Business & Marketing",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/lead-research-assistant"
+  },
+  {
+    "id": "file_organizer",
+    "title": "file-organizer",
+    "description": "Intelligently organize files and folders by context; clean up structures and rename documents",
+    "domain": "\ud83d\udcc8 Productivity & Organization",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/file-organizer"
+  },
+  {
+    "id": "invoice_organizer",
+    "title": "invoice-organizer",
+    "description": "Parse, categorize, and organize invoices for tax preparation",
+    "domain": "\ud83d\udcc8 Productivity & Organization",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/invoice-organizer"
+  },
+  {
+    "id": "raffle_winner_picker",
+    "title": "raffle-winner-picker",
+    "description": "Randomly select winners from lists or sheets using secure randomness",
+    "domain": "\ud83d\udcc8 Productivity & Organization",
+    "repo_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/raffle-winner-picker"
+  }
+]

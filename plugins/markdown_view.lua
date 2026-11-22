@@ -9,6 +9,7 @@ local command = require "core.command"
 local keymap = require "core.keymap"
 local View = require "core.view"
 local style = require "core.style"
+local common = require "core.common"
 
 local MarkdownView = View:extend()
 
@@ -87,8 +88,7 @@ local function draw_text_wrapped(font, text, x, y, x_start, max_x, color)
   if x + font:get_width(text) <= max_x then
     return renderer.draw_text(font, text, x, y, color), y
   end
-  for i = 1, #text do
-    local c = text:sub(i, i)
+  for c in common.utf8_chars(text) do
     local w = font:get_width(c)
     if x + w > max_x and x > x_start then
       x = x_start

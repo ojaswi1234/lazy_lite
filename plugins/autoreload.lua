@@ -103,7 +103,7 @@ function dirwatch:check(change_callback, ...)
             delayed_reload(doc, info.modified)
           else
             doc.deferred_reload = true
-            if doc == core.active_view.doc then check_prompt_reload(doc) end
+            if core.active_view and doc == core.active_view.doc then check_prompt_reload(doc) end
           end
         end
       end
@@ -112,25 +112,51 @@ function dirwatch:check(change_callback, ...)
   end, ...)
 end
 
+local function get_fallback_view()
+  if not core.root_view then return nil end
+  local node = core.root_view.get_primary_node and core.root_view:get_primary_node()
+  if node then
+    if node.active_view and node.active_view ~= core.nag_view then
+      return node.active_view
+    end
+    if node.views and #node.views > 0 then
+      for _, v in ipairs(node.views) do
+        if v ~= core.nag_view then return v end
+      end
+    end
+  end
+  local default_node = core.root_view.get_active_node_default and core.root_view:get_active_node_default()
+  return default_node and default_node.active_view
+end
+
 local core_set_active_view = core.set_active_view
 function core.set_active_view(view)
+  if not view or (core.nag_view and view == core.nag_view and not core.nag_view.visible) then
+    local fallback = get_fallback_view()
+    if fallback then view = fallback end
+  end
+  if not view then
+    if core.active_view then return end
+    return core_set_active_view(view)
+  end
   core_set_active_view(view)
-  doc_changes_visiblity(view.doc, true)
+  if view.doc then
+    doc_changes_visiblity(view.doc, true)
+  end
 end
 
 local node_set_active_view = Node.set_active_view
 function Node:set_active_view(view)
   if self.active_view then doc_changes_visiblity(self.active_view.doc, false) end
   node_set_active_view(self, view)
-  doc_changes_visiblity(self.active_view.doc, true)
+  if self.active_view then doc_changes_visiblity(self.active_view.doc, true) end
 end
 
 core.add_thread(function()
   while true do
-    -- because we already hook this function above; we only
-    -- need to check the file.
+    -- Efficient 500ms polling to avoid 20Hz continuous disk wakeups and CPU lag
     watch:check(function() end)
-    coroutine.yield(0.05)
+    coroutine.yield(0.5)
   end
 end)
 

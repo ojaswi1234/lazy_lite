@@ -14,6 +14,20 @@ Write-Host "[*] Removing LazyLite configuration from $configDir..." -ForegroundC
 
 # Comprehensive list of individual files installed by LazyLite
 $files = @(
+    "$configDir\model_cache.json",
+    "$configDir\plugins\ai_project_visualizer.lua",
+    "$configDir\plugins\ai_tool_registry.lua",
+    "$configDir\plugins\autoreload.lua",
+    "$configDir\plugins\detectindent.lua",
+    "$configDir\plugins\git_diff_view.lua",
+    "$configDir\plugins\git_tree_integration.lua",
+    "$configDir\plugins\youtube_player.lua",
+    "$configDir\scripts\ai_api_bridge.py",
+    "$configDir\scripts\local_skills.json",
+    "$configDir\scripts\marketplace_skills_db.json",
+    "$configDir\scripts\mcp_config.json",
+    "$configDir\scripts\ollama_model_cache.json",
+    "$configDir\scripts\resources.json",
     "$configDir\plugins\activity_bar.lua",
     "$configDir\plugins\agy_pty_bridge.py",
     "$configDir\plugins\ai_plugin_gen.lua",
@@ -92,7 +106,10 @@ $subDirs = @(
     "$configDir\plugins\toggle_terminal",
     "$configDir\plugins\tunnel_monitor",
     "$configDir\plugins\python_runtime",
-    "$configDir\codespaces"
+    "$configDir\plugins\ai_project_visualizer",
+    "$configDir\plugins\yt_player",
+    "$configDir\libraries",
+    "$configDir\codespaces" 
 )
 
 foreach ($dir in $subDirs) {

@@ -11,8 +11,42 @@ local config = require "core.config"
 local command = require "core.command"
 local keymap = require "core.keymap"
 local style = require "core.style"
+local system = require "system"
 local View = require "core.view"
-local AI_TOOLS = require "plugins.ai_tool_registry"
+local ok_reg, AI_TOOLS = pcall(require, "plugins.ai_tool_registry")
+if not ok_reg then AI_TOOLS = nil end
+
+-- Cached AGY account helper to completely eliminate synchronous disk I/O at 144 FPS
+local _cached_agy_email = nil
+local _cached_agy_initial = "A"
+local _last_agy_check = 0
+
+local function get_agy_account_info()
+  local now = system.get_time()
+  if now - _last_agy_check < 10 and _cached_agy_email ~= nil then
+    return _cached_agy_email, _cached_agy_initial
+  end
+  _last_agy_check = now
+  local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+  local sep = PLATFORM == "Windows" and "\\" or "/"
+  local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
+  local f = io.open(state_path, "r")
+  if f then
+    local content = f:read("*a")
+    f:close()
+    local email = content:match('email:%s*"([^"]+)"') or content:match("email:%s*'([^']+)'")
+    if email then
+      _cached_agy_email = email
+      local name = email:match("^([^@]+)") or email
+      _cached_agy_initial = (#name > 0) and name:sub(1, 1):upper() or "A"
+      return _cached_agy_email, _cached_agy_initial
+    end
+  end
+  local uname = os.getenv("USER") or os.getenv("USERNAME") or "A"
+  _cached_agy_email = uname
+  _cached_agy_initial = uname:sub(1, 1):upper()
+  return _cached_agy_email, _cached_agy_initial
+end
 
 local ActivityBar = View:extend()
 
@@ -96,18 +130,9 @@ function ActivityBar:get_auth_label()
   if cur_tool == "cloud_api" then return "API Key Manager" end
   if inst and inst.auth_status == "logged_in" then
     if cur_tool == "agy" then
-      local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
-      local sep = PLATFORM == "Windows" and "\\" or "/"
-      local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
-      local f = io.open(state_path, "r")
-      if f then
-        local content = f:read("*a")
-        f:close()
-        local email = content:match('email:%s*"([^"]+)"')
-                   or content:match("email:%s*'([^']+)'")
-        if email then
-          return email:match("^([^@]+)") or email
-        end
+      local email = get_agy_account_info()
+      if email then
+        return email:match("^([^@]+)") or email
       end
     end
     return os.getenv("USER") or os.getenv("USERNAME") or tname
@@ -131,7 +156,7 @@ function ActivityBar:draw()
   local item_y = y
   for _, item in ipairs(self.items) do
     local is_active = (not ai_is_open) and (self.active_id == item.id)
-    local hovered = self.mouse_y and self.mouse_y >= item_y and self.mouse_y < item_y + cell
+    local hovered = self.mouse_x and self.mouse_x >= x and self.mouse_x < x + self.size.x and self.mouse_y and self.mouse_y >= item_y and self.mouse_y < item_y + cell
     local color = (is_active or hovered) and style.text or style.dim
 
     if is_active then
@@ -139,6 +164,21 @@ function ActivityBar:draw()
     end
     if hovered then
       renderer.draw_rect(x, item_y, self.size.x, cell, _COLOR_CACHE_1)
+      if item.tooltip and item.tooltip ~= "" then
+        local text = item.tooltip
+        local tx = x + self.size.x + 6 * SCALE
+        local tw = style.font:get_width(text) + 16 * SCALE
+        local th = style.font:get_height() + 8 * SCALE
+        local ty = item_y + (cell - th) / 2
+        core.root_view:defer_draw(function()
+          renderer.draw_rect(tx, ty, tw, th, style.background3 or style.background)
+          renderer.draw_rect(tx, ty, tw, 1, style.divider)
+          renderer.draw_rect(tx, ty + th - 1, tw, 1, style.divider)
+          renderer.draw_rect(tx, ty, 1, th, style.divider)
+          renderer.draw_rect(tx + tw - 1, ty, 1, th, style.divider)
+          renderer.draw_text(style.font, text, tx + 8 * SCALE, ty + 4 * SCALE, style.text)
+        end)
+      end
     end
     
     local icon_w = style.icon_font:get_width(item.icon)
@@ -155,13 +195,26 @@ function ActivityBar:draw()
   if auth_y > item_y then -- only draw if it doesn't overlap items
     local inst = rawget(_G, "_ag_instance")
     local is_authed = inst and inst.auth_status == "logged_in"
-    local hovered = self.mouse_y and self.mouse_y >= auth_y and self.mouse_y < auth_y + cell
+    local hovered = self.mouse_x and self.mouse_x >= x and self.mouse_x < x + self.size.x and self.mouse_y and self.mouse_y >= auth_y and self.mouse_y < auth_y + cell
 
     -- Subtle separator line above auth button
     renderer.draw_rect(x + 8 * SCALE, auth_y, self.size.x - 16 * SCALE, math.max(1, SCALE), _COLOR_CACHE_2)
 
     if hovered then
       renderer.draw_rect(x, auth_y, self.size.x, cell, _COLOR_CACHE_1)
+      local text = self:get_auth_label() or "AGY Auth"
+      local tx = x + self.size.x + 6 * SCALE
+      local tw = style.font:get_width(text) + 16 * SCALE
+      local th = style.font:get_height() + 8 * SCALE
+      local ty = auth_y + (cell - th) / 2
+      core.root_view:defer_draw(function()
+        renderer.draw_rect(tx, ty, tw, th, style.background3 or style.background)
+        renderer.draw_rect(tx, ty, tw, 1, style.divider)
+        renderer.draw_rect(tx, ty + th - 1, tw, 1, style.divider)
+        renderer.draw_rect(tx, ty, 1, th, style.divider)
+        renderer.draw_rect(tx + tw - 1, ty, 1, th, style.divider)
+        renderer.draw_text(style.font, text, tx + 8 * SCALE, ty + 4 * SCALE, style.text)
+      end)
     end
 
     local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
@@ -177,18 +230,8 @@ function ActivityBar:draw()
       local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
       
       if cur_tool == "agy" then
-        local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
-        local sep = PLATFORM == "Windows" and "\\" or "/"
-        local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
-        local f = io.open(state_path, "r")
-        if f then
-          local content = f:read("*a"); f:close()
-          local email = content:match('email:%s*"([^"]+)"') or content:match("email:%s*'([^']+)'")
-          if email then
-            local name = email:match("^([^@]+)")
-            if name and #name > 0 then initial = name:sub(1,1):upper() end
-          end
-        end
+        local _, ini = get_agy_account_info()
+        initial = ini or "A"
       end
       if initial == "A" then
         if cur_tool == "agy" then
@@ -237,12 +280,32 @@ function ActivityBar:draw()
 end
 
 function ActivityBar:on_mouse_moved(x, y)
+  self.mouse_x = x
   self.mouse_y = y
   core.redraw = true
+
+  local cell = 48 * SCALE
+  if x >= self.position.x and x < self.position.x + self.size.x then
+    local auth_y_top = self.position.y + self.size.y - cell
+    local items_bottom_y = self.position.y + (#self.items * cell)
+    if y >= auth_y_top and y < self.position.y + self.size.y and auth_y_top > items_bottom_y then
+      core.request_cursor("hand")
+      return
+    end
+    local rel_y = y - self.position.y
+    local idx = math.floor(rel_y / cell) + 1
+    if self.items[idx] then
+      core.request_cursor("hand")
+      return
+    end
+  end
+  core.request_cursor("arrow")
 end
 
 function ActivityBar:on_mouse_left()
+  self.mouse_x = nil
   self.mouse_y = nil
+  core.request_cursor("arrow")
   core.redraw = true
 end
 

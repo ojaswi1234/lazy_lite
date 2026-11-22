@@ -240,6 +240,7 @@ function YTView:handle_backend_msg(line)
         self.playing_video_id = first.id
         self.playing_title = first.title
         self.video_mode = false
+        self.pending_resume_time = nil
         self:send({cmd = "play", video_id = first.id, ml_concised = self.ml_concised, ml_model = self.models[self.selected_model_idx], language = self.selected_language, sponsor_block = true})
       end
     end
@@ -278,8 +279,11 @@ function YTView:handle_backend_msg(line)
     self.total_time = tonumber(msg.length) or 0
     
     if self.pending_resume_time and self.is_playing and self.current_time < 5 then
-      self:send({cmd = "seek_abs", offset = self.pending_resume_time})
+      local resume_to = self.pending_resume_time
       self.pending_resume_time = nil
+      if resume_to > 2 then
+        self:send({cmd = "seek_abs", offset = resume_to})
+      end
     end
 
     if os.time() - (self.last_save_os_time or 0) >= 2 then
@@ -773,6 +777,7 @@ function YTView:on_mouse_pressed(button, x, y, clicks)
       self.playing_title = res.title or ""
       self.playing_video_id = res.id
       self.video_mode = false
+      self.pending_resume_time = nil
       self:send({cmd = "play", video_id = res.id, ml_concised = self.ml_concised, ml_model = self.models[self.selected_model_idx], language = self.selected_language, sponsor_block = true})
       return true
     end
@@ -912,6 +917,7 @@ command.add(nil, {
           yt_view_instance.status_msg = "Quick Playing..."
           yt_view_instance.results = {}
           yt_view_instance.auto_play_first = true
+          yt_view_instance.pending_resume_time = nil
           yt_view_instance:send({cmd = "search", query = text, page = 1, search_type = "video"})
           core.redraw = true
         end

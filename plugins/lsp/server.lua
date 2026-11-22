@@ -524,6 +524,18 @@ function Server:initialize(workspace, editor_name, editor_version)
           util.jsonprettify(json.encode(response))
         )
       end
+      if response.error then
+        local err_msg = response.error.message or "unknown error"
+        server:log("Initialization rejected: %s (code %s)", err_msg, tostring(response.error.code or "unknown"))
+        core.error(
+          "[LSP/%s] Initialization rejected: %s",
+          server.name,
+          err_msg
+        )
+        server.fatal_error = true
+        server:shutdown_if_needed()
+        return
+      end
       local result = response.result
       if result then
         server.capabilities = Server.normalize_server_capabilities(result.capabilities)
@@ -1608,7 +1620,12 @@ end
 ---Kills the server process and deinitialize the server object state.
 function Server:stop()
   self.initialized = false
-  self.proc = nil
+  if self.proc then
+    local p = self.proc
+    self.proc = nil
+    pcall(function() p:terminate() end)
+    pcall(function() p:kill() end)
+  end
 
   self.request_list = {}
   self.response_list = {}

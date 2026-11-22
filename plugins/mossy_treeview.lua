@@ -105,8 +105,9 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
     icon_color
   )
 
-  -- Filename
+  -- Filename with boundary clipping to prevent text bleed over pane divider
   local name_x     = icon_x + ifont:get_width(icon_str) + 4 * SCALE
+  local max_name_w = math.max(0, self.position.x + self.size.x - name_x - 6 * SCALE)
   
   if item.git_status == "added" then
     text_color = _COLOR_CACHE_0
@@ -116,12 +117,14 @@ function TreeView:draw_item(item, active, hovered, x, y, w, h)
     text_color = _COLOR_CACHE_2
   end
 
+  core.push_clip_rect(name_x, y, max_name_w, h)
   renderer.draw_text(
     style.font, item.name,
     name_x,
     y + math.floor((h - style.font:get_height()) / 2),
     text_color
   )
+  core.pop_clip_rect()
 end
 
 -- ── Sidebar background + EXPLORER header ─────────────────────────────────────
@@ -306,6 +309,25 @@ function TreeView:on_mouse_released(button, x, y)
   
   if orig_on_mouse_released then
     return orig_on_mouse_released(self, button, x, y)
+  end
+end
+
+-- Ensure releasing mouse anywhere in the application clears drag state, preventing sticky ghosts
+local RootView = require "core.rootview"
+local orig_root_on_mouse_released = RootView.on_mouse_released
+function RootView:on_mouse_released(button, x, y, ...)
+  if button == "left" then
+    local views = core.root_view and core.root_view.root_node and core.root_view.root_node:get_children() or {}
+    for _, v in ipairs(views) do
+      if v:is(TreeView) then
+        v.mouse_held = false
+        v.is_dragging = false
+        v.dnd_item = nil
+      end
+    end
+  end
+  if orig_root_on_mouse_released then
+    return orig_root_on_mouse_released(self, button, x, y, ...)
   end
 end
 

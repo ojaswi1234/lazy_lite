@@ -136,6 +136,49 @@ function util.file_exists(file_path)
  return false
 end
 
+---Cache for command existence checks to avoid repeated PATH traversal
+local _command_exists_cache = {}
+
+---Clear cached command lookup results
+function util.clear_command_cache()
+  _command_exists_cache = {}
+end
+
+---Check if a command or executable exists on PATH or as an absolute path.
+---@param cmd_name string
+---@return boolean
+function util.command_exists(cmd_name)
+  if not cmd_name or cmd_name == "" then return false end
+  if _command_exists_cache[cmd_name] ~= nil then
+    return _command_exists_cache[cmd_name]
+  end
+
+  -- 1. Check if absolute or relative file path directly exists
+  if util.file_exists(cmd_name) then
+    _command_exists_cache[cmd_name] = true
+    return true
+  end
+
+  -- 2. Traverse PATH environment variable
+  local path_env = os.getenv("PATH") or ""
+  local sep = PLATFORM == "Windows" and ";" or ":"
+  local exts = PLATFORM == "Windows" and { "", ".exe", ".cmd", ".bat", ".ps1" } or { "" }
+
+  for dir in path_env:gmatch("[^" .. sep .. "]+") do
+    dir = dir:gsub('^"(.*)"$', '%1'):gsub("[/\\]+$", "")
+    for _, ext in ipairs(exts) do
+      local full = dir .. PATHSEP .. cmd_name .. ext
+      if util.file_exists(full) then
+        _command_exists_cache[cmd_name] = true
+        return true
+      end
+    end
+  end
+
+  _command_exists_cache[cmd_name] = false
+  return false
+end
+
 ---Converts the given LSP DocumentUri into a valid filename path.
 ---@param uri string LSP DocumentUri to convert into a filename.
 ---@return string

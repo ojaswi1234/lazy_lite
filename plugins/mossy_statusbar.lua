@@ -37,6 +37,7 @@ local function draw_clean_status_bg(self)
 end
 
 core.status_view.draw_background = draw_clean_status_bg
+StatusView.draw_background = draw_clean_status_bg
 
 -- The REAL fix: hook update_active_items() where item.cached_item is built.
 local old_update_active = core.status_view.update_active_items
@@ -117,6 +118,8 @@ function core.status_view:draw(...)
         if cur_left_x + iw > max_left_reach then
           local avail = math.max(0, max_left_reach - cur_left_x)
           if avail > 10 * SCALE then
+            item._mossy_x = cur_left_x
+            item._mossy_w = avail
             core.push_clip_rect(cur_left_x, bar_y, avail, bar_h)
             local hovered, item_bg = get_item_bg(self, item)
             if type(item_bg) == "table" then
@@ -128,10 +131,15 @@ function core.status_view:draw(...)
               self:draw_items(item.cached_item, false, (cur_left_x - base_x) - pad)
             end
             core.pop_clip_rect()
+          else
+            item._mossy_x = nil
+            item._mossy_w = 0
           end
           cur_left_x = max_left_reach
           break
         else
+          item._mossy_x = cur_left_x
+          item._mossy_w = iw
           core.push_clip_rect(cur_left_x, bar_y, iw, bar_h)
           local hovered, item_bg = get_item_bg(self, item)
           if type(item_bg) == "table" then
@@ -157,9 +165,13 @@ function core.status_view:draw(...)
         local item_x = cur_right_x - iw
 
         if item_x < min_right_reach then
+          item._mossy_x = nil
+          item._mossy_w = 0
           break -- Stop drawing if no space left; guarantees zero overlap
         end
 
+        item._mossy_x = item_x
+        item._mossy_w = iw
         core.push_clip_rect(item_x, bar_y, iw, bar_h)
         local hovered, item_bg = get_item_bg(self, item)
         if type(item_bg) == "table" then
@@ -186,6 +198,19 @@ function core.status_view:draw(...)
   style.icon_color = old_icon
   style.accent     = old_accent
 end
+
+-- Synchronize hit testing with actual rendered coordinates so clicks & hover always hit accurately!
+local old_get_item_visible_area = StatusView.get_item_visible_area
+function StatusView:get_item_visible_area(item)
+  if item and item._mossy_x and item._mossy_w then
+    return item._mossy_x, item._mossy_w
+  end
+  if old_get_item_visible_area then
+    return old_get_item_visible_area(self, item)
+  end
+  return (item and item.x or 0), (item and item.w or 0)
+end
+core.status_view.get_item_visible_area = StatusView.get_item_visible_area
 
 -- ── 2. Git Branch Indicator ───────────────────────────────────────────────────
 local current_branch = nil
