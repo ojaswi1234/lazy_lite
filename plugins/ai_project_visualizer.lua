@@ -4058,12 +4058,15 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
   local is_open    = (view and view.right_rail_open)
   local active_tab = (view and view.right_rail_tab) or "dimensions"
 
-  -- 1. Outer 60px Vertical Icon Tab Strip (Wider to prevent any button text clipping)
-  local strip_w = 60
-  local strip_x = rx + rw - strip_w
-  local strip_y = ry
-  local strip_h = rh
+  -- Dynamic responsive icon tab strip width (44px in compact/sidebar mode, 54px in desktop)
+  local is_sidebar_mode = (view and view.size and view.size.x < 760 * SCALE)
+  local is_strip_only   = (rw <= 64 * SCALE)
+  local strip_w         = is_strip_only and rw or (is_sidebar_mode and 44 * SCALE or 54 * SCALE)
+  local strip_x         = rx + rw - strip_w
+  local strip_y         = ry
+  local strip_h         = rh
 
+  -- Draw tab strip background
   draw_rect(strip_x, strip_y, strip_w, strip_h, { 18, 22, 30, 255 })
   draw_rect(strip_x, strip_y, 1, strip_h, COLORS.separator)
 
@@ -4072,7 +4075,7 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
     { id = "inspector",  label = "Inspect", tip = "Component Inspector" },
     { id = "heatmap",    label = "Heat",    tip = "Complexity & Hotspots Heatmap" },
     { id = "audit",      label = "Audit",   tip = "Architecture Doctor" },
-    { id = "tour",       label = "Tour",   tip = "Guided Architecture Walkthrough" },
+    { id = "tour",       label = "Tour",    tip = "Guided Architecture Walkthrough" },
     { id = "flow",       label = "Flow",    tip = "Data Flow & Path Trace" },
     { id = "actions",    label = "Export",  tip = "Export SVG, Guide MD & Re-Analyze" },
   }
@@ -4082,10 +4085,10 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
 
   for _, it in ipairs(icon_tabs) do
     local is_active = is_open and (active_tab == it.id)
-    local btn_x = strip_x + 5
+    local btn_w = strip_w - 6
+    local btn_h = (strip_w < 50) and 38 or 44
+    local btn_x = strip_x + 3
     local btn_y = cur_icon_y
-    local btn_w = 50
-    local btn_h = 44
     local hov = is_hovered(mouse_x, mouse_y, btn_x, btn_y, btn_w, btn_h)
 
     local bg_col = is_active and { 36, 48, 72, 255 } or (hov and { 28, 34, 48, 255 } or { 22, 26, 36, 255 })
@@ -4099,8 +4102,8 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
     end
 
     local icon_col = is_active and { 224, 238, 255, 255 } or (hov and { 180, 215, 255, 255 } or { 130, 145, 175, 200 })
-    local cx = btn_x + (btn_w - 18) / 2
-    local cy = btn_y + 4
+    local cx = math.floor(btn_x + (btn_w - 18) / 2)
+    local cy = (strip_w < 50) and math.floor(btn_y + (btn_h - 18) / 2) or (btn_y + 4)
 
     -- Vector Icons (18x18)
     if it.id == "dimensions" then
@@ -4159,14 +4162,16 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
       draw_rect(cx + 7,  cy + 2,  4,  2, is_active and { 56, 189, 248, 255 } or icon_col)
     end
 
-    -- Mini-label beneath icon with guaranteed zero clipping
-    local tw = fsmall:get_width(it.label)
-    local lbl = it.label
-    if tw > btn_w - 2 then
-      lbl = truncate(it.label, fsmall, btn_w - 2)
-      tw = fsmall:get_width(lbl)
+    -- Mini-label beneath icon when wide enough (hidden when compact to avoid clipping)
+    if strip_w >= 50 then
+      local tw = fsmall:get_width(it.label)
+      local lbl = it.label
+      if tw > btn_w - 2 then
+        lbl = truncate(it.label, fsmall, btn_w - 2)
+        tw = fsmall:get_width(lbl)
+      end
+      renderer.draw_text(fsmall, lbl, math.floor(btn_x + (btn_w - tw) / 2), math.floor(btn_y + 27), is_active and { 200, 230, 255, 255 } or { 110, 125, 150, 180 })
     end
-    renderer.draw_text(fsmall, lbl, math.floor(btn_x + (btn_w - tw) / 2), math.floor(btn_y + 27), is_active and { 200, 230, 255, 255 } or { 110, 125, 150, 180 })
 
     hit_rects.tab_icons[it.id] = { x = btn_x, y = btn_y, w = btn_w, h = btn_h, id = it.id }
 
@@ -4178,7 +4183,7 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
       }
     end
 
-    cur_icon_y = cur_icon_y + btn_h + 8
+    cur_icon_y = cur_icon_y + btn_h + 6
   end
 
   -- If right rail is closed, return hit rects and render tooltip
@@ -4202,6 +4207,12 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
   local panel_w = rw - strip_w
   local panel_h = rh
 
+  -- In sidebar mode, render drop shadow on left edge of overlay drawer
+  if is_sidebar_mode then
+    draw_rect(panel_x - 8, panel_y, 8, panel_h, { 0, 0, 0, 70 })
+    draw_rect(panel_x - 3, panel_y, 3, panel_h, { 0, 0, 0, 110 })
+  end
+
   draw_rect(panel_x, panel_y, panel_w, panel_h, { 16, 20, 28, 252 })
   draw_rect(panel_x, panel_y, 1, panel_h, COLORS.separator)
 
@@ -4219,18 +4230,20 @@ function DiagramRenderer.draw_right_rail(view, rx, ry, rw, rh, mouse_x, mouse_y)
     actions    = "PROJECT ACTIONS & EXPORT",
   }
   local panel_title = titles[active_tab] or "CONTROLS"
-  renderer.draw_text(fsmall, panel_title, math.floor(panel_x + 12), math.floor(panel_y + (hdr_h - fsmall:get_height()) / 2), { 220, 235, 255, 255 })
+  local max_title_w = panel_w - 40
+  local disp_title = truncate(panel_title, fsmall, max_title_w)
+  renderer.draw_text(fsmall, disp_title, math.floor(panel_x + 10), math.floor(panel_y + (hdr_h - fsmall:get_height()) / 2), { 220, 235, 255, 255 })
 
-  -- Close / Collapse Panel Button [ > ]
+  -- Close / Collapse Panel Button [ ✕ ]
   local tog_w = 20
   local tog_h = 20
   local tog_x = panel_x + panel_w - tog_w - 8
   local tog_y = panel_y + (hdr_h - tog_h) / 2
   local tog_hov = is_hovered(mouse_x, mouse_y, tog_x, tog_y, tog_w, tog_h)
-  draw_rect(tog_x, tog_y, tog_w, tog_h, tog_hov and { 50, 60, 80, 255 } or { 30, 36, 50, 255 })
-  draw_rect(tog_x, tog_y, tog_w, 1, { 65, 80, 110, 255 })
-  local t_str = ">"
-  renderer.draw_text(fsmall, t_str, math.floor(tog_x + (tog_w - fsmall:get_width(t_str)) / 2), math.floor(tog_y + (tog_h - fsmall:get_height()) / 2), tog_hov and { 255, 255, 255, 255 } or { 160, 180, 210, 255 })
+  draw_rect(tog_x, tog_y, tog_w, tog_h, tog_hov and { 65, 38, 48, 255 } or { 30, 36, 50, 255 })
+  draw_rect(tog_x, tog_y, tog_w, 1, tog_hov and { 244, 63, 94, 255 } or { 65, 80, 110, 255 })
+  local t_str = "x"
+  renderer.draw_text(fsmall, t_str, math.floor(tog_x + (tog_w - fsmall:get_width(t_str)) / 2), math.floor(tog_y + (tog_h - fsmall:get_height()) / 2), tog_hov and { 255, 120, 140, 255 } or { 160, 180, 210, 255 })
   hit_rects.toggle_rect = { x = tog_x, y = tog_y, w = tog_w, h = tog_h }
 
   local cur_y = panel_y + hdr_h + 10
@@ -5021,7 +5034,7 @@ function DiagramRenderer.draw_left_rail(view, categories, active_idx, rx, ry, rw
 
   local toggle_w = 20
   local toggle_h = 20
-  local toggle_x = rx + rw - toggle_w - 7
+  local toggle_x = is_collapsed and math.floor(rx + (rw - toggle_w) / 2) or (rx + rw - toggle_w - 7)
   local toggle_y = ry + (hdr_h - toggle_h) / 2
   local tog_hov = is_hovered(mouse_x, mouse_y, toggle_x, toggle_y, toggle_w, toggle_h)
   draw_rect(toggle_x, toggle_y, toggle_w, toggle_h, tog_hov and { 45, 55, 75, 255 } or { 30, 35, 48, 255 })
@@ -5044,9 +5057,9 @@ function DiagramRenderer.draw_left_rail(view, categories, active_idx, rx, ry, rw
 
   if not categories or #categories == 0 then return hit_rects end
 
-  local btn_w = rw - 12
-  local btn_h = is_collapsed and 44 or 42
-  local btn_x = rx + 6
+  local btn_w = is_collapsed and (rw - 8) or (rw - 12)
+  local btn_h = is_collapsed and 40 or 42
+  local btn_x = is_collapsed and (rx + 4) or (rx + 6)
   local cy    = ry + hdr_h + 8
 
   for i, cat in ipairs(categories) do
@@ -5066,8 +5079,8 @@ function DiagramRenderer.draw_left_rail(view, categories, active_idx, rx, ry, rw
 
     -- Icon styling
     local icon_col = is_active and { 224, 238, 255, 255 } or (is_hov and { 180, 210, 255, 255 } or { 130, 145, 175, 200 })
-    local ix = is_collapsed and (btn_x + (btn_w - 20) / 2) or (btn_x + 10)
-    local iy = cy + (btn_h - 20) / 2
+    local ix = is_collapsed and math.floor(btn_x + (btn_w - 20) / 2) or (btn_x + 10)
+    local iy = math.floor(cy + (btn_h - 20) / 2)
 
     -- Render category-specific vector mini-icon (20x20)
     if i == 1 then
@@ -5182,275 +5195,307 @@ function DiagramRenderer.draw_toolbar(view, tx, ty, tw, provider, model, node_co
   local font = style.font
   local fsmall = style.code_font or font
 
+  local is_sidebar = tw < 760 * SCALE
+  local is_compact = tw < 580 * SCALE
+  local is_ultra   = tw < 420 * SCALE
+
   draw_rect(tx, ty, tw, TOOLBAR_H, COLORS.toolbar_bg)
   draw_rect(tx, ty + TOOLBAR_H - 1, tw, 1, COLORS.separator)
 
-  -- Architectural diagram mini-icon (3 nodes connected)
-  local icon_x = tx + 10
+  local hit_rects = {
+    export_rect       = {},
+    guide_rect        = {},
+    reanalyze_rect    = {},
+    fit_rect          = { x = -999, y = -999, w = 0, h = 0 },
+    zoom100_rect      = { x = -999, y = -999, w = 0, h = 0 },
+    zoom_in_rect      = { x = -999, y = -999, w = 0, h = 0 },
+    zoom_out_rect     = { x = -999, y = -999, w = 0, h = 0 },
+    provider_rect     = { x = -999, y = -999, w = 0, h = 0 },
+    search_rect       = nil,
+    search_clear_rect = nil,
+    search_next_rect  = nil,
+    search_prev_rect  = nil,
+    category_pill     = nil,
+    ask_ai_rect       = nil,
+    audit_rect        = nil,
+    flow_exit_rect    = nil,
+    focus_exit_rect   = nil,
+    impact_exit_rect  = nil,
+  }
+
+  local btn_y = ty + (TOOLBAR_H - 24) / 2
+
+  -- ─── LEFT REGION ───────────────────────────────────────────────────────────
+  -- Mini vector icon (3 nodes connected)
+  local icon_x = tx + 8
   local icon_y = ty + (TOOLBAR_H - 12) / 2
   draw_rect(icon_x,     icon_y + 3, 4, 4, { 130, 170, 255, 255 })
   draw_rect(icon_x + 4, icon_y + 4, 5, 2, { 100, 140, 210, 200 })
   draw_rect(icon_x + 9, icon_y,     4, 4, { 100, 220, 150, 255 })
   draw_rect(icon_x + 9, icon_y + 7, 4, 4, { 255, 180, 100, 255 })
 
-  -- Active Category Title with Alt+N badge
-  local active_cat = (view and view.categories and view.categories[view.active_category_idx]) or "Architecture Overview"
-  local ty_text = ty + (TOOLBAR_H - font:get_height()) / 2
-  local cat_label = string.format("%s", active_cat)
-  local cat_w = font:get_width(cat_label)
-  renderer.draw_text(font, cat_label, math.floor(icon_x + 18), math.floor(ty_text), { 235, 245, 255, 255 })
+  local active_cat = (view and view.categories and view.categories[view.active_category_idx]) or "Architecture"
+  local left_end_x = icon_x + 18
 
-  local badge_x = icon_x + 18 + cat_w + 10
-  -- Alt+N quick hint pill
-  local shortcut_hint = string.format("Alt+%d", (view and view.active_category_idx) or 1)
-  local sc_w = fsmall:get_width(shortcut_hint) + 8
-  local sc_h = 18
-  local sc_y = ty + (TOOLBAR_H - sc_h) / 2
-  draw_rect(badge_x, sc_y, sc_w, sc_h, { 35, 45, 65, 200 })
-  draw_rect(badge_x, sc_y, sc_w, 1, { 65, 85, 130, 255 })
-  renderer.draw_text(fsmall, shortcut_hint, math.floor(badge_x + 4), math.floor(sc_y + (sc_h - fsmall:get_height()) / 2), { 140, 190, 255, 240 })
-  badge_x = badge_x + sc_w + 12
+  if is_compact then
+    -- Interactive Dropdown Pill: [ 🏛️ Architecture ▼ ]
+    local max_cat_w = is_ultra and 85 or 140
+    local disp_cat = truncate(active_cat, font, max_cat_w)
+    local pill_text = disp_cat .. " "
+    local ptw = font:get_width(pill_text)
+    local pill_w = ptw + 18
+    local pill_x = left_end_x
+    local pill_h = 24
+    local pill_y = btn_y
+    local p_hov = is_hovered(mouse_x, mouse_y, pill_x, pill_y, pill_w, pill_h)
 
-  -- Interconnectivity Mesh Density Badge
-  if node_count and node_count > 0 then
-    local density = (edge_count or 0) / math.max(node_count, 1)
-    local mesh_label = string.format("Mesh: %d nodes, %d links (%.1fx)", node_count, edge_count or 0, density)
-    local mw = fsmall:get_width(mesh_label) + 12
-    local my = ty + (TOOLBAR_H - 20) / 2
-    if badge_x + mw < tx + tw - 580 then
-      draw_rect(badge_x, my, mw, 20, { 34, 42, 60, 230 })
-      draw_rect(badge_x, my, mw, 1,  { 70, 95, 150, 255 })
-      renderer.draw_text(fsmall, mesh_label, math.floor(badge_x + 6), math.floor(my + (20 - fsmall:get_height()) / 2), { 145, 215, 255, 255 })
+    draw_rect(pill_x, pill_y, pill_w, pill_h, p_hov and { 45, 58, 85, 255 } or { 32, 40, 58, 255 })
+    draw_rect(pill_x, pill_y, pill_w, 1, p_hov and { 130, 175, 255, 255 } or { 65, 85, 125, 255 })
+    renderer.draw_text(font, disp_cat, math.floor(pill_x + 6), math.floor(pill_y + (pill_h - font:get_height()) / 2), p_hov and { 255, 255, 255, 255 } or { 220, 235, 255, 255 })
+
+    -- Mini arrow ▼
+    local arr_x = pill_x + pill_w - 12
+    local arr_y = pill_y + 11
+    draw_rect(arr_x,     arr_y,     5, 1, { 160, 195, 245, 255 })
+    draw_rect(arr_x + 1, arr_y + 1, 3, 1, { 160, 195, 245, 255 })
+    draw_rect(arr_x + 2, arr_y + 2, 1, 1, { 160, 195, 245, 255 })
+
+    hit_rects.category_pill = { x = pill_x, y = pill_y, w = pill_w, h = pill_h }
+    left_end_x = pill_x + pill_w + 8
+  else
+    -- Full title in desktop mode
+    local cat_label = string.format("%s", active_cat)
+    local cat_w = font:get_width(cat_label)
+    renderer.draw_text(font, cat_label, math.floor(left_end_x), math.floor(ty + (TOOLBAR_H - font:get_height()) / 2), { 235, 245, 255, 255 })
+    left_end_x = left_end_x + cat_w + 10
+
+    -- Alt+N quick hint pill
+    local shortcut_hint = string.format("Alt+%d", (view and view.active_category_idx) or 1)
+    local sc_w = fsmall:get_width(shortcut_hint) + 8
+    local sc_h = 18
+    local sc_y = ty + (TOOLBAR_H - sc_h) / 2
+    draw_rect(left_end_x, sc_y, sc_w, sc_h, { 35, 45, 65, 200 })
+    draw_rect(left_end_x, sc_y, sc_w, 1, { 65, 85, 130, 255 })
+    renderer.draw_text(fsmall, shortcut_hint, math.floor(left_end_x + 4), math.floor(sc_y + (sc_h - fsmall:get_height()) / 2), { 140, 190, 255, 240 })
+    left_end_x = left_end_x + sc_w + 12
+
+    -- Mesh density badge if wide enough
+    if node_count and node_count > 0 and tw > 850 * SCALE then
+      local density = (edge_count or 0) / math.max(node_count, 1)
+      local mesh_label = string.format("Mesh: %d nodes, %d links (%.1fx)", node_count, edge_count or 0, density)
+      local mw = fsmall:get_width(mesh_label) + 12
+      local my = ty + (TOOLBAR_H - 20) / 2
+      if left_end_x + mw < tx + tw - 450 then
+        draw_rect(left_end_x, my, mw, 20, { 34, 42, 60, 230 })
+        draw_rect(left_end_x, my, mw, 1,  { 70, 95, 150, 255 })
+        renderer.draw_text(fsmall, mesh_label, math.floor(left_end_x + 6), math.floor(my + (20 - fsmall:get_height()) / 2), { 145, 215, 255, 255 })
+        left_end_x = left_end_x + mw + 12
+      end
     end
   end
 
-  local btn_y = ty + (TOOLBAR_H - 24) / 2
+  -- Mode Dismissal Badges (Flow / Focus / Blast radius) if active
+  if view and view.flow_trace then
+    local fl = view.flow_trace
+    local fl_label = is_compact and " Flow [x] " or string.format(" Flow: %s->%s [x] ", fl.source, fl.target)
+    local fl_w = fsmall:get_width(fl_label) + 8
+    if left_end_x + fl_w < tx + tw - 160 then
+      draw_rect(left_end_x, btn_y, fl_w, 24, { 14, 52, 60, 255 })
+      draw_rect(left_end_x, btn_y, fl_w, 1,  { 34, 211, 238, 255 })
+      renderer.draw_text(fsmall, fl_label, math.floor(left_end_x + 4), math.floor(btn_y + (24 - fsmall:get_height()) / 2), { 165, 243, 252, 255 })
+      hit_rects.flow_exit_rect = { x = left_end_x, y = ty, w = fl_w, h = TOOLBAR_H }
+      left_end_x = left_end_x + fl_w + 6
+    end
+  elseif view and view.focus_node_id then
+    local foc_label = is_compact and " Focus [x] " or string.format(" Focus: %s [x] ", view.focus_node_id)
+    local foc_w = fsmall:get_width(foc_label) + 8
+    if left_end_x + foc_w < tx + tw - 160 then
+      draw_rect(left_end_x, btn_y, foc_w, 24, { 55, 42, 20, 255 })
+      draw_rect(left_end_x, btn_y, foc_w, 1,  { 245, 158, 11, 255 })
+      renderer.draw_text(fsmall, foc_label, math.floor(left_end_x + 4), math.floor(btn_y + (24 - fsmall:get_height()) / 2), { 255, 215, 110, 255 })
+      hit_rects.focus_exit_rect = { x = left_end_x, y = ty, w = foc_w, h = TOOLBAR_H }
+      left_end_x = left_end_x + foc_w + 6
+    end
+  elseif view and view.impact_data then
+    local imp = view.impact_data
+    local imp_label = is_compact and " Blast [x] " or string.format(" Blast: %s [x] ", imp.target)
+    local imp_w = fsmall:get_width(imp_label) + 8
+    if left_end_x + imp_w < tx + tw - 160 then
+      draw_rect(left_end_x, btn_y, imp_w, 24, { 60, 28, 35, 255 })
+      draw_rect(left_end_x, btn_y, imp_w, 1,  { 244, 63, 94, 255 })
+      renderer.draw_text(fsmall, imp_label, math.floor(left_end_x + 4), math.floor(btn_y + (24 - fsmall:get_height()) / 2), { 255, 160, 180, 255 })
+      hit_rects.impact_exit_rect = { x = left_end_x, y = ty, w = imp_w, h = TOOLBAR_H }
+      left_end_x = left_end_x + imp_w + 6
+    end
+  end
 
-  -- 1. Fit to Viewport Button [Fit] (Rightmost toolbar action; Export/Guide/Re-analyze moved to Right Activity Rail)
-  local fit_label = " Fit "
-  local fit_w     = font:get_width(fit_label) + 8
-  local fit_x     = tx + tw - fit_w - 8
-  local fit_hov   = is_hovered(mouse_x, mouse_y, fit_x, ty, fit_w, TOOLBAR_H)
-  draw_rect(fit_x, btn_y, fit_w, 24, fit_hov and COLORS.btn_hover or { 38, 44, 58, 255 })
-  draw_rect(fit_x, btn_y, fit_w, 1,  fit_hov and { 130, 170, 240, 255 } or { 55, 68, 95, 255 })
-  renderer.draw_text(font, fit_label, math.floor(fit_x + 4), math.floor(btn_y + (24 - font:get_height()) / 2), fit_hov and { 245, 250, 255, 255 } or COLORS.btn_text)
+  -- ─── RIGHT REGION (Placing right-to-left from cur_rx) ─────────────────────
+  local cur_rx = tx + tw - 8
+  local min_gap = 6
 
-  -- 4. 100% Zoom Button [100%]
-  local zoom_pct  = string.format("%.0f%%", (scale or 1.0) * 100)
-  local z100_w    = font:get_width(zoom_pct) + 10
-  local z100_x    = fit_x - z100_w - 4
-  local z100_hov  = is_hovered(mouse_x, mouse_y, z100_x, ty, z100_w, TOOLBAR_H)
-  draw_rect(z100_x, btn_y, z100_w, 24, z100_hov and COLORS.btn_hover or { 34, 38, 50, 255 })
-  draw_rect(z100_x, btn_y, z100_w, 1,  z100_hov and { 130, 170, 240, 255 } or { 50, 60, 85, 255 })
-  renderer.draw_text(font, zoom_pct, math.floor(z100_x + 5), math.floor(btn_y + (24 - font:get_height()) / 2), z100_hov and { 245, 250, 255, 255 } or { 160, 180, 220, 255 })
+  -- Helper to allocate button space
+  local function try_place_btn(btn_w)
+    local bx = cur_rx - btn_w
+    if bx < left_end_x + min_gap then
+      return nil -- Insufficient space: do not draw to prevent overlap
+    end
+    cur_rx = bx - 4
+    return bx
+  end
 
-  -- 5. Zoom In [+] and Zoom Out [-]
-  local plus_w   = 22
-  local plus_x   = z100_x - plus_w - 4
-  local plus_hov = is_hovered(mouse_x, mouse_y, plus_x, ty, plus_w, TOOLBAR_H)
-  draw_rect(plus_x, btn_y, plus_w, 24, plus_hov and COLORS.btn_hover or { 34, 38, 50, 255 })
-  renderer.draw_text(font, "+", math.floor(plus_x + 6), math.floor(btn_y + (24 - font:get_height()) / 2), plus_hov and { 255, 255, 255, 255 } or COLORS.btn_text)
+  -- 1. Fit to Viewport Button [Fit] / [⊡]
+  local fit_label = is_ultra and "⊡" or "Fit"
+  local fit_w     = is_ultra and 24 or (font:get_width(fit_label) + 12)
+  local fit_x     = try_place_btn(fit_w)
+  if fit_x then
+    local fit_hov = is_hovered(mouse_x, mouse_y, fit_x, ty, fit_w, TOOLBAR_H)
+    draw_rect(fit_x, btn_y, fit_w, 24, fit_hov and COLORS.btn_hover or { 38, 44, 58, 255 })
+    draw_rect(fit_x, btn_y, fit_w, 1,  fit_hov and { 130, 170, 240, 255 } or { 55, 68, 95, 255 })
+    renderer.draw_text(font, fit_label, math.floor(fit_x + (fit_w - font:get_width(fit_label)) / 2), math.floor(btn_y + (24 - font:get_height()) / 2), fit_hov and { 245, 250, 255, 255 } or COLORS.btn_text)
+    hit_rects.fit_rect = { x = fit_x - 2, y = ty, w = fit_w + 4, h = TOOLBAR_H }
+  end
 
-  local minus_w   = 22
-  local minus_x   = plus_x - minus_w - 2
-  local minus_hov = is_hovered(mouse_x, mouse_y, minus_x, ty, minus_w, TOOLBAR_H)
-  draw_rect(minus_x, btn_y, minus_w, 24, minus_hov and COLORS.btn_hover or { 34, 38, 50, 255 })
-  renderer.draw_text(font, "-", math.floor(minus_x + 7), math.floor(btn_y + (24 - font:get_height()) / 2), minus_hov and { 255, 255, 255, 255 } or COLORS.btn_text)
+  -- 2. 100% Zoom Button (Only if not compact)
+  if not is_compact then
+    local zoom_pct = string.format("%.0f%%", (scale or 1.0) * 100)
+    local z100_w   = font:get_width(zoom_pct) + 10
+    local z100_x   = try_place_btn(z100_w)
+    if z100_x then
+      local z100_hov = is_hovered(mouse_x, mouse_y, z100_x, ty, z100_w, TOOLBAR_H)
+      draw_rect(z100_x, btn_y, z100_w, 24, z100_hov and COLORS.btn_hover or { 34, 38, 50, 255 })
+      draw_rect(z100_x, btn_y, z100_w, 1,  z100_hov and { 130, 170, 240, 255 } or { 50, 60, 85, 255 })
+      renderer.draw_text(font, zoom_pct, math.floor(z100_x + (z100_w - font:get_width(zoom_pct)) / 2), math.floor(btn_y + (24 - font:get_height()) / 2), z100_hov and { 245, 250, 255, 255 } or { 160, 180, 220, 255 })
+      hit_rects.zoom100_rect = { x = z100_x - 2, y = ty, w = z100_w + 4, h = TOOLBAR_H }
+    end
+  end
 
-  -- 6. Provider & Model Toggle Button
+  -- 3. Zoom [+] and [-]
+  if not is_ultra then
+    local plus_w = 20
+    local plus_x = try_place_btn(plus_w)
+    if plus_x then
+      local plus_hov = is_hovered(mouse_x, mouse_y, plus_x, ty, plus_w, TOOLBAR_H)
+      draw_rect(plus_x, btn_y, plus_w, 24, plus_hov and COLORS.btn_hover or { 34, 38, 50, 255 })
+      renderer.draw_text(font, "+", math.floor(plus_x + (plus_w - font:get_width("+")) / 2), math.floor(btn_y + (24 - font:get_height()) / 2), plus_hov and { 255, 255, 255, 255 } or COLORS.btn_text)
+      hit_rects.zoom_in_rect = { x = plus_x - 2, y = ty, w = plus_w + 4, h = TOOLBAR_H }
+    end
+
+    local minus_w = 20
+    local minus_x = try_place_btn(minus_w)
+    if minus_x then
+      local minus_hov = is_hovered(mouse_x, mouse_y, minus_x, ty, minus_w, TOOLBAR_H)
+      draw_rect(minus_x, btn_y, minus_w, 24, minus_hov and COLORS.btn_hover or { 34, 38, 50, 255 })
+      renderer.draw_text(font, "-", math.floor(minus_x + (minus_w - font:get_width("-")) / 2), math.floor(btn_y + (24 - font:get_height()) / 2), minus_hov and { 255, 255, 255, 255 } or COLORS.btn_text)
+      hit_rects.zoom_out_rect = { x = minus_x - 2, y = ty, w = minus_w + 4, h = TOOLBAR_H }
+    end
+  end
+
+  -- 4. Provider & Model Pill
   local prov_name = provider and (provider:sub(1,1):upper() .. provider:sub(2)) or "AI"
   local short_model = model or "default"
   if #short_model > 18 then
     short_model = short_model:match("[^/]+$") or short_model
     if #short_model > 18 then short_model = short_model:sub(1, 15) .. "..." end
   end
-  local prov_label = string.format(" AI: %s (%s) ", prov_name, short_model)
-  local prov_w     = font:get_width(prov_label) + 18
-  local prov_x     = minus_x - prov_w - 8
-  local prov_hov   = is_hovered(mouse_x, mouse_y, prov_x, ty, prov_w, TOOLBAR_H)
-  draw_rect(prov_x, btn_y, prov_w, 24, prov_hov and { 52, 68, 98, 255 } or { 42, 55, 78, 255 })
-  draw_rect(prov_x, btn_y, prov_w, 1,  prov_hov and { 110, 155, 240, 255 } or { 75, 110, 180, 255 })
-  renderer.draw_text(font, prov_label, math.floor(prov_x + 5), math.floor(btn_y + (24 - font:get_height()) / 2), { 165, 205, 255, 255 })
 
-  local arrow_x = prov_x + prov_w - 11
-  local arrow_y = btn_y + 11
-  draw_rect(arrow_x,     arrow_y,     5, 1, { 165, 205, 255, 255 })
-  draw_rect(arrow_x + 1, arrow_y + 1, 3, 1, { 165, 205, 255, 255 })
-  draw_rect(arrow_x + 2, arrow_y + 2, 1, 1, { 165, 205, 255, 255 })
+  local prov_label
+  if is_ultra then
+    prov_label = "⚡"
+  elseif is_compact then
+    prov_label = " ⚡ " .. prov_name .. " "
+  else
+    prov_label = string.format(" AI: %s (%s) ", prov_name, short_model)
+  end
+  local prov_w   = font:get_width(prov_label) + (is_compact and 8 or 16)
+  local prov_x   = try_place_btn(prov_w)
+  if prov_x then
+    local prov_hov = is_hovered(mouse_x, mouse_y, prov_x, ty, prov_w, TOOLBAR_H)
+    draw_rect(prov_x, btn_y, prov_w, 24, prov_hov and { 52, 68, 98, 255 } or { 42, 55, 78, 255 })
+    draw_rect(prov_x, btn_y, prov_w, 1,  prov_hov and { 110, 155, 240, 255 } or { 75, 110, 180, 255 })
+    renderer.draw_text(font, prov_label, math.floor(prov_x + 4), math.floor(btn_y + (24 - font:get_height()) / 2), { 165, 205, 255, 255 })
+    if not is_ultra and not is_compact then
+      local arrow_x = prov_x + prov_w - 10
+      local arrow_y = btn_y + 11
+      draw_rect(arrow_x,     arrow_y,     5, 1, { 165, 205, 255, 255 })
+      draw_rect(arrow_x + 1, arrow_y + 1, 3, 1, { 165, 205, 255, 255 })
+      draw_rect(arrow_x + 2, arrow_y + 2, 1, 1, { 165, 205, 255, 255 })
+    end
+    hit_rects.provider_rect = { x = prov_x - 3, y = ty, w = prov_w + 6, h = TOOLBAR_H }
+  end
 
-  -- 7. Search / Find Controls
+  -- 5. Search / Find Controls
   local search_query     = (view and view.search_query) or ""
   local search_matches   = (view and view.search_matches) or {}
   local search_match_idx = (view and view.search_match_idx) or 0
 
-  local search_rect       = nil
-  local search_clear_rect = nil
-  local search_next_rect  = nil
-  local search_prev_rect  = nil
-
   if not search_query or search_query == "" then
-    local search_label = (tw > 1050) and " Find (Ctrl+F) " or " Find "
-    local search_w     = font:get_width(search_label) + 24
-    local search_x     = prov_x - search_w - 8
-    local search_hov   = is_hovered(mouse_x, mouse_y, search_x, ty, search_w, TOOLBAR_H)
-
-    draw_rect(search_x, btn_y, search_w, 24, search_hov and COLORS.btn_hover or { 38, 44, 58, 255 })
-    draw_rect(search_x, btn_y, search_w, 1,  search_hov and { 130, 170, 240, 255 } or { 60, 75, 105, 255 })
-
-    local gx = search_x + 7
-    local gy = btn_y + 8
-    local icon_col = search_hov and { 245, 250, 255, 255 } or { 150, 180, 230, 255 }
-    draw_rect(gx + 1, gy,     3, 1, icon_col)
-    draw_rect(gx + 1, gy + 4, 3, 1, icon_col)
-    draw_rect(gx,     gy + 1, 1, 3, icon_col)
-    draw_rect(gx + 4, gy + 1, 1, 3, icon_col)
-    draw_rect(gx + 4, gy + 4, 2, 2, icon_col)
-    draw_rect(gx + 6, gy + 6, 2, 2, icon_col)
-
-    renderer.draw_text(font, search_label, math.floor(search_x + 18), math.floor(btn_y + (24 - font:get_height()) / 2), search_hov and { 245, 250, 255, 255 } or COLORS.btn_text)
-    search_rect = { x = search_x - 3, y = ty, w = search_w + 6, h = TOOLBAR_H }
+    local search_label = is_compact and " 🔍 " or ((tw > 1050) and " Find (Ctrl+F) " or " Find ")
+    local search_w     = font:get_width(search_label) + (is_compact and 6 or 16)
+    local search_x     = try_place_btn(search_w)
+    if search_x then
+      local search_hov = is_hovered(mouse_x, mouse_y, search_x, ty, search_w, TOOLBAR_H)
+      draw_rect(search_x, btn_y, search_w, 24, search_hov and COLORS.btn_hover or { 38, 44, 58, 255 })
+      draw_rect(search_x, btn_y, search_w, 1,  search_hov and { 130, 170, 240, 255 } or { 60, 75, 105, 255 })
+      renderer.draw_text(font, search_label, math.floor(search_x + (search_w - font:get_width(search_label)) / 2), math.floor(btn_y + (24 - font:get_height()) / 2), search_hov and { 245, 250, 255, 255 } or COLORS.btn_text)
+      hit_rects.search_rect = { x = search_x - 2, y = ty, w = search_w + 4, h = TOOLBAR_H }
+    end
   else
     local match_count = #search_matches
-    local match_info  = (match_count > 0) and string.format("%d/%d", search_match_idx, match_count) or "0 matches"
+    local match_info  = (match_count > 0) and string.format("%d/%d", search_match_idx, match_count) or "0"
     local q_disp      = search_query
-    if #q_disp > 14 then q_disp = q_disp:sub(1, 12) .. "..." end
+    if #q_disp > 10 then q_disp = q_disp:sub(1, 8) .. ".." end
     local search_label = string.format(" %q (%s) ", q_disp, match_info)
+    local search_w   = font:get_width(search_label) + 12
+    local search_x   = try_place_btn(search_w)
+    if search_x then
+      local search_hov = is_hovered(mouse_x, mouse_y, search_x, ty, search_w, TOOLBAR_H)
+      local pill_bg = (match_count > 0) and (search_hov and { 45, 65, 95, 255 } or { 32, 48, 72, 255 }) or { 55, 30, 30, 255 }
+      local pill_bdr = (match_count > 0) and { 217, 119, 6, 255 } or { 180, 60, 60, 255 }
+      draw_rect(search_x, btn_y, search_w, 24, pill_bg)
+      draw_rect(search_x, btn_y, search_w, 1,  pill_bdr)
+      renderer.draw_text(font, search_label, math.floor(search_x + 6), math.floor(btn_y + (24 - font:get_height()) / 2), (match_count > 0) and { 255, 230, 150, 255 } or { 255, 170, 170, 255 })
+      hit_rects.search_rect = { x = search_x - 2, y = ty, w = search_w + 4, h = TOOLBAR_H }
 
-    local search_w   = font:get_width(search_label) + 24
-    local search_x   = prov_x - search_w - 8
-    local search_hov = is_hovered(mouse_x, mouse_y, search_x, ty, search_w, TOOLBAR_H)
-
-    local pill_bg = (match_count > 0) and (search_hov and { 45, 65, 95, 255 } or { 32, 48, 72, 255 })
-                                       or (search_hov and { 70, 40, 40, 255 } or { 55, 30, 30, 255 })
-    local pill_border = (match_count > 0) and (search_hov and { 245, 158, 11, 255 } or { 217, 119, 6, 255 })
-                                          or (search_hov and { 240, 90, 90, 255 }  or { 180, 60, 60, 255 })
-    draw_rect(search_x, btn_y, search_w, 24, pill_bg)
-    draw_rect(search_x, btn_y, search_w, 1,  pill_border)
-
-    local gx = search_x + 7
-    local gy = btn_y + 8
-    local icon_col = (match_count > 0) and { 255, 215, 110, 255 } or { 255, 140, 140, 255 }
-    draw_rect(gx + 1, gy,     3, 1, icon_col)
-    draw_rect(gx + 1, gy + 4, 3, 1, icon_col)
-    draw_rect(gx,     gy + 1, 1, 3, icon_col)
-    draw_rect(gx + 4, gy + 1, 1, 3, icon_col)
-    draw_rect(gx + 4, gy + 4, 2, 2, icon_col)
-    draw_rect(gx + 6, gy + 6, 2, 2, icon_col)
-
-    local text_col = (match_count > 0) and { 255, 230, 150, 255 } or { 255, 170, 170, 255 }
-    renderer.draw_text(font, search_label, math.floor(search_x + 18), math.floor(btn_y + (24 - font:get_height()) / 2), text_col)
-    search_rect = { x = search_x - 3, y = ty, w = search_w + 6, h = TOOLBAR_H }
-
-    local clr_w   = 20
-    local clr_x   = search_x - clr_w - 4
-    local clr_hov = is_hovered(mouse_x, mouse_y, clr_x, ty, clr_w, TOOLBAR_H)
-    draw_rect(clr_x, btn_y, clr_w, 24, clr_hov and COLORS.btn_hover or { 38, 42, 54, 255 })
-    draw_rect(clr_x, btn_y, clr_w, 1,  clr_hov and { 240, 100, 100, 255 } or { 70, 60, 70, 255 })
-    renderer.draw_text(font, "x", math.floor(clr_x + 6), math.floor(btn_y + (24 - font:get_height()) / 2), clr_hov and { 255, 100, 100, 255 } or { 200, 120, 120, 255 })
-    search_clear_rect = { x = clr_x - 2, y = ty, w = clr_w + 4, h = TOOLBAR_H }
-
-    if match_count > 1 then
-      local nxt_w   = 20
-      local nxt_x   = clr_x - nxt_w - 3
-      local nxt_hov = is_hovered(mouse_x, mouse_y, nxt_x, ty, nxt_w, TOOLBAR_H)
-      draw_rect(nxt_x, btn_y, nxt_w, 24, nxt_hov and COLORS.btn_hover or { 38, 42, 54, 255 })
-      draw_rect(nxt_x, btn_y, nxt_w, 1,  nxt_hov and { 130, 170, 240, 255 } or { 55, 68, 95, 255 })
-      renderer.draw_text(font, ">", math.floor(nxt_x + 6), math.floor(btn_y + (24 - font:get_height()) / 2), nxt_hov and { 255, 255, 255, 255 } or COLORS.btn_text)
-      search_next_rect = { x = nxt_x - 2, y = ty, w = nxt_w + 4, h = TOOLBAR_H }
-
-      local prv_w   = 20
-      local prv_x   = nxt_x - prv_w - 2
-      local prv_hov = is_hovered(mouse_x, mouse_y, prv_x, ty, prv_w, TOOLBAR_H)
-      draw_rect(prv_x, btn_y, prv_w, 24, prv_hov and COLORS.btn_hover or { 38, 42, 54, 255 })
-      draw_rect(prv_x, btn_y, prv_w, 1,  prv_hov and { 130, 170, 240, 255 } or { 55, 68, 95, 255 })
-      renderer.draw_text(font, "<", math.floor(prv_x + 6), math.floor(btn_y + (24 - font:get_height()) / 2), prv_hov and { 255, 255, 255, 255 } or COLORS.btn_text)
-      search_prev_rect = { x = prv_x - 2, y = ty, w = prv_w + 4, h = TOOLBAR_H }
+      -- Clear 'x' button
+      local clr_w = 18
+      local clr_x = try_place_btn(clr_w)
+      if clr_x then
+        local clr_hov = is_hovered(mouse_x, mouse_y, clr_x, ty, clr_w, TOOLBAR_H)
+        draw_rect(clr_x, btn_y, clr_w, 24, clr_hov and COLORS.btn_hover or { 38, 42, 54, 255 })
+        renderer.draw_text(font, "x", math.floor(clr_x + (clr_w - font:get_width("x")) / 2), math.floor(btn_y + (24 - font:get_height()) / 2), clr_hov and { 255, 100, 100, 255 } or { 200, 120, 120, 255 })
+        hit_rects.search_clear_rect = { x = clr_x - 2, y = ty, w = clr_w + 4, h = TOOLBAR_H }
+      end
     end
   end
 
-  -- Anchor left of search bar
-  local search_anchor = (search_rect and search_rect.x or prov_x)
-  if search_clear_rect and search_clear_rect.x < search_anchor then
-    search_anchor = (search_prev_rect and search_prev_rect.x or (search_clear_rect and search_clear_rect.x or search_rect.x))
+  -- 6. Ask AI & Audit Doctor (Only if space allows)
+  if not is_ultra then
+    local ask_ai_label = (view and view.ai_insight) and ((tw > 1200) and " Ask AI: ON " or " AI: ON ") or ((tw > 1200) and " Ask AI " or " ✨ AI ")
+    local ask_ai_w     = font:get_width(ask_ai_label) + 8
+    local ask_ai_x     = try_place_btn(ask_ai_w)
+    if ask_ai_x then
+      local ask_ai_hov = is_hovered(mouse_x, mouse_y, ask_ai_x, ty, ask_ai_w, TOOLBAR_H)
+      local is_ask_on  = (view and view.ai_insight ~= nil)
+      draw_rect(ask_ai_x, btn_y, ask_ai_w, 24, is_ask_on and { 65, 30, 95, 255 } or (ask_ai_hov and { 55, 35, 80, 255 } or { 34, 26, 48, 255 }))
+      draw_rect(ask_ai_x, btn_y, ask_ai_w, 1,  is_ask_on and { 192, 132, 252, 255 } or (ask_ai_hov and { 168, 85, 247, 255 } or { 90, 50, 130, 255 }))
+      renderer.draw_text(font, ask_ai_label, math.floor(ask_ai_x + 4), math.floor(btn_y + (24 - font:get_height()) / 2), is_ask_on and { 245, 230, 255, 255 } or { 216, 180, 254, 255 })
+      hit_rects.ask_ai_rect = { x = ask_ai_x - 2, y = ty, w = ask_ai_w + 4, h = TOOLBAR_H }
+    end
+
+    local audit_label = (view and view.audit_open) and " Audit: ON " or ((tw > 1200) and " Audit " or " 🩺 ")
+    local audit_w     = font:get_width(audit_label) + 8
+    local audit_x     = try_place_btn(audit_w)
+    if audit_x then
+      local audit_hov = is_hovered(mouse_x, mouse_y, audit_x, ty, audit_w, TOOLBAR_H)
+      local is_audit_on = (view and view.audit_open)
+      draw_rect(audit_x, btn_y, audit_w, 24, is_audit_on and { 20, 65, 55, 255 } or (audit_hov and { 28, 55, 48, 255 } or { 20, 40, 36, 255 }))
+      draw_rect(audit_x, btn_y, audit_w, 1,  is_audit_on and { 45, 212, 191, 255 } or (audit_hov and { 20, 184, 166, 255 } or { 30, 95, 85, 255 }))
+      renderer.draw_text(font, audit_label, math.floor(audit_x + 4), math.floor(btn_y + (24 - font:get_height()) / 2), is_audit_on and { 230, 255, 250, 255 } or { 153, 246, 228, 255 })
+      hit_rects.audit_rect = { x = audit_x - 2, y = ty, w = audit_w + 4, h = TOOLBAR_H }
+    end
   end
 
-  -- 8c. AI Architecture Assistant ("Ask AI") Button (Anchored directly left of search bar)
-  local ask_ai_label = (view and view.ai_insight) and ((tw > 1200) and " Ask AI: ON " or " ON ") or ((tw > 1200) and " Ask AI " or " AI ")
-  local ask_ai_w     = font:get_width(ask_ai_label) + 12
-  local ask_ai_x     = search_anchor - ask_ai_w - 6
-  local ask_ai_hov   = is_hovered(mouse_x, mouse_y, ask_ai_x, ty, ask_ai_w, TOOLBAR_H)
-  local is_ask_on    = (view and view.ai_insight ~= nil)
-  draw_rect(ask_ai_x, btn_y, ask_ai_w, 24, is_ask_on and { 65, 30, 95, 255 } or (ask_ai_hov and { 55, 35, 80, 255 } or { 34, 26, 48, 255 }))
-  draw_rect(ask_ai_x, btn_y, ask_ai_w, 1,  is_ask_on and { 192, 132, 252, 255 } or (ask_ai_hov and { 168, 85, 247, 255 } or { 90, 50, 130, 255 }))
-  renderer.draw_text(font, ask_ai_label, math.floor(ask_ai_x + 6), math.floor(btn_y + (24 - font:get_height()) / 2), is_ask_on and { 245, 230, 255, 255 } or { 216, 180, 254, 255 })
-  local ask_ai_rect = { x = ask_ai_x - 2, y = ty, w = ask_ai_w + 4, h = TOOLBAR_H }
-
-  -- 8e. Architecture Health Doctor / Audit Button
-  local audit_label = (view and view.audit_open) and ((tw > 1200) and " Audit: ON " or " ON ") or ((tw > 1200) and " Audit " or " Audit ")
-  local audit_w     = font:get_width(audit_label) + 12
-  local audit_x     = ask_ai_x - audit_w - 6
-  local audit_hov   = is_hovered(mouse_x, mouse_y, audit_x, ty, audit_w, TOOLBAR_H)
-  local is_audit_on = (view and view.audit_open)
-  draw_rect(audit_x, btn_y, audit_w, 24, is_audit_on and { 20, 65, 55, 255 } or (audit_hov and { 28, 55, 48, 255 } or { 20, 40, 36, 255 }))
-  draw_rect(audit_x, btn_y, audit_w, 1,  is_audit_on and { 45, 212, 191, 255 } or (audit_hov and { 20, 184, 166, 255 } or { 30, 95, 85, 255 }))
-  renderer.draw_text(font, audit_label, math.floor(audit_x + 6), math.floor(btn_y + (24 - font:get_height()) / 2), is_audit_on and { 230, 255, 250, 255 } or { 153, 246, 228, 255 })
-  local audit_rect = { x = audit_x - 2, y = ty, w = audit_w + 4, h = TOOLBAR_H }
-
-  -- 10. Focus Lens / Blast Radius / Flow Trace Indicator Badges
-  local focus_exit_rect, impact_exit_rect, flow_exit_rect
-  if view and view.flow_trace then
-    local fl = view.flow_trace
-    local fl_label = string.format(" Flow: %s -> %s (%d hops) [x] ", fl.source, fl.target, fl.hops or 0)
-    local fl_w = fsmall:get_width(fl_label) + 10
-    local fl_x = badge_x
-    draw_rect(fl_x, ty + 6, fl_w, 24, { 14, 52, 60, 255 })
-    draw_rect(fl_x, ty + 6, fl_w, 1,  { 34, 211, 238, 255 })
-    renderer.draw_text(fsmall, fl_label, math.floor(fl_x + 5), math.floor(ty + 6 + (24 - fsmall:get_height()) / 2), { 165, 243, 252, 255 })
-    flow_exit_rect = { x = fl_x, y = ty, w = fl_w, h = TOOLBAR_H }
-  elseif view and view.focus_node_id then
-    local foc_label = string.format(" Focus: %s [x] ", view.focus_node_id)
-    local foc_w = fsmall:get_width(foc_label) + 10
-    local foc_x = badge_x
-    draw_rect(foc_x, ty + 6, foc_w, 24, { 55, 42, 20, 255 })
-    draw_rect(foc_x, ty + 6, foc_w, 1,  { 245, 158, 11, 255 })
-    renderer.draw_text(fsmall, foc_label, math.floor(foc_x + 5), math.floor(ty + 6 + (24 - fsmall:get_height()) / 2), { 255, 215, 110, 255 })
-    focus_exit_rect = { x = foc_x, y = ty, w = foc_w, h = TOOLBAR_H }
-  elseif view and view.impact_data then
-    local imp = view.impact_data
-    local imp_label = string.format(" Blast Radius: %s (%s RISK) [x] ", imp.target, imp.risk)
-    local imp_w = fsmall:get_width(imp_label) + 10
-    local imp_x = badge_x
-    draw_rect(imp_x, ty + 6, imp_w, 24, { 60, 28, 35, 255 })
-    draw_rect(imp_x, ty + 6, imp_w, 1,  { 244, 63, 94, 255 })
-    renderer.draw_text(fsmall, imp_label, math.floor(imp_x + 5), math.floor(ty + 6 + (24 - fsmall:get_height()) / 2), { 255, 160, 180, 255 })
-    impact_exit_rect = { x = imp_x, y = ty, w = imp_w, h = TOOLBAR_H }
-  end
-
-  return {
-    export_rect       = {},
-    guide_rect        = {},
-    reanalyze_rect    = {},
-    fit_rect          = { x = fit_x - 2,   y = ty, w = fit_w + 4,   h = TOOLBAR_H },
-    zoom100_rect      = { x = z100_x - 2,  y = ty, w = z100_w + 4,  h = TOOLBAR_H },
-    zoom_in_rect      = { x = plus_x - 2,  y = ty, w = plus_w + 4,  h = TOOLBAR_H },
-    zoom_out_rect     = { x = minus_x - 2, y = ty, w = minus_w + 4, h = TOOLBAR_H },
-    provider_rect     = { x = prov_x - 3,  y = ty, w = prov_w + 6,  h = TOOLBAR_H },
-    search_rect       = search_rect,
-    search_clear_rect = search_clear_rect,
-    search_next_rect  = search_next_rect,
-    search_prev_rect  = search_prev_rect,
-    inspector_rect    = nil,
-    heatmap_rect      = nil,
-    story_rect        = nil,
-    story_next_rect   = nil,
-    story_prev_rect   = nil,
-    story_exit_rect   = nil,
-    ask_ai_rect       = ask_ai_rect,
-    audit_rect        = audit_rect,
-    flow_exit_rect    = flow_exit_rect,
-    focus_exit_rect   = focus_exit_rect,
-    impact_exit_rect  = impact_exit_rect,
-  }
+  return hit_rects
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -6889,7 +6934,8 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
   -- Initial / Unmapped Project Hero State
   view.hero_rects = {}
 
-  local card_w = math.min(540, (view.size.x or 800) - 80)
+  local avail_view_w = (view and view.size and view.size.x) or 800
+  local card_w = math.max(260, math.min(520, avail_view_w - 40))
   local card_h = 240
   local bx = math.floor(cx - card_w / 2)
   local by = math.floor(cy - card_h / 2)
@@ -6903,20 +6949,26 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
 
   -- 1. Hero Title
   local title = "✦ Architecture Visualizer"
-  local tw = fbig:get_width(title)
-  renderer.draw_text(fbig, title, math.floor(cx - tw / 2), by + 20, { 245, 250, 255, 255 })
+  local title_font = (card_w < 380) and font or fbig
+  local tw = title_font:get_width(title)
+  renderer.draw_text(title_font, title, math.floor(cx - tw / 2), by + 20, { 245, 250, 255, 255 })
 
   -- 2. Subtitle
-  local sub = "Interactive Architectural Topology & Dependency Mapping"
+  local sub = (card_w < 400) and "Topology & Dependency Mapping" or "Interactive Architectural Topology & Dependency Mapping"
   local sw = font:get_width(sub)
+  if sw > card_w - 20 then
+    sub = truncate(sub, font, card_w - 20)
+    sw = font:get_width(sub)
+  end
   renderer.draw_text(font, sub, math.floor(cx - sw / 2), by + 50, { 160, 175, 205, 255 })
 
   -- 3. Provider & Model Selector Pill (Interactive click to configure)
   local prov = (view.provider or "nvidia"):upper()
   local mod = view.model or "nvidia/nemotron-3.5-bolt-e4b"
-  if #mod > 32 then mod = mod:sub(1, 29) .. "..." end
-  local pill_text = string.format(" Provider: %s   Model: %s  [Change] ", prov, mod)
-  local pw = fcode:get_width(pill_text) + 20
+  if #mod > 24 then mod = mod:match("[^/]+$") or mod end
+  if #mod > 24 then mod = mod:sub(1, 21) .. "..." end
+  local pill_text = (card_w < 420) and string.format(" %s : %s [Edit] ", prov, mod) or string.format(" Provider: %s   Model: %s  [Change] ", prov, mod)
+  local pw = math.min(fcode:get_width(pill_text) + 20, card_w - 20)
   local px = math.floor(cx - pw / 2)
   local py = by + 86
   local ph = 26
@@ -6924,12 +6976,13 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
 
   draw_rect(px, py, pw, ph, p_hov and { 45, 60, 88, 255 } or { 32, 42, 62, 255 })
   draw_rect(px, py, pw, 1, p_hov and { 130, 175, 255, 255 } or { 70, 95, 140, 255 })
-  renderer.draw_text(fcode, pill_text, px + 10, py + math.floor((ph - fcode:get_height()) / 2), p_hov and { 255, 255, 255, 255 } or { 190, 215, 255, 255 })
+  local disp_pill = truncate(pill_text, fcode, pw - 12)
+  renderer.draw_text(fcode, disp_pill, px + math.floor((pw - fcode:get_width(disp_pill)) / 2), py + math.floor((ph - fcode:get_height()) / 2), p_hov and { 255, 255, 255, 255 } or { 190, 215, 255, 255 })
   view.hero_rects.provider_pill = { x = px, y = py, w = pw, h = ph }
 
   -- 4. Action Button: [ 🚀 Explore & Map Project ]
-  local btn_text = " 🚀 Explore & Map Project "
-  local bw = font:get_width(btn_text) + 40
+  local btn_text = (card_w < 380) and " 🚀 Explore Project " or " 🚀 Explore & Map Project "
+  local bw = math.min(font:get_width(btn_text) + 36, card_w - 30)
   local bx_btn = math.floor(cx - bw / 2)
   local by_btn = by + 128
   local bh = 36
@@ -6937,7 +6990,7 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
 
   draw_rect(bx_btn, by_btn, bw, bh, b_hov and { 79, 70, 229, 255 } or { 67, 56, 202, 255 })
   draw_rect(bx_btn, by_btn, bw, 1, b_hov and { 165, 180, 252, 255 } or { 129, 140, 248, 255 })
-  renderer.draw_text(font, btn_text, bx_btn + 20, by_btn + math.floor((bh - font:get_height()) / 2), { 255, 255, 255, 255 })
+  renderer.draw_text(font, btn_text, bx_btn + math.floor((bw - font:get_width(btn_text)) / 2), by_btn + math.floor((bh - font:get_height()) / 2), { 255, 255, 255, 255 })
   view.hero_rects.explore_btn = { x = bx_btn, y = by_btn, w = bw, h = bh }
 
   -- 5. Footer info & shortcut
@@ -6949,11 +7002,15 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
     view._cached_file_count = count
     view._cached_file_count_time = now
   end
-  local info_text = string.format("%d project files detected • Analysis starts only when you click Explore", count)
+  local info_text = (card_w < 420) and string.format("%d files detected • Ready to explore", count) or string.format("%d project files detected • Analysis starts on click", count)
   local iw = fcode:get_width(info_text)
+  if iw > card_w - 16 then
+    info_text = truncate(info_text, fcode, card_w - 16)
+    iw = fcode:get_width(info_text)
+  end
   renderer.draw_text(fcode, info_text, math.floor(cx - iw / 2), by + 180, { 140, 155, 180, 255 })
 
-  local hint_text = "(or press Ctrl+Shift+Y to start anytime)"
+  local hint_text = "(Ctrl+Shift+Y to start anytime)"
   local hw = fcode:get_width(hint_text)
   renderer.draw_text(fcode, hint_text, math.floor(cx - hw / 2), by + 202, { 100, 115, 140, 255 })
 end
@@ -7752,43 +7809,18 @@ function VisualizerView:new()
   self.story_step_idx   = 1
   self.story_tours      = {}
   self.heatmap_mode     = false
-  self.has_fitted      = false
-  self.sidebar_collapsed = false
-  self.sidebar_w         = 210
-  self.right_rail_open   = true
+  self.has_fitted        = false
+  self.sidebar_collapsed = true
+  self.sidebar_w         = 200 * SCALE
+  self.right_rail_open   = false
   self.right_rail_tab    = "dimensions"
-  self.right_rail_w      = 380
+  self.right_rail_w      = 340 * SCALE
   self.custom_node_w     = 230
   self.custom_node_h     = 84
   self.custom_h_gap      = 70
   self.custom_v_gap      = 55
   self.right_rail_hits   = {}
-  self.ai_insight        = nil
-  self.ai_insight_loading = false
-  self.ai_insight_query   = nil
-  self.ai_banner_rects   = {}
-  self.ai_insight_enlarged = false
-  self.ai_insight_scroll_y = 0
-  self.audit_open        = false
-  self.audit_data        = nil
-  self.audit_rects       = {}
-  self.audit_finding_enlarged = nil
-  self.audit_enlarged_scroll_y = 0
-  self.audit_enlarged_rects    = {}
-  self.flow_trace        = nil
-  self.flow_rects        = {}
   self.show_suggested_nodes = true
-  self.has_fitted      = false
-  self.sidebar_collapsed = false
-  self.sidebar_w         = 210
-  self.right_rail_open   = true
-  self.right_rail_tab    = "dimensions"
-  self.right_rail_w      = 380
-  self.custom_node_w     = 230
-  self.custom_node_h     = 84
-  self.custom_h_gap      = 70
-  self.custom_v_gap      = 55
-  self.right_rail_hits   = {}
   self.ai_insight        = nil
   self.ai_insight_loading = false
   self.ai_insight_query   = nil
@@ -8309,6 +8341,47 @@ function VisualizerView:next_category()
   self:switch_category(next_idx)
 end
 
+function VisualizerView:pick_category_dialog()
+  if not self.categories or #self.categories == 0 then
+    show_toast("No architecture diagrams generated yet")
+    return
+  end
+  local cat_items = {}
+  for i, name in ipairs(self.categories) do
+    table.insert(cat_items, { text = string.format("%d. %s", i, name), idx = i, name = name })
+  end
+  core.command_view:enter("Switch Architecture View", {
+    submit = function(text, item)
+      local idx = item and item.idx
+      if not idx and text then
+        local num = tonumber(text:match("^(%d+)"))
+        if num and num >= 1 and num <= #self.categories then
+          idx = num
+        else
+          for i, n in ipairs(self.categories) do
+            if n:lower():find(text:lower(), 1, true) then
+              idx = i
+              break
+            end
+          end
+        end
+      end
+      if idx then
+        self:switch_category(idx)
+      end
+    end,
+    suggest = function(text)
+      local res = {}
+      for _, it in ipairs(cat_items) do
+        if text == "" or it.text:lower():find(text:lower(), 1, true) or it.name:lower():find(text:lower(), 1, true) then
+          table.insert(res, it)
+        end
+      end
+      return res
+    end
+  })
+end
+
 function VisualizerView:reset_viewport()
   self:fit_to_view()
 end
@@ -8322,23 +8395,35 @@ function VisualizerView:fit_to_view()
     for _, n in ipairs(diag.nodes) do
       min_x = math.min(min_x, n.x or 0)
       min_y = math.min(min_y, n.y or 0)
-      max_x = math.max(max_x, (n.x or 0) + (n.w or 210))
-      max_y = math.max(max_y, (n.y or 0) + (n.h or 76))
+      max_x = math.max(max_x, (n.x or 0) + (n.w or (self.custom_node_w or 230)))
+      max_y = math.max(max_y, (n.y or 0) + (n.h or (self.custom_node_h or 84)))
     end
     local gw = math.max(max_x - min_x, 100)
     local gh = math.max(max_y - min_y, 100)
-    local rail_w       = self.sidebar_collapsed and 52 or (self.sidebar_w or 210)
+
+    local is_sidebar = (w < 760 * SCALE)
+    local rail_w
+    if self.sidebar_collapsed then
+      rail_w = 44 * SCALE
+    elseif is_sidebar then
+      rail_w = math.min(180 * SCALE, math.floor(w * 0.4))
+    else
+      rail_w = self.sidebar_w or (200 * SCALE)
+    end
     DiagramRenderer.RAIL_W = rail_w
-    local right_rail_w = (not self.right_rail_open) and 60 or (self.right_rail_w or 380)
-    DiagramRenderer.RIGHT_RAIL_W = right_rail_w
-    local avail_w      = math.max(w - rail_w - right_rail_w - 80, 200)
-    local avail_h      = math.max(h - (DiagramRenderer.TOOLBAR_H or 38) - (DiagramRenderer.STATUS_H or 28) - 80, 200)
+
+    local strip_w = (is_sidebar and 44 or 54) * SCALE
+    local right_space = is_sidebar and strip_w or ((not self.right_rail_open) and strip_w or math.min(self.right_rail_w or (360 * SCALE), math.floor(w * 0.35)))
+    DiagramRenderer.RIGHT_RAIL_W = right_space
+
+    local avail_w = math.max(w - rail_w - right_space - 40 * SCALE, 160 * SCALE)
+    local avail_h = math.max(h - (DiagramRenderer.TOOLBAR_H or 36) - (DiagramRenderer.STATUS_H or 28) - 40 * SCALE, 160 * SCALE)
 
     local fit_scale = math.min(avail_w / gw, avail_h / gh)
-    self.scale = math.max(0.25, math.min(fit_scale, 1.15))
+    self.scale = math.max(0.22, math.min(fit_scale, 1.25))
 
-    local cx = self.position.x + rail_w + (w - rail_w - right_rail_w) / 2
-    local cy = self.position.y + (DiagramRenderer.TOOLBAR_H or 38) + (h - (DiagramRenderer.TOOLBAR_H or 38) - (DiagramRenderer.STATUS_H or 28)) / 2
+    local cx = self.position.x + rail_w + (w - rail_w - right_space) / 2
+    local cy = self.position.y + (DiagramRenderer.TOOLBAR_H or 36) + (h - (DiagramRenderer.TOOLBAR_H or 36) - (DiagramRenderer.STATUS_H or 28)) / 2
     local gcx = (min_x + max_x) / 2
     local gcy = (min_y + max_y) / 2
     self.pan_x = cx - gcx * self.scale
@@ -9796,37 +9881,57 @@ end
 function VisualizerView:draw()
   self:draw_background(style.background or { 24, 24, 28, 255 })
   local x, y, w, h = self:get_content_bounds()
-  local tb_h   = DiagramRenderer.TOOLBAR_H or 38
-  local rail_w = self.sidebar_collapsed and 52 or (self.sidebar_w or 210)
-  DiagramRenderer.RAIL_W = rail_w
+  local tb_h   = DiagramRenderer.TOOLBAR_H or 36
   local st_h   = DiagramRenderer.STATUS_H or 28
 
-local diag = self:get_effective_diagram()
-  local node_cnt = (diag and diag.nodes) and #diag.nodes or 0
-  local edge_cnt = (diag and diag.edges) and #diag.edges or 0
+  local is_sidebar_mode = (w < 760 * SCALE)
+  local is_compact      = (w < 580 * SCALE)
+  local is_ultra        = (w < 420 * SCALE)
 
-  self.toolbar_rects = DiagramRenderer.draw_toolbar(self, x, y, w, self.provider, self.model, node_cnt, edge_cnt, self.scale, self.mouse_x, self.mouse_y)
-
-  local insp_w = 0
-  if self.inspector_open and self.inspector_node then
-    insp_w = math.min(320, math.floor(w * 0.35))
+  -- Responsive Left Rail width
+  local rail_w
+  if self.sidebar_collapsed then
+    rail_w = 44 * SCALE
+  elseif is_sidebar_mode then
+    rail_w = math.min(180 * SCALE, math.floor(w * 0.4))
+  else
+    rail_w = self.sidebar_w or (200 * SCALE)
   end
+  DiagramRenderer.RAIL_W = rail_w
 
-  self.rail_hit_rects = DiagramRenderer.draw_left_rail(
-    self, self.categories, self.active_category_idx, x, y + tb_h, rail_w, h - tb_h - st_h, self.mouse_x, self.mouse_y
-  )
+  -- Responsive Right Strip width
+  local strip_w = (is_sidebar_mode and 44 or 54) * SCALE
 
-  local right_rail_w = (not self.right_rail_open) and 60 or (self.right_rail_w or 380)
+  -- Determine right rail geometry
+  local right_rail_w
+  local right_rail_x
+  if is_sidebar_mode then
+    if self.right_rail_open then
+      local panel_w = math.min(w - 50 * SCALE, 320 * SCALE)
+      right_rail_w = strip_w + panel_w
+      right_rail_x = x + w - right_rail_w
+    else
+      right_rail_w = strip_w
+      right_rail_x = x + w - strip_w
+    end
+  else
+    right_rail_w = (not self.right_rail_open) and strip_w or math.min(self.right_rail_w or (360 * SCALE), math.floor(w * 0.35))
+    right_rail_x = x + w - right_rail_w
+  end
   DiagramRenderer.RIGHT_RAIL_W = right_rail_w
 
-  self.right_rail_hits = DiagramRenderer.draw_right_rail(
-    self, x + w - right_rail_w, y + tb_h, right_rail_w, h - tb_h - st_h, self.mouse_x, self.mouse_y
-  )
-
+  -- Canvas bounds: in sidebar mode, canvas is between rail_w and strip_w!
   local cx = x + rail_w
   local cy = y + tb_h
-  local cw = math.max(w - rail_w - right_rail_w, 1)
+  local cw = math.max(w - rail_w - strip_w, 1)
   local ch = math.max(h - tb_h - st_h, 1)
+  if not is_sidebar_mode and self.right_rail_open then
+    cw = math.max(w - rail_w - right_rail_w, 1)
+  end
+
+  local diag = self:get_effective_diagram()
+  local node_cnt = (diag and diag.nodes) and #diag.nodes or 0
+  local edge_cnt = (diag and diag.edges) and #diag.edges or 0
 
   -- Auto-fit once on first render with valid dimensions
   if not self.has_fitted and w > 200 and h > 200 then
@@ -9834,6 +9939,7 @@ local diag = self:get_effective_diagram()
     self.has_fitted = true
   end
 
+  -- 1. Render Diagram Canvas
   if self.is_analyzing then
     local pinfo = AIAnalyzer.PROVIDERS[self.provider]
     DiagramRenderer.draw_spinner(self, cx + cw / 2, cy + ch / 2 - 20, self.spinner_time, pinfo and pinfo.name or self.provider)
@@ -9865,20 +9971,36 @@ local diag = self:get_effective_diagram()
     end
   end
 
-  -- Draw Component Deep-Dive Inspector Drawer
+  -- 2. Left Activity Rail
+  self.rail_hit_rects = DiagramRenderer.draw_left_rail(
+    self, self.categories, self.active_category_idx, x, y + tb_h, rail_w, h - tb_h - st_h, self.mouse_x, self.mouse_y
+  )
+
+  -- 3. Right Activity Rail & Drawer
+  if is_sidebar_mode and self.right_rail_open then
+    -- Semi-transparent canvas scrim to focus on overlay drawer
+    draw_rect(x, y + tb_h, right_rail_x - x, h - tb_h - st_h, { 0, 0, 0, 110 })
+  end
+
+  self.right_rail_hits = DiagramRenderer.draw_right_rail(
+    self, right_rail_x, y + tb_h, right_rail_w, h - tb_h - st_h, self.mouse_x, self.mouse_y
+  )
+
+  -- 4. Draw Component Deep-Dive Inspector Drawer (if open)
   if self.inspector_open and self.inspector_node then
+    local insp_w = is_sidebar_mode and math.min(320, w - 50) or math.min(340, math.floor(w * 0.35))
     self.inspector_rects = DiagramRenderer.draw_inspector(
       self, self.inspector_node, diag and diag.edges or {},
-      x + cw, y + tb_h, insp_w, h - tb_h - st_h,
+      x + w - insp_w, y + tb_h, insp_w, h - tb_h - st_h,
       self.mouse_x, self.mouse_y
     )
   else
     self.inspector_rects = {}
   end
 
-  -- Draw Architecture Audit Drawer
+  -- 5. Draw Architecture Audit Drawer (if open)
   if self.audit_open and self.audit_data then
-    local audit_w = math.min(340, math.floor(w * 0.38))
+    local audit_w = is_sidebar_mode and math.min(340, w - 50) or math.min(360, math.floor(w * 0.38))
     self.audit_rects = DiagramRenderer.draw_audit_drawer(
       self, self.audit_data,
       x + w - audit_w, y + tb_h, audit_w, h - tb_h - st_h,
@@ -9888,7 +10010,7 @@ local diag = self:get_effective_diagram()
     self.audit_rects = {}
   end
 
-  -- Draw AI Architecture Insight Banner
+  -- 6. Draw AI Architecture Insight Banner
   if self.ai_insight or self.ai_insight_loading then
     self.ai_banner_rects = DiagramRenderer.draw_ai_insight_banner(
       self, self.ai_insight or { query = self.ai_insight_query, text = "Analyzing architecture graph..." },
@@ -9898,7 +10020,7 @@ local diag = self:get_effective_diagram()
     self.ai_banner_rects = {}
   end
 
-  -- Draw Enlarged Architecture Audit Finding Modal
+  -- 7. Draw Enlarged Architecture Audit Finding Modal
   if self.audit_finding_enlarged then
     self.audit_enlarged_rects = DiagramRenderer.draw_enlarged_audit_finding_card(
       self, self.audit_finding_enlarged, cx, cy, cw, ch, self.mouse_x, self.mouse_y
@@ -9906,6 +10028,9 @@ local diag = self:get_effective_diagram()
   else
     self.audit_enlarged_rects = {}
   end
+
+  -- 8. Draw Toolbar (drawn on top so it always stays accessible and never obscured)
+  self.toolbar_rects = DiagramRenderer.draw_toolbar(self, x, y, w, self.provider, self.model, node_cnt, edge_cnt, self.scale, self.mouse_x, self.mouse_y)
 
   if self.show_tooltip and self.hovered_node and not self.inspector_open then
     DiagramRenderer.draw_tooltip(self, self.hovered_node, diag and diag.edges or {}, self.mouse_x, self.mouse_y)
@@ -9984,10 +10109,31 @@ function VisualizerView:on_mouse_pressed(button, px, py, clicks)
   end
 
   -- Right Activity Rail (Secondary Sidebar) Click Handling
-  local tb_h         = DiagramRenderer.TOOLBAR_H or 38
-  local st_h         = DiagramRenderer.STATUS_H or 28
-  local right_rail_w = (not self.right_rail_open) and 60 or (self.right_rail_w or 380)
-  local rx2 = self.position.x + self.size.x - right_rail_w
+  local tb_h   = DiagramRenderer.TOOLBAR_H or 36
+  local st_h   = DiagramRenderer.STATUS_H or 28
+  local is_sidebar_mode = (self.size.x < 760 * SCALE)
+  local strip_w = (is_sidebar_mode and 44 or 54) * SCALE
+  local right_rail_w
+  local rx2
+  if is_sidebar_mode then
+    if self.right_rail_open then
+      local panel_w = math.min(self.size.x - 50 * SCALE, 320 * SCALE)
+      right_rail_w = strip_w + panel_w
+      rx2 = self.position.x + self.size.x - right_rail_w
+      -- If clicked on dimmed canvas backdrop outside overlay drawer, close the drawer!
+      if px >= self.position.x and px < rx2 and py >= self.position.y + tb_h and py <= self.position.y + self.size.y - st_h then
+        self.right_rail_open = false
+        core.redraw = true
+        return true
+      end
+    else
+      right_rail_w = strip_w
+      rx2 = self.position.x + self.size.x - strip_w
+    end
+  else
+    right_rail_w = (not self.right_rail_open) and strip_w or math.min(self.right_rail_w or (360 * SCALE), math.floor(self.size.x * 0.35))
+    rx2 = self.position.x + self.size.x - right_rail_w
+  end
   local ry2 = self.position.y + tb_h
   local rw2 = right_rail_w
   local rh2 = self.size.y - tb_h - st_h
@@ -10212,6 +10358,10 @@ function VisualizerView:on_mouse_pressed(button, px, py, clicks)
   end
 
   -- Toolbar Controls
+  if self.toolbar_rects and self.toolbar_rects.category_pill and point_in_rect(px, py, self.toolbar_rects.category_pill) then
+    self:pick_category_dialog()
+    return true
+  end
   if self.toolbar_rects and self.toolbar_rects.ask_ai_rect and point_in_rect(px, py, self.toolbar_rects.ask_ai_rect) then
     self:open_ai_ask()
     return true
@@ -10417,8 +10567,15 @@ function VisualizerView:on_mouse_pressed(button, px, py, clicks)
     end
   end
 
-  local tb_h   = DiagramRenderer.TOOLBAR_H or 38
-  local rail_w = self.sidebar_collapsed and 52 or (self.sidebar_w or 210)
+  local tb_h   = DiagramRenderer.TOOLBAR_H or 36
+  local rail_w
+  if self.sidebar_collapsed then
+    rail_w = 44 * SCALE
+  elseif is_sidebar_mode then
+    rail_w = math.min(180 * SCALE, math.floor(self.size.x * 0.4))
+  else
+    rail_w = self.sidebar_w or (200 * SCALE)
+  end
   DiagramRenderer.RAIL_W = rail_w
   local st_h   = DiagramRenderer.STATUS_H or 28
   if px >= self.position.x and px <= self.position.x + rail_w and
@@ -10427,6 +10584,7 @@ function VisualizerView:on_mouse_pressed(button, px, py, clicks)
       local tr = self.rail_hit_rects.toggle_rect
       if px >= tr.x and px <= tr.x + tr.w and py >= tr.y and py <= tr.y + tr.h then
         self.sidebar_collapsed = not self.sidebar_collapsed
+        self:fit_to_view()
         core.redraw = true
         return true
       end
@@ -10583,17 +10741,26 @@ local function open_visualizer()
   local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node()
   if view then
     if sidebar and node == sidebar then
+      if (sidebar.size.x or 0) < 540 * SCALE then
+        sidebar.size.x = 540 * SCALE
+        view.size.x = 540 * SCALE
+      end
       sidebar:set_active_view(view)
     elseif node then
       node:set_active_view(view)
     end
     core.set_active_view(view)
+    view:fit_to_view()
     return view
   end
 
   local new_view = VisualizerView()
   new_view.visible = true
   if sidebar then
+    if (sidebar.size.x or 0) < 540 * SCALE then
+      sidebar.size.x = 540 * SCALE
+      new_view.size.x = 540 * SCALE
+    end
     -- Add new view first so node is never empty/destroyed
     if not core.root_view.root_node:get_node_for_view(new_view) then
       sidebar:add_view(new_view)
@@ -10620,11 +10787,12 @@ local function open_visualizer()
         sidebar._ab_patched = true
       end
       rawset(_G, "_ag_sidebar_node", sidebar)
-      sidebar.size.x = 520 * SCALE
-      new_view.size.x = 520 * SCALE
+      sidebar.size.x = 540 * SCALE
+      new_view.size.x = 540 * SCALE
     end
   end
   core.set_active_view(new_view)
+  new_view:fit_to_view()
   return new_view
 end
 
@@ -10638,8 +10806,13 @@ local function toggle_visualizer()
       end
       rawset(_G, "_ag_sidebar_node", nil)
     elseif sidebar and node == sidebar then
+      if (sidebar.size.x or 0) < 540 * SCALE then
+        sidebar.size.x = 540 * SCALE
+        view.size.x = 540 * SCALE
+      end
       node:set_active_view(view)
       core.set_active_view(view)
+      view:fit_to_view()
     else
       node:close_view(core.root_view.root_node, view)
     end
@@ -10647,6 +10820,10 @@ local function toggle_visualizer()
     if not view then view = VisualizerView() end
     view.visible = true
     if sidebar then
+      if (sidebar.size.x or 0) < 540 * SCALE then
+        sidebar.size.x = 540 * SCALE
+        view.size.x = 540 * SCALE
+      end
       -- Add new view first so node is never empty/destroyed
       if not core.root_view.root_node:get_node_for_view(view) then
         sidebar:add_view(view)
@@ -10659,6 +10836,7 @@ local function toggle_visualizer()
       end
       sidebar:set_active_view(view)
       core.set_active_view(view)
+      view:fit_to_view()
     else
       local primary = core.root_view:get_primary_node()
       sidebar = primary:split("right", view, { x = true }, true)
@@ -10674,10 +10852,11 @@ local function toggle_visualizer()
           sidebar._ab_patched = true
         end
         rawset(_G, "_ag_sidebar_node", sidebar)
-        sidebar.size.x = 520 * SCALE
-        view.size.x = 520 * SCALE
+        sidebar.size.x = 540 * SCALE
+        view.size.x = 540 * SCALE
         sidebar:set_active_view(view)
         core.set_active_view(view)
+        view:fit_to_view()
       end
     end
   end
@@ -10685,6 +10864,9 @@ local function toggle_visualizer()
 end
 
 command.add(VisualizerView, {
+  ["ai_project_visualizer:pick_category"] = function(view)
+    view:pick_category_dialog()
+  end,
   ["ai_project_visualizer:find"] = function(view)
     view:open_search_prompt()
   end,
@@ -10739,7 +10921,11 @@ command.add(VisualizerView, {
     return false
   end,
   ["ai_project_visualizer:escape_action"] = function(view)
-    if view.focus_node_id then
+    if view.right_rail_open and (view.size.x < 760 * SCALE) then
+      view.right_rail_open = false
+      core.redraw = true
+      return true
+    elseif view.focus_node_id then
       view:exit_focus_lens()
       return true
     elseif view.impact_data then
