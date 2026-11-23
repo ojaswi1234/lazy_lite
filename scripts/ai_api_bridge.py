@@ -232,17 +232,18 @@ def list_models(provider, keys):
                     return [f"ollama/{m}" for m in ["gpt-oss:120b", "gemma4:31b", "nemotron-3-nano:30b", "gpt-oss:20b", "llama3.3", "mistral-large-3:675b"]]
                 elif p == "nvidia":
                     return [f"nvidia/{m}" for m in [
-                        "meta/llama-3.3-70b-instruct",
-                        "meta/llama-3.1-405b-instruct",
-                        "deepseek-ai/deepseek-r1",
-                        "deepseek-ai/deepseek-r1-distill-qwen-32b",
-                        "deepseek-ai/deepseek-coder-v2-lite-instruct",
-                        "qwen/qwen2.5-coder-32b-instruct",
-                        "nvidia/llama-3.3-nemotron-super-49b",
-                        "mistralai/mistral-large-2-instruct",
-                        "microsoft/phi-3-medium-128k-instruct",
-                        "google/gemma-2-27b-it",
-                        "snowflake/snowflake-arctic-instruct",
+                        "nvidia/nemotron-3.5-bolt-e4b",
+                        "poolside/laguna-xs-2.1",
+                        "nvidia/nemotron-3.5-lightning-30b-a3b",
+                        "minimaxai/minimax-m3.1-flash",
+                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+                        "nvidia/nemotron-3-ultra-550b-a55b",
+                        "nvidia/nemotron-3.5-super-vl-120b-a12b",
+                        "mistralai/mistral-large-4-1t-a52b",
+                        "moonshotai/kimi-k3.1-pro",
+                        "z-ai/glm-5.3-flash",
+                        "stepfun-ai/step-5-preview",
+                        "bigcode/starcoder2-15b"
                     ]]
                 return [f"MISSING_API_KEY:{p}"]
             continue
@@ -336,50 +337,60 @@ def list_models(provider, keys):
             elif p == "nvidia":
                 m_list = []
                 try:
-                    import urllib.request, json
-                    req = urllib.request.Request(
-                        "https://integrate.api.nvidia.com/v1/models",
-                        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
-                    )
-                    with urllib.request.urlopen(req, timeout=3.0) as resp:
-                        if resp.status == 200:
-                            data = json.loads(resp.read().decode("utf-8"))
-                            non_chat = [
-                                "embed", "rerank", "guard", "safety", "detector", "calibration",
-                                "clip", "pii", "ising", "audio", "video", "gliner", "reward",
-                                "qa-", "qa_", "retriever", "whisper", "tts", "vila", "glimmer",
-                                "topic-control"
-                            ]
-                            chat_traits = [
-                                "instruct", "-it", "chat", "preview", "flash", "r1", "coder",
-                                "code", "bolt", "lightning", "reason", "super", "ultra", "nano",
-                                "laguna", "starcoder", "kimi", "step", "glm", "minimax", "gemma",
-                                "llama", "mistral", "phi", "arctic"
-                            ]
-                            for m in data.get("data", []):
-                                mid = m.get("id", "")
-                                mid_lower = mid.lower()
-                                if mid and not any(x in mid_lower for x in non_chat):
-                                    if any(ct in mid_lower for ct in chat_traits):
-                                        m_list.append(mid)
+                    import json, subprocess
+                    # Query live NVIDIA API via resilient curl/subprocess
+                    cmd = [
+                        'curl.exe', '-s', '--max-time', '4',
+                        '-H', f'Authorization: Bearer {api_key}',
+                        '-H', 'Accept: application/json',
+                        'https://integrate.api.nvidia.com/v1/models'
+                    ]
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                    data = json.loads(res.stdout) if res.returncode == 0 and res.stdout.strip() else {}
+                    if "data" in data:
+                        non_chat = [
+                            "embed", "rerank", "guard", "safety", "detector", "calibration",
+                            "clip", "pii", "ising", "audio", "video", "gliner", "reward",
+                            "qa-", "qa_", "retriever", "whisper", "tts", "vila", "glimmer",
+                            "topic-control", "body-pose", "kumo", "rfd4"
+                        ]
+                        chat_traits = [
+                            "bolt", "lightning", "reason", "ultra", "super", "laguna",
+                            "flash", "preview", "instruct", "chat", "starcoder", "kimi",
+                            "step", "glm", "minimax", "mistral", "nemotron"
+                        ]
+                        for m in data.get("data", []):
+                            mid = m.get("id", "")
+                            mid_lower = mid.lower()
+                            if mid and not any(x in mid_lower for x in non_chat):
+                                if any(ct in mid_lower for ct in chat_traits):
+                                    m_list.append(mid)
                 except Exception:
                     pass
-                curated = [
-                    "meta/llama-3.3-70b-instruct",
-                    "meta/llama-3.1-405b-instruct",
-                    "deepseek-ai/deepseek-r1",
-                    "deepseek-ai/deepseek-r1-distill-qwen-32b",
-                    "deepseek-ai/deepseek-coder-v2-lite-instruct",
-                    "qwen/qwen2.5-coder-32b-instruct",
-                    "nvidia/llama-3.3-nemotron-super-49b",
-                    "mistralai/mistral-large-2-instruct",
-                    "microsoft/phi-3-medium-128k-instruct",
-                    "google/gemma-2-27b-it",
-                    "snowflake/snowflake-arctic-instruct",
+
+                # Verified free-tier preview models from build.nvidia.com
+                verified_active = [
+                    "nvidia/nemotron-3.5-bolt-e4b",
+                    "poolside/laguna-xs-2.1",
+                    "nvidia/nemotron-3.5-lightning-30b-a3b",
+                    "minimaxai/minimax-m3.1-flash",
+                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+                    "nvidia/nemotron-3-ultra-550b-a55b",
+                    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+                    "mistralai/mistral-large-4-1t-a52b",
+                    "moonshotai/kimi-k3.1-pro",
+                    "z-ai/glm-5.3-flash",
+                    "stepfun-ai/step-5-preview",
+                    "bigcode/starcoder2-15b"
                 ]
-                for c in curated:
-                    if c not in m_list:
-                        m_list.append(c)
+                if not m_list:
+                    m_list = verified_active
+                else:
+                    final_list = [v for v in verified_active if v in m_list]
+                    for other in m_list:
+                        if other not in final_list:
+                            final_list.append(other)
+                    m_list = final_list if final_list else verified_active
                 models.extend([f"nvidia/{m}" for m in m_list])
             elif p == "openai":
                 from openai import OpenAI
@@ -483,7 +494,7 @@ def list_models(provider, keys):
 
 RECOMMENDED_MODELS = {
     "groq": ["qwen/qwen3.8-27b", "llama-3.3-70b-versatile"],
-    "nvidia": ["meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1"],
+    "nvidia": ["nvidia/nemotron-3.5-bolt-e4b", "poolside/laguna-xs-2.1", "nvidia/nemotron-3.5-lightning-30b-a3b"],
     "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
     "openai": ["gpt-4o", "gpt-4o-mini"],
     "ollama": ["llama3.3", "mistral-large-3:675b", "qwen2.5-coder"],
@@ -517,12 +528,15 @@ def format_friendly_error(e: Exception, provider: str, model_name: str) -> str:
     rec_str = ", ".join(f"`{m}`" for m in recs) if recs else ""
     portal = KEY_PORTALS.get(p_key)
 
-    # 1. Model Not Found / 404
-    if "404" in low or "not found" in low or "does not exist" in low or "model_not_found" in low:
+    # 1. Model Deprecated / End of Life / Not Found (404 / 410)
+    if any(k in low for k in ("404", "410", "not found", "does not exist", "model_not_found", "end of life", "no longer available")):
+        is_eol = any(x in low for x in ("410", "end of life", "no longer available", "retired"))
+        title_str = "Model Retired (410 End of Life)" if is_eol else "Model Not Available (404 Not Found)"
+        desc_str = f"The model **`{m_name}`** has reached its end of life and is no longer available on **{p_title}**." if is_eol else f"The model **`{m_name}`** could not be found on **{p_title}**."
         lines = [
-            f"### ⚠️ Model Not Available (404 Not Found)",
+            f"### ⚠️ {title_str}",
             f"",
-            f"The model **`{m_name}`** could not be found on **{p_title}**.",
+            desc_str,
             f"",
             f"**Recommended Solutions:**",
         ]
@@ -530,7 +544,7 @@ def format_friendly_error(e: Exception, provider: str, model_name: str) -> str:
             lines.append(f"• **Switch Model**: Try a verified active model for {p_title}: {rec_str}")
         if p_key == "ollama":
             lines.append(f"• **Pull Locally**: Run `ollama pull {m_name}` in a terminal.")
-        lines.append(f"• **Refresh Models**: Choose another model from the dropdown in the sidebar header.")
+        lines.append(f"• **Refresh Models**: Choose an active model from the dropdown in the sidebar header.")
         lines.append(f"")
         lines.append(f"**Diagnostic Details:**")
         lines.append(f"```")

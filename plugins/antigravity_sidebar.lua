@@ -6299,7 +6299,7 @@ function AGView:_launch_team_builder()
       self:fetch_models()
       table.insert(items, "gemini/gemini-2.5-flash")
       table.insert(items, "groq/llama3-70b-8192")
-      table.insert(items, "nvidia/meta/llama-3.3-70b-instruct")
+      table.insert(items, "nvidia/nvidia/nemotron-3.5-bolt-e4b")
     end
     
     core.command_view:enter("Select Model for " .. role, {
@@ -6402,7 +6402,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
                 local defaults = {
                   groq      = "groq/qwen/qwen3.8-27b",
                   gemini    = "gemini/gemini-2.5-flash",
-                  nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
+                  nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
                   openai    = "openai/gpt-4o",
                   anthropic = "anthropic/claude-3-7-sonnet-20250219",
                   ollama    = "ollama/mistral-large-3:675b",
@@ -7389,7 +7389,7 @@ function AGView:on_mouse_released(button, mx, my)
               local defaults = {
                 groq      = "groq/qwen/qwen3.8-27b",
                 gemini    = "gemini/gemini-2.5-flash",
-                nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
+                nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
                 openai    = "openai/gpt-4o",
                 anthropic = "anthropic/claude-3-7-sonnet-20250219",
                 ollama    = "ollama/mistral-large-3:675b",
@@ -7511,7 +7511,7 @@ function AGView:_prompt_for_api_key(provider)
             local defaults = {
               groq      = "groq/qwen/qwen3.8-27b",
               gemini    = "gemini/gemini-2.5-flash",
-              nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
+              nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
               openai    = "openai/gpt-4o",
               anthropic = "anthropic/claude-3-7-sonnet-20250219",
               ollama    = "ollama/mistral-large-3:675b",
