@@ -2346,6 +2346,7 @@ function AGView:submit(prompt)
     -- Use the tool's registered argv builder
     local tc = self:_tool_cfg(tool_id)
     local is_auto = config.ai_sidebar and config.ai_sidebar.autopilot or false
+    local is_tools = (self.enable_tools == true) or is_auto
     argv = tool.build_run_argv({
       bin          = bin,
       prompt       = full_prompt,
@@ -2355,7 +2356,7 @@ function AGView:submit(prompt)
       project_dir  = project_root,
       extra_files  = nil,
       autopilot    = is_auto,
-      enable_tools = is_auto,
+      enable_tools = is_tools,
     })
     needs_pty = tool.needs_pty or false
   else

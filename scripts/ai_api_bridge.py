@@ -1192,6 +1192,45 @@ async def robust_stdio_client(server):
         await read_stream.aclose()
         await write_stream.aclose()
 
+KNOWN_MCP_INFO = {
+    "google-workspace": {
+        "title": "Google Workspace MCP Suite",
+        "description": "Google Workspace MCP Suite (57 tools across Gmail, Google Calendar, Google Docs, Google Sheets, Google Slides, Google Drive, and Google Meet)."
+    },
+    "@modelcontextprotocol/server-github": {
+        "title": "GitHub MCP Connector",
+        "description": "GitHub MCP Connector (Search, create, and manage repositories, issues, pull requests, branches, and code files)."
+    },
+    "github": {
+        "title": "GitHub MCP Connector",
+        "description": "GitHub MCP Connector (Search, create, and manage repositories, issues, pull requests, branches, and code files)."
+    },
+    "fetch": {
+        "title": "Fetch MCP",
+        "description": "Fetch MCP (HTML to Markdown web content fetching)."
+    },
+    "puppeteer": {
+        "title": "Puppeteer Browser MCP",
+        "description": "Puppeteer Browser MCP (Web navigation, interaction, and screenshot capture)."
+    },
+    "filesystem": {
+        "title": "Filesystem MCP",
+        "description": "Filesystem MCP (Local workspace file inspection and operations)."
+    },
+    "postgres": {
+        "title": "PostgreSQL MCP",
+        "description": "PostgreSQL MCP (Database query execution and schema inspection)."
+    },
+    "sqlite": {
+        "title": "SQLite MCP",
+        "description": "SQLite MCP (Database querying and table structure exploration)."
+    },
+    "brave-search": {
+        "title": "Brave Search MCP",
+        "description": "Brave Search MCP (Live web search and news)."
+    }
+}
+
 def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None):
     async def _run_agent_async():
         try:
@@ -1443,13 +1482,14 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         attachments_context = f"\nLITE-XL ATTACHMENTS DIRECTORY (For saving/reading docx, pdf, media, etc.): {attachments_dir}\nIf asked to save, read, or modify a document/attachment, look for it in this folder first, and save it here.\n"
         
         if not enable_tools:
-            system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor.{ws_context}
+            system_prompt = f"""You are Aether, an advanced AI coding assistant running inside the Lite XL editor.{ws_context}
 SYSTEM ENVIRONMENT: Windows. Shell commands are executed via PowerShell.
 You are in conversational chat mode. Answer the user's questions directly, helpfully, and concisely using GitHub-flavored Markdown.
 When discussing code, provide code snippets formatted in appropriate markdown code blocks.
-If the user asks you to explore, read, or edit files, let them know they can toggle 'Auto' (Autopilot) mode using the button in the chat header so you can use tools to inspect or edit their workspace files directly."""
+If the user asks you to explore, read, or edit files, let them know they can toggle 'Auto' (Autopilot) mode using the button in the chat header so you can use tools to inspect or edit their workspace files directly.
+If the user asks about your MCP tools or capabilities, inform them about your configured MCP tools and that toggling 'Auto' or 'MCP' mode in the chat header activates live tool execution."""
         elif read_only:
-            system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor operating in strict READ-ONLY mode.
+            system_prompt = f"""You are Aether, an advanced AI coding assistant running inside the Lite XL editor operating in strict READ-ONLY mode.
 You are STRICTLY FORBIDDEN from modifying, writing, creating, or deleting files, or running mutating commands.{ws_context}
 SYSTEM ENVIRONMENT: Windows. Shell commands are executed via PowerShell.
 AVAILABLE TOOLS:
@@ -1461,7 +1501,7 @@ CRITICAL INSTRUCTIONS:
 3. NEVER overwrite, delete, or create files on disk.
 4. SYNTHESIZE & CONCLUDE: Avoid looping indefinitely. Read only the key files needed (at most 3-5 files), then synthesize your findings and present your complete answer in chat."""
         else:
-            system_prompt = f"""You are Antigravity, an advanced AI coding assistant running inside the Lite XL editor. 
+            system_prompt = f"""You are Aether, an advanced AI coding assistant running inside the Lite XL editor. 
 You have full access to local shell execution, file editing, and web search.{ws_context}
 SYSTEM ENVIRONMENT: Windows. Shell commands are executed via PowerShell.
 
@@ -1527,11 +1567,44 @@ HOW TO ACT:
                     sk_lines.append(f"- {s_id} ({s_title})")
             installed_skills_context = "\n\nAVAILABLE INSTALLED SKILLS & EXTENSIONS:\n" + "\n".join(sk_lines[:15]) + "\nIf a user request relates to any installed skill, apply its domain expertise directly.\n"
 
-        # Preserve the complete base system prompt, and augment with skill context
+        # Build list of installed MCP servers for system awareness
+        installed_mcp_context = ""
+        try:
+            mcp_config_path = os.path.join(config_dir, "mcp_config.json")
+            if os.path.exists(mcp_config_path):
+                with open(mcp_config_path, "r", encoding="utf-8") as f:
+                    mcp_data = json.load(f)
+                mcp_servers = mcp_data.get("mcpServers", {})
+                if mcp_servers:
+                    server_lines = []
+                    for srv_name, srv_conf in mcp_servers.items():
+                        info = KNOWN_MCP_INFO.get(srv_name)
+                        if not info:
+                            base = srv_name.split("/")[-1].replace("server-", "")
+                            info = KNOWN_MCP_INFO.get(base, {"title": srv_name.title(), "description": f"Custom MCP Server ({srv_conf.get('command', 'tool')})"})
+                        server_lines.append(f"- **{srv_name}**: {info['description']}")
+                    
+                    if server_lines:
+                        if enable_tools and not read_only:
+                            status_note = "[STATUS: LIVE TOOLS ACTIVE & BOUND IN THIS SESSION — You can invoke and call these tools directly to perform actions]"
+                        else:
+                            status_note = "[STATUS: CONFIGURED IN LITE-XL — To execute or call these tools directly, the user can toggle 'Auto' (Autopilot) or 'MCP' in the chat header]"
+                        
+                        installed_mcp_context = (
+                            f"\n\nINSTALLED & CONFIGURED MCP (Model Context Protocol) TOOLS & SERVERS:\n"
+                            f"{status_note}\n"
+                            + "\n".join(server_lines) +
+                            "\nWhen asked what MCP tools or servers you have, accurately describe these installed MCP tools and their capabilities. "
+                            "If live tool calling is not enabled in this session, remind the user they can toggle 'Auto' (Autopilot) or 'MCP' in the header to execute them live.\n"
+                        )
+        except Exception:
+            pass
+
+        # Preserve the complete base system prompt, and augment with skill and MCP context
         if custom_skill_prompt:
-            system_prompt = system_prompt + custom_skill_prompt + skill_ui_context + installed_skills_context + "\n" + attachments_context
+            system_prompt = system_prompt + custom_skill_prompt + skill_ui_context + installed_skills_context + installed_mcp_context + "\n" + attachments_context
         else:
-            system_prompt = system_prompt + skill_ui_context + installed_skills_context + "\n" + attachments_context
+            system_prompt = system_prompt + skill_ui_context + installed_skills_context + installed_mcp_context + "\n" + attachments_context
 
         # Teams logic
         team_agents = []
@@ -2754,7 +2827,12 @@ def main():
             try:
                 with open(mcp_config_path, "r", encoding="utf-8") as f:
                     mcp_data = json.load(f)
-                installed = [{"id": k, "title": k.title(), "description": "Local installed MCP connector."} for k in mcp_data.get("mcpServers", {}).keys()]
+                for k in mcp_data.get("mcpServers", {}).keys():
+                    info = KNOWN_MCP_INFO.get(k)
+                    if not info:
+                        base = k.split("/")[-1].replace("server-", "")
+                        info = KNOWN_MCP_INFO.get(base, {"title": k.title(), "description": "Local installed MCP connector."})
+                    installed.append({"id": k, "title": info["title"], "description": info["description"]})
             except: pass
         if args.out_file:
             with open(args.out_file, "w", encoding="utf-8") as f: json.dump(installed, f)
@@ -2781,7 +2859,7 @@ def main():
                 "id": "code-reviewer",
                 "title": "Senior Code Reviewer",
                 "name": "Senior Code Reviewer",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "Exhaustive PR and diff analysis, detecting anti-patterns, race conditions, edge cases, and architectural smells.",
                 "domain": "Coding & Dev",
                 "source": "official",
@@ -2795,7 +2873,7 @@ def main():
                 "id": "architecture-visualizer",
                 "title": "Architecture Visualizer",
                 "name": "Architecture Visualizer",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "Generates interactive Mermaid.js flowcharts, sequence diagrams, and C4 architectural blueprints for codebases.",
                 "domain": "Design & UI",
                 "source": "official",
@@ -2809,7 +2887,7 @@ def main():
                 "id": "security-auditor",
                 "title": "Security & Vulnerability Auditor",
                 "name": "Security & Vulnerability Auditor",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "Scans code for injection vulnerabilities, hardcoded secrets, cryptographic flaws, and insecure dependencies.",
                 "domain": "DevOps & Cloud",
                 "source": "official",
@@ -2823,7 +2901,7 @@ def main():
                 "id": "typescript-pro",
                 "title": "TypeScript & React Specialist",
                 "name": "TypeScript & React Specialist",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "Strict TypeScript generics, advanced utility types, React performance optimization, and memoization patterns.",
                 "domain": "Coding & Dev",
                 "source": "official",
@@ -2837,7 +2915,7 @@ def main():
                 "id": "python-perf",
                 "title": "Python Performance Engineer",
                 "name": "Python Performance Engineer",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "Profiling, GIL circumvention, memory optimization, Cython/C-extensions, and asynchronous I/O architectures.",
                 "domain": "Coding & Dev",
                 "source": "official",
@@ -2851,7 +2929,7 @@ def main():
                 "id": "database-optimizer",
                 "title": "Database & Query Optimizer",
                 "name": "Database & Query Optimizer",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "PostgreSQL, MySQL, and SQLite query plan analysis (EXPLAIN ANALYZE), index tuning, and schema normalization.",
                 "domain": "Data & AI",
                 "source": "official",
@@ -2865,7 +2943,7 @@ def main():
                 "id": "accessibility-auditor",
                 "title": "Accessibility (a11y) Specialist",
                 "name": "Accessibility (a11y) Specialist",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "Audits DOM elements, ARIA semantics, color contrast, keyboard navigation, and screen reader compatibility.",
                 "domain": "Design & UI",
                 "source": "official",
@@ -2879,7 +2957,7 @@ def main():
                 "id": "unit-test-generator",
                 "title": "Unit Test Suite Generator",
                 "name": "Unit Test Suite Generator",
-                "author": "Antigravity",
+                "author": "Aether",
                 "description": "Generates robust, edge-case resilient unit tests, mocks, fixtures, and coverage regression tests.",
                 "domain": "Testing & Utilities",
                 "source": "official",
