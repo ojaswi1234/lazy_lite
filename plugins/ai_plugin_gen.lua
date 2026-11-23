@@ -48,8 +48,23 @@ local BUILD_STEPS = {
 }
 
 -- Global signals for auto-healer integration
-rawset(_G, "ai_plugin_gen_resume_fn", nil)
-rawset(_G, "auto_healer_new_plugins", rawget(_G, "auto_healer_new_plugins") or {})
+if global then
+  global {
+    ai_plugin_gen_resume_fn = false,
+    auto_healer_new_plugins = rawget(_G, "auto_healer_new_plugins") or {},
+  }
+else
+  rawset(_G, "ai_plugin_gen_resume_fn", false)
+  rawset(_G, "auto_healer_new_plugins", rawget(_G, "auto_healer_new_plugins") or {})
+end
+
+local function set_global_resume_fn(fn)
+  if global then
+    global { ai_plugin_gen_resume_fn = fn }
+  else
+    rawset(_G, "ai_plugin_gen_resume_fn", fn)
+  end
+end
 
 -- ── Persistent store ──────────────────────────────────────────────────────────
 local store = {
@@ -430,8 +445,12 @@ local function run_agy(prompt, conv_id, model_name, on_done)
     while true do local e2 = p:read_stderr(4096) or ""; if e2 == "" then break end; err_buf = err_buf .. e2 end
     
     local rc = p:returncode() or 0
-    if rc ~= 0 and #buf == 0 then
-      on_done(nil, err_buf ~= "" and err_buf or ("AGY exited with code " .. tostring(rc)))
+    if rc ~= 0 then
+      local emsg = (err_buf ~= "" and err_buf) or (buf ~= "" and buf) or ("AGY exited with code " .. tostring(rc))
+      on_done(nil, emsg)
+    elseif #buf == 0 then
+      local emsg = (err_buf ~= "" and err_buf) or "AGY returned no output"
+      on_done(nil, emsg)
     else
       on_done(buf, nil)
     end
@@ -486,8 +505,17 @@ local function run_cloud_api(prompt, provider, model_id, on_done)
     while true do local e2 = p:read_stderr(4096) or ""; if e2 == "" then break end; err_buf = err_buf .. e2 end
 
     local rc = p:returncode() or 0
-    if rc ~= 0 and #buf == 0 then
-      on_done(nil, err_buf ~= "" and err_buf or ("Cloud AI exited with code " .. tostring(rc)))
+    if rc ~= 0 then
+      local emsg = (err_buf ~= "" and err_buf) or (buf ~= "" and buf) or ("Cloud AI exited with code " .. tostring(rc))
+      on_done(nil, emsg)
+    elseif #buf == 0 then
+      local emsg = (err_buf ~= "" and err_buf) or "Cloud AI returned no output"
+      on_done(nil, emsg)
+    elseif buf:match("^MISSING_API_KEY:") then
+      local missing_p = buf:match("^MISSING_API_KEY:(%S+)") or prov
+      on_done(nil, "Missing API Key for " .. missing_p .. ". Please configure it in AI Settings.")
+    elseif buf:match("^ERROR:") then
+      on_done(nil, buf)
     else
       on_done(buf, nil)
     end
@@ -1811,7 +1839,8 @@ plugins/plugin_name.lua
     if err or not out or #out < 30 then
       self.state = STATE.ERROR
       self.error_msg = err or (self.engine == "cloud_api" and "Cloud AI returned no output" or "AGY returned no output")
-      core.error("[AI Plugin Gen] Plan generation error: %s", tostring(err or "No output returned"))
+      set_global_resume_fn(function() self:do_generate_plan() end)
+      core.error("[AI Plugin Gen] Plan generation error: %s", tostring(self.error_msg))
       core.redraw = true; return
     end
     self.plan = parse_plan(out)
@@ -1893,8 +1922,8 @@ Output the COMPLETE Lua source between [PLUGIN_CODE] and [/PLUGIN_CODE] tags ONL
       self.state = STATE.ERROR
       self.error_msg = err or (self.engine == "cloud_api" and "Cloud AI returned no output" or "AGY returned no output")
       -- Store resume function for auto-healer
-      _G.ai_plugin_gen_resume_fn = function() self:do_build() end
-      core.error("[AI Plugin Gen] Build error: %s", tostring(err or "No output returned"))
+      set_global_resume_fn(function() self:do_build() end)
+      core.error("[AI Plugin Gen] Build error: %s", tostring(self.error_msg))
       core.redraw = true; return
     end
 

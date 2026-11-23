@@ -53,17 +53,18 @@ def main():
         if os.path.exists(brain_path):
             cmd.extend(["--conversation", conv_id.strip()])
 
+    cmd.extend(["-p", prompt_content])
+
     try:
         proc = subprocess.Popen(
             cmd,
-            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace"
         )
-        stdout, stderr = proc.communicate(input=prompt_content, timeout=240)
+        stdout, stderr = proc.communicate(timeout=240)
 
         if stdout:
             sys.stdout.write(stdout)

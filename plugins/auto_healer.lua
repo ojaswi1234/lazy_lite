@@ -16,11 +16,23 @@ local system  = require "system"
 local style   = require "core.style"
 
 -- ── Visual Overlay State ──────────────────────────────────────────────────────
-rawset(_G, "auto_healer_toast", {
-  active = false,
-  start_time = 0,
-  error_msg = ""
-})
+if global then
+  global {
+    auto_healer_toast = {
+      active = false,
+      start_time = 0,
+      error_msg = ""
+    },
+    ai_plugin_gen_resume_fn = false,
+  }
+else
+  rawset(_G, "auto_healer_toast", {
+    active = false,
+    start_time = 0,
+    error_msg = ""
+  })
+  rawset(_G, "ai_plugin_gen_resume_fn", false)
+end
 
 local function show_healer_toast(msg)
   _G.auto_healer_toast.active = true
@@ -172,10 +184,11 @@ command.add(nil, {
   end,
 
   ["auto-healer:resume-plugin-gen"] = function()
-    if type(_G.ai_plugin_gen_resume_fn) == "function" then
+    local resume_fn = rawget(_G, "ai_plugin_gen_resume_fn")
+    if type(resume_fn) == "function" then
       core.log("[Auto-Healer] Resuming AI Plugin Generator pipeline...")
-      _G.ai_plugin_gen_resume_fn()
-      _G.ai_plugin_gen_resume_fn = nil
+      rawset(_G, "ai_plugin_gen_resume_fn", false)
+      resume_fn()
     else
       core.log("[Auto-Healer] No plugin generation pipeline to resume.")
     end
@@ -249,10 +262,11 @@ local KNOWN_PATTERNS = {
     cmd_label = "Resume plugin generation",
     on_healed = function()
       -- After healer fixes the issue, resume the plugin gen pipeline
-      if type(_G.ai_plugin_gen_resume_fn) == "function" then
+      local resume_fn = rawget(_G, "ai_plugin_gen_resume_fn")
+      if type(resume_fn) == "function" then
         core.log("[Auto-Healer] Resuming AI Plugin Gen pipeline...")
-        _G.ai_plugin_gen_resume_fn()
-        _G.ai_plugin_gen_resume_fn = nil
+        rawset(_G, "ai_plugin_gen_resume_fn", false)
+        resume_fn()
       end
     end,
   },
