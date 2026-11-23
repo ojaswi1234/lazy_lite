@@ -7426,6 +7426,7 @@ local VisualizerView = View:extend()
 
 function VisualizerView:new()
   VisualizerView.super.new(self)
+  self.name = "AI Project Visualizer"
   self.scrollable = false
 
   self.diagrams            = {}
@@ -7543,6 +7544,17 @@ end
 
 function VisualizerView:get_scrollable_size()
   return 0
+end
+
+function VisualizerView:set_target_size(axis, value)
+  if axis == "x" then
+    self.size.x = value
+    return true
+  elseif axis == "y" then
+    self.size.y = value
+    return true
+  end
+  return false
 end
 
 function VisualizerView:get_content_bounds()
@@ -10215,34 +10227,49 @@ local function open_visualizer()
     return view
   end
 
-  local active_node = (core.root_view.get_active_node_default and core.root_view:get_active_node_default())
-                      or (core.root_view.get_active_node and core.root_view:get_active_node())
-  if not active_node or active_node.locked then
-    active_node = core.root_view.get_primary_node and core.root_view:get_primary_node()
-  end
-
+  local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node()
   local new_view = VisualizerView()
-  if active_node and active_node.split then
-    local target_node = active_node:split("right")
-    if target_node then
-      target_node:add_view(new_view)
-    else
-      active_node:add_view(new_view)
-    end
-  elseif active_node and active_node.add_view then
-    active_node:add_view(new_view)
+  if sidebar then
+    sidebar:add_view(new_view)
+    sidebar:set_active_view(new_view)
   else
-    local primary = core.root_view.get_primary_node and core.root_view:get_primary_node()
-    if primary then primary:add_view(new_view) end
+    local active_node = (core.root_view.get_active_node_default and core.root_view:get_active_node_default())
+                        or (core.root_view.get_active_node and core.root_view:get_active_node())
+    if not active_node or active_node.locked then
+      active_node = core.root_view.get_primary_node and core.root_view:get_primary_node()
+    end
+    if active_node and active_node.split then
+      local target_node = active_node:split("right")
+      if target_node then
+        target_node:add_view(new_view)
+      else
+        active_node:add_view(new_view)
+      end
+    elseif active_node and active_node.add_view then
+      active_node:add_view(new_view)
+    else
+      local primary = core.root_view.get_primary_node and core.root_view:get_primary_node()
+      if primary then primary:add_view(new_view) end
+    end
   end
   core.set_active_view(new_view)
   return new_view
 end
 
 local function toggle_visualizer()
+  local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node()
   local view, node = find_visualizer_view()
   if view and node then
-    node:close_view(core.root_view.root_node, view)
+    if sidebar and node == sidebar then
+      if sidebar.active_view == view then
+        node:close_view(core.root_view.root_node, view)
+      else
+        node:set_active_view(view)
+        core.set_active_view(view)
+      end
+    else
+      node:close_view(core.root_view.root_node, view)
+    end
   else
     open_visualizer()
   end

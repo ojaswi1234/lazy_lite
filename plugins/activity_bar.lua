@@ -64,8 +64,9 @@ end
 local ActivityBar = View:extend()
 
 local function is_sidebar_view(view)
-  if not view or not view.name then return false end
-  local name = view.name
+  if not view then return false end
+  local name = view.name or (view.get_name and view:get_name())
+  if not name then return false end
   return name == "AI Plugins"
       or name == "Docker"
       or name == "Podman"
@@ -75,6 +76,10 @@ local function is_sidebar_view(view)
       or name == "Antigravity"
       or name == "Aether"
       or name == "YouTube Player"
+      or name == "AI Project Visualizer"
+      or name == "System Visualizer"
+      or name == "Terraform Visualizer"
+      or name == "Terraform"
 end
 
 function ActivityBar:new()
@@ -83,11 +88,13 @@ function ActivityBar:new()
   self.size = { x = 48 * SCALE, y = 0 }
   
   self.items = {
-    { id = "ai_plugin",icon = "\u{f0e7}", command = "ai-plugin-gen:toggle", tooltip = "AI Plugins" },
-    { id = "podman",   icon = "\u{f308}", command = "podman:toggle",    tooltip = "Podman" },
-    { id = "leetcode", icon = "\u{e653}", command = "leetcode:toggle",   tooltip = "LeetCode" },
-    { id = "mongodb",  icon = "\u{e7a4}", command = "mongodb_explorer:toggle", tooltip = "MongoDB" },
-    { id = "yt_player", icon = "\u{f167}", command = "youtube-player:toggle", tooltip = "YouTube Audio" },
+    { id = "ai_plugin",  icon = "\u{f0e7}", command = "ai-plugin-gen:toggle",         tooltip = "AI Plugins" },
+    { id = "visualizer", icon = "\u{f0e8}", command = "ai_project_visualizer:toggle", tooltip = "System Visualizer" },
+    { id = "terraform",  icon = "\u{f1b3}", command = "terraform_visualizer:toggle",  tooltip = "Terraform Visualizer" },
+    { id = "podman",     icon = "\u{f308}", command = "podman:toggle",                tooltip = "Podman" },
+    { id = "leetcode",   icon = "\u{e653}", command = "leetcode:toggle",               tooltip = "LeetCode" },
+    { id = "mongodb",    icon = "\u{e7a4}", command = "mongodb_explorer:toggle",      tooltip = "MongoDB" },
+    { id = "yt_player",  icon = "\u{f167}", command = "youtube-player:toggle",        tooltip = "YouTube Audio" },
   }
   -- Bottom-anchored auth button
   self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "Aether AI / Toggle" }
@@ -114,9 +121,13 @@ function ActivityBar:update()
 
   -- Track the active item in the activity bar based on sidebar's active view
   if sidebar and sidebar.active_view then
-    local vname = sidebar.active_view.name or ""
+    local vname = sidebar.active_view.name or (sidebar.active_view.get_name and sidebar.active_view:get_name()) or ""
     if vname == "AI Plugins" then
       self.active_id = "ai_plugin"
+    elseif vname == "AI Project Visualizer" or vname == "System Visualizer" then
+      self.active_id = "visualizer"
+    elseif vname == "Terraform Visualizer" or vname == "Terraform" then
+      self.active_id = "terraform"
     elseif vname == "Docker" or vname == "Podman" then
       self.active_id = "podman"
     elseif vname == "LeetCode" then
