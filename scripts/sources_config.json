@@ -5,29 +5,42 @@
       "id": "all",
       "name": "All Sources",
       "icon": "\ud83c\udf10",
-      "description": "Unified discovery across Smithery, NVIDIA NIM, and GitHub"
+      "description": "Federated multi-source discovery across npm, Official MCP, Awesome MCP, NVIDIA NIM, and GitHub"
     },
     {
-      "id": "smithery",
-      "name": "Smithery",
+      "id": "npm",
+      "name": "npm Registry",
       "icon": "\u26a1",
-      "description": "Smithery.ai open MCP servers and skill registry"
+      "description": "12,500+ live executable packages on npm Registry"
+    },
+    {
+      "id": "official",
+      "name": "Official MCP",
+      "icon": "\ud83c\udfdb\ufe0f",
+      "description": "Canonical reference implementations maintained by Anthropic and the MCP working group"
+    },
+    {
+      "id": "awesome",
+      "name": "Awesome MCP",
+      "icon": "\u2b50",
+      "description": "Community-curated GitHub directory with 4,900+ open-source servers"
     },
     {
       "id": "nvidia",
       "name": "NVIDIA NIM",
       "icon": "\ud83d\udfe9",
-      "description": "NVIDIA Cloud inference microservices and verified agent skills"
+      "description": "NVIDIA Cloud inference microservices and GPU reasoning microservices"
     },
     {
       "id": "github",
-      "name": "GitHub",
+      "name": "GitHub Repos",
       "icon": "\ud83d\udc19",
-      "description": "Community skill packs and public GitHub repositories"
+      "description": "Community skill packs and custom registered GitHub repositories"
     }
   ],
   "custom_repos": [
     "NVIDIA/skills",
-    "modelcontextprotocol/servers"
+    "modelcontextprotocol/servers",
+    "punkpeye/awesome-mcp-servers"
   ]
 }

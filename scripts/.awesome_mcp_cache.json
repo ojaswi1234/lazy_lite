@@ -1,0 +1,5402 @@
+[
+  {
+    "id": "gh/actimod/onaa-protocol",
+    "name": "actimod/onaa-protocol",
+    "title": "actimod/onaa-protocol MCP",
+    "repo": "actimod/onaa-protocol",
+    "repo_url": "https://github.com/actimod/onaa-protocol",
+    "author": "actimod",
+    "description": "Find stores where AI agents reach checkout (payment not tested), with tested checkout steps; hosted at api.onaa.net/mcp or run locally.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:actimod/onaa-protocol"
+    ]
+  },
+  {
+    "id": "gh/inth3shadows/terse",
+    "name": "inth3shadows/terse",
+    "title": "inth3shadows/terse MCP",
+    "repo": "inth3shadows/terse",
+    "repo_url": "https://github.com/inth3shadows/terse",
+    "author": "inth3shadows",
+    "description": "Transparent proxy that sits in front of any other MCP server and shrinks its tool output before it reaches the model. Lossless by default \u2014 a denser encoding of",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:inth3shadows/terse"
+    ]
+  },
+  {
+    "id": "gh/402signalhq/402signal",
+    "name": "402signalhq/402signal",
+    "title": "402signalhq/402signal MCP",
+    "repo": "402signalhq/402signal",
+    "repo_url": "https://github.com/402signalhq/402signal",
+    "author": "402signalhq",
+    "description": "Checks and validates live x402 payment routes across Base, Solana and Algorand.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:402signalhq/402signal"
+    ]
+  },
+  {
+    "id": "gh/benjaminsamson0210/nexusgrid-mcp",
+    "name": "benjaminsamson0210/nexusgrid-mcp",
+    "title": "benjaminsamson0210/nexusgrid-mcp MCP",
+    "repo": "benjaminsamson0210/nexusgrid-mcp",
+    "repo_url": "https://github.com/benjaminsamson0210/nexusgrid-mcp",
+    "author": "benjaminsamson0210",
+    "description": "Official MCP server providing edge-native AI agent tools: Web-to-Markdown scraper (NexusScrape), email deliverability & RFC 7208 auditor (MailAuthGuard), and di",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:benjaminsamson0210/nexusgrid-mcp"
+    ]
+  },
+  {
+    "id": "gh/GarphenGate/moltline-mcp",
+    "name": "GarphenGate/moltline-mcp",
+    "title": "GarphenGate/moltline-mcp MCP",
+    "repo": "GarphenGate/moltline-mcp",
+    "repo_url": "https://github.com/GarphenGate/moltline-mcp",
+    "author": "GarphenGate",
+    "description": "Bridge to Moltline Studio's hosted MCP servers: code review, agent governance, business math, regulatory deadlines, crypto tax lots, routing and optimization.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:GarphenGate/moltline-mcp"
+    ]
+  },
+  {
+    "id": "gh/team886/findagent-mcp",
+    "name": "team886/findagent-mcp",
+    "title": "team886/findagent-mcp MCP",
+    "repo": "team886/findagent-mcp",
+    "repo_url": "https://github.com/team886/findagent-mcp",
+    "author": "team886",
+    "description": "Marketplace of vetted agents with automated security scans plus human review, credential-to-host binding and sandboxed hosted code with default-deny egress.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:team886/findagent-mcp"
+    ]
+  },
+  {
+    "id": "gh/BotHireAgent/BotHireMCPServer",
+    "name": "BotHireAgent/BotHireMCPServer",
+    "title": "BotHireAgent/BotHireMCPServer MCP",
+    "repo": "BotHireAgent/BotHireMCPServer",
+    "repo_url": "https://github.com/BotHireAgent/BotHireMCPServer",
+    "author": "BotHireAgent",
+    "description": "BotHire agent-to-agent hiring marketplace: search agents and skills by capability and trust score, read live demand, and settle in USDT or USDC across chains.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:BotHireAgent/BotHireMCPServer"
+    ]
+  },
+  {
+    "id": "gh/neoninnovationlab/neon-mcp-gateway",
+    "name": "@neoninnovationlab/neon-mcp-gateway",
+    "title": "@neoninnovationlab/neon-mcp-gateway MCP",
+    "repo": "neoninnovationlab/neon-mcp-gateway",
+    "repo_url": "https://github.com/neoninnovationlab/neon-mcp-gateway",
+    "author": "neoninnovationlab",
+    "description": "Edge firewall for exposing internal PostgreSQL databases and APIs to AI agents with strict validation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:neoninnovationlab/neon-mcp-gateway"
+    ]
+  },
+  {
+    "id": "gh/daedalusdevelopmentgroup/ddg-agent-payable-services",
+    "name": "daedalusdevelopmentgroup/ddg-agent-payable-services",
+    "title": "daedalusdevelopmentgroup/ddg-agent-payable-services MCP",
+    "repo": "daedalusdevelopmentgroup/ddg-agent-payable-services",
+    "repo_url": "https://github.com/daedalusdevelopmentgroup/ddg-agent-payable-services",
+    "author": "daedalusdevelopmentgroup",
+    "description": "Pay-per-call x402 tools (utilities, DNS/WHOIS, blockchain RPC, market and DEX data, prediction markets, security audits) plus an OpenAI-compatible LLM gateway.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:daedalusdevelopmentgroup/ddg-agent-payable-services"
+    ]
+  },
+  {
+    "id": "gh/forgemeshlabs/coinopai-mcp",
+    "name": "forgemeshlabs/coinopai-mcp",
+    "title": "forgemeshlabs/coinopai-mcp MCP",
+    "repo": "forgemeshlabs/coinopai-mcp",
+    "repo_url": "https://github.com/forgemeshlabs/coinopai-mcp",
+    "author": "forgemeshlabs",
+    "description": "Paid crypto intelligence via x402 on Base: preflight checks, trade decisions audited against real prices, risk state, signal history and automation search.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:forgemeshlabs/coinopai-mcp"
+    ]
+  },
+  {
+    "id": "gh/forgemeshlabs/anomaly-mcp",
+    "name": "forgemeshlabs/anomaly-mcp",
+    "title": "forgemeshlabs/anomaly-mcp MCP",
+    "repo": "forgemeshlabs/anomaly-mcp",
+    "repo_url": "https://github.com/forgemeshlabs/anomaly-mcp",
+    "author": "forgemeshlabs",
+    "description": "Real-time anomaly detection with NASA-derived sequence mining across blockchain, mempool, stablecoin depeg, aviation and GitHub signals, paid via x402 on Base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:forgemeshlabs/anomaly-mcp"
+    ]
+  },
+  {
+    "id": "gh/1mcp-app/agent",
+    "name": "1mcp/agent",
+    "title": "1mcp/agent MCP",
+    "repo": "1mcp-app/agent",
+    "repo_url": "https://github.com/1mcp-app/agent",
+    "author": "1mcp-app",
+    "description": "Aggregates multiple MCP servers into one unified server.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:1mcp-app/agent"
+    ]
+  },
+  {
+    "id": "gh/2s-io/sdk",
+    "name": "2s-io/sdk",
+    "title": "2s-io/sdk MCP",
+    "repo": "2s-io/sdk",
+    "repo_url": "https://github.com/2s-io/sdk",
+    "author": "2s-io",
+    "description": "Pay-per-call x402 API: geocoding, weather, earthquakes, patents, US case law, Federal Register, scientific papers, DNS/WHOIS, OFAC screening and Census data.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:2s-io/sdk"
+    ]
+  },
+  {
+    "id": "gh/8randonpickart5/alderpost-mcp",
+    "name": "8randonpickart5/alderpost-mcp",
+    "title": "8randonpickart5/alderpost-mcp MCP",
+    "repo": "8randonpickart5/alderpost-mcp",
+    "repo_url": "https://github.com/8randonpickart5/alderpost-mcp",
+    "author": "8randonpickart5",
+    "description": "Intelligence endpoints for security, company, threat, compliance, sales, sports, property and health data, paid via x402 micropayments on Base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:8randonpickart5/alderpost-mcp"
+    ]
+  },
+  {
+    "id": "gh/forgemeshlabs/utility-grid-mcp",
+    "name": "forgemeshlabs/utility-grid-mcp",
+    "title": "forgemeshlabs/utility-grid-mcp MCP",
+    "repo": "forgemeshlabs/utility-grid-mcp",
+    "repo_url": "https://github.com/forgemeshlabs/utility-grid-mcp",
+    "author": "forgemeshlabs",
+    "description": "Search and call utility APIs for OCR, image, audio, web, math, conversion and geodata, paid per call with x402 USDC on Base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:forgemeshlabs/utility-grid-mcp"
+    ]
+  },
+  {
+    "id": "gh/giorgio44/gateonai-mcp-server",
+    "name": "giorgio44/gateonai-mcp-server",
+    "title": "giorgio44/gateonai-mcp-server MCP",
+    "repo": "giorgio44/gateonai-mcp-server",
+    "repo_url": "https://github.com/giorgio44/gateonai-mcp-server",
+    "author": "giorgio44",
+    "description": "Search and compare thousands of AI tools, generate step-by-step AI workflows and AI tool stacks by profession from GateOnAI's curated catalog. Free, no API key.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:giorgio44/gateonai-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/GTCC777/pulsenetwork-mcp",
+    "name": "GTCC777/pulsenetwork-mcp",
+    "title": "GTCC777/pulsenetwork-mcp MCP",
+    "repo": "GTCC777/pulsenetwork-mcp",
+    "repo_url": "https://github.com/GTCC777/pulsenetwork-mcp",
+    "author": "GTCC777",
+    "description": "Pay-per-call x402 intelligence APIs on Base and Solana: finance, crypto, legal, immigration, healthcare costs, real estate, tax, climate, sports and science.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:GTCC777/pulsenetwork-mcp"
+    ]
+  },
+  {
+    "id": "gh/mcpqueen/mcpqueen",
+    "name": "mcpqueen/mcpqueen",
+    "title": "mcpqueen/mcpqueen MCP",
+    "repo": "mcpqueen/mcpqueen",
+    "repo_url": "https://github.com/mcpqueen/mcpqueen",
+    "author": "mcpqueen",
+    "description": "Graded MCP registry: live-probes remote servers from the MCP Registry (initialization, tool listing, schema quality, latency, provenance) and publishes grades.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mcpqueen/mcpqueen"
+    ]
+  },
+  {
+    "id": "gh/minia2auk/minia2a-mcp",
+    "name": "minia2auk/minia2a-mcp",
+    "title": "minia2auk/minia2a-mcp MCP",
+    "repo": "minia2auk/minia2a-mcp",
+    "repo_url": "https://github.com/minia2auk/minia2a-mcp",
+    "author": "minia2auk",
+    "description": "Pay-per-call x402 gateway for agent tools: crypto and DeFi data, web scraping, AI inference, CAPTCHA solving, token security, DNS/WHOIS and gas monitoring.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:minia2auk/minia2a-mcp"
+    ]
+  },
+  {
+    "id": "gh/Nutshell2000/agent-data-tools",
+    "name": "Nutshell2000/agent-data-tools",
+    "title": "Nutshell2000/agent-data-tools MCP",
+    "repo": "Nutshell2000/agent-data-tools",
+    "repo_url": "https://github.com/Nutshell2000/agent-data-tools",
+    "author": "Nutshell2000",
+    "description": "Glyphcall: one MCP server for 650+ pay-per-call agent tools: EU company registers and VAT (VIES) checks, sanctions screening, e-invoice validation, speech to te",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Nutshell2000/agent-data-tools"
+    ]
+  },
+  {
+    "id": "gh/szp2005/llm-prices-cn",
+    "name": "szp2005/llm-prices-cn",
+    "title": "szp2005/llm-prices-cn MCP",
+    "repo": "szp2005/llm-prices-cn",
+    "repo_url": "https://github.com/szp2005/llm-prices-cn",
+    "author": "szp2005",
+    "description": "Daily-verified dataset of LLM API prices for Chinese and global models, with live price queries and token cost estimation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:szp2005/llm-prices-cn"
+    ]
+  },
+  {
+    "id": "gh/tadas-github/a2asearch-mcp",
+    "name": "tadas-github/a2asearch-mcp",
+    "title": "tadas-github/a2asearch-mcp MCP",
+    "repo": "tadas-github/a2asearch-mcp",
+    "repo_url": "https://github.com/tadas-github/a2asearch-mcp",
+    "author": "tadas-github",
+    "description": "Search a directory of MCP servers, AI agents, CLI tools and agent skills.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:tadas-github/a2asearch-mcp"
+    ]
+  },
+  {
+    "id": "gh/Aganium/agenium",
+    "name": "Aganium/agenium",
+    "title": "Aganium/agenium MCP",
+    "repo": "Aganium/agenium",
+    "repo_url": "https://github.com/Aganium/agenium",
+    "author": "Aganium",
+    "description": "Bridge MCP servers to the agent:// network so other agents can discover and call their tools, with DNS-like identity, mTLS, trust scores and capability search.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Aganium/agenium"
+    ]
+  },
+  {
+    "id": "gh/agentbodegastore/agentbodega",
+    "name": "agentbodegastore/agentbodega",
+    "title": "agentbodegastore/agentbodega MCP",
+    "repo": "agentbodegastore/agentbodega",
+    "repo_url": "https://github.com/agentbodegastore/agentbodega",
+    "author": "agentbodegastore",
+    "description": "Live catalog of x402-payable HTTP tools from AgentBodega: search, public data, social media, status checks, media conversion and agent-readiness checks.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:agentbodegastore/agentbodega"
+    ]
+  },
+  {
+    "id": "gh/elisymlabs/elisym",
+    "name": "elisymlabs/elisym",
+    "title": "elisymlabs/elisym MCP",
+    "repo": "elisymlabs/elisym",
+    "repo_url": "https://github.com/elisymlabs/elisym",
+    "author": "elisymlabs",
+    "description": "AI agent discovery and marketplace on Nostr with Solana payments (SOL, USDC): NIP-89 discovery, NIP-90 jobs, NIP-44 encryption and on-chain micropayments.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:elisymlabs/elisym"
+    ]
+  },
+  {
+    "id": "gh/PHONGUIT22/nostrpulse-full",
+    "name": "PHONGUIT22/nostrpulse-full",
+    "title": "PHONGUIT22/nostrpulse-full MCP",
+    "repo": "PHONGUIT22/nostrpulse-full",
+    "repo_url": "https://github.com/PHONGUIT22/nostrpulse-full",
+    "author": "PHONGUIT22",
+    "description": "Agent-to-agent (A2A) commerce framework using Nostr NIP-90 and Cashu eCash micro-settlements.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:PHONGUIT22/nostrpulse-full"
+    ]
+  },
+  {
+    "id": "gh/espadaw/Agent47",
+    "name": "espadaw/Agent47",
+    "title": "espadaw/Agent47 MCP",
+    "repo": "espadaw/Agent47",
+    "repo_url": "https://github.com/espadaw/Agent47",
+    "author": "espadaw",
+    "description": "Job aggregator for AI agents across platforms such as x402, RentAHuman and Virtuals.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:espadaw/Agent47"
+    ]
+  },
+  {
+    "id": "gh/gzchenhao/openhire",
+    "name": "gzchenhao/openhire",
+    "title": "gzchenhao/openhire MCP",
+    "repo": "gzchenhao/openhire",
+    "repo_url": "https://github.com/gzchenhao/openhire",
+    "author": "gzchenhao",
+    "description": "Job search over employer ATS APIs (Greenhouse, Lever, Ashby, Beisen) with freshness verification, ghost-job scoring and apply links; matching runs client-side.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gzchenhao/openhire"
+    ]
+  },
+  {
+    "id": "gh/doggychip/agentforge",
+    "name": "doggychip/agentforge",
+    "title": "doggychip/agentforge MCP",
+    "repo": "doggychip/agentforge",
+    "repo_url": "https://github.com/doggychip/agentforge",
+    "author": "doggychip",
+    "description": "Self-hostable API gateway and marketplace for AI agents with one API key, REST and streaming access, and health monitoring.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:doggychip/agentforge"
+    ]
+  },
+  {
+    "id": "gh/AgentHotspot/agenthotspot-mcp",
+    "name": "AgentHotspot",
+    "title": "AgentHotspot MCP",
+    "repo": "AgentHotspot/agenthotspot-mcp",
+    "repo_url": "https://github.com/AgentHotspot/agenthotspot-mcp",
+    "author": "AgentHotspot",
+    "description": "Search, integrate and monetize MCP connectors on the AgentHotspot marketplace.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:AgentHotspot/agenthotspot-mcp"
+    ]
+  },
+  {
+    "id": "gh/aidevelopers2/remoteopenclaw-mcp",
+    "name": "aidevelopers2/remoteopenclaw-mcp",
+    "title": "aidevelopers2/remoteopenclaw-mcp MCP",
+    "repo": "aidevelopers2/remoteopenclaw-mcp",
+    "repo_url": "https://github.com/aidevelopers2/remoteopenclaw-mcp",
+    "author": "aidevelopers2",
+    "description": "Search the Remote OpenClaw directory of MCP servers, agent skills and plugins for names, links and install commands; also available as a CLI.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:aidevelopers2/remoteopenclaw-mcp"
+    ]
+  },
+  {
+    "id": "gh/garasegae/aiskillstore",
+    "name": "garasegae/aiskillstore",
+    "title": "garasegae/aiskillstore MCP",
+    "repo": "garasegae/aiskillstore",
+    "repo_url": "https://github.com/garasegae/aiskillstore",
+    "author": "garasegae",
+    "description": "Skill marketplace where AI agents discover, purchase and integrate skills.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:garasegae/aiskillstore"
+    ]
+  },
+  {
+    "id": "gh/getanyapi-com/mcp",
+    "name": "getanyapi-com/mcp",
+    "title": "getanyapi-com/mcp MCP",
+    "repo": "getanyapi-com/mcp",
+    "repo_url": "https://github.com/getanyapi-com/mcp",
+    "author": "getanyapi-com",
+    "description": "AnyAPI: scraping and data APIs for social media, search results, Google Maps, e-commerce and web data, with normalized JSON and automatic provider failover.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:getanyapi-com/mcp"
+    ]
+  },
+  {
+    "id": "gh/alexanderclapp/clirank-mcp-server",
+    "name": "alexanderclapp/clirank-mcp-server",
+    "title": "alexanderclapp/clirank-mcp-server MCP",
+    "repo": "alexanderclapp/clirank-mcp-server",
+    "repo_url": "https://github.com/alexanderclapp/clirank-mcp-server",
+    "author": "alexanderclapp",
+    "description": "CLIRank API intelligence for coding agents: discover, compare and get recommendations for APIs scored on agent-friendliness.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:alexanderclapp/clirank-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/Work90210/APIFold",
+    "name": "Work90210/APIFold",
+    "title": "Work90210/APIFold MCP",
+    "repo": "Work90210/APIFold",
+    "repo_url": "https://github.com/Work90210/APIFold",
+    "author": "Work90210",
+    "description": "Turn any REST API into a hosted MCP server, with ready-made public servers for GitHub, Stripe, Slack, OpenAI, Notion and more.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Work90210/APIFold"
+    ]
+  },
+  {
+    "id": "gh/alexar76/aimarket-plugins",
+    "name": "alexar76/aimarket-plugins",
+    "title": "alexar76/aimarket-plugins MCP",
+    "repo": "alexar76/aimarket-plugins",
+    "repo_url": "https://github.com/alexar76/aimarket-plugins",
+    "author": "alexar76",
+    "description": "AIMarket Hub plugin that packages AIMarket capabilities as self-hosted MCP servers with a Docker image, manifest and client config.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:alexar76/aimarket-plugins"
+    ]
+  },
+  {
+    "id": "gh/Alepha188838884/context-firewall",
+    "name": "Alepha188838884/context-firewall",
+    "title": "Alepha188838884/context-firewall MCP",
+    "repo": "Alepha188838884/context-firewall",
+    "repo_url": "https://github.com/Alepha188838884/context-firewall",
+    "author": "Alepha188838884",
+    "description": "Local MCP proxy that merges downstream servers behind a few meta-tools with progressive discovery and compresses large tool outputs, with full output on demand.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Alepha188838884/context-firewall"
+    ]
+  },
+  {
+    "id": "gh/AIsa-public/AIsa-mcp-server",
+    "name": "AIsa-public/AIsa-mcp-server",
+    "title": "AIsa-public/AIsa-mcp-server MCP",
+    "repo": "AIsa-public/AIsa-mcp-server",
+    "repo_url": "https://github.com/AIsa-public/AIsa-mcp-server",
+    "author": "AIsa-public",
+    "description": "Search, inspect and run data APIs for SEO and AI visibility, finance, social, web search, sales and agent mail through a few meta-tools, with spending caps.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:AIsa-public/AIsa-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/api7/aisix",
+    "name": "api7/aisix",
+    "title": "api7/aisix MCP",
+    "repo": "api7/aisix",
+    "repo_url": "https://github.com/api7/aisix",
+    "author": "api7",
+    "description": "Self-hosted MCP gateway fronting upstream servers with per-tool access control, guardrails, rate limits and usage logs; also proxies LLM and A2A agent traffic.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:api7/aisix"
+    ]
+  },
+  {
+    "id": "gh/reefapi/reefapi-mcp",
+    "name": "reefapi/reefapi-mcp",
+    "title": "reefapi/reefapi-mcp MCP",
+    "repo": "reefapi/reefapi-mcp",
+    "repo_url": "https://github.com/reefapi/reefapi-mcp",
+    "author": "reefapi",
+    "description": "Live web data as clean JSON: search engines, social media, e-commerce (Amazon, eBay, Etsy), real estate, jobs, travel, news, finance and company intel.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:reefapi/reefapi-mcp"
+    ]
+  },
+  {
+    "id": "gh/RightOnPar-LLC/mesh-connector",
+    "name": "RightOnPar-LLC/mesh-connector",
+    "title": "RightOnPar-LLC/mesh-connector MCP",
+    "repo": "RightOnPar-LLC/mesh-connector",
+    "repo_url": "https://github.com/RightOnPar-LLC/mesh-connector",
+    "author": "RightOnPar-LLC",
+    "description": "MeshMarket agent-to-agent capability exchange: agents browse, self-onboard, rent memory, reasoning and safety per call, and publish their own tools.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:RightOnPar-LLC/mesh-connector"
+    ]
+  },
+  {
+    "id": "gh/rhein1/agoragentic-integrations",
+    "name": "rhein1/agoragentic-integrations",
+    "title": "rhein1/agoragentic-integrations MCP",
+    "repo": "rhein1/agoragentic-integrations",
+    "repo_url": "https://github.com/rhein1/agoragentic-integrations",
+    "author": "rhein1",
+    "description": "Agent-to-agent marketplace where AI agents discover, invoke and pay for other agents' services using USDC on Base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:rhein1/agoragentic-integrations"
+    ]
+  },
+  {
+    "id": "gh/arikusi/deepseek-mcp-server",
+    "name": "arikusi/deepseek-mcp-server",
+    "title": "arikusi/deepseek-mcp-server MCP",
+    "repo": "arikusi/deepseek-mcp-server",
+    "repo_url": "https://github.com/arikusi/deepseek-mcp-server",
+    "author": "arikusi",
+    "description": "DeepSeek AI chat and reasoning with multi-turn sessions, function calling, thinking mode and cost tracking.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:arikusi/deepseek-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/ariekogan/ateam-mcp",
+    "name": "ariekogan/ateam-mcp",
+    "title": "ariekogan/ateam-mcp MCP",
+    "repo": "ariekogan/ateam-mcp",
+    "repo_url": "https://github.com/ariekogan/ateam-mcp",
+    "author": "ariekogan",
+    "description": "Build, validate and deploy multi-agent AI solutions on the ADAS platform: design skills with tools and manage the solution lifecycle.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ariekogan/ateam-mcp"
+    ]
+  },
+  {
+    "id": "gh/askbudi/roundtable",
+    "name": "askbudi/roundtable",
+    "title": "askbudi/roundtable MCP",
+    "repo": "askbudi/roundtable",
+    "repo_url": "https://github.com/askbudi/roundtable",
+    "author": "askbudi",
+    "description": "Meta-MCP server that unifies AI coding assistants (Codex, Claude Code, Cursor, Gemini) behind one interface with automatic discovery and zero configuration.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:askbudi/roundtable"
+    ]
+  },
+  {
+    "id": "gh/adw0rd/awesome-mcp-tools-mcp",
+    "name": "adw0rd/awesome-mcp-tools-mcp",
+    "title": "adw0rd/awesome-mcp-tools-mcp MCP",
+    "repo": "adw0rd/awesome-mcp-tools-mcp",
+    "repo_url": "https://github.com/adw0rd/awesome-mcp-tools-mcp",
+    "author": "adw0rd",
+    "description": "Search the awesome-mcp.tools catalog of MCP servers from an MCP client or the terminal.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:adw0rd/awesome-mcp-tools-mcp"
+    ]
+  },
+  {
+    "id": "gh/avotsai/avots-mcp",
+    "name": "avotsai/avots-mcp",
+    "title": "avotsai/avots-mcp MCP",
+    "repo": "avotsai/avots-mcp",
+    "repo_url": "https://github.com/avotsai/avots-mcp",
+    "author": "avotsai",
+    "description": "Multi-model AI media generation (image, video, audio, face swap, talking avatars) plus chat with models such as Claude, GPT, Gemini and DeepSeek.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:avotsai/avots-mcp"
+    ]
+  },
+  {
+    "id": "gh/bkraad47/ramen",
+    "name": "bkraad47/ramen",
+    "title": "bkraad47/ramen MCP",
+    "repo": "bkraad47/ramen",
+    "repo_url": "https://github.com/bkraad47/ramen",
+    "author": "bkraad47",
+    "description": "Self-hosted MCP for teams: deploy your own Python tools from git to Kubernetes (AKS/GKE/EKS/local) with canary rollouts, OAuth sign-in, autoscaling, Nvidia NeMo",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:bkraad47/ramen"
+    ]
+  },
+  {
+    "id": "gh/blockrunai/blockrun-mcp",
+    "name": "blockrunai/blockrun-mcp",
+    "title": "blockrunai/blockrun-mcp MCP",
+    "repo": "blockrunai/blockrun-mcp",
+    "repo_url": "https://github.com/blockrunai/blockrun-mcp",
+    "author": "blockrunai",
+    "description": "Access AI models such as GPT-5, Claude, Gemini, Grok and DeepSeek, paid per use via x402 micropayments in USDC on Base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:blockrunai/blockrun-mcp"
+    ]
+  },
+  {
+    "id": "gh/bridgenode-ai/bridgenode-mcp",
+    "name": "bridgenode-ai/bridgenode-mcp",
+    "title": "bridgenode-ai/bridgenode-mcp MCP",
+    "repo": "bridgenode-ai/bridgenode-mcp",
+    "repo_url": "https://github.com/bridgenode-ai/bridgenode-mcp",
+    "author": "bridgenode-ai",
+    "description": "Pay-per-request AI chat completions across supported models via x402, with automatic Solana USDC payments and fail-closed spending caps.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:bridgenode-ai/bridgenode-mcp"
+    ]
+  },
+  {
+    "id": "gh/camerxnduff/x402-router-mcp",
+    "name": "camerxnduff/x402-router-mcp",
+    "title": "camerxnduff/x402-router-mcp MCP",
+    "repo": "camerxnduff/x402-router-mcp",
+    "repo_url": "https://github.com/camerxnduff/x402-router-mcp",
+    "author": "camerxnduff",
+    "description": "Search 20k+ live, reliability-scored x402 pay-per-call endpoints across Base and Solana and route to the best match by price, chain and uptime. Read-only, no ke",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:camerxnduff/x402-router-mcp"
+    ]
+  },
+  {
+    "id": "gh/cgrtml/reasongate",
+    "name": "cgrtml/reasongate",
+    "title": "cgrtml/reasongate MCP",
+    "repo": "cgrtml/reasongate",
+    "repo_url": "https://github.com/cgrtml/reasongate",
+    "author": "cgrtml",
+    "description": "Provenance gateway for stdio MCP servers that blocks tool calls whose destination or content came from an untrusted tool result, with schema-derived policies.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cgrtml/reasongate"
+    ]
+  },
+  {
+    "id": "gh/cinderwright-ai/cinderwright-api",
+    "name": "cinderwright-ai/cinderwright-api",
+    "title": "cinderwright-ai/cinderwright-api MCP",
+    "repo": "cinderwright-ai/cinderwright-api",
+    "repo_url": "https://github.com/cinderwright-ai/cinderwright-api",
+    "author": "cinderwright-ai",
+    "description": "x402 discovery hub: search engine for agent services, paid with USDC on Base via x402.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cinderwright-ai/cinderwright-api"
+    ]
+  },
+  {
+    "id": "gh/Continuum-AI-Corp/orcarouter-mcp-server",
+    "name": "Continuum-AI-Corp/orcarouter-mcp-server",
+    "title": "Continuum-AI-Corp/orcarouter-mcp-server MCP",
+    "repo": "Continuum-AI-Corp/orcarouter-mcp-server",
+    "repo_url": "https://github.com/Continuum-AI-Corp/orcarouter-mcp-server",
+    "author": "Continuum-AI-Corp",
+    "description": "Browse LLMs from OpenAI, Anthropic, Google, Qwen, DeepSeek and others with live prices, and route chat completions through the OrcaRouter gateway with fallback.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Continuum-AI-Corp/orcarouter-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/Data-Everything/mcp-server-templates",
+    "name": "Data-Everything/mcp-server-templates",
+    "title": "Data-Everything/mcp-server-templates MCP",
+    "repo": "Data-Everything/mcp-server-templates",
+    "repo_url": "https://github.com/Data-Everything/mcp-server-templates",
+    "author": "Data-Everything",
+    "description": "Unified MCP platform that connects many apps, tools and services behind one interface.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Data-Everything/mcp-server-templates"
+    ]
+  },
+  {
+    "id": "gh/depwire/depwire",
+    "name": "depwire/depwire",
+    "title": "depwire/depwire MCP",
+    "repo": "depwire/depwire",
+    "repo_url": "https://github.com/depwire/depwire",
+    "author": "depwire",
+    "description": "Dependency graphs for TypeScript, JavaScript, Python, Go, Rust and C, with arc diagram visualization, health scoring, dead code detection and a temporal graph.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:depwire/depwire"
+    ]
+  },
+  {
+    "id": "gh/duaraghav8/MCPJungle",
+    "name": "duaraghav8/MCPJungle",
+    "title": "duaraghav8/MCPJungle MCP",
+    "repo": "duaraghav8/MCPJungle",
+    "repo_url": "https://github.com/duaraghav8/MCPJungle",
+    "author": "duaraghav8",
+    "description": "Self-hosted MCP server registry for enterprise AI agents.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:duaraghav8/MCPJungle"
+    ]
+  },
+  {
+    "id": "gh/Proofpane/releases",
+    "name": "Proofpane/releases",
+    "title": "Proofpane/releases MCP",
+    "repo": "Proofpane/releases",
+    "repo_url": "https://github.com/Proofpane/releases",
+    "author": "Proofpane",
+    "description": "MCP governance proxy: allow, deny or human-approval policy gates, DLP redaction and cost caps, with tool calls recorded to a hash-chained, signed audit log.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Proofpane/releases"
+    ]
+  },
+  {
+    "id": "gh/entire-vc/evc-spark-mcp",
+    "name": "entire-vc/evc-spark-mcp",
+    "title": "entire-vc/evc-spark-mcp MCP",
+    "repo": "entire-vc/evc-spark-mcp",
+    "repo_url": "https://github.com/entire-vc/evc-spark-mcp",
+    "author": "entire-vc",
+    "description": "Search a curated catalog of AI agents, skills, prompts, bundles and MCP connectors.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:entire-vc/evc-spark-mcp"
+    ]
+  },
+  {
+    "id": "gh/gamaze-labs/hicortex",
+    "name": "gamaze-labs/hicortex",
+    "title": "gamaze-labs/hicortex MCP",
+    "repo": "gamaze-labs/hicortex",
+    "repo_url": "https://github.com/gamaze-labs/hicortex",
+    "author": "gamaze-labs",
+    "description": "Shared memory for fleets of AI agents: nightly self-correction rewrites stale facts and merges duplicates, and recall is injected into coding agents' prompts.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gamaze-labs/hicortex"
+    ]
+  },
+  {
+    "id": "gh/glenngillen/mcpmcp-server",
+    "name": "glenngillen/mcpmcp-server",
+    "title": "glenngillen/mcpmcp-server MCP",
+    "repo": "glenngillen/mcpmcp-server",
+    "repo_url": "https://github.com/glenngillen/mcpmcp-server",
+    "author": "glenngillen",
+    "description": "Lists MCP servers so you can ask your client which ones could improve your daily workflow.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:glenngillen/mcpmcp-server"
+    ]
+  },
+  {
+    "id": "gh/Gliana-Labs/gliana-mcp",
+    "name": "Gliana-Labs/gliana-mcp",
+    "title": "Gliana-Labs/gliana-mcp MCP",
+    "repo": "Gliana-Labs/gliana-mcp",
+    "repo_url": "https://github.com/Gliana-Labs/gliana-mcp",
+    "author": "Gliana-Labs",
+    "description": "Pay-per-call AI models (chat, image, video, music, speech) plus web scraping, screenshots, OCR, face matching and crypto/FX rates, paid via HTTP 402 in USDC.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Gliana-Labs/gliana-mcp"
+    ]
+  },
+  {
+    "id": "gh/gpu-bridge/mcp-server",
+    "name": "gpu-bridge/mcp-server",
+    "title": "gpu-bridge/mcp-server MCP",
+    "repo": "gpu-bridge/mcp-server",
+    "repo_url": "https://github.com/gpu-bridge/mcp-server",
+    "author": "gpu-bridge",
+    "description": "GPU inference API for LLMs, image and video generation, TTS, Whisper, embeddings, reranking and OCR, paid per use via x402 or an API key.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gpu-bridge/mcp-server"
+    ]
+  },
+  {
+    "id": "gh/gzoonet/cortex",
+    "name": "gzoonet/cortex",
+    "title": "gzoonet/cortex MCP",
+    "repo": "gzoonet/cortex",
+    "repo_url": "https://github.com/gzoonet/cortex",
+    "author": "gzoonet",
+    "description": "Local-first developer knowledge graph: watches project files, extracts entities and relationships with LLMs, and offers queries, a web dashboard and a CLI.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gzoonet/cortex"
+    ]
+  },
+  {
+    "id": "gh/hamflx/imagen3-mcp",
+    "name": "hamflx/imagen3-mcp",
+    "title": "hamflx/imagen3-mcp MCP",
+    "repo": "hamflx/imagen3-mcp",
+    "repo_url": "https://github.com/hamflx/imagen3-mcp",
+    "author": "hamflx",
+    "description": "Generate images from text prompts with Google's Imagen 3 API, with photography, artistic and photorealistic controls.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:hamflx/imagen3-mcp"
+    ]
+  },
+  {
+    "id": "gh/hashgraph-online/hashnet-mcp-js",
+    "name": "hashgraph-online/hashnet-mcp-js",
+    "title": "hashgraph-online/hashnet-mcp-js MCP",
+    "repo": "hashgraph-online/hashnet-mcp-js",
+    "repo_url": "https://github.com/hashgraph-online/hashnet-mcp-js",
+    "author": "hashgraph-online",
+    "description": "Discover, register and chat with AI agents on the Hashgraph network via the Registry Broker.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:hashgraph-online/hashnet-mcp-js"
+    ]
+  },
+  {
+    "id": "gh/hedging8563/tokenlab-mcp-server",
+    "name": "hedging8563/tokenlab-mcp-server",
+    "title": "hedging8563/tokenlab-mcp-server MCP",
+    "repo": "hedging8563/tokenlab-mcp-server",
+    "repo_url": "https://github.com/hedging8563/tokenlab-mcp-server",
+    "author": "hedging8563",
+    "description": "TokenLab AI gateway: model and price discovery plus OpenAI-compatible Chat Completions, Responses, Anthropic Messages and Gemini inference.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:hedging8563/tokenlab-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/HelpCode-ai/anythingmcp",
+    "name": "HelpCode-ai/anythingmcp",
+    "title": "HelpCode-ai/anythingmcp MCP",
+    "repo": "HelpCode-ai/anythingmcp",
+    "repo_url": "https://github.com/HelpCode-ai/anythingmcp",
+    "author": "HelpCode-ai",
+    "description": "Self-hosted MCP gateway turning REST, SOAP and GraphQL APIs and SQL/NoSQL databases into MCP tools without code, with spec import, pre-built adapters and RBAC.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:HelpCode-ai/anythingmcp"
+    ]
+  },
+  {
+    "id": "gh/isaac-levine/forage",
+    "name": "isaac-levine/forage",
+    "title": "isaac-levine/forage MCP",
+    "repo": "isaac-levine/forage",
+    "repo_url": "https://github.com/isaac-levine/forage",
+    "author": "isaac-levine",
+    "description": "Self-improving tool discovery: searches registries, installs MCP servers as subprocesses without restarts, and persists tool knowledge across sessions.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:isaac-levine/forage"
+    ]
+  },
+  {
+    "id": "gh/jabbawocky/proposalcraft",
+    "name": "jabbawocky/proposalcraft",
+    "title": "jabbawocky/proposalcraft MCP",
+    "repo": "jabbawocky/proposalcraft",
+    "repo_url": "https://github.com/jabbawocky/proposalcraft",
+    "author": "jabbawocky",
+    "description": "Draft client proposals in your own voice from a new brief, based on your saved past proposals, with local storage only.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:jabbawocky/proposalcraft"
+    ]
+  },
+  {
+    "id": "gh/Jackalope-Dev/allmcps-server",
+    "name": "Jackalope-Dev/allmcps-server",
+    "title": "Jackalope-Dev/allmcps-server MCP",
+    "repo": "Jackalope-Dev/allmcps-server",
+    "repo_url": "https://github.com/Jackalope-Dev/allmcps-server",
+    "author": "Jackalope-Dev",
+    "description": "Search and browse the AllMCPs.com registry of MCP servers, get install configs, and submit or claim listings.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Jackalope-Dev/allmcps-server"
+    ]
+  },
+  {
+    "id": "gh/jaspertvdm/mcp-server-gemini-bridge",
+    "name": "jaspertvdm/mcp-server-gemini-bridge",
+    "title": "jaspertvdm/mcp-server-gemini-bridge MCP",
+    "repo": "jaspertvdm/mcp-server-gemini-bridge",
+    "repo_url": "https://github.com/jaspertvdm/mcp-server-gemini-bridge",
+    "author": "jaspertvdm",
+    "description": "Bridge to the Google Gemini API for accessing Gemini Pro and Flash models.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:jaspertvdm/mcp-server-gemini-bridge"
+    ]
+  },
+  {
+    "id": "gh/jaspertvdm/mcp-server-ollama-bridge",
+    "name": "jaspertvdm/mcp-server-ollama-bridge",
+    "title": "jaspertvdm/mcp-server-ollama-bridge MCP",
+    "repo": "jaspertvdm/mcp-server-ollama-bridge",
+    "repo_url": "https://github.com/jaspertvdm/mcp-server-ollama-bridge",
+    "author": "jaspertvdm",
+    "description": "Bridge to a local Ollama server for running Llama, Mistral, Qwen and other local models.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:jaspertvdm/mcp-server-ollama-bridge"
+    ]
+  },
+  {
+    "id": "gh/jaspertvdm/mcp-server-openai-bridge",
+    "name": "jaspertvdm/mcp-server-openai-bridge",
+    "title": "jaspertvdm/mcp-server-openai-bridge MCP",
+    "repo": "jaspertvdm/mcp-server-openai-bridge",
+    "repo_url": "https://github.com/jaspertvdm/mcp-server-openai-bridge",
+    "author": "jaspertvdm",
+    "description": "Bridge to the OpenAI API for accessing GPT-4, GPT-4o and other OpenAI models.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:jaspertvdm/mcp-server-openai-bridge"
+    ]
+  },
+  {
+    "id": "gh/Jovancoding/Network-AI",
+    "name": "Jovancoding/Network-AI",
+    "title": "Jovancoding/Network-AI MCP",
+    "repo": "Jovancoding/Network-AI",
+    "repo_url": "https://github.com/Jovancoding/Network-AI",
+    "author": "Jovancoding",
+    "description": "Multi-agent orchestration with a race-condition-safe shared blackboard, agent spawning, FSM transitions, budget and token tracking, and audit logs.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Jovancoding/Network-AI"
+    ]
+  },
+  {
+    "id": "gh/julien040/anyquery",
+    "name": "julien040/anyquery",
+    "title": "julien040/anyquery MCP",
+    "repo": "julien040/anyquery",
+    "repo_url": "https://github.com/julien040/anyquery",
+    "author": "julien040",
+    "description": "Query apps with SQL from a single local-first binary; also connects to PostgreSQL, MySQL and SQLite-compatible databases.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:julien040/anyquery"
+    ]
+  },
+  {
+    "id": "gh/juspay/neurolink",
+    "name": "juspay/neurolink",
+    "title": "juspay/neurolink MCP",
+    "repo": "juspay/neurolink",
+    "repo_url": "https://github.com/juspay/neurolink",
+    "author": "juspay",
+    "description": "Edge-first AI platform unifying many providers and models, with multi-agent orchestration, human-in-the-loop workflows, guardrails and context summarization.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:juspay/neurolink"
+    ]
+  },
+  {
+    "id": "gh/K-Dense-AI/claude-skills-mcp",
+    "name": "K-Dense-AI/claude-skills-mcp",
+    "title": "K-Dense-AI/claude-skills-mcp MCP",
+    "repo": "K-Dense-AI/claude-skills-mcp",
+    "repo_url": "https://github.com/K-Dense-AI/claude-skills-mcp",
+    "author": "K-Dense-AI",
+    "description": "Search and use Claude Agent Skills from any model or client as if natively supported.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:K-Dense-AI/claude-skills-mcp"
+    ]
+  },
+  {
+    "id": "gh/kaiser-data/kitsune-mcp",
+    "name": "kaiser-data/kitsune-mcp",
+    "title": "kaiser-data/kitsune-mcp MCP",
+    "repo": "kaiser-data/kitsune-mcp",
+    "repo_url": "https://github.com/kaiser-data/kitsune-mcp",
+    "author": "kaiser-data",
+    "description": "Hot-reload for MCP servers: the agent connects the server it is building, calls a tool, fixes the code, runs  and calls it again in the same session, with no cl",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kaiser-data/kitsune-mcp"
+    ]
+  },
+  {
+    "id": "gh/kansei-link/kansei-mcp-server",
+    "name": "kansei-link/kansei-mcp-server",
+    "title": "kansei-link/kansei-mcp-server MCP",
+    "repo": "kansei-link/kansei-mcp-server",
+    "repo_url": "https://github.com/kansei-link/kansei-mcp-server",
+    "author": "kansei-link",
+    "description": "Local-first navigator with verified data on SaaS services and workflow recipes.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kansei-link/kansei-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/kevmoz/macaroonnetwork-mcp",
+    "name": "kevmoz/macaroonnetwork-mcp",
+    "title": "kevmoz/macaroonnetwork-mcp MCP",
+    "repo": "kevmoz/macaroonnetwork-mcp",
+    "repo_url": "https://github.com/kevmoz/macaroonnetwork-mcp",
+    "author": "kevmoz",
+    "description": "Search and buy from a predicate-gated scientific and data marketplace: browse the catalogue and metadata, then pay via x402 (USDC on Base) or Lightning L402.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kevmoz/macaroonnetwork-mcp"
+    ]
+  },
+  {
+    "id": "gh/khalidsaidi/ragmap",
+    "name": "khalidsaidi/ragmap",
+    "title": "khalidsaidi/ragmap MCP",
+    "repo": "khalidsaidi/ragmap",
+    "repo_url": "https://github.com/khalidsaidi/ragmap",
+    "author": "khalidsaidi",
+    "description": "MapRag: RAG-focused MCP subregistry for discovering and routing to retrieval-capable MCP servers with structured constraints and explainable ranking.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:khalidsaidi/ragmap"
+    ]
+  },
+  {
+    "id": "gh/KonstantinStarovoytov/kitden",
+    "name": "KonstantinStarovoytov/kitden",
+    "title": "KonstantinStarovoytov/kitden MCP",
+    "repo": "KonstantinStarovoytov/kitden",
+    "repo_url": "https://github.com/KonstantinStarovoytov/kitden",
+    "author": "KonstantinStarovoytov",
+    "description": "Local gateway for Claude Code, Codex and Cursor: set up an MCP server once and all three clients use it, with tools turned on or off per project. Part of Kitden",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:KonstantinStarovoytov/kitden"
+    ]
+  },
+  {
+    "id": "gh/kumarganduri/legwork",
+    "name": "kumarganduri/legwork",
+    "title": "kumarganduri/legwork MCP",
+    "repo": "kumarganduri/legwork",
+    "repo_url": "https://github.com/kumarganduri/legwork",
+    "author": "kumarganduri",
+    "description": "Your AI finds an open-source tool on GitHub and Legwork installs it as an MCP tool in a sandbox: only the folders you grant, read-only, no network unless allowe",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kumarganduri/legwork"
+    ]
+  },
+  {
+    "id": "gh/mambalabsdev/mcp-gtm-suite",
+    "name": "mambalabsdev/mcp-gtm-suite",
+    "title": "mambalabsdev/mcp-gtm-suite MCP",
+    "repo": "mambalabsdev/mcp-gtm-suite",
+    "repo_url": "https://github.com/mambalabsdev/mcp-gtm-suite",
+    "author": "mambalabsdev",
+    "description": "Go-to-market signals via Apify actors: hiring signals, tech stack detection, job board scanning, LinkedIn URL resolution, ICP scoring and signal aggregation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mambalabsdev/mcp-gtm-suite"
+    ]
+  },
+  {
+    "id": "gh/Markgatcha/universal-mcp-toolkit",
+    "name": "Markgatcha/universal-mcp-toolkit",
+    "title": "Markgatcha/universal-mcp-toolkit MCP",
+    "repo": "Markgatcha/universal-mcp-toolkit",
+    "repo_url": "https://github.com/Markgatcha/universal-mcp-toolkit",
+    "author": "Markgatcha",
+    "description": "MCP aggregator that connects agents to multiple MCP servers through one configuration, with ready-made templates and cross-repo prompt workflows.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Markgatcha/universal-mcp-toolkit"
+    ]
+  },
+  {
+    "id": "gh/MastadoonPrime/sylex-search",
+    "name": "MastadoonPrime/sylex-search",
+    "title": "MastadoonPrime/sylex-search MCP",
+    "repo": "MastadoonPrime/sylex-search",
+    "repo_url": "https://github.com/MastadoonPrime/sylex-search",
+    "author": "MastadoonPrime",
+    "description": "Search engine for AI agents to discover products, services and businesses across categories, without LLM calls.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:MastadoonPrime/sylex-search"
+    ]
+  },
+  {
+    "id": "gh/matebenyovszky/agentplaybooks",
+    "name": "matebenyovszky/agentplaybooks",
+    "title": "matebenyovszky/agentplaybooks MCP",
+    "repo": "matebenyovszky/agentplaybooks",
+    "repo_url": "https://github.com/matebenyovszky/agentplaybooks",
+    "author": "matebenyovszky",
+    "description": "Portable playbooks for agent skills, MCP servers, personas, instructions, and memory. Aggregate connected tools through Streamable HTTP or the local stdio trans",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:matebenyovszky/agentplaybooks"
+    ]
+  },
+  {
+    "id": "gh/mediiiiium/mcp-jp",
+    "name": "mediiiiium/mcp-jp",
+    "title": "mediiiiium/mcp-jp MCP",
+    "repo": "mediiiiium/mcp-jp",
+    "repo_url": "https://github.com/mediiiiium/mcp-jp",
+    "author": "mediiiiium",
+    "description": "MCP servers for Japanese SMB SaaS without their own MCP support, such as KING OF TIME, SmartHR, kaonavi, Smaregi, LINE Lstep and CloudSign.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mediiiiium/mcp-jp"
+    ]
+  },
+  {
+    "id": "gh/merterbak/Grok-MCP",
+    "name": "merterbak/Grok-MCP",
+    "title": "merterbak/Grok-MCP MCP",
+    "repo": "merterbak/Grok-MCP",
+    "repo_url": "https://github.com/merterbak/Grok-MCP",
+    "author": "merterbak",
+    "description": "Access xAI's Grok API with agentic tool calling, image generation, vision and file support.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:merterbak/Grok-MCP"
+    ]
+  },
+  {
+    "id": "gh/metatool-ai/metatool-app",
+    "name": "metatool-ai/metatool-app",
+    "title": "metatool-ai/metatool-app MCP",
+    "repo": "metatool-ai/metatool-app",
+    "repo_url": "https://github.com/metatool-ai/metatool-app",
+    "author": "metatool-ai",
+    "description": "MetaMCP: unified middleware MCP server that manages your MCP connections through a GUI.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:metatool-ai/metatool-app"
+    ]
+  },
+  {
+    "id": "gh/MikeyPetrillo/Agent402",
+    "name": "MikeyPetrillo/Agent402",
+    "title": "MikeyPetrillo/Agent402 MCP",
+    "repo": "MikeyPetrillo/Agent402",
+    "repo_url": "https://github.com/MikeyPetrillo/Agent402",
+    "author": "MikeyPetrillo",
+    "description": "Pay-per-call x402 tools and skill packs (headless browser, web search, OCR, wallet-keyed memory), plus a router that finds the cheapest healthy tool.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:MikeyPetrillo/Agent402"
+    ]
+  },
+  {
+    "id": "gh/MikkoParkkola/mcp-gateway",
+    "name": "MikkoParkkola/mcp-gateway",
+    "title": "MikkoParkkola/mcp-gateway MCP",
+    "repo": "MikkoParkkola/mcp-gateway",
+    "repo_url": "https://github.com/MikkoParkkola/mcp-gateway",
+    "author": "MikkoParkkola",
+    "description": "MCP gateway with single-port multiplexing and meta-tools that replace individual tool registrations, plus hot-reloadable capabilities and OpenAPI import.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:MikkoParkkola/mcp-gateway"
+    ]
+  },
+  {
+    "id": "gh/mirastacklabs-ai/mirastack-redfish-mcp",
+    "name": "mirastacklabs-ai/mirastack-redfish-mcp",
+    "title": "mirastacklabs-ai/mirastack-redfish-mcp MCP",
+    "repo": "mirastacklabs-ai/mirastack-redfish-mcp",
+    "repo_url": "https://github.com/mirastacklabs-ai/mirastack-redfish-mcp",
+    "author": "mirastacklabs-ai",
+    "description": "Governed access to DMTF Redfish BMCs (iDRAC, iLO, XCC, OpenBMC) for power, thermal, firmware and BIOS management; read-only by default with tiered write modes.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mirastacklabs-ai/mirastack-redfish-mcp"
+    ]
+  },
+  {
+    "id": "gh/mroops0111/openapi-mcp-gateway",
+    "name": "mroops0111/openapi-mcp-gateway",
+    "title": "mroops0111/openapi-mcp-gateway MCP",
+    "repo": "mroops0111/openapi-mcp-gateway",
+    "repo_url": "https://github.com/mroops0111/openapi-mcp-gateway",
+    "author": "mroops0111",
+    "description": "Mount multiple OpenAPI specs or a FastAPI app as MCP servers in one process, exposing GET endpoints as resources and large specs through meta-tools.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mroops0111/openapi-mcp-gateway"
+    ]
+  },
+  {
+    "id": "gh/Muzaqil555/gemini-pro-mcp",
+    "name": "Muzaqil555/gemini-pro-mcp",
+    "title": "Muzaqil555/gemini-pro-mcp MCP",
+    "repo": "Muzaqil555/gemini-pro-mcp",
+    "repo_url": "https://github.com/Muzaqil555/gemini-pro-mcp",
+    "author": "Muzaqil555",
+    "description": "Use a Google AI Pro subscription from Claude, Codex and Gemini CLI: Gemini via the Antigravity CLI on the plan's limits, Deep Research, Google Flow videos, Gemi",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Muzaqil555/gemini-pro-mcp"
+    ]
+  },
+  {
+    "id": "gh/nimbus-agent/Nimbus",
+    "name": "nimbus-agent/Nimbus",
+    "title": "nimbus-agent/Nimbus MCP",
+    "repo": "nimbus-agent/Nimbus",
+    "repo_url": "https://github.com/nimbus-agent/Nimbus",
+    "author": "nimbus-agent",
+    "description": "Read-only search over a local index of your engineering stack (GitHub, Jira, Slack, PagerDuty, Datadog and more): incidents, PRs, deployments and DORA metrics.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:nimbus-agent/Nimbus"
+    ]
+  },
+  {
+    "id": "gh/ni-c/mcp-hub",
+    "name": "ni-c/mcp-hub",
+    "title": "ni-c/mcp-hub MCP",
+    "repo": "ni-c/mcp-hub",
+    "repo_url": "https://github.com/ni-c/mcp-hub",
+    "author": "ni-c",
+    "description": "Serve many stdio MCP servers from one container over HTTPS, with path-based routing, an aggregate endpoint using meta-tools, built-in OAuth 2.1 and hot reload.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ni-c/mcp-hub"
+    ]
+  },
+  {
+    "id": "gh/O-mega-Enterprise/suprsonic-mcp",
+    "name": "O-mega-Enterprise/suprsonic-mcp",
+    "title": "O-mega-Enterprise/suprsonic-mcp MCP",
+    "repo": "O-mega-Enterprise/suprsonic-mcp",
+    "repo_url": "https://github.com/O-mega-Enterprise/suprsonic-mcp",
+    "author": "O-mega-Enterprise",
+    "description": "One API key for 24 agent capabilities: web search, scraping, people and company data, email finding and verification, images, speech, transcription, documents, ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:O-mega-Enterprise/suprsonic-mcp"
+    ]
+  },
+  {
+    "id": "gh/Octodamus/octodamus-core",
+    "name": "Octodamus/octodamus-core",
+    "title": "Octodamus/octodamus-core MCP",
+    "repo": "Octodamus/octodamus-core",
+    "repo_url": "https://github.com/Octodamus/octodamus-core",
+    "author": "Octodamus",
+    "description": "Crypto market oracle: BUY/SELL/HOLD consensus from RSI, MACD, funding rates and on-chain flow, plus Polymarket edges with EV scoring and X crowd sentiment.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Octodamus/octodamus-core"
+    ]
+  },
+  {
+    "id": "gh/opentabs-dev/opentabs",
+    "name": "opentabs-dev/opentabs",
+    "title": "opentabs-dev/opentabs MCP",
+    "repo": "opentabs-dev/opentabs",
+    "repo_url": "https://github.com/opentabs-dev/opentabs",
+    "author": "opentabs-dev",
+    "description": "Plugin-based server and Chrome extension that gives AI agents access to web apps through your authenticated browser session, with a plugin SDK.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:opentabs-dev/opentabs"
+    ]
+  },
+  {
+    "id": "gh/oxgeneral/agentnet",
+    "name": "oxgeneral/agentnet",
+    "title": "oxgeneral/agentnet MCP",
+    "repo": "oxgeneral/agentnet",
+    "repo_url": "https://github.com/oxgeneral/agentnet",
+    "author": "oxgeneral",
+    "description": "Agent-to-agent referral network where AI agents discover, recommend and refer users to each other, with a bilateral trust model and referral tracking.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:oxgeneral/agentnet"
+    ]
+  },
+  {
+    "id": "gh/particlefuture/1mcpserver",
+    "name": "particlefuture/MCPDiscovery",
+    "title": "particlefuture/MCPDiscovery MCP",
+    "repo": "particlefuture/1mcpserver",
+    "repo_url": "https://github.com/particlefuture/1mcpserver",
+    "author": "particlefuture",
+    "description": "Automatically discover and configure MCP servers on your local machine.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:particlefuture/1mcpserver"
+    ]
+  },
+  {
+    "id": "gh/portel-dev/ncp",
+    "name": "portel-dev/ncp",
+    "title": "portel-dev/ncp MCP",
+    "repo": "portel-dev/ncp",
+    "repo_url": "https://github.com/portel-dev/ncp",
+    "author": "portel-dev",
+    "description": "Orchestrates all your MCP servers through tool discovery, reducing token overhead.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:portel-dev/ncp"
+    ]
+  },
+  {
+    "id": "gh/profullstack/mcp-server",
+    "name": "profullstack/mcp-server",
+    "title": "profullstack/mcp-server MCP",
+    "repo": "profullstack/mcp-server",
+    "repo_url": "https://github.com/profullstack/mcp-server",
+    "author": "profullstack",
+    "description": "Developer utilities: SEO optimization, document conversion, domain lookup, email validation, QR codes, weather data, social media posting and security scanning.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:profullstack/mcp-server"
+    ]
+  },
+  {
+    "id": "gh/qualienai/qualien-mcp",
+    "name": "qualienai/qualien-mcp",
+    "title": "qualienai/qualien-mcp MCP",
+    "repo": "qualienai/qualien-mcp",
+    "repo_url": "https://github.com/qualienai/qualien-mcp",
+    "author": "qualienai",
+    "description": "Gateway for QA/SDET work: Playwright, filesystem, GitHub, Jira, Postgres and 15+ more MCP servers behind one connection, with per-tool allow/deny and read-only-",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:qualienai/qualien-mcp"
+    ]
+  },
+  {
+    "id": "gh/robhunter/agentdeals",
+    "name": "robhunter/agentdeals",
+    "title": "robhunter/agentdeals MCP",
+    "repo": "robhunter/agentdeals",
+    "repo_url": "https://github.com/robhunter/agentdeals",
+    "author": "robhunter",
+    "description": "Search developer infrastructure deals, free tiers and startup programs, compare vendors, plan stacks and track pricing changes.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:robhunter/agentdeals"
+    ]
+  },
+  {
+    "id": "gh/doteyeso-ops/mcp-server-vibes-coded",
+    "name": "doteyeso-ops/mcp-server-vibes-coded",
+    "title": "doteyeso-ops/mcp-server-vibes-coded MCP",
+    "repo": "doteyeso-ops/mcp-server-vibes-coded",
+    "repo_url": "https://github.com/doteyeso-ops/mcp-server-vibes-coded",
+    "author": "doteyeso-ops",
+    "description": "Tools for agent supply-chain security, scanner consensus and x402 reliability, plus access to Vibes-Coded's commerce catalog.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:doteyeso-ops/mcp-server-vibes-coded"
+    ]
+  },
+  {
+    "id": "gh/rupinder2/mcp-orchestrator",
+    "name": "rupinder2/mcp-orchestrator",
+    "title": "rupinder2/mcp-orchestrator MCP",
+    "repo": "rupinder2/mcp-orchestrator",
+    "repo_url": "https://github.com/rupinder2/mcp-orchestrator",
+    "author": "rupinder2",
+    "description": "Hub that aggregates tools from multiple MCP servers with unified BM25 and regex search and deferred loading.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:rupinder2/mcp-orchestrator"
+    ]
+  },
+  {
+    "id": "gh/Rendeverance/toolfunnel",
+    "name": "Rendeverance/toolfunnel",
+    "title": "Rendeverance/toolfunnel MCP",
+    "repo": "Rendeverance/toolfunnel",
+    "repo_url": "https://github.com/Rendeverance/toolfunnel",
+    "author": "Rendeverance",
+    "description": "Gateway that funnels multiple MCP servers through one endpoint, with live attach and detach, tool filtering and hiding, hot config reload and optional OAuth.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Rendeverance/toolfunnel"
+    ]
+  },
+  {
+    "id": "gh/sF1nX/x402station-mcp",
+    "name": "sF1nX/x402station",
+    "title": "sF1nX/x402station MCP",
+    "repo": "sF1nX/x402station-mcp",
+    "repo_url": "https://github.com/sF1nX/x402station-mcp",
+    "author": "sF1nX",
+    "description": "Preflight checks for x402 payments: detect decoys, zombie endpoints, dead services and price traps before an agent pays, plus forensics and alternatives.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sF1nX/x402station-mcp"
+    ]
+  },
+  {
+    "id": "gh/supertrained/rhumb",
+    "name": "supertrained/rhumb",
+    "title": "supertrained/rhumb MCP",
+    "repo": "supertrained/rhumb",
+    "repo_url": "https://github.com/supertrained/rhumb",
+    "author": "supertrained",
+    "description": "Tool intelligence over scored services: discover and compare providers, check AN Scores, execute with managed or own credentials, and track costs and failures.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:supertrained/rhumb"
+    ]
+  },
+  {
+    "id": "gh/sitbon/magg",
+    "name": "sitbon/magg",
+    "title": "sitbon/magg MCP",
+    "repo": "sitbon/magg",
+    "repo_url": "https://github.com/sitbon/magg",
+    "author": "sitbon",
+    "description": "Meta-MCP server that lets LLMs discover, install and orchestrate multiple MCP servers to extend their own capabilities on demand.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sitbon/magg"
+    ]
+  },
+  {
+    "id": "gh/smart-mcp-proxy/mcpproxy-go",
+    "name": "smart-mcp-proxy/mcpproxy-go",
+    "title": "smart-mcp-proxy/mcpproxy-go MCP",
+    "repo": "smart-mcp-proxy/mcpproxy-go",
+    "repo_url": "https://github.com/smart-mcp-proxy/mcpproxy-go",
+    "author": "smart-mcp-proxy",
+    "description": "Local MCP proxy that routes multiple servers through one endpoint, with BM25 tool filtering, quarantine security, activity logging and a web UI.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:smart-mcp-proxy/mcpproxy-go"
+    ]
+  },
+  {
+    "id": "gh/sonnyflylock/voxie-ai-directory-mcp",
+    "name": "sonnyflylock/voxie-ai-directory-mcp",
+    "title": "sonnyflylock/voxie-ai-directory-mcp MCP",
+    "repo": "sonnyflylock/voxie-ai-directory-mcp",
+    "repo_url": "https://github.com/sonnyflylock/voxie-ai-directory-mcp",
+    "author": "sonnyflylock",
+    "description": "AI phone number directory: query Voxie AI personas and third-party AI services such as ChatGPT and get webchat links.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sonnyflylock/voxie-ai-directory-mcp"
+    ]
+  },
+  {
+    "id": "gh/SureScaleAI/openai-gpt-image-mcp",
+    "name": "SureScaleAI/openai-gpt-image-mcp",
+    "title": "SureScaleAI/openai-gpt-image-mcp MCP",
+    "repo": "SureScaleAI/openai-gpt-image-mcp",
+    "repo_url": "https://github.com/SureScaleAI/openai-gpt-image-mcp",
+    "author": "SureScaleAI",
+    "description": "Image generation and editing with OpenAI's GPT image models.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:SureScaleAI/openai-gpt-image-mcp"
+    ]
+  },
+  {
+    "id": "gh/swarmnest/swarmnest-mcp",
+    "name": "swarmnest/swarmnest-mcp",
+    "title": "swarmnest/swarmnest-mcp MCP",
+    "repo": "swarmnest/swarmnest-mcp",
+    "repo_url": "https://github.com/swarmnest/swarmnest-mcp",
+    "author": "swarmnest",
+    "description": "Search the Swarmnest directory: 3,800+ AI agent tools, APIs and MCP servers, 545 reviewed Agent Skills and marketplace products, with canonical links. Verified ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:swarmnest/swarmnest-mcp"
+    ]
+  },
+  {
+    "id": "gh/sxhxliang/mcp-access-point",
+    "name": "sxhxliang/mcp-access-point",
+    "title": "sxhxliang/mcp-access-point MCP",
+    "repo": "sxhxliang/mcp-access-point",
+    "repo_url": "https://github.com/sxhxliang/mcp-access-point",
+    "author": "sxhxliang",
+    "description": "Turn a web service into an MCP server without code changes.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sxhxliang/mcp-access-point"
+    ]
+  },
+  {
+    "id": "gh/thebrierfox/the-stall",
+    "name": "thebrierfox/the-stall",
+    "title": "thebrierfox/the-stall MCP",
+    "repo": "thebrierfox/the-stall",
+    "repo_url": "https://github.com/thebrierfox/the-stall",
+    "author": "thebrierfox",
+    "description": "Pay-per-call x402 data: equities, crypto/DeFi analytics, options chains, dealer GEX, macro data, congressional trades, prediction markets and SEC filings.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:thebrierfox/the-stall"
+    ]
+  },
+  {
+    "id": "gh/swaltersjrtest/microtap-mcp",
+    "name": "swaltersjrtest/microtap-mcp",
+    "title": "swaltersjrtest/microtap-mcp MCP",
+    "repo": "swaltersjrtest/microtap-mcp",
+    "repo_url": "https://github.com/swaltersjrtest/microtap-mcp",
+    "author": "swaltersjrtest",
+    "description": "Pay-per-call x402 APIs: Polymarket and Kalshi prediction markets, DeFi and crypto data, on-chain reads across EVM chains, live weather and web search.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:swaltersjrtest/microtap-mcp"
+    ]
+  },
+  {
+    "id": "gh/thinkchainai/mcpbundles",
+    "name": "thinkchainai/mcpbundles",
+    "title": "thinkchainai/mcpbundles MCP",
+    "repo": "thinkchainai/mcpbundles",
+    "repo_url": "https://github.com/thinkchainai/mcpbundles",
+    "author": "thinkchainai",
+    "description": "Create custom tool bundles, connect providers with OAuth or API keys, and use one MCP server across many integrations, with a UI for bundles and credentials.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:thinkchainai/mcpbundles"
+    ]
+  },
+  {
+    "id": "gh/mrfelfel/taghvim",
+    "name": "mrfelfel/taghvim",
+    "title": "mrfelfel/taghvim MCP",
+    "repo": "mrfelfel/taghvim",
+    "repo_url": "https://github.com/mrfelfel/taghvim",
+    "author": "mrfelfel",
+    "description": "Deterministic date and time reasoning: arithmetic, DST-aware time zones, business days, public holidays, RFC 5545 recurrence and Gregorian/Persian conversion.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mrfelfel/taghvim"
+    ]
+  },
+  {
+    "id": "gh/VeriTeknik/pluggedin-mcp-proxy",
+    "name": "VeriTeknik/pluggedin-mcp-proxy",
+    "title": "VeriTeknik/pluggedin-mcp-proxy MCP",
+    "repo": "VeriTeknik/pluggedin-mcp-proxy",
+    "repo_url": "https://github.com/VeriTeknik/pluggedin-mcp-proxy",
+    "author": "VeriTeknik",
+    "description": "Proxy combining multiple MCP servers into one interface, with discovery and management of tools, prompts, resources and templates plus a debugging playground.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:VeriTeknik/pluggedin-mcp-proxy"
+    ]
+  },
+  {
+    "id": "gh/ViperJuice/mcp-gateway",
+    "name": "ViperJuice/mcp-gateway",
+    "title": "ViperJuice/mcp-gateway MCP",
+    "repo": "ViperJuice/mcp-gateway",
+    "repo_url": "https://github.com/ViperJuice/mcp-gateway",
+    "author": "ViperJuice",
+    "description": "Meta-server that reduces Claude Code tool bloat via progressive disclosure, auto-starting Playwright and Context7 and provisioning MCP servers on demand.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ViperJuice/mcp-gateway"
+    ]
+  },
+  {
+    "id": "gh/waystation-ai/mcp",
+    "name": "WayStation-ai/mcp",
+    "title": "WayStation-ai/mcp MCP",
+    "repo": "waystation-ai/mcp",
+    "repo_url": "https://github.com/waystation-ai/mcp",
+    "author": "waystation-ai",
+    "description": "Connect MCP hosts to apps such as Notion, Slack, Monday and Airtable.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:waystation-ai/mcp"
+    ]
+  },
+  {
+    "id": "gh/wegotdocs/open-mcp",
+    "name": "wegotdocs/open-mcp",
+    "title": "wegotdocs/open-mcp MCP",
+    "repo": "wegotdocs/open-mcp",
+    "repo_url": "https://github.com/wegotdocs/open-mcp",
+    "author": "wegotdocs",
+    "description": "Turn a web API into an MCP server and add it to the open-source open-mcp.org registry.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:wegotdocs/open-mcp"
+    ]
+  },
+  {
+    "id": "gh/whiteknightonhorse/APIbase",
+    "name": "whiteknightonhorse/APIbase",
+    "title": "whiteknightonhorse/APIbase MCP",
+    "repo": "whiteknightonhorse/APIbase",
+    "repo_url": "https://github.com/whiteknightonhorse/APIbase",
+    "author": "whiteknightonhorse",
+    "description": "API hub covering travel (Amadeus, Sabre), Polymarket prediction markets, crypto and weather, paid per call via x402 in USDC.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:whiteknightonhorse/APIbase"
+    ]
+  },
+  {
+    "id": "gh/withoneai/mcp",
+    "name": "withoneai/mcp",
+    "title": "withoneai/mcp MCP",
+    "repo": "withoneai/mcp",
+    "repo_url": "https://github.com/withoneai/mcp",
+    "author": "withoneai",
+    "description": "Search, document and execute authenticated API calls across apps such as Gmail, Slack, Stripe, Notion and GitHub through a few tools with constant context size.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:withoneai/mcp"
+    ]
+  },
+  {
+    "id": "gh/Wolido/OpenAaaS",
+    "name": "Wolido/OpenAaaS",
+    "title": "Wolido/OpenAaaS MCP",
+    "repo": "Wolido/OpenAaaS",
+    "repo_url": "https://github.com/Wolido/OpenAaaS",
+    "author": "Wolido",
+    "description": "Adapter to the OpenAaaS scientific agent network: submit tasks such as literature analysis or materials database queries to remote research agents.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Wolido/OpenAaaS"
+    ]
+  },
+  {
+    "id": "gh/rplryan/x402-discovery-mcp",
+    "name": "rplryan/x402-discovery-mcp",
+    "title": "rplryan/x402-discovery-mcp MCP",
+    "repo": "rplryan/x402-discovery-mcp",
+    "repo_url": "https://github.com/rplryan/x402-discovery-mcp",
+    "author": "rplryan",
+    "description": "Runtime discovery for x402-payable APIs: find and route to pay-per-call endpoints by capability, ranked by quality and trust score, plus a Python SDK and CLI.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:rplryan/x402-discovery-mcp"
+    ]
+  },
+  {
+    "id": "gh/x402-index/x402search-mcp",
+    "name": "x402-index/x402search-mcp",
+    "title": "x402-index/x402search-mcp MCP",
+    "repo": "x402-index/x402search-mcp",
+    "repo_url": "https://github.com/x402-index/x402search-mcp",
+    "author": "x402-index",
+    "description": "Search x402-enabled HTTP APIs by keyword, paid per search via x402 micropayments on Base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:x402-index/x402search-mcp"
+    ]
+  },
+  {
+    "id": "gh/ikoskela/wisepanel-mcp",
+    "name": "ikoskela/wisepanel-mcp",
+    "title": "ikoskela/wisepanel-mcp MCP",
+    "repo": "ikoskela/wisepanel-mcp",
+    "repo_url": "https://github.com/ikoskela/wisepanel-mcp",
+    "author": "ikoskela",
+    "description": "Multi-agent deliberation across ChatGPT, Claude, Gemini and Perplexity, with dynamically generated roles that explore the question from divergent angles.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ikoskela/wisepanel-mcp"
+    ]
+  },
+  {
+    "id": "gh/YangLiangwei/PersonalizationMCP",
+    "name": "YangLiangwei/PersonalizationMCP",
+    "title": "YangLiangwei/PersonalizationMCP MCP",
+    "repo": "YangLiangwei/PersonalizationMCP",
+    "repo_url": "https://github.com/YangLiangwei/PersonalizationMCP",
+    "author": "YangLiangwei",
+    "description": "Aggregate personal data from Steam, YouTube, Bilibili, Spotify, Reddit and other gaming, music, video and social platforms, with OAuth2 and token management.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:YangLiangwei/PersonalizationMCP"
+    ]
+  },
+  {
+    "id": "gh/Swarmwage/swarmwage",
+    "name": "Swarmwage/swarmwage",
+    "title": "Swarmwage/swarmwage MCP",
+    "repo": "Swarmwage/swarmwage",
+    "repo_url": "https://github.com/Swarmwage/swarmwage",
+    "author": "Swarmwage",
+    "description": "Agent hiring protocol on x402: discover specialized agents, hire them in one call and settle in USDC on Base, with reputation and on-chain EIP-3009 receipts.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Swarmwage/swarmwage"
+    ]
+  },
+  {
+    "id": "gh/ertad-family/liquid",
+    "name": "ertad-family/liquid",
+    "title": "ertad-family/liquid MCP",
+    "repo": "ertad-family/liquid",
+    "repo_url": "https://github.com/ertad-family/liquid",
+    "author": "ertad-family",
+    "description": "Connect agents to any REST API on the fly: maps the API once, then fetches typed data deterministically without per-call LLM use. Self-hosted.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ertad-family/liquid"
+    ]
+  },
+  {
+    "id": "gh/btsouth/toolport",
+    "name": "btsouth/toolport",
+    "title": "btsouth/toolport MCP",
+    "repo": "btsouth/toolport",
+    "repo_url": "https://github.com/btsouth/toolport",
+    "author": "btsouth",
+    "description": "Desktop app and local gateway that shares your MCP servers with Claude Code, Codex, Cursor, VS Code and 40+ other clients: set up each server once, keep secrets",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:btsouth/toolport"
+    ]
+  },
+  {
+    "id": "gh/skillselion/skillselion-mcp",
+    "name": "skillselion/skillselion-mcp",
+    "title": "skillselion/skillselion-mcp MCP",
+    "repo": "skillselion/skillselion-mcp",
+    "repo_url": "https://github.com/skillselion/skillselion-mcp",
+    "author": "skillselion",
+    "description": "Search the Skillselion catalog of community-vetted Claude Code skills, MCP servers and marketplaces, ranked by installs and GitHub stars; load skills mid-task.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:skillselion/skillselion-mcp"
+    ]
+  },
+  {
+    "id": "gh/singhpratech/crimson-crab-mcp-template",
+    "name": "singhpratech/crimson-crab-mcp-template",
+    "title": "singhpratech/crimson-crab-mcp-template MCP",
+    "repo": "singhpratech/crimson-crab-mcp-template",
+    "repo_url": "https://github.com/singhpratech/crimson-crab-mcp-template",
+    "author": "singhpratech",
+    "description": "Rust template for an MCP server that queries Anthropic's Claude API via the crimson-crab SDK.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:singhpratech/crimson-crab-mcp-template"
+    ]
+  },
+  {
+    "id": "gh/forcedreamai/forcedream-mcp",
+    "name": "forcedreamai/forcedream-mcp",
+    "title": "forcedreamai/forcedream-mcp MCP",
+    "repo": "forcedreamai/forcedream-mcp",
+    "repo_url": "https://github.com/forcedreamai/forcedream-mcp",
+    "author": "forcedreamai",
+    "description": "Discover, invoke and verify agents on a paid marketplace: code generation, security scanning (OSV.dev, GitGuardian) and lead scoring, with signed results.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:forcedreamai/forcedream-mcp"
+    ]
+  },
+  {
+    "id": "gh/mcccsm/x402-list-mcp",
+    "name": "mcccsm/x402-list-mcp",
+    "title": "mcccsm/x402-list-mcp MCP",
+    "repo": "mcccsm/x402-list-mcp",
+    "repo_url": "https://github.com/mcccsm/x402-list-mcp",
+    "author": "mcccsm",
+    "description": "Find and vet x402 payment APIs in the x402-list directory: search and rank services, check uptime, health, per-endpoint prices and on-chain settlement volume.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mcccsm/x402-list-mcp"
+    ]
+  },
+  {
+    "id": "gh/activeing123/mcptoon",
+    "name": "activeing123/mcptoon",
+    "title": "activeing123/mcptoon MCP",
+    "repo": "activeing123/mcptoon",
+    "repo_url": "https://github.com/activeing123/mcptoon",
+    "author": "activeing123",
+    "description": "Connect AI agents to MCP servers from one config synced across coding tools, served through one process with compact tool discovery and spec validation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:activeing123/mcptoon"
+    ]
+  },
+  {
+    "id": "gh/kaxiyu/aiagentmarket",
+    "name": "kaxiyu/aiagentmarket",
+    "title": "kaxiyu/aiagentmarket MCP",
+    "repo": "kaxiyu/aiagentmarket",
+    "repo_url": "https://github.com/kaxiyu/aiagentmarket",
+    "author": "kaxiyu",
+    "description": "Labor marketplace protocol for AI agents with atomic escrow and weighted anti-Sybil reputation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kaxiyu/aiagentmarket"
+    ]
+  },
+  {
+    "id": "gh/Strategiumfinancepartner/AgentNexus",
+    "name": "Strategiumfinancepartner/AgentNexus",
+    "title": "Strategiumfinancepartner/AgentNexus MCP",
+    "repo": "Strategiumfinancepartner/AgentNexus",
+    "repo_url": "https://github.com/Strategiumfinancepartner/AgentNexus",
+    "author": "Strategiumfinancepartner",
+    "description": "Discovery and reliability registry of APIs, MCP servers and CLIs for AI agents: scheduled health probes, per-entry health cards with evidence expiry, free key i",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Strategiumfinancepartner/AgentNexus"
+    ]
+  },
+  {
+    "id": "gh/sunwen1983/mcpgate",
+    "name": "sunwen1983/mcpgate",
+    "title": "sunwen1983/mcpgate MCP",
+    "repo": "sunwen1983/mcpgate",
+    "repo_url": "https://github.com/sunwen1983/mcpgate",
+    "author": "sunwen1983",
+    "description": "Production gateway in front of MCP servers: API-key and OIDC JWT auth, per-key rate limiting, response caching, circuit breakers, per-backend tool filtering and",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sunwen1983/mcpgate"
+    ]
+  },
+  {
+    "id": "gh/caijianxiong2007-prog/bayze-mcp",
+    "name": "caijianxiong2007-prog/bayze-mcp",
+    "title": "caijianxiong2007-prog/bayze-mcp MCP",
+    "repo": "caijianxiong2007-prog/bayze-mcp",
+    "repo_url": "https://github.com/caijianxiong2007-prog/bayze-mcp",
+    "author": "caijianxiong2007-prog",
+    "description": "Local-first AI model-routing core: waterfall workflows with mandatory structured cross-vendor review (draft \u2192 review \u2192 revise), BYOK or unified API keys, budget",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:caijianxiong2007-prog/bayze-mcp"
+    ]
+  },
+  {
+    "id": "gh/gregario/astronomy-oracle",
+    "name": "gregario/astronomy-oracle",
+    "title": "gregario/astronomy-oracle MCP",
+    "repo": "gregario/astronomy-oracle",
+    "repo_url": "https://github.com/gregario/astronomy-oracle",
+    "author": "gregario",
+    "description": "Astronomical catalog data and observing session planning: OpenNGC deep-sky objects with visibility, rise/transit/set and alt/az calculations.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gregario/astronomy-oracle"
+    ]
+  },
+  {
+    "id": "gh/viventine-space/orbit-sentinel-mcp",
+    "name": "viventine-space/orbit-sentinel-mcp",
+    "title": "viventine-space/orbit-sentinel-mcp MCP",
+    "repo": "viventine-space/orbit-sentinel-mcp",
+    "repo_url": "https://github.com/viventine-space/orbit-sentinel-mcp",
+    "author": "viventine-space",
+    "description": "Search FCC, ITU, UNOOSA and FAA space regulatory filings via Orbit Sentinel: semantic search, entity dossiers, spectrum holdings, launch licenses and alerts.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:viventine-space/orbit-sentinel-mcp"
+    ]
+  },
+  {
+    "id": "gh/sealbridge/sealbridge",
+    "name": "sealbridge/sealbridge",
+    "title": "sealbridge/sealbridge MCP",
+    "repo": "sealbridge/sealbridge",
+    "repo_url": "https://github.com/sealbridge/sealbridge",
+    "author": "sealbridge",
+    "description": "Delegate tasks such as code reviews to AI agents run by other people, straight from your MCP client. Requests and results are signed, passed through a relay, an",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sealbridge/sealbridge"
+    ]
+  },
+  {
+    "id": "gh/BrightbeamAI/chap",
+    "name": "BrightbeamAI/chap",
+    "title": "BrightbeamAI/chap MCP",
+    "repo": "BrightbeamAI/chap",
+    "repo_url": "https://github.com/BrightbeamAI/chap",
+    "author": "BrightbeamAI",
+    "description": "CHAP Coordinator for auditable human-agent collaboration: approvals, overrides, handoffs, escalations and hash-linked evidence.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:BrightbeamAI/chap"
+    ]
+  },
+  {
+    "id": "gh/cirwel/unitares",
+    "name": "cirwel/unitares",
+    "title": "cirwel/unitares MCP",
+    "repo": "cirwel/unitares",
+    "repo_url": "https://github.com/cirwel/unitares",
+    "author": "cirwel",
+    "description": "Self-hosted, single-operator attributed record for multiple agents: identity and lineage, claims and evidence, agent review that keeps objections on file, and o",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cirwel/unitares"
+    ]
+  },
+  {
+    "id": "gh/CNSLabs/agreements-api-sdk",
+    "name": "CNSLabs/agreements-api-sdk",
+    "title": "CNSLabs/agreements-api-sdk MCP",
+    "repo": "CNSLabs/agreements-api-sdk",
+    "repo_url": "https://github.com/CNSLabs/agreements-api-sdk",
+    "author": "CNSLabs",
+    "description": "Define, validate, deploy and operate machine-readable agreements, with EIP-712 permit preparation, signed participant inputs, state reads and input history.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:CNSLabs/agreements-api-sdk"
+    ]
+  },
+  {
+    "id": "gh/cogdepot/mcp-server",
+    "name": "cogdepot/mcp-server",
+    "title": "cogdepot/mcp-server MCP",
+    "repo": "cogdepot/mcp-server",
+    "repo_url": "https://github.com/cogdepot/mcp-server",
+    "author": "cogdepot",
+    "description": "Access cogDepot, an anonymous broker where agents publish capability listings, negotiate terms and form escrow-backed deals with two-sided reputation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cogdepot/mcp-server"
+    ]
+  },
+  {
+    "id": "gh/decision-anchor/mcp-server",
+    "name": "decision-anchor/mcp-server",
+    "title": "decision-anchor/mcp-server MCP",
+    "repo": "decision-anchor/mcp-server",
+    "repo_url": "https://github.com/decision-anchor/mcp-server",
+    "author": "decision-anchor",
+    "description": "External anchoring layer that records AI agent accountability boundaries on both sides, without inspecting content or passing judgment.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:decision-anchor/mcp-server"
+    ]
+  },
+  {
+    "id": "gh/elicitly/elicitly",
+    "name": "elicitly/elicitly",
+    "title": "elicitly/elicitly MCP",
+    "repo": "elicitly/elicitly",
+    "repo_url": "https://github.com/elicitly/elicitly",
+    "author": "elicitly",
+    "description": "Human-in-the-loop via MCP elicitation: native confirmation dialogs and typed forms from JSON schemas in the host, plus a check of supported features.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:elicitly/elicitly"
+    ]
+  },
+  {
+    "id": "gh/GriffMurder/taskbullet-mcp-server",
+    "name": "GriffMurder/taskbullet-mcp-server",
+    "title": "GriffMurder/taskbullet-mcp-server MCP",
+    "repo": "GriffMurder/taskbullet-mcp-server",
+    "repo_url": "https://github.com/GriffMurder/taskbullet-mcp-server",
+    "author": "GriffMurder",
+    "description": "Delegate phone calls, captcha/2FA logins, errands and QA your agent can't finish to a real human assistant, then track results.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:GriffMurder/taskbullet-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/ianewsfr-a11y/ergonia",
+    "name": "ianewsfr-a11y/ergonia",
+    "title": "ianewsfr-a11y/ergonia MCP",
+    "repo": "ianewsfr-a11y/ergonia",
+    "repo_url": "https://github.com/ianewsfr-a11y/ergonia",
+    "author": "ianewsfr-a11y",
+    "description": "Marketplace of verifiable tasks for AI agents: publish independently checkable tasks, submit work and build reputation, with actions in a hash-chained register.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ianewsfr-a11y/ergonia"
+    ]
+  },
+  {
+    "id": "gh/Vladimir-Human/humanizer-ru",
+    "name": "Vladimir-Human/humanizer-ru",
+    "title": "Vladimir-Human/humanizer-ru MCP",
+    "repo": "Vladimir-Human/humanizer-ru",
+    "repo_url": "https://github.com/Vladimir-Human/humanizer-ru",
+    "author": "Vladimir-Human",
+    "description": "Detect and normalize traces of machine generation in Russian text, without authorship verdicts.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Vladimir-Human/humanizer-ru"
+    ]
+  },
+  {
+    "id": "gh/humanforai/humanforai-mcp",
+    "name": "humanforai/humanforai-mcp",
+    "title": "humanforai/humanforai-mcp MCP",
+    "repo": "humanforai/humanforai-mcp",
+    "repo_url": "https://github.com/humanforai/humanforai-mcp",
+    "author": "humanforai",
+    "description": "Hire human operators for tasks needing physical presence, perception or judgment: real-world verification, product testing, AI output review and errands.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:humanforai/humanforai-mcp"
+    ]
+  },
+  {
+    "id": "gh/gofrantic/frantic-mcp",
+    "name": "gofrantic/frantic-mcp",
+    "title": "gofrantic/frantic-mcp MCP",
+    "repo": "gofrantic/frantic-mcp",
+    "repo_url": "https://github.com/gofrantic/frantic-mcp",
+    "author": "gofrantic",
+    "description": "Public bounty board where AI agents claim funded bounties, deliver work and get paid in USDC on Base on acceptance, with a public receipt ledger.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gofrantic/frantic-mcp"
+    ]
+  },
+  {
+    "id": "gh/lanekingsbery/open-task-relay-public",
+    "name": "lanekingsbery/open-task-relay-public",
+    "title": "lanekingsbery/open-task-relay-public MCP",
+    "repo": "lanekingsbery/open-task-relay-public",
+    "repo_url": "https://github.com/lanekingsbery/open-task-relay-public",
+    "author": "lanekingsbery",
+    "description": "Open Task Relay: bounded public-good tasks that AI agents can discover, complete, submit and independently verify.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:lanekingsbery/open-task-relay-public"
+    ]
+  },
+  {
+    "id": "gh/t3ratech/market-pulse-mcp",
+    "name": "t3ratech/market-pulse-mcp",
+    "title": "t3ratech/market-pulse-mcp MCP",
+    "repo": "t3ratech/market-pulse-mcp",
+    "repo_url": "https://github.com/t3ratech/market-pulse-mcp",
+    "author": "t3ratech",
+    "description": "Evidence-graded index of where AI agents can earn: agent-work lanes graded A/B/C/F from recorded payouts, should-I-bid advice, a hash-chained evidence ledger an",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:t3ratech/market-pulse-mcp"
+    ]
+  },
+  {
+    "id": "gh/tbernabo/forbiz-mcp",
+    "name": "tbernabo/forbiz-mcp",
+    "title": "tbernabo/forbiz-mcp MCP",
+    "repo": "tbernabo/forbiz-mcp",
+    "repo_url": "https://github.com/tbernabo/forbiz-mcp",
+    "author": "tbernabo",
+    "description": "Forbiz, the CRM for AI agents: record commitments with the signal you expect back and by when, plus evidence and outcomes, so the next session or agent resumes ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:tbernabo/forbiz-mcp"
+    ]
+  },
+  {
+    "id": "gh/TheRealDalaiLama/glyphdna-mcp",
+    "name": "TheRealDalaiLama/glyphdna-mcp",
+    "title": "TheRealDalaiLama/glyphdna-mcp MCP",
+    "repo": "TheRealDalaiLama/glyphdna-mcp",
+    "repo_url": "https://github.com/TheRealDalaiLama/glyphdna-mcp",
+    "author": "TheRealDalaiLama",
+    "description": "Agent identity with self-held Ed25519 keys, verifiable multi-party meeting rooms with co-signed transcript receipts, and script provenance chains.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:TheRealDalaiLama/glyphdna-mcp"
+    ]
+  },
+  {
+    "id": "gh/tribeunal/mcp-server",
+    "name": "tribeunal/mcp-server",
+    "title": "tribeunal/mcp-server MCP",
+    "repo": "tribeunal/mcp-server",
+    "repo_url": "https://github.com/tribeunal/mcp-server",
+    "author": "tribeunal",
+    "description": "Community jury platform where humans and AI agents open cases, weigh evidence and vote together, with arbitration mode, verdict waiting and signed webhooks.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:tribeunal/mcp-server"
+    ]
+  },
+  {
+    "id": "gh/sttruji/mundane-mcp",
+    "name": "sttruji/mundane-mcp",
+    "title": "sttruji/mundane-mcp MCP",
+    "repo": "sttruji/mundane-mcp",
+    "repo_url": "https://github.com/sttruji/mundane-mcp",
+    "author": "sttruji",
+    "description": "Hire ID-verified people for errands, on-site photos, queue-sitting and in-person bookings, with escrow-backed offers, chat and proof-of-completion review.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sttruji/mundane-mcp"
+    ]
+  },
+  {
+    "id": "gh/OrestKlymko/penlydoc-mcp",
+    "name": "OrestKlymko/penlydoc-mcp",
+    "title": "OrestKlymko/penlydoc-mcp MCP",
+    "repo": "OrestKlymko/penlydoc-mcp",
+    "repo_url": "https://github.com/OrestKlymko/penlydoc-mcp",
+    "author": "OrestKlymko",
+    "description": "EU e-signature (PenlyDoc): send PDFs for signature from templates or files, track who signed, send reminders and download sealed PDFs (PAdES) with a certificate",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:OrestKlymko/penlydoc-mcp"
+    ]
+  },
+  {
+    "id": "gh/signdocsbrasil/signdocs-mcp-server",
+    "name": "signdocsbrasil/signdocs-mcp-server",
+    "title": "signdocsbrasil/signdocs-mcp-server MCP",
+    "repo": "signdocsbrasil/signdocs-mcp-server",
+    "repo_url": "https://github.com/signdocsbrasil/signdocs-mcp-server",
+    "author": "signdocsbrasil",
+    "description": "Brazilian e-signature (SignDocs Brasil): create signing sessions and multi-signer envelopes, upload and download documents, verify signatures, and manage webhoo",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:signdocsbrasil/signdocs-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/kim-dongho/krds-a11y-mcp",
+    "name": "kim-dongho/krds-a11y-mcp",
+    "title": "kim-dongho/krds-a11y-mcp MCP",
+    "repo": "kim-dongho/krds-a11y-mcp",
+    "repo_url": "https://github.com/kim-dongho/krds-a11y-mcp",
+    "author": "kim-dongho",
+    "description": "Korea's government design system (KRDS) components with KWCAG 2.2 (Korean web accessibility standard) built in: refuses markup when labels or alt text are missi",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kim-dongho/krds-a11y-mcp"
+    ]
+  },
+  {
+    "id": "gh/kinti/a11y-toolkit",
+    "name": "kinti/a11y-toolkit",
+    "title": "kinti/a11y-toolkit MCP",
+    "repo": "kinti/a11y-toolkit",
+    "repo_url": "https://github.com/kinti/a11y-toolkit",
+    "author": "kinti",
+    "description": "WCAG 2.2 accessibility tools: color contrast checks including text over images, EU accessibility declaration generation and an aria-live announcement monitor.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kinti/a11y-toolkit"
+    ]
+  },
+  {
+    "id": "gh/mishan/shotbox",
+    "name": "mishan/shotbox",
+    "title": "mishan/shotbox MCP",
+    "repo": "mishan/shotbox",
+    "repo_url": "https://github.com/mishan/shotbox",
+    "author": "mishan",
+    "description": "Runs real GUI programs in a sealed X11 or Wayland session where an agent can read the accessible tree, take screenshots and clips with sound, click, type and dr",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mishan/shotbox"
+    ]
+  },
+  {
+    "id": "gh/pourdev/pour-cli",
+    "name": "pourdev/pour-cli",
+    "title": "pourdev/pour-cli MCP",
+    "repo": "pourdev/pour-cli",
+    "repo_url": "https://github.com/pourdev/pour-cli",
+    "author": "pourdev",
+    "description": "WCAG 2.2 audits from the pour accessibility engine, written from the W3C specifications: audit a URL or local HTML file for proven failures and items that need ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:pourdev/pour-cli"
+    ]
+  },
+  {
+    "id": "gh/vince-gonzalez/opticquiz-mcp",
+    "name": "vince-gonzalez/opticquiz-mcp",
+    "title": "vince-gonzalez/opticquiz-mcp MCP",
+    "repo": "vince-gonzalez/opticquiz-mcp",
+    "repo_url": "https://github.com/vince-gonzalez/opticquiz-mcp",
+    "author": "vince-gonzalez",
+    "description": "Color-vision accessibility: check palettes and images for colorblind safety, generate safe palettes, simulate color blindness and create Ishihara-style plates.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:vince-gonzalez/opticquiz-mcp"
+    ]
+  },
+  {
+    "id": "gh/AceDataCloud/FluxMCP",
+    "name": "AceDataCloud/MCPFlux",
+    "title": "AceDataCloud/MCPFlux MCP",
+    "repo": "AceDataCloud/FluxMCP",
+    "repo_url": "https://github.com/AceDataCloud/FluxMCP",
+    "author": "AceDataCloud",
+    "description": "Flux image generation and editing from Black Forest Labs via the Ace Data Cloud API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:AceDataCloud/FluxMCP"
+    ]
+  },
+  {
+    "id": "gh/musajala/musajala-mcp",
+    "name": "musajala/musajala-mcp",
+    "title": "musajala/musajala-mcp MCP",
+    "repo": "musajala/musajala-mcp",
+    "repo_url": "https://github.com/musajala/musajala-mcp",
+    "author": "musajala",
+    "description": "Collaborative Arabic poetry arena and Poetic Equity protocol connecting AI agents with human poets.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:musajala/musajala-mcp"
+    ]
+  },
+  {
+    "id": "gh/AceDataCloud/MCPNanoBanana",
+    "name": "AceDataCloud/MCPNanoBanana",
+    "title": "AceDataCloud/MCPNanoBanana MCP",
+    "repo": "AceDataCloud/MCPNanoBanana",
+    "repo_url": "https://github.com/AceDataCloud/MCPNanoBanana",
+    "author": "AceDataCloud",
+    "description": "Nano Banana image generation and editing, including virtual try-on and product placement in realistic scenes.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:AceDataCloud/MCPNanoBanana"
+    ]
+  },
+  {
+    "id": "gh/AceDataCloud/SeedreamMCP",
+    "name": "AceDataCloud/MCPSeedream",
+    "title": "AceDataCloud/MCPSeedream MCP",
+    "repo": "AceDataCloud/SeedreamMCP",
+    "repo_url": "https://github.com/AceDataCloud/SeedreamMCP",
+    "author": "AceDataCloud",
+    "description": "ByteDance Seedream image generation and editing via the Ace Data Cloud API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:AceDataCloud/SeedreamMCP"
+    ]
+  },
+  {
+    "id": "gh/AIDataNordic/alexandria-mcp",
+    "name": "AIDataNordic/alexandria-mcp",
+    "title": "AIDataNordic/alexandria-mcp MCP",
+    "repo": "AIDataNordic/alexandria-mcp",
+    "repo_url": "https://github.com/AIDataNordic/alexandria-mcp",
+    "author": "AIDataNordic",
+    "description": "Semantic search over classical philosophy and humanities works.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:AIDataNordic/alexandria-mcp"
+    ]
+  },
+  {
+    "id": "gh/8enSmith/mcp-open-library",
+    "name": "8enSmith/mcp-open-library",
+    "title": "8enSmith/mcp-open-library MCP",
+    "repo": "8enSmith/mcp-open-library",
+    "repo_url": "https://github.com/8enSmith/mcp-open-library",
+    "author": "8enSmith",
+    "description": "Search for book information via the Open Library API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:8enSmith/mcp-open-library"
+    ]
+  },
+  {
+    "id": "gh/fgbytes/sansfiction-mcp",
+    "name": "fgbytes/sansfiction-mcp",
+    "title": "fgbytes/sansfiction-mcp MCP",
+    "repo": "fgbytes/sansfiction-mcp",
+    "repo_url": "https://github.com/fgbytes/sansfiction-mcp",
+    "author": "fgbytes",
+    "description": "Search the SansFiction book catalog by title, author, series or ISBN and manage a personal reading library: status, progress, ratings, reviews and collections.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:fgbytes/sansfiction-mcp"
+    ]
+  },
+  {
+    "id": "gh/abhiemj/manim-mcp-server",
+    "name": "abhiemj/manim-mcp-server",
+    "title": "abhiemj/manim-mcp-server MCP",
+    "repo": "abhiemj/manim-mcp-server",
+    "repo_url": "https://github.com/abhiemj/manim-mcp-server",
+    "author": "abhiemj",
+    "description": "Generate animations locally using Manim.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:abhiemj/manim-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/austenstone/myinstants-mcp",
+    "name": "austenstone/myinstants-mcp",
+    "title": "austenstone/myinstants-mcp MCP",
+    "repo": "austenstone/myinstants-mcp",
+    "repo_url": "https://github.com/austenstone/myinstants-mcp",
+    "author": "austenstone",
+    "description": "Soundboard with meme sounds from myinstants.com: search, play and browse categories.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:austenstone/myinstants-mcp"
+    ]
+  },
+  {
+    "id": "gh/ahujasid/blender-mcp",
+    "name": "ahujasid/blender-mcp",
+    "title": "ahujasid/blender-mcp MCP",
+    "repo": "ahujasid/blender-mcp",
+    "repo_url": "https://github.com/ahujasid/blender-mcp",
+    "author": "ahujasid",
+    "description": "Connect AI assistants to Blender.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ahujasid/blender-mcp"
+    ]
+  },
+  {
+    "id": "gh/JackLuciano/claude-bridge-blender",
+    "name": "JackLuciano/claude-bridge-blender",
+    "title": "JackLuciano/claude-bridge-blender MCP",
+    "repo": "JackLuciano/claude-bridge-blender",
+    "repo_url": "https://github.com/JackLuciano/claude-bridge-blender",
+    "author": "JackLuciano",
+    "description": "Drive a live Blender with compact op batches (one undo step each) and viewport captures; also adds an in-Blender chat panel.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:JackLuciano/claude-bridge-blender"
+    ]
+  },
+  {
+    "id": "gh/JasmyLab-JANCTION/janction-render",
+    "name": "JasmyLab-JANCTION/janction-render",
+    "title": "JasmyLab-JANCTION/janction-render MCP",
+    "repo": "JasmyLab-JANCTION/janction-render",
+    "repo_url": "https://github.com/JasmyLab-JANCTION/janction-render",
+    "author": "JasmyLab-JANCTION",
+    "description": "Render Blender scenes and 3D models (.blend, bpy scripts, GLB/glTF, FBX, USD, OBJ, STL) on cloud GPUs from AI agents: product shots, 360-degree turntables, anim",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:JasmyLab-JANCTION/janction-render"
+    ]
+  },
+  {
+    "id": "gh/albertnahas/icogenie-mcp",
+    "name": "albertnahas/icogenie-mcp",
+    "title": "albertnahas/icogenie-mcp MCP",
+    "repo": "albertnahas/icogenie-mcp",
+    "repo_url": "https://github.com/albertnahas/icogenie-mcp",
+    "author": "albertnahas",
+    "description": "Generate SVG icons from text descriptions with customizable styles.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:albertnahas/icogenie-mcp"
+    ]
+  },
+  {
+    "id": "gh/alexzavialov/travel-art-mcp",
+    "name": "alexzavialov/travel-art-mcp",
+    "title": "alexzavialov/travel-art-mcp MCP",
+    "repo": "alexzavialov/travel-art-mcp",
+    "repo_url": "https://github.com/alexzavialov/travel-art-mcp",
+    "author": "alexzavialov",
+    "description": "Art-tourism data: biennales (Venice, Whitney), art fairs (Art Basel, Frieze), major museum visitor guides and art trip recommendations.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:alexzavialov/travel-art-mcp"
+    ]
+  },
+  {
+    "id": "gh/aliafsahnoudeh/shahnameh-mcp-server",
+    "name": "aliafsahnoudeh/shahnameh-mcp-server",
+    "title": "aliafsahnoudeh/shahnameh-mcp-server MCP",
+    "repo": "aliafsahnoudeh/shahnameh-mcp-server",
+    "repo_url": "https://github.com/aliafsahnoudeh/shahnameh-mcp-server",
+    "author": "aliafsahnoudeh",
+    "description": "Access the Shahnameh (Book of Kings), Ferdowsi's Persian epic poem, including sections, verses and explanations.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:aliafsahnoudeh/shahnameh-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/arikusi/nakkas",
+    "name": "arikusi/nakkas",
+    "title": "arikusi/nakkas MCP",
+    "repo": "arikusi/nakkas",
+    "repo_url": "https://github.com/arikusi/nakkas",
+    "author": "arikusi",
+    "description": "SVG art engine controlled through JSON config: CSS keyframe and SMIL animations, parametric curves, filters, gradients and PNG preview.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:arikusi/nakkas"
+    ]
+  },
+  {
+    "id": "gh/Armulee/ai-gateway-mcp",
+    "name": "Armulee/ai-gateway-mcp",
+    "title": "Armulee/ai-gateway-mcp MCP",
+    "repo": "Armulee/ai-gateway-mcp",
+    "repo_url": "https://github.com/Armulee/ai-gateway-mcp",
+    "author": "Armulee",
+    "description": "No-markup video, image and speech generation with 400+ Vercel AI Gateway models (Veo, Kling, Seedance, Nano Banana, GPT Image) inside Claude or ChatGPT, billed ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Armulee/ai-gateway-mcp"
+    ]
+  },
+  {
+    "id": "gh/ArturLys/ao3-mcp",
+    "name": "ArturLys/ao3-mcp",
+    "title": "ArturLys/ao3-mcp MCP",
+    "repo": "ArturLys/ao3-mcp",
+    "repo_url": "https://github.com/ArturLys/ao3-mcp",
+    "author": "ArturLys",
+    "description": "Search Archive of Our Own (AO3) and delegate full-fic reading to Gemini, so recommendations draw on the actual text rather than the blurb.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ArturLys/ao3-mcp"
+    ]
+  },
+  {
+    "id": "gh/asmith26/jupytercad-mcp",
+    "name": "asmith26/jupytercad-mcp",
+    "title": "asmith26/jupytercad-mcp MCP",
+    "repo": "asmith26/jupytercad-mcp",
+    "repo_url": "https://github.com/asmith26/jupytercad-mcp",
+    "author": "asmith26",
+    "description": "Control JupyterCAD using natural language.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:asmith26/jupytercad-mcp"
+    ]
+  },
+  {
+    "id": "gh/attalla1/photopea-mcp-server",
+    "name": "attalla1/photopea-mcp-server",
+    "title": "attalla1/photopea-mcp-server MCP",
+    "repo": "attalla1/photopea-mcp-server",
+    "repo_url": "https://github.com/attalla1/photopea-mcp-server",
+    "author": "attalla1",
+    "description": "Image editing through Photopea: documents, layers, text, shapes, filters, effects and export.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:attalla1/photopea-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/krupalghori44-dev/infyicon-mcp",
+    "name": "krupalghori44-dev/infyicon-mcp",
+    "title": "krupalghori44-dev/infyicon-mcp MCP",
+    "repo": "krupalghori44-dev/infyicon-mcp",
+    "repo_url": "https://github.com/krupalghori44-dev/infyicon-mcp",
+    "author": "krupalghori44-dev",
+    "description": "Search hand-drawn Infyicon icons in four matching styles and fetch SVG markup or PNG URLs.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:krupalghori44-dev/infyicon-mcp"
+    ]
+  },
+  {
+    "id": "gh/quokkapix/quokkapix-mcp",
+    "name": "quokkapix/quokkapix-mcp",
+    "title": "quokkapix/quokkapix-mcp MCP",
+    "repo": "quokkapix/quokkapix-mcp",
+    "repo_url": "https://github.com/quokkapix/quokkapix-mcp",
+    "author": "quokkapix",
+    "description": "Resize, compress, convert, remove backgrounds, strip metadata, watermark and export images locally through QuokkaPix, without uploading source images.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:quokkapix/quokkapix-mcp"
+    ]
+  },
+  {
+    "id": "gh/BluesPrince/thiri-mcp",
+    "name": "BluesPrince/thiri-mcp",
+    "title": "BluesPrince/thiri-mcp MCP",
+    "repo": "BluesPrince/thiri-mcp",
+    "repo_url": "https://github.com/BluesPrince/thiri-mcp",
+    "author": "BluesPrince",
+    "description": "Deterministic music theory: chord and Roman numeral analysis, voicing and reharmonization.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:BluesPrince/thiri-mcp"
+    ]
+  },
+  {
+    "id": "gh/burningion/video-editing-mcp",
+    "name": "burningion/video-editing-mcp",
+    "title": "burningion/video-editing-mcp MCP",
+    "repo": "burningion/video-editing-mcp",
+    "repo_url": "https://github.com/burningion/video-editing-mcp",
+    "author": "burningion",
+    "description": "Add, analyze, search and generate video edits from your Video Jungle collection.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:burningion/video-editing-mcp"
+    ]
+  },
+  {
+    "id": "gh/cantian-ai/bazi-mcp",
+    "name": "cantian-ai/bazi-mcp",
+    "title": "cantian-ai/bazi-mcp MCP",
+    "repo": "cantian-ai/bazi-mcp",
+    "repo_url": "https://github.com/cantian-ai/bazi-mcp",
+    "author": "cantian-ai",
+    "description": "Bazi (Chinese astrology) charting and analysis.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cantian-ai/bazi-mcp"
+    ]
+  },
+  {
+    "id": "gh/cenitu/inventor-mcp-server",
+    "name": "cenitu/inventor-mcp-server",
+    "title": "cenitu/inventor-mcp-server MCP",
+    "repo": "cenitu/inventor-mcp-server",
+    "repo_url": "https://github.com/cenitu/inventor-mcp-server",
+    "author": "cenitu",
+    "description": "Parametric modeling in a running Autodesk Inventor over COM: dimensioned sketches, extrude and revolve, native drilled and tapped holes, fillets, chamfers, patt",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cenitu/inventor-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/cfpramod/open-museum-mcp",
+    "name": "cfpramod/open-museum-mcp",
+    "title": "cfpramod/open-museum-mcp MCP",
+    "repo": "cfpramod/open-museum-mcp",
+    "repo_url": "https://github.com/cfpramod/open-museum-mcp",
+    "author": "cfpramod",
+    "description": "License-verified search across The Met, Cleveland, AIC, Wikimedia Commons and Europeana, limited to CC0 and public-domain works, with citations.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cfpramod/open-museum-mcp"
+    ]
+  },
+  {
+    "id": "gh/forgemeshlabs/imagegen-mcp",
+    "name": "forgemeshlabs/imagegen-mcp",
+    "title": "forgemeshlabs/imagegen-mcp MCP",
+    "repo": "forgemeshlabs/imagegen-mcp",
+    "repo_url": "https://github.com/forgemeshlabs/imagegen-mcp",
+    "author": "forgemeshlabs",
+    "description": "Image generation, background removal and 4x upscaling, paid per image via x402 in USDC on Base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:forgemeshlabs/imagegen-mcp"
+    ]
+  },
+  {
+    "id": "gh/Cifero74/mcp-apple-music",
+    "name": "Cifero74/mcp-apple-music",
+    "title": "Cifero74/mcp-apple-music MCP",
+    "repo": "Cifero74/mcp-apple-music",
+    "repo_url": "https://github.com/Cifero74/mcp-apple-music",
+    "author": "Cifero74",
+    "description": "Apple Music integration: search the catalog, browse your library, manage playlists and get personalized recommendations.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Cifero74/mcp-apple-music"
+    ]
+  },
+  {
+    "id": "gh/codex-curator/studiomcphub",
+    "name": "codex-curator/studiomcphub",
+    "title": "codex-curator/studiomcphub MCP",
+    "repo": "codex-curator/studiomcphub",
+    "repo_url": "https://github.com/codex-curator/studiomcphub",
+    "author": "codex-curator",
+    "description": "Creative AI tools: image generation, upscaling, background removal, product mockups, CMYK conversion, print-ready PDFs, SVG vectorization and watermarking.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:codex-curator/studiomcphub"
+    ]
+  },
+  {
+    "id": "gh/codie1982/chorono-editor",
+    "name": "codie1982/chorono-editor",
+    "title": "codie1982/chorono-editor MCP",
+    "repo": "codie1982/chorono-editor",
+    "repo_url": "https://github.com/codie1982/chorono-editor",
+    "author": "codie1982",
+    "description": "Create, preview and save editable 2D animations through a local MCP bridge to the Chorono browser editor.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:codie1982/chorono-editor"
+    ]
+  },
+  {
+    "id": "gh/ConstantineB6/comfy-pilot",
+    "name": "ConstantineB6/comfy-pilot",
+    "title": "ConstantineB6/comfy-pilot MCP",
+    "repo": "ConstantineB6/comfy-pilot",
+    "repo_url": "https://github.com/ConstantineB6/comfy-pilot",
+    "author": "ConstantineB6",
+    "description": "View, edit and run ComfyUI node-based image generation workflows, with an embedded terminal.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ConstantineB6/comfy-pilot"
+    ]
+  },
+  {
+    "id": "gh/CreativeClawCo/creative-claw-marketplace",
+    "name": "CreativeClawCo/creative-claw-marketplace",
+    "title": "CreativeClawCo/creative-claw-marketplace MCP",
+    "repo": "CreativeClawCo/creative-claw-marketplace",
+    "repo_url": "https://github.com/CreativeClawCo/creative-claw-marketplace",
+    "author": "CreativeClawCo",
+    "description": "Access media models such as Flux 2 Pro, Nano Banana Pro, GPT Image 2, Veo 3.1, Sora 2, Kling and ElevenLabs for image, video, speech, 3D and branded graphics.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:CreativeClawCo/creative-claw-marketplace"
+    ]
+  },
+  {
+    "id": "gh/cswkim/discogs-mcp-server",
+    "name": "cswkim/discogs-mcp-server",
+    "title": "cswkim/discogs-mcp-server MCP",
+    "repo": "cswkim/discogs-mcp-server",
+    "repo_url": "https://github.com/cswkim/discogs-mcp-server",
+    "author": "cswkim",
+    "description": "Interact with the Discogs API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cswkim/discogs-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/clanker-records/crompton-network",
+    "name": "clanker-records/crompton-network",
+    "title": "clanker-records/crompton-network MCP",
+    "repo": "clanker-records/crompton-network",
+    "repo_url": "https://github.com/clanker-records/crompton-network",
+    "author": "clanker-records",
+    "description": "Machine-native listening platform for C.W.A.'s album Straight Outta Crompton, letting AI agents listen to it.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:clanker-records/crompton-network"
+    ]
+  },
+  {
+    "id": "gh/DataCraftsmanAU/vineverse-mcp",
+    "name": "DataCraftsmanAU/vineverse-mcp",
+    "title": "DataCraftsmanAU/vineverse-mcp MCP",
+    "repo": "DataCraftsmanAU/vineverse-mcp",
+    "repo_url": "https://github.com/DataCraftsmanAU/vineverse-mcp",
+    "author": "DataCraftsmanAU",
+    "description": "The Bible as a knowledge graph of verses, people, places, topics and Hebrew lexemes: scripture search, interlinear lookup, cross references and genealogy.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:DataCraftsmanAU/vineverse-mcp"
+    ]
+  },
+  {
+    "id": "gh/DeanChensj/jiangshan-map",
+    "name": "DeanChensj/jiangshan-map",
+    "title": "DeanChensj/jiangshan-map MCP",
+    "repo": "DeanChensj/jiangshan-map",
+    "repo_url": "https://github.com/DeanChensj/jiangshan-map",
+    "author": "DeanChensj",
+    "description": "Interactive historical atlas of China that resolves ancient and modern places, classical poetry sites, dynastic boundaries, city administrative genealogies, and",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:DeanChensj/jiangshan-map"
+    ]
+  },
+  {
+    "id": "gh/delmas41/gradusnotation",
+    "name": "delmas41/gradusnotation",
+    "title": "delmas41/gradusnotation MCP",
+    "repo": "delmas41/gradusnotation",
+    "repo_url": "https://github.com/delmas41/gradusnotation",
+    "author": "delmas41",
+    "description": "Render music notation as SVG, MusicXML and MIDI from a JSON score, analyze MusicXML harmonically and search a music-theory knowledge base.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:delmas41/gradusnotation"
+    ]
+  },
+  {
+    "id": "gh/devtalh/backdraw",
+    "name": "devtalh/backdraw",
+    "title": "devtalh/backdraw MCP",
+    "repo": "devtalh/backdraw",
+    "repo_url": "https://github.com/devtalh/backdraw",
+    "author": "devtalh",
+    "description": "Generate and edit images with your own signed-in ChatGPT account in a background Chrome tab; right-click reference collections and a gallery side panel. No API ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:devtalh/backdraw"
+    ]
+  },
+  {
+    "id": "gh/diivi/aseprite-mcp",
+    "name": "diivi/aseprite-mcp",
+    "title": "diivi/aseprite-mcp MCP",
+    "repo": "diivi/aseprite-mcp",
+    "repo_url": "https://github.com/diivi/aseprite-mcp",
+    "author": "diivi",
+    "description": "Create pixel art using the Aseprite API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:diivi/aseprite-mcp"
+    ]
+  },
+  {
+    "id": "gh/Dinoctor/dinoctor-mcp",
+    "name": "Dinoctor/dinoctor-mcp",
+    "title": "Dinoctor/dinoctor-mcp MCP",
+    "repo": "Dinoctor/dinoctor-mcp",
+    "repo_url": "https://github.com/Dinoctor/dinoctor-mcp",
+    "author": "Dinoctor",
+    "description": "Make animated videos in the free Dinoctor desktop app while you watch: write the script, build scenes and shots with places, characters, camera moves, lighting ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Dinoctor/dinoctor-mcp"
+    ]
+  },
+  {
+    "id": "gh/djalal/quran-mcp-server",
+    "name": "djalal/quran-mcp-server",
+    "title": "djalal/quran-mcp-server MCP",
+    "repo": "djalal/quran-mcp-server",
+    "repo_url": "https://github.com/djalal/quran-mcp-server",
+    "author": "djalal",
+    "description": "Interact with the Quran.com corpus via its REST API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:djalal/quran-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/dokaNc/illugen-mcp",
+    "name": "dokaNc/illugen-mcp",
+    "title": "dokaNc/illugen-mcp MCP",
+    "repo": "dokaNc/illugen-mcp",
+    "repo_url": "https://github.com/dokaNc/illugen-mcp",
+    "author": "dokaNc",
+    "description": "Build, edit and render JangaFX IlluGen node graphs (procedural textures, VFX flipbooks): 157 node types, typed pin checks, curves, gradients, subgraphs, and inv",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:dokaNc/illugen-mcp"
+    ]
+  },
+  {
+    "id": "gh/drakonkat/wizzy-mcp-tmdb",
+    "name": "drakonkat/wizzy-mcp-tmdb",
+    "title": "drakonkat/wizzy-mcp-tmdb MCP",
+    "repo": "drakonkat/wizzy-mcp-tmdb",
+    "repo_url": "https://github.com/drakonkat/wizzy-mcp-tmdb",
+    "author": "drakonkat",
+    "description": "Search and retrieve movie, TV show and person information from The Movie Database (TMDB) API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:drakonkat/wizzy-mcp-tmdb"
+    ]
+  },
+  {
+    "id": "gh/eduair94/spotify-data-mcp",
+    "name": "eduair94/spotify-data-mcp",
+    "title": "eduair94/spotify-data-mcp MCP",
+    "repo": "eduair94/spotify-data-mcp",
+    "repo_url": "https://github.com/eduair94/spotify-data-mcp",
+    "author": "eduair94",
+    "description": "Spotify data for AI assistants: track play counts, artist monthly listeners, world rank and top cities, Top 200 and viral charts by country, albums and playlist",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:eduair94/spotify-data-mcp"
+    ]
+  },
+  {
+    "id": "gh/effectustasi/autodesk-inventor-mcp",
+    "name": "effectustasi/autodesk-inventor-mcp",
+    "title": "effectustasi/autodesk-inventor-mcp MCP",
+    "repo": "effectustasi/autodesk-inventor-mcp",
+    "repo_url": "https://github.com/effectustasi/autodesk-inventor-mcp",
+    "author": "effectustasi",
+    "description": "Connect AI assistants to a live Autodesk Inventor session over COM: inspect bodies and features, find sliver faces in imported models, dry-run Unwrap, and scrip",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:effectustasi/autodesk-inventor-mcp"
+    ]
+  },
+  {
+    "id": "gh/emirmrkaljevic/mesh2cad",
+    "name": "emirmrkaljevic/mesh2cad",
+    "title": "emirmrkaljevic/mesh2cad MCP",
+    "repo": "emirmrkaljevic/mesh2cad",
+    "repo_url": "https://github.com/emirmrkaljevic/mesh2cad",
+    "author": "emirmrkaljevic",
+    "description": "Convert STL/OBJ/PLY meshes into editable STEP CAD with fitted planes, cylinders, spheres, and cones, plus a fidelity report (deviation, volume error).",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:emirmrkaljevic/mesh2cad"
+    ]
+  },
+  {
+    "id": "gh/fatenava/fatenava-mcp",
+    "name": "fatenava/fatenava-mcp",
+    "title": "fatenava/fatenava-mcp MCP",
+    "repo": "fatenava/fatenava-mcp",
+    "repo_url": "https://github.com/fatenava/fatenava-mcp",
+    "author": "fatenava",
+    "description": "Destiny charting: BaZi, Zi Wei Dou Shu and Western astrology natal charts, with true solar time correction and Chinese, English, Japanese and Korean input.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:fatenava/fatenava-mcp"
+    ]
+  },
+  {
+    "id": "gh/fengseekling-coder/gravityport",
+    "name": "fengseekling-coder/gravityport",
+    "title": "fengseekling-coder/gravityport MCP",
+    "repo": "fengseekling-coder/gravityport",
+    "repo_url": "https://github.com/fengseekling-coder/gravityport",
+    "author": "fengseekling-coder",
+    "description": "AI asset manager for images and videos from ChatGPT, Gemini, Flow, Google AI Studio, Codex, Grok and Jimeng. The built-in MCP lets Claude and Codex search and u",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:fengseekling-coder/gravityport"
+    ]
+  },
+  {
+    "id": "gh/flamexnreal/davinci-resolve-ai-bridge-mcp",
+    "name": "flamexnreal/davinci-resolve-ai-bridge-mcp",
+    "title": "flamexnreal/davinci-resolve-ai-bridge-mcp MCP",
+    "repo": "flamexnreal/davinci-resolve-ai-bridge-mcp",
+    "repo_url": "https://github.com/flamexnreal/davinci-resolve-ai-bridge-mcp",
+    "author": "flamexnreal",
+    "description": "Local bridge for DaVinci Resolve (Free and Studio): timeline inspection, zoom animation, color adjustments and duplicate-timeline review.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:flamexnreal/davinci-resolve-ai-bridge-mcp"
+    ]
+  },
+  {
+    "id": "gh/Gatyh/3dtexel-mcp",
+    "name": "Gatyh/3dtexel-mcp",
+    "title": "Gatyh/3dtexel-mcp MCP",
+    "repo": "Gatyh/3dtexel-mcp",
+    "repo_url": "https://github.com/Gatyh/3dtexel-mcp",
+    "author": "Gatyh",
+    "description": "Official 3D Texel server: search and download 7,000+ PBR materials, HDRIs, decals and 3D assets (1,600+ free CC0) and generate seamless PBR materials and HDRI s",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Gatyh/3dtexel-mcp"
+    ]
+  },
+  {
+    "id": "gh/gavxm/ani-mcp",
+    "name": "gavxm/ani-mcp",
+    "title": "gavxm/ani-mcp MCP",
+    "repo": "gavxm/ani-mcp",
+    "repo_url": "https://github.com/gavxm/ani-mcp",
+    "author": "gavxm",
+    "description": "AniList integration with taste-aware recommendations, watch analytics, social tools and list management.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gavxm/ani-mcp"
+    ]
+  },
+  {
+    "id": "gh/gchen19/AnkusDrive",
+    "name": "gchen19/AnkusDrive",
+    "title": "gchen19/AnkusDrive MCP",
+    "repo": "gchen19/AnkusDrive",
+    "repo_url": "https://github.com/gchen19/AnkusDrive",
+    "author": "gchen19",
+    "description": "Drive a local FreeCAD from an agent: parametric CAD, TechDraw drawings with GD&T, CalculiX FEM, and CFD, thermal, EM and multiphysics simulation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gchen19/AnkusDrive"
+    ]
+  },
+  {
+    "id": "gh/GenWaveLLC/svgmaker-mcp",
+    "name": "GenWaveLLC/svgmaker-mcp",
+    "title": "GenWaveLLC/svgmaker-mcp MCP",
+    "repo": "GenWaveLLC/svgmaker-mcp",
+    "repo_url": "https://github.com/GenWaveLLC/svgmaker-mcp",
+    "author": "GenWaveLLC",
+    "description": "Generate and edit SVGs via natural language, with real-time updates and secure file handling.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:GenWaveLLC/svgmaker-mcp"
+    ]
+  },
+  {
+    "id": "gh/gokimedia/tarot-mcp-server",
+    "name": "gokimedia/tarot-mcp-server",
+    "title": "gokimedia/tarot-mcp-server MCP",
+    "repo": "gokimedia/tarot-mcp-server",
+    "repo_url": "https://github.com/gokimedia/tarot-mcp-server",
+    "author": "gokimedia",
+    "description": "Tarot meanings for all 78 cards, upright and reversed interpretations, love and career readings, yes-or-no answers, random draws and three-card spreads.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gokimedia/tarot-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/gupta-kush/spotify-mcp",
+    "name": "gupta-kush/spotify-mcp",
+    "title": "gupta-kush/spotify-mcp MCP",
+    "repo": "gupta-kush/spotify-mcp",
+    "repo_url": "https://github.com/gupta-kush/spotify-mcp",
+    "author": "gupta-kush",
+    "description": "Spotify tools: smart shuffle, natural-language song search, vibe analysis, artist network mapping, taste evolution and playlist management.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:gupta-kush/spotify-mcp"
+    ]
+  },
+  {
+    "id": "gh/haikuotianko/doubao-image-mcp",
+    "name": "haikuotianko/doubao-image-mcp",
+    "title": "haikuotianko/doubao-image-mcp MCP",
+    "repo": "haikuotianko/doubao-image-mcp",
+    "repo_url": "https://github.com/haikuotianko/doubao-image-mcp",
+    "author": "haikuotianko",
+    "description": "Generate images with Doubao (Seedream) through your own logged-in web session, no API key: QR-code login, multi-account queueing, and follow-up images in the sa",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:haikuotianko/doubao-image-mcp"
+    ]
+  },
+  {
+    "id": "gh/hanshs474/kavel-mcp",
+    "name": "hanshs474/kavel-mcp",
+    "title": "hanshs474/kavel-mcp MCP",
+    "repo": "hanshs474/kavel-mcp",
+    "repo_url": "https://github.com/hanshs474/kavel-mcp",
+    "author": "hanshs474",
+    "description": "Discover Kavel's AI photo and video generators (hairstyles, figurines, pet portraits, yearbook photos, dance videos, HD restoration) and get tuned prompts.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:hanshs474/kavel-mcp"
+    ]
+  },
+  {
+    "id": "gh/hjbaard/SolidWorks-MCP",
+    "name": "hjbaard/SolidWorks-MCP",
+    "title": "hjbaard/SolidWorks-MCP MCP",
+    "repo": "hjbaard/SolidWorks-MCP",
+    "repo_url": "https://github.com/hjbaard/SolidWorks-MCP",
+    "author": "hjbaard",
+    "description": "Drive a running SolidWorks from an agent over COM: 86 tools for parametric parts and assemblies (extrude, revolve, sweep, loft, holes on any face, ribs, fillets",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:hjbaard/SolidWorks-MCP"
+    ]
+  },
+  {
+    "id": "gh/jau123/MeiGen-AI-Design-MCP",
+    "name": "jau123/MeiGen-AI-Design-MCP",
+    "title": "jau123/MeiGen-AI-Design-MCP MCP",
+    "repo": "jau123/MeiGen-AI-Design-MCP",
+    "repo_url": "https://github.com/jau123/MeiGen-AI-Design-MCP",
+    "author": "jau123",
+    "description": "Image generation and editing with a curated prompt library, prompt enhancement and routing across local ComfyUI, MeiGen Cloud and OpenAI-compatible APIs.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:jau123/MeiGen-AI-Design-MCP"
+    ]
+  },
+  {
+    "id": "gh/j-east/pixel-surgeon-mcp",
+    "name": "j-east/pixel-surgeon-mcp",
+    "title": "j-east/pixel-surgeon-mcp MCP",
+    "repo": "j-east/pixel-surgeon-mcp",
+    "repo_url": "https://github.com/j-east/pixel-surgeon-mcp",
+    "author": "j-east",
+    "description": "Image and video generation, editing and region repair via Gemini 3.1 Flash Image, GPT Image 2, Grok Imagine and Veo 3, with style presets.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:j-east/pixel-surgeon-mcp"
+    ]
+  },
+  {
+    "id": "gh/johancoppens/3dcraft",
+    "name": "johancoppens/3dcraft",
+    "title": "johancoppens/3dcraft MCP",
+    "repo": "johancoppens/3dcraft",
+    "repo_url": "https://github.com/johancoppens/3dcraft",
+    "author": "johancoppens",
+    "description": "Open-source parametric 3D CAD built with and for AI: every action a command, every result checked.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:johancoppens/3dcraft"
+    ]
+  },
+  {
+    "id": "gh/kenzolika/yandex-music-mcp",
+    "name": "kenzolika/yandex-music-mcp",
+    "title": "kenzolika/yandex-music-mcp MCP",
+    "repo": "kenzolika/yandex-music-mcp",
+    "repo_url": "https://github.com/kenzolika/yandex-music-mcp",
+    "author": "kenzolika",
+    "description": "Unofficial Yandex Music server: search, likes, listening history, My Wave, similar tracks, public playlists by link, playlist management and export of your libr",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:kenzolika/yandex-music-mcp"
+    ]
+  },
+  {
+    "id": "gh/khglynn/spotify-bulk-actions-mcp",
+    "name": "khglynn/spotify-bulk-actions-mcp",
+    "title": "khglynn/spotify-bulk-actions-mcp MCP",
+    "repo": "khglynn/spotify-bulk-actions-mcp",
+    "repo_url": "https://github.com/khglynn/spotify-bulk-actions-mcp",
+    "author": "khglynn",
+    "description": "Bulk Spotify operations: confidence-scored song matching, batch playlist creation from CSV or podcast lists, and exports of your most-saved artists and albums.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:khglynn/spotify-bulk-actions-mcp"
+    ]
+  },
+  {
+    "id": "gh/konglingbukong/gpt-image-studio",
+    "name": "konglingbukong/gpt-image-studio",
+    "title": "konglingbukong/gpt-image-studio MCP",
+    "repo": "konglingbukong/gpt-image-studio",
+    "repo_url": "https://github.com/konglingbukong/gpt-image-studio",
+    "author": "konglingbukong",
+    "description": "Generate images with OpenAI gpt-image-2.5 (or any OpenAI-compatible relay) using your own API key: 1K\u20134K, quality up to max, reference images, per-image cost tr",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:konglingbukong/gpt-image-studio"
+    ]
+  },
+  {
+    "id": "gh/labelgrid/labelgrid-mcp",
+    "name": "labelgrid/labelgrid-mcp",
+    "title": "labelgrid/labelgrid-mcp MCP",
+    "repo": "labelgrid/labelgrid-mcp",
+    "repo_url": "https://github.com/labelgrid/labelgrid-mcp",
+    "author": "labelgrid",
+    "description": "Manage your LabelGrid music distribution catalog, releases, analytics and royalties.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:labelgrid/labelgrid-mcp"
+    ]
+  },
+  {
+    "id": "gh/Lory97/tag-per-track-mcp",
+    "name": "Lory97/tag-per-track-mcp",
+    "title": "Lory97/tag-per-track-mcp MCP",
+    "repo": "Lory97/tag-per-track-mcp",
+    "repo_url": "https://github.com/Lory97/tag-per-track-mcp",
+    "author": "Lory97",
+    "description": "Analyze audio files for A&R: genre, mood and instrument tags, lyrics, AI-origin detection, artist stats and demo-folder triage with scoring.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Lory97/tag-per-track-mcp"
+    ]
+  },
+  {
+    "id": "gh/leonardoca1/aesthetics-wiki-mcp",
+    "name": "leonardoca1/aesthetics-wiki-mcp",
+    "title": "leonardoca1/aesthetics-wiki-mcp MCP",
+    "repo": "leonardoca1/aesthetics-wiki-mcp",
+    "repo_url": "https://github.com/leonardoca1/aesthetics-wiki-mcp",
+    "author": "leonardoca1",
+    "description": "Search, read and discover visual aesthetics such as cottagecore, dark academia, Y2K and goblincore from the Aesthetics Wiki.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:leonardoca1/aesthetics-wiki-mcp"
+    ]
+  },
+  {
+    "id": "gh/luchtan-GIT/m4r-data",
+    "name": "luchtan-GIT/m4r-data",
+    "title": "luchtan-GIT/m4r-data MCP",
+    "repo": "luchtan-GIT/m4r-data",
+    "repo_url": "https://github.com/luchtan-GIT/m4r-data",
+    "author": "luchtan-GIT",
+    "description": "Music For Robots (The Mechanical Ear) catalog and cognitive calibration enhancer: breaks autoregressive lock-in without compacting context by letting multimodal",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:luchtan-GIT/m4r-data"
+    ]
+  },
+  {
+    "id": "gh/memebo-at/memeboat-mcp",
+    "name": "memebo-at/memeboat-mcp",
+    "title": "memebo-at/memeboat-mcp MCP",
+    "repo": "memebo-at/memeboat-mcp",
+    "repo_url": "https://github.com/memebo-at/memeboat-mcp",
+    "author": "memebo-at",
+    "description": "Create memes from memebo.at templates: search the catalog, caption a template and get a shareable meme link.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:memebo-at/memeboat-mcp"
+    ]
+  },
+  {
+    "id": "gh/mikechao/metmuseum-mcp",
+    "name": "mikechao/metmuseum-mcp",
+    "title": "mikechao/metmuseum-mcp MCP",
+    "repo": "mikechao/metmuseum-mcp",
+    "repo_url": "https://github.com/mikechao/metmuseum-mcp",
+    "author": "mikechao",
+    "description": "Search and display artworks via the Metropolitan Museum of Art Collection API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mikechao/metmuseum-mcp"
+    ]
+  },
+  {
+    "id": "gh/mikan-atomoki/text-to-model",
+    "name": "mikan-atomoki/text-to-model",
+    "title": "mikan-atomoki/text-to-model MCP",
+    "repo": "mikan-atomoki/text-to-model",
+    "repo_url": "https://github.com/mikan-atomoki/text-to-model",
+    "author": "mikan-atomoki",
+    "description": "Turn natural language into 3D models in Fusion 360, with CAD tools for sketches, extrudes, fillets and JIS standard parts.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:mikan-atomoki/text-to-model"
+    ]
+  },
+  {
+    "id": "gh/molanojustin/smithsonian-mcp",
+    "name": "molanojustin/smithsonian-mcp",
+    "title": "molanojustin/smithsonian-mcp MCP",
+    "repo": "molanojustin/smithsonian-mcp",
+    "repo_url": "https://github.com/molanojustin/smithsonian-mcp",
+    "author": "molanojustin",
+    "description": "Access the Smithsonian Institution's Open Access collections.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:molanojustin/smithsonian-mcp"
+    ]
+  },
+  {
+    "id": "gh/noteboxd/mcp",
+    "name": "noteboxd/mcp",
+    "title": "noteboxd/mcp MCP",
+    "repo": "noteboxd/mcp",
+    "repo_url": "https://github.com/noteboxd/mcp",
+    "author": "noteboxd",
+    "description": "Query the Noteboxd fragrance encyclopedia for perfumes, notes, accords, brands, perfumers, reviews and charts.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:noteboxd/mcp"
+    ]
+  },
+  {
+    "id": "gh/joshseane/-nmlp-mcp",
+    "name": "joshseane/-nmlp-mcp",
+    "title": "joshseane/-nmlp-mcp MCP",
+    "repo": "joshseane/-nmlp-mcp",
+    "repo_url": "https://github.com/joshseane/-nmlp-mcp",
+    "author": "joshseane",
+    "description": "First-edition book identification using points of issue, number-line decoding and publisher rules, plus New Mexico book-donation logistics.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:joshseane/-nmlp-mcp"
+    ]
+  },
+  {
+    "id": "gh/ni-c/calibreweb-mcp",
+    "name": "ni-c/calibreweb-mcp",
+    "title": "ni-c/calibreweb-mcp MCP",
+    "repo": "ni-c/calibreweb-mcp",
+    "repo_url": "https://github.com/ni-c/calibreweb-mcp",
+    "author": "ni-c",
+    "description": "Read-only access to a self-hosted Calibre-Web or Calibre-Web Automated ebook library via OPDS: search, shelves, covers and per-format download links.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ni-c/calibreweb-mcp"
+    ]
+  },
+  {
+    "id": "gh/ntworm/ableton-mcp-server",
+    "name": "ntworm/ableton-mcp-server",
+    "title": "ntworm/ableton-mcp-server MCP",
+    "repo": "ntworm/ableton-mcp-server",
+    "repo_url": "https://github.com/ntworm/ableton-mcp-server",
+    "author": "ntworm",
+    "description": "Inspect and automate Ableton Live locally through a Python MIDI Remote Script, with MIDI editing, device control, audio analysis and groove tools.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ntworm/ableton-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/OctoEverywhere/mcp",
+    "name": "OctoEverywhere/mcp",
+    "title": "OctoEverywhere/mcp MCP",
+    "repo": "OctoEverywhere/mcp",
+    "repo_url": "https://github.com/OctoEverywhere/mcp",
+    "author": "OctoEverywhere",
+    "description": "3D printer access: live printer state, webcam snapshots and printer control.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:OctoEverywhere/mcp"
+    ]
+  },
+  {
+    "id": "gh/omni-mcp/isaac-sim-mcp",
+    "name": "omni-mcp/isaac-sim-mcp",
+    "title": "omni-mcp/isaac-sim-mcp MCP",
+    "repo": "omni-mcp/isaac-sim-mcp",
+    "repo_url": "https://github.com/omni-mcp/isaac-sim-mcp",
+    "author": "omni-mcp",
+    "description": "Natural-language control of NVIDIA Isaac Sim, Isaac Lab, OpenUSD and more, via a server and an extension.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:omni-mcp/isaac-sim-mcp"
+    ]
+  },
+  {
+    "id": "gh/Pantani/ableton-mind",
+    "name": "Pantani/ableton-mind",
+    "title": "Pantani/ableton-mind MCP",
+    "repo": "Pantani/ableton-mind",
+    "repo_url": "https://github.com/Pantani/ableton-mind",
+    "author": "Pantani",
+    "description": "Control Ableton Live through a local Remote Script bridge: inspect sets, create tracks, scenes and clips, load devices, apply music recipes and verify changes.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Pantani/ableton-mind"
+    ]
+  },
+  {
+    "id": "gh/Pantani/tdmcp",
+    "name": "Pantani/tdmcp",
+    "title": "Pantani/tdmcp MCP",
+    "repo": "Pantani/tdmcp",
+    "repo_url": "https://github.com/Pantani/tdmcp",
+    "author": "Pantani",
+    "description": "Describe a visual to build a playable TouchDesigner network: audio-reactive, generative, particle, 3D and feedback systems with live knobs and MIDI/OSC/DMX.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Pantani/tdmcp"
+    ]
+  },
+  {
+    "id": "gh/PatrickPalmer/MayaMCP",
+    "name": "PatrickPalmer/MayaMCP",
+    "title": "PatrickPalmer/MayaMCP MCP",
+    "repo": "PatrickPalmer/MayaMCP",
+    "repo_url": "https://github.com/PatrickPalmer/MayaMCP",
+    "author": "PatrickPalmer",
+    "description": "Connect AI assistants to Autodesk Maya.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:PatrickPalmer/MayaMCP"
+    ]
+  },
+  {
+    "id": "gh/pzfreo/build123d-mcp",
+    "name": "pzfreo/build123d-mcp",
+    "title": "pzfreo/build123d-mcp MCP",
+    "repo": "pzfreo/build123d-mcp",
+    "repo_url": "https://github.com/pzfreo/build123d-mcp",
+    "author": "pzfreo",
+    "description": "Create, inspect and iterate on 3D geometry with build123d parametric CAD: render PNG/SVG views, measure geometry and export STEP/STL.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:pzfreo/build123d-mcp"
+    ]
+  },
+  {
+    "id": "gh/Psalmustrack/lambdacad-mcp",
+    "name": "Psalmustrack/lambdacad-mcp",
+    "title": "Psalmustrack/lambdacad-mcp MCP",
+    "repo": "Psalmustrack/lambdacad-mcp",
+    "repo_url": "https://github.com/Psalmustrack/lambdacad-mcp",
+    "author": "Psalmustrack",
+    "description": "Drive BricsCAD on Linux via an AutoLISP bridge: 2D drafting with dimensions and hatches, 3D solids with booleans, generated drawing views and PDF export.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Psalmustrack/lambdacad-mcp"
+    ]
+  },
+  {
+    "id": "gh/doctorm333/promptpilot-mcp-server",
+    "name": "doctorm333/promptpilot-mcp-server",
+    "title": "doctorm333/promptpilot-mcp-server MCP",
+    "repo": "doctorm333/promptpilot-mcp-server",
+    "repo_url": "https://github.com/doctorm333/promptpilot-mcp-server",
+    "author": "doctorm333",
+    "description": "Generate images, video and audio with models such as Flux, GPT-Image-1, Imagen 4, Grok, Seedance and ElevenLabs, with prompt presets and batch generation.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:doctorm333/promptpilot-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/r-huijts/oorlogsbronnen-mcp",
+    "name": "r-huijts/oorlogsbronnen-mcp",
+    "title": "r-huijts/oorlogsbronnen-mcp MCP",
+    "repo": "r-huijts/oorlogsbronnen-mcp",
+    "repo_url": "https://github.com/r-huijts/oorlogsbronnen-mcp",
+    "author": "r-huijts",
+    "description": "Access historical WWII records, photographs and documents from the Netherlands (1940-1945) via the Oorlogsbronnen (War Sources) API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:r-huijts/oorlogsbronnen-mcp"
+    ]
+  },
+  {
+    "id": "gh/r-huijts/rijksmuseum-mcp",
+    "name": "r-huijts/rijksmuseum-mcp",
+    "title": "r-huijts/rijksmuseum-mcp MCP",
+    "repo": "r-huijts/rijksmuseum-mcp",
+    "repo_url": "https://github.com/r-huijts/rijksmuseum-mcp",
+    "author": "r-huijts",
+    "description": "Search artworks and get details and collections via the Rijksmuseum API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:r-huijts/rijksmuseum-mcp"
+    ]
+  },
+  {
+    "id": "gh/raveenb/fal-mcp-server",
+    "name": "raveenb/fal-mcp-server",
+    "title": "raveenb/fal-mcp-server MCP",
+    "repo": "raveenb/fal-mcp-server",
+    "repo_url": "https://github.com/raveenb/fal-mcp-server",
+    "author": "raveenb",
+    "description": "Generate images, videos and music with Fal.ai models such as FLUX, Stable Diffusion and MusicGen.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:raveenb/fal-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/rekordcloud/sonovault-mcp",
+    "name": "rekordcloud/sonovault-mcp",
+    "title": "rekordcloud/sonovault-mcp MCP",
+    "repo": "rekordcloud/sonovault-mcp",
+    "repo_url": "https://github.com/rekordcloud/sonovault-mcp",
+    "author": "rekordcloud",
+    "description": "Music metadata search over tracks, artists, labels and releases: genres, release dates, ISRC/ISWC codes and IDs for Spotify, Apple Music, Discogs and more.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:rekordcloud/sonovault-mcp"
+    ]
+  },
+  {
+    "id": "gh/rosasynthesiz/flstudio-mcp",
+    "name": "rosasynthesiz/flstudio-mcp",
+    "title": "rosasynthesiz/flstudio-mcp MCP",
+    "repo": "rosasynthesiz/flstudio-mcp",
+    "repo_url": "https://github.com/rosasynthesiz/flstudio-mcp",
+    "author": "rosasynthesiz",
+    "description": "Control FL Studio: in-DAW mixing (gain staging, EQ, compression, reverb, reference matching), routing and composition.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:rosasynthesiz/flstudio-mcp"
+    ]
+  },
+  {
+    "id": "gh/runcomfy-com/runcomfy-mcp",
+    "name": "runcomfy-com/runcomfy-mcp",
+    "title": "runcomfy-com/runcomfy-mcp MCP",
+    "repo": "runcomfy-com/runcomfy-mcp",
+    "repo_url": "https://github.com/runcomfy-com/runcomfy-mcp",
+    "author": "runcomfy-com",
+    "description": "Manage RunComfy ComfyUI serverless deployments, hosted model inference and LoRA training jobs.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:runcomfy-com/runcomfy-mcp"
+    ]
+  },
+  {
+    "id": "gh/samarmstrong/openmep",
+    "name": "samarmstrong/openmep",
+    "title": "samarmstrong/openmep MCP",
+    "repo": "samarmstrong/openmep",
+    "repo_url": "https://github.com/samarmstrong/openmep",
+    "author": "samarmstrong",
+    "description": "Deterministic HVAC duct sizing for agents: size one run or a whole supply/return/exhaust network from terminal CFM (equal friction, ASHRAE standard sizes and ve",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:samarmstrong/openmep"
+    ]
+  },
+  {
+    "id": "gh/samuelgursky/davinci-resolve-mcp",
+    "name": "samuelgursky/davinci-resolve-mcp",
+    "title": "samuelgursky/davinci-resolve-mcp MCP",
+    "repo": "samuelgursky/davinci-resolve-mcp",
+    "repo_url": "https://github.com/samuelgursky/davinci-resolve-mcp",
+    "author": "samuelgursky",
+    "description": "DaVinci Resolve integration for video editing, color grading, media management and project control.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:samuelgursky/davinci-resolve-mcp"
+    ]
+  },
+  {
+    "id": "gh/serionist/omniverse-mcp",
+    "name": "serionist/omniverse-mcp",
+    "title": "serionist/omniverse-mcp MCP",
+    "repo": "serionist/omniverse-mcp",
+    "repo_url": "https://github.com/serionist/omniverse-mcp",
+    "author": "serionist",
+    "description": "Drive NVIDIA Isaac Sim and other Omniverse Kit apps: inspect and edit USD scenes, capture viewports with segmentation, run physics, control robots and record, t",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:serionist/omniverse-mcp"
+    ]
+  },
+  {
+    "id": "gh/sharafutdinovdi/revit-model-mcp",
+    "name": "sharafutdinovdi/revit-model-mcp",
+    "title": "sharafutdinovdi/revit-model-mcp MCP",
+    "repo": "sharafutdinovdi/revit-model-mcp",
+    "repo_url": "https://github.com/sharafutdinovdi/revit-model-mcp",
+    "author": "sharafutdinovdi",
+    "description": "Read a live Autodesk Revit model (elements, parameters, views, warnings, PNG exports); model changes are opt-in, with dry runs and post-commit verification.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:sharafutdinovdi/revit-model-mcp"
+    ]
+  },
+  {
+    "id": "gh/shunshi-ai/bazi-reader-mcp",
+    "name": "shunshi-ai/bazi-reader-mcp",
+    "title": "shunshi-ai/bazi-reader-mcp MCP",
+    "repo": "shunshi-ai/bazi-reader-mcp",
+    "repo_url": "https://github.com/shunshi-ai/bazi-reader-mcp",
+    "author": "shunshi-ai",
+    "description": "Bazi (Four Pillars) charting with true solar time correction and output in Chinese, English, Japanese and Korean.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:shunshi-ai/bazi-reader-mcp"
+    ]
+  },
+  {
+    "id": "gh/smeet666/mcp-lrclib",
+    "name": "smeet666/mcp-lrclib",
+    "title": "smeet666/mcp-lrclib MCP",
+    "repo": "smeet666/mcp-lrclib",
+    "repo_url": "https://github.com/smeet666/mcp-lrclib",
+    "author": "smeet666",
+    "description": "Search tracks on LRCLIB and read their lyrics, including time-synced LRC lines, with compact search results.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:smeet666/mcp-lrclib"
+    ]
+  },
+  {
+    "id": "gh/smeet666/mcp-imslp",
+    "name": "smeet666/mcp-imslp",
+    "title": "smeet666/mcp-imslp MCP",
+    "repo": "smeet666/mcp-imslp",
+    "repo_url": "https://github.com/smeet666/mcp-imslp",
+    "author": "smeet666",
+    "description": "Read IMSLP, the Petrucci Music Library: search works and composers, view catalogue numbers, key and instrumentation, and browse editions with copyright status.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:smeet666/mcp-imslp"
+    ]
+  },
+  {
+    "id": "gh/slshults/shakespeare-monologues-mcp",
+    "name": "slshults/shakespeare-monologues-mcp",
+    "title": "slshults/shakespeare-monologues-mcp MCP",
+    "repo": "slshults/shakespeare-monologues-mcp",
+    "repo_url": "https://github.com/slshults/shakespeare-monologues-mcp",
+    "author": "slshults",
+    "description": "Search Shakespeare monologues by character, play or first line, and fetch full text, modern-English paraphrases and scene or play summaries.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:slshults/shakespeare-monologues-mcp"
+    ]
+  },
+  {
+    "id": "gh/smeet666/mcp-books",
+    "name": "smeet666/mcp-books",
+    "title": "smeet666/mcp-books MCP",
+    "repo": "smeet666/mcp-books",
+    "repo_url": "https://github.com/smeet666/mcp-books",
+    "author": "smeet666",
+    "description": "Search the Internet Archive, the Library of Congress and the Biblioth\u00e8que nationale de France at once, across catalogues and inside scanned text.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:smeet666/mcp-books"
+    ]
+  },
+  {
+    "id": "gh/speedwarnsf/scenef-mcp",
+    "name": "speedwarnsf/scenef-mcp",
+    "title": "speedwarnsf/scenef-mcp MCP",
+    "repo": "speedwarnsf/scenef-mcp",
+    "repo_url": "https://github.com/speedwarnsf/scenef-mcp",
+    "author": "speedwarnsf",
+    "description": "Read-only showtimes for California and Hawaii theaters, from repertory houses and 35mm/70mm screenings to chains, verified against each theater's calendar.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:speedwarnsf/scenef-mcp"
+    ]
+  },
+  {
+    "id": "gh/synopsys0/postfader-fl-studio-mcp",
+    "name": "synopsys0/postfader-fl-studio-mcp",
+    "title": "synopsys0/postfader-fl-studio-mcp MCP",
+    "repo": "synopsys0/postfader-fl-studio-mcp",
+    "repo_url": "https://github.com/synopsys0/postfader-fl-studio-mcp",
+    "author": "synopsys0",
+    "description": "PostFader: local FL Studio server with 85 tools and 8 resources for project inspection, exported-audio analysis, loaded plug-in control, MIDI composition, and a",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:synopsys0/postfader-fl-studio-mcp"
+    ]
+  },
+  {
+    "id": "gh/taddeimania/lathe",
+    "name": "taddeimania/lathe",
+    "title": "taddeimania/lathe MCP",
+    "repo": "taddeimania/lathe",
+    "repo_url": "https://github.com/taddeimania/lathe",
+    "author": "taddeimania",
+    "description": "A free, open-source DAW with its own MCP server: read the session, play any bars, build tracks and plug-in chains, write MIDI in a compact note notation, mix wi",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:taddeimania/lathe"
+    ]
+  },
+  {
+    "id": "gh/tasopen/mcp-alphabanana",
+    "name": "tasopen/mcp-alphabanana",
+    "title": "tasopen/mcp-alphabanana MCP",
+    "repo": "tasopen/mcp-alphabanana",
+    "repo_url": "https://github.com/tasopen/mcp-alphabanana",
+    "author": "tasopen",
+    "description": "Generate image assets with Google Gemini (Nano Banana 2 and Pro): transparent PNG/WebP, exact resizing and cropping, reference images and Search grounding.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:tasopen/mcp-alphabanana"
+    ]
+  },
+  {
+    "id": "gh/TOBYCAI/image-mcp",
+    "name": "TOBYCAI/image-mcp",
+    "title": "TOBYCAI/image-mcp MCP",
+    "repo": "TOBYCAI/image-mcp",
+    "repo_url": "https://github.com/TOBYCAI/image-mcp",
+    "author": "TOBYCAI",
+    "description": "Offline image processing: resize, crop, convert, compress, rotate, flip, thumbnails, watermarks, effects, placeholders and overlays.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:TOBYCAI/image-mcp"
+    ]
+  },
+  {
+    "id": "gh/TwelveTake-Studios/reaper-mcp",
+    "name": "TwelveTake-Studios/reaper-mcp",
+    "title": "TwelveTake-Studios/reaper-mcp MCP",
+    "repo": "TwelveTake-Studios/reaper-mcp",
+    "repo_url": "https://github.com/TwelveTake-Studios/reaper-mcp",
+    "author": "TwelveTake-Studios",
+    "description": "Control the REAPER DAW for mixing, mastering, MIDI composition and music production.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:TwelveTake-Studios/reaper-mcp"
+    ]
+  },
+  {
+    "id": "gh/UModeler/picoberry-mcp",
+    "name": "UModeler/picoberry-mcp",
+    "title": "UModeler/picoberry-mcp MCP",
+    "repo": "UModeler/picoberry-mcp",
+    "repo_url": "https://github.com/UModeler/picoberry-mcp",
+    "author": "UModeler",
+    "description": "Generate 3D models and images from text or reference images, then remesh, retexture, auto-rig, animate and export GLB/FBX/OBJ via the PicoBerry API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:UModeler/picoberry-mcp"
+    ]
+  },
+  {
+    "id": "gh/Venut-Technologies/serato-dj-mcp",
+    "name": "Venut-Technologies/serato-dj-mcp",
+    "title": "Venut-Technologies/serato-dj-mcp MCP",
+    "repo": "Venut-Technologies/serato-dj-mcp",
+    "repo_url": "https://github.com/Venut-Technologies/serato-dj-mcp",
+    "author": "Venut-Technologies",
+    "description": "Ask an AI assistant about your Serato DJ library: harmonic BPM and Camelot key search, crates, duplicate and missing-file audits, and new crates built with a pr",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Venut-Technologies/serato-dj-mcp"
+    ]
+  },
+  {
+    "id": "gh/vicseeai/vicsee-mcp-server",
+    "name": "vicseeai/vicsee-mcp-server",
+    "title": "vicseeai/vicsee-mcp-server MCP",
+    "repo": "vicseeai/vicsee-mcp-server",
+    "repo_url": "https://github.com/vicseeai/vicsee-mcp-server",
+    "author": "vicseeai",
+    "description": "Generate, edit and upscale AI video and images (Seedance, Veo, Kling, FLUX, Nano Banana) via VicSee.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:vicseeai/vicsee-mcp-server"
+    ]
+  },
+  {
+    "id": "gh/wretcher207/reaper-daemon",
+    "name": "wretcher207/reaper-daemon",
+    "title": "wretcher207/reaper-daemon MCP",
+    "repo": "wretcher207/reaper-daemon",
+    "repo_url": "https://github.com/wretcher207/reaper-daemon",
+    "author": "wretcher207",
+    "description": "Drive the REAPER DAW over a local file bridge: read plugins and parameters, set FX values, write automation and measure mix changes, all inside undo blocks.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:wretcher207/reaper-daemon"
+    ]
+  },
+  {
+    "id": "gh/XavierFabregat/spotify-mcp",
+    "name": "XavierFabregat/spotify-mcp",
+    "title": "XavierFabregat/spotify-mcp MCP",
+    "repo": "XavierFabregat/spotify-mcp",
+    "repo_url": "https://github.com/XavierFabregat/spotify-mcp",
+    "author": "XavierFabregat",
+    "description": "Conversational Spotify control: play by description and manage the queue, devices, playlists and library, with a guided setup wizard.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:XavierFabregat/spotify-mcp"
+    ]
+  },
+  {
+    "id": "gh/Xxx91n/mcp-for-maya",
+    "name": "Xxx91n/mcp-for-maya",
+    "title": "Xxx91n/mcp-for-maya MCP",
+    "repo": "Xxx91n/mcp-for-maya",
+    "repo_url": "https://github.com/Xxx91n/mcp-for-maya",
+    "author": "Xxx91n",
+    "description": "MCP server giving AI agents spatial awareness inside Autodesk Maya \u2014 scene inspection, deterministic audit, checkpoint/rollback transactional safety, screenshot",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Xxx91n/mcp-for-maya"
+    ]
+  },
+  {
+    "id": "gh/yonlandwu/chinese-almanac-mcp",
+    "name": "yonlandwu/chinese-almanac-mcp",
+    "title": "yonlandwu/chinese-almanac-mcp MCP",
+    "repo": "yonlandwu/chinese-almanac-mcp",
+    "repo_url": "https://github.com/yonlandwu/chinese-almanac-mcp",
+    "author": "yonlandwu",
+    "description": "Chinese almanac (Tung Shing): daily readings, hour-pillar luck ratings, NASA JPL-based solar terms, auspicious dates, zodiac horoscopes and lucky hours.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:yonlandwu/chinese-almanac-mcp"
+    ]
+  },
+  {
+    "id": "gh/yuluo688/gen-image-mcp",
+    "name": "yuluo688/gen-image-mcp",
+    "title": "yuluo688/gen-image-mcp MCP",
+    "repo": "yuluo688/gen-image-mcp",
+    "repo_url": "https://github.com/yuluo688/gen-image-mcp",
+    "author": "yuluo688",
+    "description": "Generate and edit images via your own OpenAI-compatible or Gemini image APIs and save them into the project directory, with optional model fallback.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:yuluo688/gen-image-mcp"
+    ]
+  },
+  {
+    "id": "gh/yuna0x0/anilist-mcp",
+    "name": "yuna0x0/anilist-mcp",
+    "title": "yuna0x0/anilist-mcp MCP",
+    "repo": "yuna0x0/anilist-mcp",
+    "repo_url": "https://github.com/yuna0x0/anilist-mcp",
+    "author": "yuna0x0",
+    "description": "Anime and manga information from the AniList API.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:yuna0x0/anilist-mcp"
+    ]
+  },
+  {
+    "id": "gh/smeet666/mcp-bideetmusique",
+    "name": "smeet666/mcp-bideetmusique",
+    "title": "smeet666/mcp-bideetmusique MCP",
+    "repo": "smeet666/mcp-bideetmusique",
+    "repo_url": "https://github.com/smeet666/mcp-bideetmusique",
+    "author": "smeet666",
+    "description": "Search Bide & Musique's hand-catalogued collection of forgotten French songs by performer, title, writer, lyrics, label or year, and read full records.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:smeet666/mcp-bideetmusique"
+    ]
+  },
+  {
+    "id": "gh/AETumiApp/aetumi-mcp",
+    "name": "AETumiApp/aetumi-mcp",
+    "title": "AETumiApp/aetumi-mcp MCP",
+    "repo": "AETumiApp/aetumi-mcp",
+    "repo_url": "https://github.com/AETumiApp/aetumi-mcp",
+    "author": "AETumiApp",
+    "description": "AETumi MCP \u2014 gateway for AI coding assistants (Claude Code, Cursor, Codex) to production-ready Three.js/WebGL 3D web components, templates and interactive scene",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:AETumiApp/aetumi-mcp"
+    ]
+  },
+  {
+    "id": "gh/aidc2026ai-melon/aidc-ai-mcp",
+    "name": "aidc2026ai-melon/aidc-ai-mcp",
+    "title": "aidc2026ai-melon/aidc-ai-mcp MCP",
+    "repo": "aidc2026ai-melon/aidc-ai-mcp",
+    "repo_url": "https://github.com/aidc2026ai-melon/aidc-ai-mcp",
+    "author": "aidc2026ai-melon",
+    "description": "Deterministic AI data-center design for Korea (NVIDIA Rubin era, 22.9 kV intake): rack count, PUE, total MVA, cooling split, CDU planning, cost and timeline.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:aidc2026ai-melon/aidc-ai-mcp"
+    ]
+  },
+  {
+    "id": "gh/ant-dev-lab/nightmarquee-mcp",
+    "name": "ant-dev-lab/nightmarquee-mcp",
+    "title": "ant-dev-lab/nightmarquee-mcp MCP",
+    "repo": "ant-dev-lab/nightmarquee-mcp",
+    "repo_url": "https://github.com/ant-dev-lab/nightmarquee-mcp",
+    "author": "ant-dev-lab",
+    "description": "Art-directed website prompts as slash commands for hero sections, landing pages, SaaS, portfolios, e-commerce and 3D/WebGL scenes, each with a live demo.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ant-dev-lab/nightmarquee-mcp"
+    ]
+  },
+  {
+    "id": "gh/ayeshLK/archsmith",
+    "name": "ayeshLK/archsmith",
+    "title": "ayeshLK/archsmith MCP",
+    "repo": "ayeshLK/archsmith",
+    "repo_url": "https://github.com/ayeshLK/archsmith",
+    "author": "ayeshLK",
+    "description": "Turn a validated JSON IR into a consistent layered-architecture diagram (SVG).",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:ayeshLK/archsmith"
+    ]
+  },
+  {
+    "id": "gh/awdr74100/figwright",
+    "name": "awdr74100/figwright",
+    "title": "awdr74100/figwright MCP",
+    "repo": "awdr74100/figwright",
+    "repo_url": "https://github.com/awdr74100/figwright",
+    "author": "awdr74100",
+    "description": "Bidirectional Figma bridge: turn selections into framework-aware code reusing your components and tokens, or create frames, text, styles, variables and screens.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:awdr74100/figwright"
+    ]
+  },
+  {
+    "id": "gh/bobaba99/motionlint",
+    "name": "bobaba99/motionlint",
+    "title": "bobaba99/motionlint MCP",
+    "repo": "bobaba99/motionlint",
+    "repo_url": "https://github.com/bobaba99/motionlint",
+    "author": "bobaba99",
+    "description": "Lint web animations with deterministic checks on the live page (duration, easing, stagger, exits, reduced motion, hover) plus optional vision-LLM UX review.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:bobaba99/motionlint"
+    ]
+  },
+  {
+    "id": "gh/builditwithgk/repo-cartographer",
+    "name": "builditwithgk/repo-cartographer",
+    "title": "builditwithgk/repo-cartographer MCP",
+    "repo": "builditwithgk/repo-cartographer",
+    "repo_url": "https://github.com/builditwithgk/repo-cartographer",
+    "author": "builditwithgk",
+    "description": "Turn a repo into Mermaid or Graphviz architecture diagrams from its file tree, import graph and entry points; also enforces architecture rules in CI.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:builditwithgk/repo-cartographer"
+    ]
+  },
+  {
+    "id": "gh/BV-Venky/excalidraw-architect-mcp",
+    "name": "BV-Venky/excalidraw-architect-mcp",
+    "title": "BV-Venky/excalidraw-architect-mcp MCP",
+    "repo": "BV-Venky/excalidraw-architect-mcp",
+    "repo_url": "https://github.com/BV-Venky/excalidraw-architect-mcp",
+    "author": "BV-Venky",
+    "description": "Generate Excalidraw architecture diagrams with auto-layout, technology-aware component styling (databases, queues, caches) and stateful editing.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:BV-Venky/excalidraw-architect-mcp"
+    ]
+  },
+  {
+    "id": "gh/CanvasKeep/canvaskeep-mcp",
+    "name": "CanvasKeep/canvaskeep-mcp",
+    "title": "CanvasKeep/canvaskeep-mcp MCP",
+    "repo": "CanvasKeep/canvaskeep-mcp",
+    "repo_url": "https://github.com/CanvasKeep/canvaskeep-mcp",
+    "author": "CanvasKeep",
+    "description": "Create and edit Excalidraw diagrams in a CanvasKeep workspace: generate diagrams from nodes and edges with auto-layout, organize them into folders, and read or ",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:CanvasKeep/canvaskeep-mcp"
+    ]
+  },
+  {
+    "id": "gh/cisco-open/network-sketcher",
+    "name": "cisco-open/network-sketcher",
+    "title": "cisco-open/network-sketcher MCP",
+    "repo": "cisco-open/network-sketcher",
+    "repo_url": "https://github.com/cisco-open/network-sketcher",
+    "author": "cisco-open",
+    "description": "Local-first network design: create Cisco-style network master files, L1/L2/L3 topology diagrams, HTML viewers, device tables and AI context files.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:cisco-open/network-sketcher"
+    ]
+  },
+  {
+    "id": "gh/docsor1212/aesthete-agent",
+    "name": "docsor1212/aesthete-agent",
+    "title": "docsor1212/aesthete-agent MCP",
+    "repo": "docsor1212/aesthete-agent",
+    "repo_url": "https://github.com/docsor1212/aesthete-agent",
+    "author": "docsor1212",
+    "description": "Mechanically validated frontend aesthetics for coding agents: an evidence-ranked palette library, OKLCH harmony generation, WCAG 2.2 + APCA contrast gates, colo",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:docsor1212/aesthete-agent"
+    ]
+  },
+  {
+    "id": "gh/Daksh-create349/Contradiction-MCP",
+    "name": "Daksh-create349/Contradiction-MCP",
+    "title": "Daksh-create349/Contradiction-MCP MCP",
+    "repo": "Daksh-create349/Contradiction-MCP",
+    "repo_url": "https://github.com/Daksh-create349/Contradiction-MCP",
+    "author": "Daksh-create349",
+    "description": "Detect contradictions and architectural drift in Kubernetes manifests, READMEs, OpenAPI specs and Word docs, with deterministic scoring and resolution advice.",
+    "source": "awesome",
+    "source_label": "Awesome MCP",
+    "stars": 450,
+    "verified": false,
+    "command": "npx",
+    "args": [
+      "-y",
+      "github:Daksh-create349/Contradiction-MCP"
+    ]
+  }
+]

@@ -3151,7 +3151,7 @@ function AGView:open_tool_config(tool_item)
     test_result = nil,
     config = {
       command = "npx",
-      args = {"-y", "@smithery/cli", "run", tool_id},
+      args = (tool_id:find("^gh/") and {"-y", "github:" .. tool_id:sub(4)} or {"-y", tool_id}),
       env = {},
       known_keys = {}
     }
@@ -6809,7 +6809,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
               end
             })
           else
-            core.command_view:enter("Paste GitHub Repo or Smithery Tool ID", {
+            core.command_view:enter("Paste GitHub Repo, npm Package, or MCP Server ID", {
               submit = function(url)
                 if self.show_tools_tab then
                   self:install_skill({id = url, title = url, name = url, description = "Installed from URL/ID"})
@@ -8083,7 +8083,9 @@ end
 
   local MARKET_SOURCES = {
     { id = "all",      label = "All Sources", icon = "🌐" },
-    { id = "smithery", label = "Smithery",    icon = "⚡" },
+    { id = "npm",      label = "npm Registry",icon = "⚡" },
+    { id = "official", label = "Official MCP",icon = "🏛" },
+    { id = "awesome",  label = "Awesome MCP", icon = "⭐" },
     { id = "nvidia",   label = "NVIDIA NIM",  icon = "🟩" },
     { id = "github",   label = "GitHub",      icon = "🐙" },
   }
@@ -8540,7 +8542,7 @@ end
     
     ty = ty + seg_h + 10 * SCALE
     
-    -- Row 1.5: Source Switcher Row (All Sources vs Smithery vs NVIDIA NIM vs GitHub)
+    -- Row 1.5: Source Switcher Row (All Sources vs npm vs Official vs Awesome vs NVIDIA NIM vs GitHub)
     local src_lbl = "Source:"
     local src_lbl_w = mf:get_width(src_lbl) + 10 * SCALE
     renderer.draw_text(mf, src_lbl, mx + pad, ty + math.floor((24 * SCALE - mf:get_height()) / 2), P.fg_muted)
@@ -8731,10 +8733,24 @@ end
           local t_icon = self.show_tools_tab and "🔌" or "⚡"
           draw_text_emoji(mf, t_icon, sx + 12 * SCALE, sy + 12 * SCALE, P.fg_accent)
 
-          local src_tag = (skill.source == "nvidia") and "🟩 NVIDIA" or ((skill.source == "github") and "🐙 GitHub" or "⚡ Smithery")
-          local st_col = (skill.source == "nvidia") and {76, 175, 80, 255} or ((skill.source == "github") and {170, 140, 240, 255} or P.fg_accent)
-          local st_bg = (skill.source == "nvidia") and {35, 134, 54, 30} or P.bg_btn
-          local st_border = (skill.source == "nvidia") and {46, 160, 67, 180} or P.border
+          local src_tag = (skill.source == "nvidia") and "🟩 NVIDIA"
+            or ((skill.source == "github") and "🐙 GitHub"
+            or ((skill.source == "official") and "🏛 Official"
+            or ((skill.source == "awesome") and "⭐ Awesome"
+            or "⚡ npm")))
+          local st_col = (skill.source == "nvidia") and {76, 175, 80, 255}
+            or ((skill.source == "official") and {90, 180, 255, 255}
+            or ((skill.source == "awesome") and {255, 215, 0, 255}
+            or ((skill.source == "github") and {170, 140, 240, 255}
+            or P.fg_accent)))
+          local st_bg = (skill.source == "nvidia") and {35, 134, 54, 30}
+            or ((skill.source == "official") and {20, 50, 90, 40}
+            or ((skill.source == "awesome") and {90, 80, 20, 40}
+            or P.bg_btn))
+          local st_border = (skill.source == "nvidia") and {46, 160, 67, 180}
+            or ((skill.source == "official") and {60, 130, 220, 180}
+            or ((skill.source == "awesome") and {200, 170, 40, 180}
+            or P.border))
           local st_w = mf:get_width(src_tag) + 12 * SCALE
           local st_x = sx + col_w - 12 * SCALE - st_w
           draw_market_badge(st_x, sy + 11 * SCALE, st_w, 20 * SCALE, st_bg, st_border, src_tag, mf, st_col)

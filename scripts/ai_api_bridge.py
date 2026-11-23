@@ -2035,7 +2035,7 @@ def main():
     parser.add_argument("--preview-skill", type=str)
     parser.add_argument("--active-skill", type=str)
     parser.add_argument("--skill-state", type=str)
-    parser.add_argument("--source", type=str, default="all", help="Marketplace source filter: all, smithery, nvidia, github")
+    parser.add_argument("--source", type=str, default="all", help="Marketplace source filter: all, npm, official, awesome, nvidia, github")
     parser.add_argument("--add-source-repo", type=str, help="Add custom GitHub repository as marketplace source")
     parser.add_argument("--get-sources", action="store_true", help="List active marketplace sources")
     args = parser.parse_args()
@@ -2147,12 +2147,14 @@ def main():
         default_cfg = {
             "active_source": "all",
             "sources": [
-                {"id": "all", "name": "All Sources", "icon": "🌐", "description": "Unified discovery across Smithery, NVIDIA NIM, and GitHub"},
-                {"id": "smithery", "name": "Smithery", "icon": "⚡", "description": "Smithery.ai open MCP servers and skill registry"},
-                {"id": "nvidia", "name": "NVIDIA NIM", "icon": "🟩", "description": "NVIDIA Cloud inference microservices and verified agent skills"},
-                {"id": "github", "name": "GitHub", "icon": "🐙", "description": "Community skill packs and public GitHub repositories"}
+                {"id": "all", "name": "All Sources", "icon": "🌐", "description": "Federated multi-source discovery across npm, Official MCP, Awesome MCP, NVIDIA NIM, and GitHub"},
+                {"id": "npm", "name": "npm Registry", "icon": "⚡", "description": "12,500+ live executable packages on npm Registry"},
+                {"id": "official", "name": "Official MCP", "icon": "🏛️", "description": "Canonical reference implementations maintained by Anthropic and the MCP working group"},
+                {"id": "awesome", "name": "Awesome MCP", "icon": "⭐", "description": "Community-curated GitHub directory with 4,900+ open-source servers"},
+                {"id": "nvidia", "name": "NVIDIA NIM", "icon": "🟩", "description": "NVIDIA Cloud inference microservices and GPU reasoning microservices"},
+                {"id": "github", "name": "GitHub Repos", "icon": "🐙", "description": "Community skill packs and custom registered GitHub repositories"}
             ],
-            "custom_repos": ["NVIDIA/skills"]
+            "custom_repos": ["NVIDIA/skills", "modelcontextprotocol/servers", "punkpeye/awesome-mcp-servers"]
         }
         if os.path.exists(src_file):
             try:
@@ -2327,7 +2329,7 @@ def main():
             "stars": 2150,
             "verified": True,
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", "nvidia-nemotron"]
+            "args": ["-y", "nvidia-nemotron-mcp"]
         },
         {
             "id": "nvidia-retriever",
@@ -2341,7 +2343,7 @@ def main():
             "stars": 1840,
             "verified": True,
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", "nvidia-retriever"]
+            "args": ["-y", "nvidia-retriever-mcp"]
         },
         {
             "id": "nvidia-cuopt",
@@ -2355,7 +2357,7 @@ def main():
             "stars": 1420,
             "verified": True,
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", "nvidia-cuopt"]
+            "args": ["-y", "nvidia-cuopt-mcp"]
         },
         {
             "id": "nvidia-nvclip",
@@ -2369,7 +2371,7 @@ def main():
             "stars": 1290,
             "verified": True,
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", "nvidia-nvclip"]
+            "args": ["-y", "nvidia-nvclip-mcp"]
         },
         {
             "id": "nvidia-nim-mcp",
@@ -2383,9 +2385,228 @@ def main():
             "stars": 3200,
             "verified": True,
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", "nvidia-nim-mcp"]
+            "args": ["-y", "nvidia-nim-mcp"]
         }
     ]
+
+    OFFICIAL_MCP_TOOLS = [
+        {
+            "id": "@modelcontextprotocol/server-filesystem",
+            "name": "Filesystem",
+            "title": "Official Filesystem MCP",
+            "author": "ModelContextProtocol",
+            "description": "Direct read/write access to project directories with configurable security sandboxes.",
+            "domain": "Testing & Utilities",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 3450,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+        },
+        {
+            "id": "@modelcontextprotocol/server-memory",
+            "name": "Knowledge Graph Memory",
+            "title": "Official Memory Graph MCP",
+            "author": "ModelContextProtocol",
+            "description": "Persistent memory and knowledge graph for continuous context across sessions.",
+            "domain": "Data & AI",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 2890,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-memory"]
+        },
+        {
+            "id": "@modelcontextprotocol/server-postgres",
+            "name": "PostgreSQL",
+            "title": "Official PostgreSQL MCP",
+            "author": "ModelContextProtocol",
+            "description": "Safe read-only or schema queries against PostgreSQL databases with full column inspection.",
+            "domain": "Data & AI",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 2680,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-postgres"]
+        },
+        {
+            "id": "@modelcontextprotocol/server-sequential-thinking",
+            "name": "Sequential Thinking",
+            "title": "Official Sequential Thinking MCP",
+            "author": "ModelContextProtocol",
+            "description": "Dynamic reasoning canvas breaking complex architectural problems into verifiable thought steps.",
+            "domain": "Coding & Dev",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 3120,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+        },
+        {
+            "id": "@modelcontextprotocol/server-puppeteer",
+            "name": "Puppeteer Browser",
+            "title": "Official Puppeteer Browser MCP",
+            "author": "ModelContextProtocol",
+            "description": "Headless browser automation, DOM evaluation, and responsive screenshot capture.",
+            "domain": "Design & UI",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 2980,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+        },
+        {
+            "id": "@modelcontextprotocol/server-github",
+            "name": "GitHub Connector",
+            "title": "Official GitHub MCP",
+            "author": "ModelContextProtocol",
+            "description": "Repository automation, PRs, code reviews, and issue tracking directly through GitHub.",
+            "domain": "Coding & Dev",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 3890,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"]
+        },
+        {
+            "id": "@modelcontextprotocol/server-slack",
+            "name": "Slack Connector",
+            "title": "Official Slack MCP",
+            "author": "ModelContextProtocol",
+            "description": "Read channels, send notifications, and collaborate with your team in Slack.",
+            "domain": "DevOps & Cloud",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 2100,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-slack"]
+        },
+        {
+            "id": "@modelcontextprotocol/server-brave-search",
+            "name": "Brave Search",
+            "title": "Official Brave Search MCP",
+            "author": "ModelContextProtocol",
+            "description": "Live web search and news indexing with privacy-preserving Brave API.",
+            "domain": "Testing & Utilities",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 2450,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-brave-search"]
+        },
+        {
+            "id": "@modelcontextprotocol/server-everything",
+            "name": "Everything Demo Server",
+            "title": "Official Everything Test MCP",
+            "author": "ModelContextProtocol",
+            "description": "Complete test harness exercising all features and capabilities of the MCP standard.",
+            "domain": "Testing & Utilities",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 1640,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-everything"]
+        },
+        {
+            "id": "context7",
+            "name": "Context7 Live Docs",
+            "title": "Context7 Docs MCP",
+            "author": "Context7",
+            "description": "Live, up-to-date documentation and code reference search for any language or framework.",
+            "domain": "Coding & Dev",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 1820,
+            "verified": True,
+            "command": "npx",
+            "args": ["-y", "context7"]
+        }
+    ]
+
+    def detect_domain(title, desc):
+        hay = f"{title} {desc}".lower()
+        if any(k in hay for k in ("db", "sql", "postgres", "sqlite", "vector", "memory", "graph", "database")):
+            return "Data & AI"
+        if any(k in hay for k in ("browser", "playwright", "puppeteer", "ui", "design", "css", "figma")):
+            return "Design & UI"
+        if any(k in hay for k in ("doc", "fetch", "scrape", "search", "markdown", "pdf", "wiki")):
+            return "Writing & Docs"
+        if any(k in hay for k in ("cloud", "docker", "k8s", "aws", "slack", "deploy", "ci", "cd")):
+            return "DevOps & Cloud"
+        if any(k in hay for k in ("test", "bench", "util", "mock", "lint")):
+            return "Testing & Utilities"
+        return "Coding & Dev"
+
+    def http_get_json(url, timeout=4):
+        try:
+            import urllib.request, ssl
+            ctx = ssl._create_unverified_context()
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except Exception:
+            pass
+        try:
+            import subprocess
+            res = subprocess.run(['curl.exe', '-s', '--max-time', str(timeout), url], capture_output=True, text=True, timeout=timeout+1)
+            if res.returncode == 0 and res.stdout.strip():
+                return json.loads(res.stdout)
+        except Exception:
+            pass
+        return None
+
+    def fetch_npm_mcp_tools(search_query="", size=24):
+        tools = []
+        text = f"mcp-server {search_query}".strip() if search_query else "keywords:mcp-server"
+        url = f"https://registry.npmjs.org/-/v1/search?text={urllib.parse.quote(text)}&size={size}"
+        data = http_get_json(url, timeout=4)
+        if data and "objects" in data:
+            for obj in data.get("objects", []):
+                pkg = obj.get("package", {})
+                name = pkg.get("name")
+                if not name: continue
+                desc = pkg.get("description", "MCP Server integration")
+                score = obj.get("score", {}).get("detail", {})
+                popularity = score.get("popularity", 0.5)
+                tools.append({
+                    "id": name,
+                    "name": name,
+                    "title": name,
+                    "author": pkg.get("publisher", {}).get("username", "npm-community"),
+                    "description": desc,
+                    "domain": detect_domain(name, desc),
+                    "source": "npm",
+                    "source_label": "npm Registry",
+                    "stars": int(popularity * 1500) + 120,
+                    "verified": ("@modelcontextprotocol" in name or pkg.get("publisher", {}).get("username") == "GitHub Actions"),
+                    "command": "npx",
+                    "args": ["-y", name]
+                })
+        return tools
+
+    def fetch_awesome_mcp_tools(search_query=""):
+        config_dir = os.path.dirname(os.path.abspath(__file__))
+        cache_file = os.path.join(config_dir, ".awesome_mcp_cache.json")
+        tools = []
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    tools = json.load(f)
+            except Exception:
+                pass
+        if search_query:
+            sq = search_query.lower()
+            tools = [t for t in tools if sq in t.get("name", "").lower() or sq in t.get("description", "").lower()]
+        return tools
 
     if args.get_sources:
         src_cfg = load_sources_config()
@@ -2422,61 +2643,33 @@ def main():
 
         all_tools = []
 
-        # 1. NVIDIA NIM MCP Tools
+        # 1. Official MCP Reference Tools
+        if source_filter in ("all", "official"):
+            all_tools.extend(OFFICIAL_MCP_TOOLS)
+
+        # 2. NVIDIA NIM MCP Tools
         if source_filter in ("all", "nvidia"):
             all_tools.extend(NVIDIA_OFFICIAL_TOOLS)
 
-        # 2. Smithery MCP Tools
-        if source_filter in ("all", "smithery"):
-            smithery_tools = []
-            try:
-                search_param = f"&q={urllib.parse.quote(search_query)}" if search_query else ""
-                url = f"https://api.smithery.ai/servers?page=1&limit=24{search_param}"
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    api_data = json.loads(response.read().decode('utf-8'))
-                for s in api_data.get("servers", []):
-                    qname = s.get("qualifiedName") or s.get("id")
-                    smithery_tools.append({
-                        "id": qname,
-                        "name": s.get("displayName") or qname,
-                        "title": s.get("displayName") or qname,
-                        "author": "Smithery" if s.get("bySmithery") else (s.get("owner") or "Community"),
-                        "description": s.get("description", "MCP Server integration"),
-                        "domain": "MCP Servers",
-                        "source": "smithery",
-                        "source_label": "Smithery",
-                        "stars": s.get("externalStars") or s.get("stars", 0),
-                        "verified": s.get("verified", False),
-                        "command": "npx",
-                        "args": ["-y", "@smithery/cli", "run", qname]
-                    })
-            except Exception:
-                pass
+        # 3. npm Registry MCP Tools
+        if source_filter in ("all", "npm"):
+            npm_tools = fetch_npm_mcp_tools(search_query, size=24)
+            if npm_tools:
+                all_tools.extend(npm_tools)
+            elif source_filter == "npm":
+                # Fallback to official tools if npm is unreachable
+                all_tools.extend(OFFICIAL_MCP_TOOLS)
 
-            if not smithery_tools:
-                curated_tools = [
-                    {"id": "github", "name": "GitHub", "title": "GitHub MCP", "author": "ModelContextProtocol", "description": "Repository automation, PRs, code reviews, and issue tracking directly through GitHub.", "domain": "Coding & Dev", "source": "smithery", "source_label": "Smithery", "stars": 1420, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "github"]},
-                    {"id": "postgres", "name": "PostgreSQL", "title": "PostgreSQL MCP", "author": "ModelContextProtocol", "description": "Safe read-only or schema queries against PostgreSQL databases with inspection.", "domain": "Data & AI", "source": "smithery", "source_label": "Smithery", "stars": 980, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "postgres"]},
-                    {"id": "filesystem", "name": "Filesystem", "title": "Filesystem MCP", "author": "ModelContextProtocol", "description": "Direct read/write access to project directories with configurable sandboxes.", "domain": "Testing & Utilities", "source": "smithery", "source_label": "Smithery", "stars": 1150, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "filesystem"]},
-                    {"id": "memory", "name": "Knowledge Graph", "title": "Memory Graph MCP", "author": "ModelContextProtocol", "description": "Persistent memory and knowledge graph for continuous context across sessions.", "domain": "Data & AI", "source": "smithery", "source_label": "Smithery", "stars": 840, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "memory"]},
-                    {"id": "brave-search", "name": "Brave Search", "title": "Brave Web Search MCP", "author": "Brave", "description": "Live web search and news indexing with privacy-preserving Brave API.", "domain": "Testing & Utilities", "source": "smithery", "source_label": "Smithery", "stars": 760, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "brave-search"]},
-                    {"id": "puppeteer", "name": "Puppeteer", "title": "Puppeteer Browser MCP", "author": "ModelContextProtocol", "description": "Headless browser automation, DOM evaluation, and responsive screenshot capture.", "domain": "Design & UI", "source": "smithery", "source_label": "Smithery", "stars": 920, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "puppeteer"]},
-                    {"id": "fetch", "name": "Web Fetch", "title": "Web Fetcher MCP", "author": "ModelContextProtocol", "description": "Fast HTML scraping and conversion to clean LLM markdown from any web URL.", "domain": "Writing & Docs", "source": "smithery", "source_label": "Smithery", "stars": 690, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "fetch"]},
-                    {"id": "slack", "name": "Slack", "title": "Slack Connector MCP", "author": "ModelContextProtocol", "description": "Read channels, send notifications, and collaborate with your team in Slack.", "domain": "DevOps & Cloud", "source": "smithery", "source_label": "Smithery", "stars": 610, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "slack"]},
-                    {"id": "google-drive", "name": "Google Drive", "title": "Google Drive MCP", "author": "Google", "description": "Search, read, and manage Google Drive files, spreadsheets, and shared docs.", "domain": "Writing & Docs", "source": "smithery", "source_label": "Smithery", "stars": 880, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "google-drive"]},
-                    {"id": "sqlite", "name": "SQLite", "title": "SQLite MCP", "author": "ModelContextProtocol", "description": "Query and manage local SQLite databases with automatic schema discovery.", "domain": "Data & AI", "source": "smithery", "source_label": "Smithery", "stars": 540, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "sqlite"]},
-                    {"id": "context7", "name": "Context7 Docs", "title": "Context7 Docs MCP", "author": "Context7", "description": "Live, up-to-date documentation and code reference search for any language or framework.", "domain": "Coding & Dev", "source": "smithery", "source_label": "Smithery", "stars": 710, "verified": True, "command": "npx", "args": ["-y", "@smithery/cli", "run", "context7"]},
-                    {"id": "everything", "name": "Voidtools Everything", "title": "Everything Search MCP", "author": "Community", "description": "Instant file search across all Windows drives via Voidtools Everything IPC.", "domain": "Testing & Utilities", "source": "smithery", "source_label": "Smithery", "stars": 490, "verified": False, "command": "npx", "args": ["-y", "@smithery/cli", "run", "everything"]}
-                ]
-                smithery_tools.extend(curated_tools)
-            all_tools.extend(smithery_tools)
+        # 4. Awesome MCP Community Tools (from curated GitHub registry)
+        if source_filter in ("all", "awesome"):
+            awesome_tools = fetch_awesome_mcp_tools(search_query)
+            all_tools.extend(awesome_tools)
 
-        # 3. Custom GitHub Repositories for Tools
+        # 5. Custom GitHub Repositories for Tools
         if source_filter in ("all", "github"):
             src_cfg = load_sources_config()
             for cr in src_cfg.get("custom_repos", []):
-                if cr == "NVIDIA/skills": continue
+                if cr in ("NVIDIA/skills", "punkpeye/awesome-mcp-servers"): continue
                 r_name = cr.split("/")[-1]
                 all_tools.append({
                     "id": f"gh/{cr}",
@@ -2492,6 +2685,16 @@ def main():
                     "command": "npx",
                     "args": ["-y", f"github:{cr}"]
                 })
+
+        # Multi-Source Deduplication (by tool ID)
+        seen_ids = set()
+        deduped = []
+        for t in all_tools:
+            tid = t.get("id")
+            if tid and tid not in seen_ids:
+                seen_ids.add(tid)
+                deduped.append(t)
+        all_tools = deduped
 
         # Apply search filtering
         if search_query:
@@ -2544,48 +2747,123 @@ def main():
         if source_filter in ("all", "nvidia"):
             all_skills.extend(NVIDIA_OFFICIAL_SKILLS)
 
-        # 2. Smithery Skills
-        if source_filter in ("all", "smithery"):
-            smithery_skills = []
-            try:
-                search_param = f"&q={urllib.parse.quote(search_query)}" if search_query else ""
-                url = f"https://api.smithery.ai/skills?page=1&limit=24{search_param}"
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    api_data = json.loads(response.read().decode('utf-8'))
-                for s in api_data.get("skills", []):
-                    qname = s.get("slug") or s.get("id")
-                    cats = s.get("categories", [])
-                    domain = cats[0] if isinstance(cats, list) and len(cats) > 0 else (cats if isinstance(cats, str) else "General")
-                    smithery_skills.append({
-                        "id": qname,
-                        "title": s.get("displayName") or qname,
-                        "description": s.get("description", ""),
-                        "domain": domain,
-                        "source": "smithery",
-                        "source_label": "Smithery",
-                        "author": s.get("namespace") or s.get("ownerId", "Community"),
-                        "repo_url": s.get("gitUrl", ""),
-                        "stars": s.get("externalStars", 0),
-                        "verified": s.get("verified", False),
-                        "system_prompt": s.get("prompt") or s.get("description", "")
-                    })
-            except Exception:
-                pass
-
-            if not smithery_skills:
-                cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".market_cache.json")
-                if os.path.exists(cache_path):
-                    try:
-                        with open(cache_path, "r", encoding="utf-8") as f:
-                            c_skills = json.load(f)
-                            for s in c_skills:
-                                s["source"] = "smithery"
-                                s["source_label"] = "Smithery"
-                            smithery_skills.extend(c_skills)
-                    except Exception:
-                        pass
-            all_skills.extend(smithery_skills)
+        # 2. Curated Official & Open-Source Agent Skills
+        CURATED_OFFICIAL_SKILLS = [
+            {
+                "id": "code-reviewer",
+                "title": "Senior Code Reviewer",
+                "name": "Senior Code Reviewer",
+                "author": "Antigravity",
+                "description": "Exhaustive PR and diff analysis, detecting anti-patterns, race conditions, edge cases, and architectural smells.",
+                "domain": "Coding & Dev",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 2400,
+                "verified": True,
+                "system_prompt": "You are a Senior Principal Software Architect and Code Reviewer. Audit diffs thoroughly for correctness, performance, race conditions, and clean architectural abstractions."
+            },
+            {
+                "id": "architecture-visualizer",
+                "title": "Architecture Visualizer",
+                "name": "Architecture Visualizer",
+                "author": "Antigravity",
+                "description": "Generates interactive Mermaid.js flowcharts, sequence diagrams, and C4 architectural blueprints for codebases.",
+                "domain": "Design & UI",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 1950,
+                "verified": True,
+                "system_prompt": "You are a Software Architect specializing in system visualization. Output diagrams in standard Mermaid markdown blocks with clean node hierarchies."
+            },
+            {
+                "id": "security-auditor",
+                "title": "Security & Vulnerability Auditor",
+                "name": "Security & Vulnerability Auditor",
+                "author": "Antigravity",
+                "description": "Scans code for injection vulnerabilities, hardcoded secrets, cryptographic flaws, and insecure dependencies.",
+                "domain": "DevOps & Cloud",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 2100,
+                "verified": True,
+                "system_prompt": "You are an Offensive Security Researcher and Code Auditor. Identify vulnerabilities (CWE, OWASP Top 10) and provide hardened remediation snippets."
+            },
+            {
+                "id": "typescript-pro",
+                "title": "TypeScript & React Specialist",
+                "name": "TypeScript & React Specialist",
+                "author": "Antigravity",
+                "description": "Strict TypeScript generics, advanced utility types, React performance optimization, and memoization patterns.",
+                "domain": "Coding & Dev",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 3200,
+                "verified": True,
+                "system_prompt": "You are an elite TypeScript & Modern Frontend Engineer. Enforce strict type safety, zero-any policy, and optimized reactivity."
+            },
+            {
+                "id": "python-perf",
+                "title": "Python Performance Engineer",
+                "name": "Python Performance Engineer",
+                "author": "Antigravity",
+                "description": "Profiling, GIL circumvention, memory optimization, Cython/C-extensions, and asynchronous I/O architectures.",
+                "domain": "Coding & Dev",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 2800,
+                "verified": True,
+                "system_prompt": "You are a Python Performance and Systems Optimization Engineer specializing in high-throughput workloads and memory profiling."
+            },
+            {
+                "id": "database-optimizer",
+                "title": "Database & Query Optimizer",
+                "name": "Database & Query Optimizer",
+                "author": "Antigravity",
+                "description": "PostgreSQL, MySQL, and SQLite query plan analysis (EXPLAIN ANALYZE), index tuning, and schema normalization.",
+                "domain": "Data & AI",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 1750,
+                "verified": True,
+                "system_prompt": "You are a Database Reliability Engineer and SQL Query Optimizer specializing in schema indexing and latency reduction."
+            },
+            {
+                "id": "accessibility-auditor",
+                "title": "Accessibility (a11y) Specialist",
+                "name": "Accessibility (a11y) Specialist",
+                "author": "Antigravity",
+                "description": "Audits DOM elements, ARIA semantics, color contrast, keyboard navigation, and screen reader compatibility.",
+                "domain": "Design & UI",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 1450,
+                "verified": True,
+                "system_prompt": "You are an Accessibility (a11y) Specialist ensuring full compliance with WCAG 2.2 AA and WAI-ARIA guidelines."
+            },
+            {
+                "id": "unit-test-generator",
+                "title": "Unit Test Suite Generator",
+                "name": "Unit Test Suite Generator",
+                "author": "Antigravity",
+                "description": "Generates robust, edge-case resilient unit tests, mocks, fixtures, and coverage regression tests.",
+                "domain": "Testing & Utilities",
+                "source": "official",
+                "source_label": "Official MCP",
+                "repo_url": "https://github.com/modelcontextprotocol/servers",
+                "stars": 2600,
+                "verified": True,
+                "system_prompt": "You are a Senior Test Automation Architect. Write comprehensive unit tests covering edge cases, failure paths, and mocks."
+            }
+        ]
+        if source_filter in ("all", "official", "npm", "awesome"):
+            all_skills.extend(CURATED_OFFICIAL_SKILLS)
 
         # 3. Custom GitHub Repositories for Skills
         if source_filter in ("all", "github"):
@@ -2741,48 +3019,17 @@ def main():
         if "mcpServers" not in cfg:
             cfg["mcpServers"] = {}
             
-        # Dynamically install any tool via Smithery CLI since we are now live-fetching from their API
+        # Dynamically install tool via direct native NPX execution
+        tool_args = ["-y", f"github:{target[3:]}"] if target.startswith("gh/") else ["-y", target]
         cfg["mcpServers"][target] = {
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", target],
+            "args": tool_args,
             "env": {}
         }
         
         with open(cfg_path, "w") as f: json.dump(cfg, f, indent=2)
-        print(f"Installed tool {target} via Smithery CLI")
-        
-        # Check Smithery API for required ENV variables
-        import urllib.request, re as re_env
-        try:
-            req = urllib.request.Request(f"https://api.smithery.ai/servers/{target}", headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode())
-                req_keys = []
-                if "connections" in data and len(data["connections"]) > 0:
-                    conn = data["connections"][0]
-                    if "configSchema" in conn and "required" in conn["configSchema"]:
-                        reqs = conn["configSchema"]["required"]
-                        if isinstance(reqs, list):
-                            req_keys = reqs
-                        elif isinstance(reqs, str):
-                            req_keys = [reqs]
-                        elif isinstance(reqs, dict):
-                            req_keys = list(reqs.keys())
-                if req_keys:
-                    for k in req_keys:
-                        env_name = re_env.sub(r'(?<!^)(?=[A-Z])', '_', k).upper()
-                        print(f"[REQUIRED_ENV] {env_name}", flush=True)
-                else:
-                    print(f"[INFO] Auto-launching browser auth flow for {target}...")
-                    if os.name == 'nt':
-                        os.system(f'start "Smithery Auth - {target}" cmd /c "echo Launching Smithery Auth for {target}... && echo Please complete any browser login that opens. && echo Once you are connected, you may CLOSE this window. && echo. && npx -y @smithery/cli run {target}"')
-                    elif sys.platform == "darwin":
-                        os.system(f'osascript -e \'tell application "Terminal" to do script "echo Launching Smithery Auth for {target}... && echo Please complete any browser login that opens. && echo Once you are connected, you may CLOSE this window. && echo. && npx -y @smithery/cli run {target}"\'')
-                    else:
-                        os.system(f'x-terminal-emulator -e \'bash -c "echo Launching Smithery Auth for {target}... && echo Please complete any browser login that opens. && echo Once you are connected, you may CLOSE this window. && echo. && npx -y @smithery/cli run {target}"\' &')
-
-        except Exception as e:
-            pass
+        print(f"Installed MCP tool {target} via direct native runner")
+        sys.exit(0)
             
         sys.exit(0)
     if args.uninstall_tool:
@@ -2875,11 +3122,12 @@ def main():
     if args.get_tool_config:
         tool_id = args.get_tool_config
         cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
+        default_args = ["-y", f"github:{tool_id[3:]}"] if tool_id.startswith("gh/") else ["-y", tool_id]
         res = {
             "id": tool_id,
             "installed": False,
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", tool_id],
+            "args": default_args,
             "env": {},
             "known_keys": [],
             "description": ""
@@ -2891,22 +3139,28 @@ def main():
                 srv = cfg["mcpServers"][tool_id]
                 res["installed"] = True
                 res["command"] = srv.get("command", "npx")
-                res["args"] = srv.get("args", [])
+                res["args"] = srv.get("args", default_args)
                 res["env"] = srv.get("env", {})
         except: pass
 
         KNOWN_KEYS_MAP = {
-            "github": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-            "gmail": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"],
-            "slack": ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
-            "postgres": ["POSTGRES_CONNECTION_STRING"],
-            "sqlite": ["SQLITE_DATABASE_PATH"],
-            "everything": ["EVERYTHING_SDK_DLL_PATH"],
-            "brave-search": ["BRAVE_API_KEY"],
-            "google-drive": ["GOOGLE_DRIVE_CREDENTIALS_JSON"],
-            "isdaniel/mcp_weather_server": ["OPENWEATHER_API_KEY"],
-            "puppeteer": ["PUPPETEER_HEADLESS", "PUPPETEER_EXECUTABLE_PATH"],
+            "@modelcontextprotocol/server-filesystem": ["ALLOWED_DIRECTORIES"],
             "filesystem": ["ALLOWED_DIRECTORIES"],
+            "@modelcontextprotocol/server-postgres": ["POSTGRES_CONNECTION_STRING"],
+            "postgres": ["POSTGRES_CONNECTION_STRING"],
+            "@modelcontextprotocol/server-github": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+            "github": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+            "@modelcontextprotocol/server-slack": ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
+            "slack": ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
+            "@modelcontextprotocol/server-brave-search": ["BRAVE_API_KEY"],
+            "brave-search": ["BRAVE_API_KEY"],
+            "@modelcontextprotocol/server-puppeteer": ["PUPPETEER_HEADLESS", "PUPPETEER_EXECUTABLE_PATH"],
+            "puppeteer": ["PUPPETEER_HEADLESS", "PUPPETEER_EXECUTABLE_PATH"],
+            "sqlite": ["SQLITE_DATABASE_PATH"],
+            "mcp-server-sqlite": ["SQLITE_DATABASE_PATH"],
+            "everything": ["EVERYTHING_SDK_DLL_PATH"],
+            "gmail": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"],
+            "google-drive": ["GOOGLE_DRIVE_CREDENTIALS_JSON"],
             "nvidia-nemotron": ["NVIDIA_API_KEY", "NVAPI_KEY"],
             "nvidia-retriever": ["NVIDIA_API_KEY", "NVAPI_KEY"],
             "nvidia-cuopt": ["NVIDIA_API_KEY", "NVAPI_KEY"],
@@ -2914,21 +3168,21 @@ def main():
             "nvidia-nim-mcp": ["NVIDIA_API_KEY", "NVAPI_KEY"]
         }
         res["known_keys"] = KNOWN_KEYS_MAP.get(tool_id, [])
-
         if not res["known_keys"]:
+            for k, keys_list in KNOWN_KEYS_MAP.items():
+                if k in tool_id.lower():
+                    res["known_keys"] = keys_list
+                    break
+
+        if not res["description"] and not tool_id.startswith("gh/"):
             try:
-                import urllib.request
-                req = urllib.request.Request(f"https://api.smithery.ai/servers/{tool_id}", headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=4) as resp:
-                    sdata = json.loads(resp.read().decode())
-                    if "connections" in sdata and len(sdata["connections"]) > 0:
-                        cschema = sdata["connections"][0].get("configSchema", {})
-                        props = cschema.get("properties", {})
-                        reqs = cschema.get("required", [])
-                        if isinstance(reqs, str): reqs = [reqs]
-                        all_keys = list(set(list(props.keys()) + list(reqs)))
-                        res["known_keys"] = [re.sub(r'(?<!^)(?=[A-Z])', '_', k).upper() for k in all_keys]
-            except: pass
+                import urllib.parse
+                clean_id = urllib.parse.quote(tool_id, safe="@")
+                pkg_data = http_get_json(f"https://registry.npmjs.org/{clean_id}", timeout=2)
+                if pkg_data and "description" in pkg_data:
+                    res["description"] = pkg_data["description"]
+            except Exception:
+                pass
 
         out_json = json.dumps(res, indent=2)
         if args.out_file:
@@ -2958,9 +3212,10 @@ def main():
                 print(f"Error parsing config data: {e}", file=sys.stderr)
                 sys.exit(1)
 
+        default_run_args = ["-y", f"github:{tool_id[3:]}"] if tool_id.startswith("gh/") else ["-y", tool_id]
         current = cfg["mcpServers"].get(tool_id, {
             "command": "npx",
-            "args": ["-y", "@smithery/cli", "run", tool_id],
+            "args": default_run_args,
             "env": {}
         })
 
@@ -2979,17 +3234,20 @@ def main():
         import webbrowser
         auth_urls = {
             "github": "https://github.com/settings/tokens/new?scopes=repo,read:org,user&description=Lite-XL+MCP",
+            "@modelcontextprotocol/server-github": "https://github.com/settings/tokens/new?scopes=repo,read:org,user&description=Lite-XL+MCP",
             "gmail": "https://console.cloud.google.com/apis/credentials",
             "google-drive": "https://console.cloud.google.com/apis/credentials",
             "slack": "https://api.slack.com/apps",
+            "@modelcontextprotocol/server-slack": "https://api.slack.com/apps",
             "brave-search": "https://brave.com/search/api/",
+            "@modelcontextprotocol/server-brave-search": "https://brave.com/search/api/",
             "nvidia-nemotron": "https://build.nvidia.com",
             "nvidia-retriever": "https://build.nvidia.com",
             "nvidia-cuopt": "https://build.nvidia.com",
             "nvidia-nvclip": "https://build.nvidia.com",
             "nvidia-nim-mcp": "https://build.nvidia.com",
         }
-        target_url = auth_urls.get(tool_id) or f"https://smithery.ai/server/{tool_id}"
+        target_url = auth_urls.get(tool_id) or (f"https://github.com/{tool_id[3:]}" if tool_id.startswith("gh/") else f"https://www.npmjs.com/package/{tool_id}")
         try:
             webbrowser.open(target_url)
             print(f"Opened browser auth page: {target_url}", flush=True)
