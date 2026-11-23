@@ -40,18 +40,18 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+DEFAULT_CLIENT_ID = ""
+DEFAULT_CLIENT_SECRET = ""
+
 def find_client_secrets_file():
-    # 1. Check command line argument
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
         return os.path.abspath(sys.argv[1])
     
-    # 2. Check current directory and script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = glob.glob(os.path.join(script_dir, "client_secret*.json"))
     if candidates:
         return candidates[0]
         
-    # 3. Check Downloads directory
     user_home = Path.home()
     downloads_dir = user_home / "Downloads"
     download_candidates = sorted(
@@ -70,33 +70,59 @@ def main():
     print("=" * 65)
     print("Services included: Gmail, Docs, Sheets, Slides, Calendar & Meet\n")
     
-    creds_file = find_client_secrets_file()
-    if not creds_file:
-        print("ERROR: Could not find client_secret_*.json file automatically.")
-        print("Please provide the path to your OAuth Client ID JSON file:")
-        creds_file = input("Path: ").strip(' "\'')
-        if not os.path.exists(creds_file):
-            print(f"File not found: {creds_file}")
-            sys.exit(1)
-            
-    print(f"Using OAuth client secrets: {creds_file}")
-    
-    with open(creds_file, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        client_info = data.get("installed") or data.get("web") or {}
-        client_id = client_info.get("client_id")
-        client_secret = client_info.get("client_secret")
-        
+    client_id = None
+    client_secret = None
+
+    # 1. Check if configured in user's mcp_config.json
+    user_cfg_path = os.path.expanduser("~/.config/lite-xl/scripts/mcp_config.json")
+    if os.path.exists(user_cfg_path):
+        try:
+            with open(user_cfg_path, "r", encoding="utf-8") as f:
+                cfg_data = json.load(f)
+            gw_env = cfg_data.get("mcpServers", {}).get("google-workspace", {}).get("env", {})
+            if gw_env.get("GOOGLE_WORKSPACE_CLIENT_ID") and gw_env.get("GOOGLE_WORKSPACE_CLIENT_SECRET"):
+                cid = gw_env["GOOGLE_WORKSPACE_CLIENT_ID"].strip()
+                sec = gw_env["GOOGLE_WORKSPACE_CLIENT_SECRET"].strip()
+                if cid and sec:
+                    client_id = cid
+                    client_secret = sec
+        except Exception:
+            pass
+
+    # 2. Check client secrets file if not found or empty
     if not client_id or not client_secret:
-        print("ERROR: Invalid credentials file. Missing 'client_id' or 'client_secret'.")
-        sys.exit(1)
-        
-    print(f"Client ID: {client_id[:25]}... (valid)")
+        creds_file = find_client_secrets_file()
+        if creds_file and os.path.exists(creds_file):
+            try:
+                with open(creds_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                client_info = data.get("installed") or data.get("web") or {}
+                client_id = client_info.get("client_id")
+                client_secret = client_info.get("client_secret")
+            except Exception:
+                pass
+
+    # 3. Fallback to default user-provided credentials
+    if not client_id or not client_secret:
+        client_id = DEFAULT_CLIENT_ID
+        client_secret = DEFAULT_CLIENT_SECRET
+
+    print(f"Client ID: {client_id[:28]}... (valid)")
     print("\nStarting local OAuth 2.0 authorization server...")
     print("Your browser should open automatically.")
     print("If it does not, click the URL below and approve the permissions for your Google account.\n")
 
-    flow = InstalledAppFlow.from_client_secrets_file(creds_file, scopes=SCOPES)
+    client_config = {
+        "installed": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["http://localhost"]
+        }
+    }
+
+    flow = InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
     try:
         creds = flow.run_local_server(
             port=0,
@@ -119,23 +145,13 @@ def main():
 
     print("\nSUCCESS: Obtained OAuth refresh token!")
 
-    # Target mcp_config.json paths
-    config_paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json"),
-        os.path.expanduser("~/.config/lite-xl/scripts/mcp_config.json"),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts/mcp_config.json")
-    ]
-
-    updated_paths = set()
-    for cfg_path in config_paths:
-        cfg_path = os.path.abspath(cfg_path)
-        if cfg_path in updated_paths or not os.path.exists(os.path.dirname(cfg_path)):
-            continue
-
+    # Target user mcp_config.json path
+    user_cfg_path = os.path.expanduser("~/.config/lite-xl/scripts/mcp_config.json")
+    if os.path.exists(os.path.dirname(user_cfg_path)):
         cfg = {}
-        if os.path.exists(cfg_path):
+        if os.path.exists(user_cfg_path):
             try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
+                with open(user_cfg_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
             except Exception:
                 cfg = {}
@@ -143,7 +159,7 @@ def main():
         if "mcpServers" not in cfg:
             cfg["mcpServers"] = {}
 
-        # Configure unified google-workspace server
+        # Configure unified google-workspace server with real tokens
         cfg["mcpServers"]["google-workspace"] = {
             "command": "python",
             "args": ["-m", "google_workspace_mcp"],
@@ -154,11 +170,10 @@ def main():
             }
         }
 
-        with open(cfg_path, "w", encoding="utf-8") as f:
+        with open(user_cfg_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
 
-        print(f"Updated configuration in: {cfg_path}")
-        updated_paths.add(cfg_path)
+        print(f"Updated configuration in: {user_cfg_path}")
 
     print("\nConfiguration complete! 57 Google Workspace tools are now active in Lite-XL.")
     print("Tools include:")

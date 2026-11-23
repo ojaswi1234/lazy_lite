@@ -3465,39 +3465,47 @@ function AGView:draw()
 
   -- ═══════════════════════════════════════════════════════════════════
   -- QUICK ACTION PILLS (Sleek Borderless Chips)
+  -- Conditionally rendered: hidden in empty state (where starter cards appear),
+  -- visible when messages are present so quick action buttons never disappear.
   -- ═══════════════════════════════════════════════════════════════════
-  local pill_h    = 28 * SCALE
-  local pill_gap  = 6 * SCALE
-  local n         = #config.antigravity.actions
-  local pill_w    = math.floor((w - 2 * pad - (n - 1) * pill_gap) / n)
-  local pills_top = cur_y + 4 * SCALE
+  self._quick_action_rects = {}
+  local has_chat_messages = #self:state().sessions > 0
+  if has_chat_messages then
+    local pill_h    = 28 * SCALE
+    local pill_gap  = 6 * SCALE
+    local n         = #config.antigravity.actions
+    local pill_w    = math.floor((w - 2 * pad - (n - 1) * pill_gap) / n)
+    local pills_top = cur_y + 4 * SCALE
 
-  for i, act in ipairs(config.antigravity.actions) do
-    local bx = x + pad + (i - 1) * (pill_w + pill_gap)
-    local by = pills_top
-    local hl = (self.hover_btn == i)
+    for i, act in ipairs(config.antigravity.actions) do
+      local bx = x + pad + (i - 1) * (pill_w + pill_gap)
+      local by = pills_top
+      local hl = (self.hover_btn == i)
 
-    -- Semi-transparent resting state, solid accent tint on hover
-    local p_bg = hl and P.bg_btn_hl or { P.bg_input[1], P.bg_input[2], P.bg_input[3], 120 }
-    renderer.draw_rect(bx, by, pill_w, pill_h, p_bg)
-    draw_rect_outline(bx, by, pill_w, pill_h, hl and P.fg_accent or { P.border[1], P.border[2], P.border[3], 120 })
+      -- Semi-transparent resting state, solid accent tint on hover
+      local p_bg = hl and P.bg_btn_hl or { P.bg_input[1], P.bg_input[2], P.bg_input[3], 120 }
+      renderer.draw_rect(bx, by, pill_w, pill_h, p_bg)
+      draw_rect_outline(bx, by, pill_w, pill_h, hl and P.fg_accent or { P.border[1], P.border[2], P.border[3], 120 })
 
-    -- Bottom highlight on hover
-    if hl then
-      renderer.draw_rect(bx, by + pill_h - 2 * SCALE, pill_w, 2 * SCALE, P.fg_accent)
+      -- Bottom highlight on hover
+      if hl then
+        renderer.draw_rect(bx, by + pill_h - 2 * SCALE, pill_w, 2 * SCALE, P.fg_accent)
+      end
+
+      local label_w = style.font:get_width(act.short)
+      renderer.draw_text(style.font, act.short,
+        bx + math.floor((pill_w - label_w) / 2),
+        by + math.floor((pill_h - style.font:get_height()) / 2),
+        hl and P.fg_accent or P.fg_muted)
+
+      table.insert(self._quick_action_rects, { x = bx, y = by, w = pill_w, h = pill_h, idx = i })
     end
+    cur_y = pills_top + pill_h + 12 * SCALE
 
-    local label_w = style.font:get_width(act.short)
-    renderer.draw_text(style.font, act.short,
-      bx + math.floor((pill_w - label_w) / 2),
-      by + math.floor((pill_h - style.font:get_height()) / 2),
-      hl and P.fg_accent or P.fg_muted)
+    -- Divider
+    renderer.draw_rect(x + pad, cur_y, w - 2*pad, 1, P.border)
+    cur_y = cur_y + 8 * SCALE
   end
-  cur_y = pills_top + pill_h + 12 * SCALE
-
-  -- Divider
-  renderer.draw_rect(x + pad, cur_y, w - 2*pad, 1, P.border)
-  cur_y = cur_y + 8 * SCALE
 
   -- ═══════════════════════════════════════════════════════════════════
   -- COMPOSER (Floating Input Area)
@@ -3959,12 +3967,19 @@ function AGView:draw()
       })
     end
 
-    -- Bottom hint
+    -- Bottom hint with concise @ instruction
     local hint = "Type /help for slash commands • @ to mention files"
     local hw = sf:get_width(hint)
     local hx = x + math.floor((w - hw) / 2)
-    local hy = center_y + #starters * (card_h + 8 * SCALE) + 14 * SCALE
+    local hy = center_y + #starters * (card_h + 8 * SCALE) + 16 * SCALE
     renderer.draw_text(sf, hint, hx, hy, P.fg_dim)
+
+    local hint_at = "Tip: Type '@' (e.g. @main.lua) to include code directly in your prompt"
+    local desc_f = style.small_font or sf
+    local hw_at = desc_f:get_width(hint_at)
+    local hx_at = x + math.floor((w - hw_at) / 2)
+    local hy_at = hy + sf:get_height() + 4 * SCALE
+    renderer.draw_text(desc_f, hint_at, hx_at, hy_at, P.fg_muted)
   end
 
   for _, sess in ipairs(self:state().sessions) do
@@ -4683,16 +4698,6 @@ function AGView:draw()
     self:state().scroll_to_bottom = false
   end
 
-  -- Empty state
-  if #self:state().sessions == 0 then
-    local msg = "To reference specific files in your project, type '@' followed by the file name!\n\n" ..
-                "Example: '@src/main.lua Can you fix the errors in this file?'"
-    local mw = w - 2 * pad
-    for _, line in ipairs(wrap_raw_text(style.font, msg, mw)) do
-      renderer.draw_text(style.font, line, x + pad, ty, P.fg_muted)
-      ty = ty + style.font:get_height() + 2 * SCALE
-    end
-  end
   core.pop_clip_rect()
 
   -- ═══════════════════════════════════════════════════════════════════
@@ -5727,20 +5732,14 @@ function AGView:on_mouse_moved(mx, my, ...)
     core.redraw = true
   end
 
-  local x     = self.position.x
-  local w     = self.size.x
-  local pad   = 10 * SCALE
-  local n     = #config.antigravity.actions
-  local pill_w = math.floor((w - 2 * pad - (n - 1) * 4 * SCALE) / n)
-  local pill_h = 24 * SCALE
-  -- Pills start at: y + header(40) + 6
-  local pills_top = self.position.y + 52 * SCALE + 6 * SCALE
-
-  for i = 1, n do
-    local bx = x + pad + (i - 1) * (pill_w + 4 * SCALE)
-    if mx >= bx and mx <= bx + pill_w and my >= pills_top and my <= pills_top + pill_h then
-      self.hover_btn = i
-      break
+  self.hover_btn = nil
+  if self._quick_action_rects then
+    for _, r in ipairs(self._quick_action_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_btn = r.idx
+        system.set_cursor("hand")
+        break
+      end
     end
   end
 
