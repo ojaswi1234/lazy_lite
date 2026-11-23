@@ -1562,7 +1562,17 @@ end
 function AGView:_active_bin()
   local id = config.ai_sidebar.active_tool or "agy"
   local det = config.ai_sidebar.detected or {}
-  if det[id] then return det[id].bin end
+  if det[id] and det[id].bin then return det[id].bin end
+  if id == "cloud_api" then
+    return "python"
+  end
+  if id == "agy" then
+    return config.antigravity.cli or "agy"
+  end
+  local tool = AI_TOOLS and AI_TOOLS.get(id)
+  if tool and tool.bins and #tool.bins > 0 then
+    return tool.bins[1]
+  end
   return config.antigravity.cli  -- fallback to AGY
 end
 

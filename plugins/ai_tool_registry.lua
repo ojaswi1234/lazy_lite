@@ -220,10 +220,19 @@ M.REGISTRY = {
     name  = "Cloud AI (API)",
     short = "API",
     bins  = { "python", "python.exe", "python3" },
-    extra_paths = function() return {} end,
+    extra_paths = function()
+      return {
+        "C:\\Python314\\python.exe",
+        "C:\\Python313\\python.exe",
+        "C:\\Python312\\python.exe",
+        "C:\\Python311\\python.exe",
+        "C:\\Python310\\python.exe",
+      }
+    end,
     build_run_argv = function(cfg)
       local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
-      local a = { cfg.bin, bridge, "--chat" }
+      local py_bin = (cfg.bin and cfg.bin:lower():find("python")) and cfg.bin or "python"
+      local a = { py_bin, bridge, "--chat" }
       -- Extract provider from model string (e.g. "gemini/gemini-2.5-pro")
       local provider = "gemini"
       local model_id = cfg.model
@@ -274,9 +283,10 @@ M.REGISTRY = {
     end,
     build_models_argv = function(bin, extra)
       local bridge = USERDIR .. "/scripts/ai_api_bridge.py"
+      local py_bin = (bin and bin:lower():find("python")) and bin or "python"
       -- extra can be passed from UI if we select a specific provider
       local provider = (extra and extra.provider) or "all" 
-      return { bin, bridge, "--list-models", "--provider", provider }
+      return { py_bin, bridge, "--list-models", "--provider", provider }
     end,
     parse_models = function(raw)
       local models = {}

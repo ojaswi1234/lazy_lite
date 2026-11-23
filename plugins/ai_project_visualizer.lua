@@ -10658,15 +10658,6 @@ local function toggle_visualizer()
   end
   core.redraw = true
 end
-        rawset(_G, "_ag_sidebar_node", sidebar)
-        sidebar.size.x = 520 * SCALE
-        view.size.x = 520 * SCALE
-        core.set_active_view(view)
-      end
-    end
-  end
-  core.redraw = true
-end
 
 command.add(VisualizerView, {
   ["ai_project_visualizer:find"] = function(view)
