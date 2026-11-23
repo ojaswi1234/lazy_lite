@@ -1531,6 +1531,8 @@ function AGView:new()
   self._tool_picker_rects = {}
   self._tool_hdr_rect    = nil
   self._model_cache_ts   = {}   -- tool_id -> unix timestamp of last successful fetch
+  self.auth_status = "logged_in"
+  rawset(_G, "_ag_instance", self)
   -- Load cached models from disk immediately (so picker is instant, no wait)
   core.add_thread(function()
     coroutine.yield(0.1)  -- yield one frame so AGView is fully registered first
@@ -2717,7 +2719,14 @@ function AGView:update()
             elseif rc == 0 then
               hint = "*(The model completed the request without generating text.)*"
             elseif cur_tool == "agy" then
-              hint = "### ⚠️ Authentication Required\n\nClick the **AGY Auth** button in the sidebar or run `agy auth` in a terminal."
+              local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
+              local sep = PLATFORM == "Windows" and "\\" or "/"
+              local has_state = system.get_file_info(home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt")
+              if has_state then
+                hint = string.format("### ⚠️ Aether CLI Process Exited (Code %s)\n\nThe process finished without generating text output. Verify your prompt or run a quick test in a terminal:\n```\nagy -p \"hello\"\n```", tostring(rc))
+              else
+                hint = "### ⚠️ Authentication Required\n\nAether CLI is not authenticated. Please run `agy` in your terminal to complete onboarding."
+              end
             else
               local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
               local tname = (tdef and tdef.name) or cur_tool
@@ -7825,25 +7834,23 @@ command.add(nil, {
       auth_cmd_str = "echo No automatic auth command configured for " .. tname .. ". Please authenticate manually via terminal."
     end
 
-    core.command_view:enter("Press Enter to launch Auth Terminal for " .. tname .. " (follow instructions in new window)", {
-      submit = function(text)
-        if PLATFORM == "Windows" then
-          process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Authentication for " .. tname .. "... && " .. auth_cmd_str }, {
-            stdin = process.REDIRECT_DISCARD,
-          })
-        elseif PLATFORM == "Mac OS X" then
-          process.start({ "osascript", "-e", 'tell app "Terminal" to do script "' .. auth_cmd_str .. '"' }, {
-            stdin = process.REDIRECT_DISCARD,
-          })
-        else
-          pcall(function() process.start({ "x-terminal-emulator", "-e", auth_cmd_str }, {
-            stdin = process.REDIRECT_DISCARD,
-          }) end)
-        end
-        core.log(tname .. ": If a terminal did not open automatically, open your terminal and manually run: " .. auth_cmd_str)
-        
-        if not instance then instance = AGView() end
-        instance.auth_status = "checking"
+    if PLATFORM == "Windows" then
+      process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Authentication for " .. tname .. "... && " .. auth_cmd_str }, {
+        stdin = process.REDIRECT_DISCARD,
+      })
+    elseif PLATFORM == "Mac OS X" then
+      process.start({ "osascript", "-e", 'tell app "Terminal" to do script "' .. auth_cmd_str .. '"' }, {
+        stdin = process.REDIRECT_DISCARD,
+      })
+    else
+      pcall(function() process.start({ "x-terminal-emulator", "-e", auth_cmd_str }, {
+        stdin = process.REDIRECT_DISCARD,
+      }) end)
+    end
+    core.log(tname .. ": Launched authentication/CLI terminal in a new window.")
+    
+    if not instance then instance = AGView() end
+    instance.auth_status = "checking"
         
         -- Clear the model cache for the active tool so fetch_models actually runs again
         instance.tool_model_lists[cur_tool] = {}
@@ -7851,14 +7858,12 @@ command.add(nil, {
         instance.model_proc = nil
         instance._model_raw = ""
         
-        core.add_thread(function()
-          coroutine.yield(20) -- wait 20 seconds for browser auth to complete
-          if instance then
-            instance:fetch_models(true) -- force=true bypasses the "already loaded" guard
-          end
-        end)
+    core.add_thread(function()
+      coroutine.yield(20) -- wait 20 seconds for browser auth to complete
+      if instance then
+        instance:fetch_models(true) -- force=true bypasses the "already loaded" guard
       end
-    })
+    end)
   end,
   ["antigravity:marketplace"] = function()
     if not instance or not instance.visible then

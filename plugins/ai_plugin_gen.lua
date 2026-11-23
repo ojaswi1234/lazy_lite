@@ -249,37 +249,48 @@ end
 -- ── AGY runner ────────────────────────────────────────────────────────────────
 local function run_agy(prompt, conv_id, on_done)
   ensure_tempdir()
-  -- Write prompt to temp file to avoid shell argument length limits
+  -- Write prompt to temp file to avoid shell argument length limits and character splitting
   local tmp = TEMP_DIR .. PATHSEP .. "ai_plugin_gen_prompt.txt"
   local fp  = io.open(tmp, "w")
   if fp then fp:write(prompt); fp:close() end
 
-  -- Read and inline the prompt (agy uses -p flag)
-  local args = { agy_path(), "-p", prompt, "--dangerously-skip-permissions" }
-  if conv_id then
+  local runner = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "run_agy_prompt.py"
+  local args = { "python", runner, agy_path(), tmp }
+  if conv_id and conv_id ~= "" then
     table.insert(args, "--conversation")
     table.insert(args, conv_id)
   end
+
   local p, err = process.start(
     args,
     { stdin=process.REDIRECT_DISCARD, stdout=process.REDIRECT_PIPE, stderr=process.REDIRECT_PIPE }
   )
-  if not p then on_done(nil, "Failed to start agy: " .. tostring(err)); return end
+  if not p then on_done(nil, "Failed to start agy runner: " .. tostring(err)); return end
 
   local buf = ""
+  local err_buf = ""
   core.add_thread(function()
     local deadline = system.get_time() + 240
     while p:returncode() == nil do
       local ch = p:read_stdout(4096) or ""
       if #ch > 0 then buf = buf .. ch end
+      local ech = p:read_stderr(4096) or ""
+      if #ech > 0 then err_buf = err_buf .. ech end
       if system.get_time() > deadline then
         pcall(function() p:kill() end)
         on_done(nil, "AGY timed out after 4 minutes"); return
       end
       coroutine.yield(0.1)
     end
-    while true do local c2=p:read_stdout(4096) or ""; if c2=="" then break end; buf=buf..c2 end
-    on_done(buf, nil)
+    while true do local c2 = p:read_stdout(4096) or ""; if c2 == "" then break end; buf = buf .. c2 end
+    while true do local e2 = p:read_stderr(4096) or ""; if e2 == "" then break end; err_buf = err_buf .. e2 end
+    
+    local rc = p:returncode() or 0
+    if rc ~= 0 and #buf == 0 then
+      on_done(nil, err_buf ~= "" and err_buf or ("AGY exited with code " .. tostring(rc)))
+    else
+      on_done(buf, nil)
+    end
   end)
   return p
 end
@@ -1157,16 +1168,17 @@ function AIPluginGen:get_local_context()
   local ctx_files = {}
   local function scan_lua(dir, prefix)
     pcall(function()
-      for _, f in ipairs(system.list_dir(dir)) do
-        if f:match("%.lua$") then table.insert(ctx_files, prefix .. f) end
+      local files = system.list_dir(dir) or {}
+      for _, f in ipairs(files) do
+        if f:match("%.lua$") and #ctx_files < 20 then
+          table.insert(ctx_files, prefix .. f)
+        end
       end
     end)
   end
   scan_lua(USERDIR .. PATHSEP .. "plugins", "user-plugin:")
-  scan_lua(DATADIR .. PATHSEP .. "plugins", "sys-plugin:")
-  scan_lua(USERDIR .. PATHSEP .. "scripts", "script:")
   if #ctx_files == 0 then return "" end
-  return "LOCAL ENVIRONMENT CONTEXT (Existing Files):\n" .. table.concat(ctx_files, ", ") .. "\nCRITICAL: If the requested feature logically belongs to an existing plugin from the list above (e.g. port forwarding belongs in a port manager plugin), you MUST plan to modify the EXISTING plugin rather than creating a new independent one. Ensure [OUTPUT_FILES] reflects the existing plugin name!\n\n"
+  return "LOCAL ENVIRONMENT CONTEXT (Existing User Plugins):\n" .. table.concat(ctx_files, ", ") .. "\nCRITICAL: If the requested feature logically belongs to an existing plugin from the list above, modify the existing plugin.\n\n"
 end
 
 function AIPluginGen:do_generate_plan()
@@ -1185,8 +1197,14 @@ function AIPluginGen:do_generate_plan()
   end
 
   local used_keys = {}
-  for stroke, _ in pairs(keymap.map) do table.insert(used_keys, stroke) end
-  local key_note = "CRITICAL: Do NOT suggest any of these already-used shortcuts: " .. table.concat(used_keys, ", ") .. "\n"
+  local key_count = 0
+  for stroke, _ in pairs(keymap.map) do
+    if key_count < 25 then
+      table.insert(used_keys, stroke)
+      key_count = key_count + 1
+    end
+  end
+  local key_note = #used_keys > 0 and ("Common used shortcuts: " .. table.concat(used_keys, ", ") .. "\n") or ""
 
   local ctx_note = self:get_local_context()
 
@@ -1249,8 +1267,7 @@ plugins/plugin_name.lua
     if err or not out or #out < 30 then
       self.state = STATE.ERROR
       self.error_msg = err or "AGY returned no output"
-      pcall(command.perform, "antigravity:submit",
-        "[AI Plugin Gen] Plan generation failed: " .. tostring(err))
+      core.error("[AI Plugin Gen] Plan generation error: %s", tostring(err or "No output returned"))
       core.redraw = true; return
     end
     self.plan = parse_plan(out)
@@ -1331,11 +1348,9 @@ Output the COMPLETE Lua source between [PLUGIN_CODE] and [/PLUGIN_CODE] tags ONL
     if err or not out then
       self.state = STATE.ERROR
       self.error_msg = err or "AGY returned no output"
-      -- Tell auto-healer and set resume function
+      -- Store resume function for auto-healer
       _G.ai_plugin_gen_resume_fn = function() self:do_build() end
-      pcall(command.perform, "antigravity:submit",
-        "[AI Plugin Gen] Build failed: " .. tostring(err) ..
-        "\nFix the issue and then call _G.ai_plugin_gen_resume_fn() to resume.")
+      core.error("[AI Plugin Gen] Build error: %s", tostring(err or "No output returned"))
       core.redraw = true; return
     end
 

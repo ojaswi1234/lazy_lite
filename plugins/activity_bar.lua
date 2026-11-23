@@ -19,18 +19,28 @@ if not ok_reg then AI_TOOLS = nil end
 -- Cached AGY account helper to completely eliminate synchronous disk I/O at 144 FPS
 local _cached_agy_email = nil
 local _cached_agy_initial = "A"
+local _cached_is_authed = nil
 local _last_agy_check = 0
 
 local function get_agy_account_info()
   local now = system.get_time()
   if now - _last_agy_check < 10 and _cached_agy_email ~= nil then
-    return _cached_agy_email, _cached_agy_initial
+    return _cached_agy_email, _cached_agy_initial, _cached_is_authed
   end
   _last_agy_check = now
   local home = os.getenv("USERPROFILE") or os.getenv("HOME") or ""
   local sep = PLATFORM == "Windows" and "\\" or "/"
-  local state_path = home .. sep .. ".gemini" .. sep .. "antigravity-cli" .. sep .. "jetski_state.pbtxt"
-  local f = io.open(state_path, "r")
+  local base_dir = home .. sep .. ".gemini" .. sep .. "antigravity-cli"
+  local state_path = base_dir .. sep .. "jetski_state.pbtxt"
+  local ag_state = base_dir .. sep .. "antigravity_state.pbtxt"
+  local settings_path = base_dir .. sep .. "settings.json"
+
+  local uname = os.getenv("USER") or os.getenv("USERNAME") or "User"
+  _cached_agy_email = uname
+  _cached_agy_initial = uname:sub(1, 1):upper()
+  _cached_is_authed = false
+
+  local f = io.open(state_path, "r") or io.open(ag_state, "r") or io.open(settings_path, "r")
   if f then
     local content = f:read("*a")
     f:close()
@@ -39,13 +49,16 @@ local function get_agy_account_info()
       _cached_agy_email = email
       local name = email:match("^([^@]+)") or email
       _cached_agy_initial = (#name > 0) and name:sub(1, 1):upper() or "A"
-      return _cached_agy_email, _cached_agy_initial
+    end
+    if content:find("installation_uuid") or content:find("trustedWorkspaces") or content:find("completed_steps") then
+      _cached_is_authed = true
+    end
+  else
+    if system.get_file_info(base_dir) then
+      _cached_is_authed = true
     end
   end
-  local uname = os.getenv("USER") or os.getenv("USERNAME") or "A"
-  _cached_agy_email = uname
-  _cached_agy_initial = uname:sub(1, 1):upper()
-  return _cached_agy_email, _cached_agy_initial
+  return _cached_agy_email, _cached_agy_initial, _cached_is_authed
 end
 
 local ActivityBar = View:extend()
@@ -129,12 +142,12 @@ function ActivityBar:get_auth_label()
   local tname = (tdef and tdef.short) or "AGY"
 
   if cur_tool == "cloud_api" then return "API Key Manager" end
-  if inst and inst.auth_status == "logged_in" then
-    if cur_tool == "agy" then
-      local email = get_agy_account_info()
-      if email then
-        return email:match("^([^@]+)") or email
-      end
+  local email, _, is_cli_authed = get_agy_account_info()
+  local is_authed = (inst and inst.auth_status == "logged_in") or is_cli_authed
+
+  if is_authed then
+    if cur_tool == "agy" and email then
+      return email:match("^([^@]+)") or email
     end
     return os.getenv("USER") or os.getenv("USERNAME") or tname
   elseif inst and inst.auth_status == "auth_error" then
@@ -195,7 +208,8 @@ function ActivityBar:draw()
   local auth_y = y + self.size.y - cell
   if auth_y > item_y then -- only draw if it doesn't overlap items
     local inst = rawget(_G, "_ag_instance")
-    local is_authed = inst and inst.auth_status == "logged_in"
+    local email, ini, is_cli_authed = get_agy_account_info()
+    local is_authed = (inst and inst.auth_status == "logged_in") or is_cli_authed
     local hovered = self.mouse_x and self.mouse_x >= x and self.mouse_x < x + self.size.x and self.mouse_y and self.mouse_y >= auth_y and self.mouse_y < auth_y + cell
 
     -- Subtle separator line above auth button
@@ -319,7 +333,8 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
     local items_bottom_y = self.position.y + (#self.items * cell)
     if y >= auth_y_top and y < self.position.y + self.size.y and auth_y_top > items_bottom_y then
       local inst = rawget(_G, "_ag_instance")
-      local is_authed = inst and inst.auth_status == "logged_in"
+      local email, ini, is_cli_authed = get_agy_account_info()
+      local is_authed = (inst and inst.auth_status == "logged_in") or is_cli_authed
       
       local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
       if cur_tool == "cloud_api" then
