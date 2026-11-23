@@ -323,12 +323,12 @@ M.REGISTRY = {
   },
 
   -- ==================================================================================================
-  -- Antigravity CLI
+  -- Aether Engine (Native CLI)
   -- ==================================================================================================
   {
     id    = "agy",
-    name  = "Antigravity CLI",
-    short = "AGY",
+    name  = "Aether Engine",
+    short = "AET",
     bins  = { "agy", "agy.exe" },
     extra_paths = function()
       local lad  = os.getenv("LOCALAPPDATA") or ""

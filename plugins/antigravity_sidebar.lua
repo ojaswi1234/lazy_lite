@@ -1626,7 +1626,7 @@ function AGView:_update_mentions()
   core.redraw = true
 end
 
-function AGView:get_name() return "Antigravity" end
+function AGView:get_name() return "Aether" end
 
 function AGView:state()
   return self.chats[self.active_idx]
@@ -2069,7 +2069,7 @@ function AGView:submit(prompt)
   if prompt == "/help" then
     self:state().has_session = true
     self:state().status = "idle"
-    local tool_name = (tool and tool.name) or "Antigravity CLI"
+    local tool_name = (tool and tool.name) or "Aether Engine"
     local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history & active swarm\n  `/api` - Manage API Keys & MCP Tools\n  `/team clear` - Disband active swarm (keeps chat history)\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation"
     core.add_thread(function()
       local p = process.start({"python", USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py", "--get-installed-skills"})
@@ -2727,7 +2727,7 @@ function AGView:update()
           
           tab._ai_buf = fix_msg
           dirty = true
-          core.log("[Antigravity] CLI timed out — agy install may be required.")
+          core.log("[Aether] CLI timed out — agy install may be required.")
           core.redraw = true
         end
       end
@@ -3129,7 +3129,7 @@ function AGView:add_custom_source_repo(repo_str)
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
-    core.log("[Antigravity] Added marketplace source: " .. repo_str)
+    core.log("[Aether] Added marketplace source: " .. repo_str)
     self.market_source = "github"
     self.market_page = 1
     self.market_scroll_y = 0
@@ -3232,7 +3232,7 @@ function AGView:save_tool_config(tool_id, new_cfg, on_done)
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
-    core.log("[Antigravity] Saved MCP configuration for " .. tool_id)
+    core.log("[Aether] Saved MCP configuration for " .. tool_id)
     self:test_tool_health(tool_id, function(res)
       self:fetch_marketplace()
       if on_done then on_done(res) end
@@ -3247,7 +3247,7 @@ function AGView:launch_tool_browser_auth(tool_id)
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
-    core.log("[Antigravity] Launched browser authorization for " .. tool_id)
+    core.log("[Aether] Launched browser authorization for " .. tool_id)
   end)
 end
 
@@ -3289,7 +3289,7 @@ function AGView:install_skill(skill_input)
       end
       self.installed_tools_map = self.installed_tools_map or {}
       self.installed_tools_map[skill_obj.id] = true
-      core.log("[Antigravity] Launching Setup Wizard for " .. (skill_obj.title or skill_obj.id) .. "...")
+      core.log("[Aether] Launching Setup Wizard for " .. (skill_obj.title or skill_obj.id) .. "...")
       self:open_tool_config(skill_obj)
       self:fetch_marketplace()
       core.redraw = true
@@ -3402,7 +3402,7 @@ function AGView:draw()
   
   -- Draw segments
   for i=1, num_segs do
-    local t = det_list[i] or { id="agy", name="Antigravity", short="AGY" }
+    local t = det_list[i] or { id="agy", name="Aether", short="AET" }
     local sx = seg_x + (i-1) * seg_w
     local is_sel = (t.id == active_id)
     local is_hov = (self.hover_tool_idx == i)
@@ -3905,7 +3905,7 @@ function AGView:draw()
     local sel_name = self:_active_model() or "Default"
 
     -- 1. Hero Title with accent icon
-    local title = "✦ Antigravity AI"
+    local title = "✦ Aether AI"
     local tw_title = bf:get_width(title)
     local tx = x + math.floor((w - tw_title) / 2)
     renderer.draw_text(bf, title, tx, center_y, P.fg_accent)
@@ -4041,7 +4041,7 @@ function AGView:draw()
       local tid  = config.ai_sidebar.active_tool or "agy"
       local tdef = AI_TOOLS.get(tid)
 
-      local role_name = is_user and "YOU" or (tdef and tdef.name:upper() or "ANTIGRAVITY")
+      local role_name = is_user and "YOU" or (tdef and tdef.name:upper() or "AETHER")
       local role_lbl = is_user and role_name or ("✦ " .. role_name)
       local badge_h = style.font:get_height() + 4 * SCALE
       local badge_w = style.font:get_width(role_lbl) + 12 * SCALE
@@ -4497,7 +4497,7 @@ function AGView:draw()
       elseif cur_tool == "ollama" then
         prov_name = "Ollama"
       elseif cur_tool == "agy" then
-        prov_name = "Antigravity"
+        prov_name = "Aether"
       end
 
       local function compact_status(st)
@@ -6507,7 +6507,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
           local tool_id = self.active_tool_config.id
           local cfg = self.active_tool_config.config
           self:save_tool_config(tool_id, cfg, function()
-            core.log("[Antigravity] Successfully saved & verified " .. tool_id)
+            core.log("[Aether] Successfully saved & verified " .. tool_id)
             self.active_tool_config = nil
           end)
           return true
@@ -7623,6 +7623,18 @@ function AGView:open_artifacts_popup()
 
 -- ── Commands ──────────────────────────────────────────────────────────────────
 command.add(nil, {
+  -- Modern Aether aliases (alongside antigravity:* for 100% backward compatibility)
+  ["aether:toggle"] = function() command.perform "antigravity:toggle" end,
+  ["aether:focus"] = function() command.perform "antigravity:focus" end,
+  ["aether:explain"] = function() command.perform "antigravity:explain" end,
+  ["aether:refactor"] = function() command.perform "antigravity:refactor" end,
+  ["aether:fix"] = function() command.perform "antigravity:fix" end,
+  ["aether:tests"] = function() command.perform "antigravity:tests" end,
+  ["aether:docs"] = function() command.perform "antigravity:docs" end,
+  ["aether:submit"] = function(prompt) command.perform("antigravity:submit", prompt) end,
+  ["aether:ask"] = function() command.perform "antigravity:ask" end,
+  ["aether:auth"] = function() command.perform "antigravity:auth" end,
+
   ["antigravity:toggle"] = function()
     if not instance then
       instance = AGView()
@@ -7708,7 +7720,7 @@ command.add(nil, {
     end
   end,
   ["antigravity:ask"]      = function()
-    core.command_view:enter("Ask Antigravity", {
+    core.command_view:enter("Ask Aether", {
       submit = function(text)
         command.perform("antigravity:submit", text)
       end
@@ -7717,7 +7729,7 @@ command.add(nil, {
   ["antigravity:auth"] = function()
     local cur_tool = config.ai_sidebar and config.ai_sidebar.active_tool or "agy"
     local tdef = AI_TOOLS and AI_TOOLS.get(cur_tool)
-    local tname = (tdef and tdef.name) or "Antigravity"
+    local tname = (tdef and tdef.name) or "Aether"
     
     local auth_cmd_str = "agy"
     local bin = tdef and tdef.bins and tdef.bins[1] or cur_tool

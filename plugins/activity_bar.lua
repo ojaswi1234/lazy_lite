@@ -60,6 +60,7 @@ local function is_sidebar_view(view)
       or name == "MongoDB Explorer"
       or name == "MongoDB"
       or name == "Antigravity"
+      or name == "Aether"
       or name == "YouTube Player"
 end
 
@@ -76,7 +77,7 @@ function ActivityBar:new()
     { id = "yt_player", icon = "\u{f167}", command = "youtube-player:toggle", tooltip = "YouTube Audio" },
   }
   -- Bottom-anchored auth button
-  self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "AGY Auth / Toggle AI" }
+  self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "Aether AI / Toggle" }
   self.active_id = "ai_plugin"
   self.target_size = 48 * SCALE
   self.visible = false -- Start hidden; will be pulled open by the AI Sidebar
@@ -111,7 +112,7 @@ function ActivityBar:update()
       self.active_id = "mongodb"
     elseif vname == "YouTube Player" then
       self.active_id = "yt_player"
-    elseif vname == "Antigravity" then
+    elseif vname == "Antigravity" or vname == "Aether" then
       self.active_id = nil
     end
   end
