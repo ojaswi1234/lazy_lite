@@ -3480,6 +3480,7 @@ function AGView:draw()
     -- Semi-transparent resting state, solid accent tint on hover
     local p_bg = hl and P.bg_btn_hl or { P.bg_input[1], P.bg_input[2], P.bg_input[3], 120 }
     renderer.draw_rect(bx, by, pill_w, pill_h, p_bg)
+    draw_rect_outline(bx, by, pill_w, pill_h, hl and P.fg_accent or { P.border[1], P.border[2], P.border[3], 120 })
 
     -- Bottom highlight on hover
     if hl then
@@ -3659,12 +3660,12 @@ function AGView:draw()
   local send_x = inp_x + inp_w - c_pad - send_w
   
   -- Read-Only Toggle (Right aligned)
-  local ro_lbl = "RO"
+  local ro_lbl = config.ai_sidebar.read_only and "🔒 RO" or "RO"
   local ro_w = small_font:get_width(ro_lbl) + 16 * SCALE
   local ro_x = send_x - 4 * SCALE - ro_w
   
   -- Autopilot Toggle (Right aligned)
-  local auto_lbl = "Auto"
+  local auto_lbl = config.ai_sidebar.autopilot and "⚡ Auto" or "Auto"
   local auto_w = small_font:get_width(auto_lbl) + 16 * SCALE
   local auto_x = ro_x - 4 * SCALE - auto_w
   
@@ -3700,16 +3701,18 @@ function AGView:draw()
   self._model_rect = { x = mx, y = my, w = math.min(mw, m_clip_w), h = mh }
 
   -- Draw Autopilot
-  local auto_bg = config.ai_sidebar.autopilot and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
-  local auto_fg = config.ai_sidebar.autopilot and P.fg_accent or P.fg_muted
+  local auto_bg = config.ai_sidebar.autopilot and { common.color "#2D5A38" } or (self.hover_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
+  local auto_fg = config.ai_sidebar.autopilot and { common.color "#B8BB26" } or P.fg_muted
   renderer.draw_rect(auto_x, my, auto_w, mh, auto_bg)
+  draw_rect_outline(auto_x, my, auto_w, mh, config.ai_sidebar.autopilot and { common.color "#B8BB26" } or P.border)
   renderer.draw_text(small_font, auto_lbl, auto_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), auto_fg)
   self._auto_rect = { x = auto_x, y = my, w = auto_w, h = mh }
 
   -- Draw Read-Only
-  local ro_bg = config.ai_sidebar.read_only and { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 } or (self.hover_ro_btn and P.bg_btn_hl or _COLOR_CACHE_22)
-  local ro_fg = config.ai_sidebar.read_only and P.fg_accent or P.fg_muted
+  local ro_bg = config.ai_sidebar.read_only and { common.color "#6B4E26" } or (self.hover_ro_btn and P.bg_btn_hl or _COLOR_CACHE_22)
+  local ro_fg = config.ai_sidebar.read_only and { common.color "#FABD2F" } or P.fg_muted
   renderer.draw_rect(ro_x, my, ro_w, mh, ro_bg)
+  draw_rect_outline(ro_x, my, ro_w, mh, config.ai_sidebar.read_only and { common.color "#FABD2F" } or P.border)
   renderer.draw_text(small_font, ro_lbl, ro_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ro_fg)
   self._ro_rect = { x = ro_x, y = my, w = ro_w, h = mh }
 
@@ -3833,8 +3836,9 @@ function AGView:draw()
     -- Draw text
     renderer.draw_text(style.font, label, cur_x + 8 * SCALE, cur_y + math.floor((tab_h - style.font:get_height())/2), tab_fg)
     
-    -- Draw active underline
+    -- Draw active pill and underline
     if is_active then
+      renderer.draw_rect(cur_x, cur_y + 2 * SCALE, tw, tab_h - 4 * SCALE, { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 35 })
       renderer.draw_rect(cur_x, cur_y + tab_h - 2 * SCALE, tw, 2 * SCALE, P.fg_accent)
     end
     
@@ -3890,13 +3894,78 @@ function AGView:draw()
   local ty    = chat_top + 4 * SCALE - self:state().scroll_y
   local total_h = 0
   self._copy_rects = {}
+  self._insert_rects = {}
+  self._starter_card_rects = {}
   self._link_rects = {}
 
-    if #self:state().sessions == 0 then
-      local msg = "Type /help for commands"
-      local w_msg = style.font:get_width(msg)
-      renderer.draw_text(style.font, msg, x + math.floor((w - w_msg) / 2), chat_top + math.floor(chat_h / 2) - self:state().scroll_y, P.fg_muted)
+  if #self:state().sessions == 0 then
+    local center_y = chat_top + math.max(16 * SCALE, math.floor(chat_h * 0.10)) - self:state().scroll_y
+    local bf = style.big_font or style.font
+    local sf = style.font
+    local sel_name = self:_active_model() or "Default"
+
+    -- 1. Hero Title with accent icon
+    local title = "✦ Antigravity AI"
+    local tw_title = bf:get_width(title)
+    local tx = x + math.floor((w - tw_title) / 2)
+    renderer.draw_text(bf, title, tx, center_y, P.fg_accent)
+    center_y = center_y + bf:get_height() + 4 * SCALE
+
+    -- 2. Subtitle with active model pill
+    local sub = "Ready to assist • [" .. sel_name .. "]"
+    local sw = sf:get_width(sub)
+    local sx = x + math.floor((w - sw) / 2)
+    renderer.draw_text(sf, sub, sx, center_y, P.fg_muted)
+    center_y = center_y + sf:get_height() + 18 * SCALE
+
+    -- 3. Prompt Starter Cards (Interactive)
+    local starters = {
+      { icon = "✦", title = "Explain Active Code", prompt = "/explain", desc = "Walkthrough architecture & logic" },
+      { icon = "⚡", title = "Find Bugs & Edge Cases", prompt = "Analyze the open file for bugs, edge cases, and performance bottlenecks.", desc = "Static sanity & security check" },
+      { icon = "🧪", title = "Generate Unit Tests", prompt = "Write comprehensive unit tests for the functions in this file.", desc = "Coverage & regression mocks" },
+      { icon = "🛠", title = "Suggest Clean Refactor", prompt = "Suggest a clean, modular refactoring to improve readability and structure.", desc = "Simplify & modernize code" },
+    }
+
+    local card_w = math.min(w - 2 * pad - 8 * SCALE, 340 * SCALE)
+    local card_h = 38 * SCALE
+    local card_x = x + math.floor((w - card_w) / 2)
+
+    for c_i, st in ipairs(starters) do
+      local cy = center_y + (c_i - 1) * (card_h + 8 * SCALE)
+      local is_hov = (self.hover_starter_idx == c_i)
+      local c_bg = is_hov and P.bg_btn_hl or P.bg_btn
+      local border_col = is_hov and P.fg_accent or { P.border[1], P.border[2], P.border[3], 90 }
+
+      -- Card Background & Outline
+      renderer.draw_rect(card_x, cy, card_w, card_h, c_bg)
+      draw_rect_outline(card_x, cy, card_w, card_h, border_col)
+
+      -- Left Accent Pip on Hover
+      if is_hov then
+        renderer.draw_rect(card_x, cy, 3 * SCALE, card_h, P.fg_accent)
+      end
+
+      -- Card Text
+      local title_x = card_x + 12 * SCALE
+      local title_y = cy + 4 * SCALE
+      renderer.draw_text(sf, st.icon .. "  " .. st.title, title_x, title_y, is_hov and P.fg_accent or P.fg)
+
+      local desc_font = style.small_font or sf
+      local desc_y = title_y + sf:get_height() + 1 * SCALE
+      renderer.draw_text(desc_font, st.desc, title_x + 16 * SCALE, desc_y, P.fg_muted)
+
+      table.insert(self._starter_card_rects, {
+        x = card_x, y = cy, w = card_w, h = card_h, prompt = st.prompt, idx = c_i
+      })
     end
+
+    -- Bottom hint
+    local hint = "Type /help for slash commands • @ to mention files"
+    local hw = sf:get_width(hint)
+    local hx = x + math.floor((w - hw) / 2)
+    local hy = center_y + #starters * (card_h + 8 * SCALE) + 14 * SCALE
+    renderer.draw_text(sf, hint, hx, hy, P.fg_dim)
+  end
 
   for _, sess in ipairs(self:state().sessions) do
     local is_user = sess.role == "user"
@@ -3967,26 +4036,36 @@ function AGView:draw()
       msg_h = msg_h + 36 * SCALE
     end
 
-    -- Role label
+    -- Role label badge
     if ty + msg_h + lh_f >= chat_top and ty <= chat_bot then
       local tid  = config.ai_sidebar.active_tool or "agy"
       local tdef = AI_TOOLS.get(tid)
-      
-      local role_lbl = is_user and "You" or (tdef and tdef.name or "Antigravity")
-      
-      -- Draw role name directly (removed unicode icons to fix ? rendering)
-      renderer.draw_text(style.font, role_lbl, x + pad, math.max(chat_top, math.min(ty, chat_bot - style.font:get_height())), is_user and P.fg_muted or P.fg_accent)
-    end
-    ty = ty + style.font:get_height() + 4 * SCALE
 
-    -- Message background (borderless, very subtle)
+      local role_name = is_user and "YOU" or (tdef and tdef.name:upper() or "ANTIGRAVITY")
+      local role_lbl = is_user and role_name or ("✦ " .. role_name)
+      local badge_h = style.font:get_height() + 4 * SCALE
+      local badge_w = style.font:get_width(role_lbl) + 12 * SCALE
+      local badge_y = math.max(chat_top, math.min(ty, chat_bot - badge_h))
+      local badge_bg = is_user and P.bg_btn or { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 45 }
+      local badge_fg = is_user and P.fg_muted or P.fg_accent
+
+      renderer.draw_rect(x + pad, badge_y, badge_w, badge_h, badge_bg)
+      draw_rect_outline(x + pad, badge_y, badge_w, badge_h, { P.border[1], P.border[2], P.border[3], 70 })
+      renderer.draw_text(style.font, role_lbl, x + pad + 6 * SCALE, badge_y + 2 * SCALE, badge_fg)
+    end
+    ty = ty + style.font:get_height() + 6 * SCALE
+
+    -- Message card container
     if ty + msg_h >= chat_top and ty <= chat_bot then
       if is_user then
-        -- User gets a subtle background bubble
-        renderer.draw_rect(x + pad, ty, msg_w, msg_h, P.bg_btn)
+        -- User gets a clean distinct card
+        renderer.draw_rect(x + pad, ty, msg_w, msg_h, P.bg_user_msg or P.bg_btn)
+        draw_rect_outline(x + pad, ty, msg_w, msg_h, { P.border[1], P.border[2], P.border[3], 90 })
       else
-        -- AI gets a transparent background, but a subtle left border to indicate generation block
-        renderer.draw_rect(x + pad, ty, 2 * SCALE, msg_h, { P.fg_accent[1], P.fg_accent[2], P.fg_accent[3], 50 })
+        -- AI gets a soft ambient background with accent spine
+        renderer.draw_rect(x + pad, ty, msg_w, msg_h, { P.bg_ai_msg[1], P.bg_ai_msg[2], P.bg_ai_msg[3], 35 })
+        renderer.draw_rect(x + pad, ty, 3 * SCALE, msg_h, P.fg_accent)
+        draw_rect_outline(x + pad, ty, msg_w, msg_h, { P.border[1], P.border[2], P.border[3], 50 })
       end
     end
 
@@ -4007,7 +4086,7 @@ function AGView:draw()
           local is_copied = (self.copy_flash_idx == c_id)
           local cw = is_copied and (style.font:get_width("Copied!") + 8 * SCALE) or 20 * SCALE
           local c_x = x + pad + msg_w - 14 * SCALE - cw
-          
+
           if is_copied then
             renderer.draw_text(style.font, "Copied!", c_x, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_accent)
           else
@@ -4018,10 +4097,32 @@ function AGView:draw()
             renderer.draw_rect(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.bg_darker)
             draw_rect_outline(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.fg_muted)
           end
-          
+
           table.insert(self._copy_rects, {
             x = c_x - 4 * SCALE, y = line_y, w = cw + 8 * SCALE, h = hdr_h,
             text = table.concat(blk.raw_lines, "\n"), idx = c_id
+          })
+
+          -- Apply / Insert button directly into open editor
+          local ins_id = tostring(_) .. "_ins_" .. tostring(_b)
+          local is_inserted = (self.copy_flash_idx == ins_id)
+          local iw = is_inserted and (style.font:get_width("Applied!") + 10 * SCALE) or (style.font:get_width("Apply") + 10 * SCALE)
+          local i_x = c_x - iw - 8 * SCALE
+
+          if is_inserted then
+            renderer.draw_text(style.font, "Applied!", i_x, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_accent)
+          else
+            local is_hov_ins = (self.hover_insert_idx == ins_id)
+            if is_hov_ins then
+              renderer.draw_rect(i_x - 2 * SCALE, line_y + 2 * SCALE, iw, hdr_h - 4 * SCALE, P.bg_btn_hl)
+              draw_rect_outline(i_x - 2 * SCALE, line_y + 2 * SCALE, iw, hdr_h - 4 * SCALE, P.border)
+            end
+            renderer.draw_text(style.font, "Apply", i_x + 3 * SCALE, line_y + math.floor((hdr_h - style.font:get_height())/2), is_hov_ins and P.fg_accent or P.fg_muted)
+          end
+
+          table.insert(self._insert_rects, {
+            x = i_x - 4 * SCALE, y = line_y, w = iw + 8 * SCALE, h = hdr_h,
+            text = table.concat(blk.raw_lines, "\n"), idx = ins_id
           })
         end
         line_y = line_y + hdr_h
@@ -5663,6 +5764,28 @@ function AGView:on_mouse_moved(mx, my, ...)
     end
   end
 
+  self.hover_insert_idx = nil
+  if self._insert_rects then
+    for _, r in ipairs(self._insert_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_insert_idx = r.idx
+        system.set_cursor("hand")
+        break
+      end
+    end
+  end
+
+  self.hover_starter_idx = nil
+  if self._starter_card_rects then
+    for _, r in ipairs(self._starter_card_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self.hover_starter_idx = r.idx
+        system.set_cursor("hand")
+        break
+      end
+    end
+  end
+
   self.hover_link_url = nil
   if self._link_rects then
     for _, r in ipairs(self._link_rects) do
@@ -6102,7 +6225,7 @@ end
 
         if n.is_title then
            local tx = is_left and (trunk_x - 10*SCALE - f:get_width(n._title)) or (trunk_x + TRUNK_W + 10*SCALE)
-           renderer.draw_text(f, n._title, tx, cy - fh//2, is_hov and P.fg_accent or C_YEAR)
+           renderer.draw_text(f, n._title, tx, cy - math.floor(fh / 2), is_hov and P.fg_accent or C_YEAR)
         else
            -- Year sits elegantly ON TOP of the branch base
            local year_w = year_f:get_width(n._year)
@@ -6871,6 +6994,52 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
   end
 
   if button ~= "left" then return false end
+
+  -- Starter card clicks in empty state
+  if self._starter_card_rects then
+    for _, r in ipairs(self._starter_card_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        self:submit(r.prompt)
+        return true
+      end
+    end
+  end
+
+  -- Apply / Insert button clicks on code blocks
+  if self._insert_rects then
+    for _, r in ipairs(self._insert_rects) do
+      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+        local doc = nil
+        if core.active_view and core.active_view.doc then
+          doc = core.active_view.doc
+        elseif core.root_view and core.root_view.root_node then
+          local function find_doc(n)
+            if not n then return nil end
+            if n.type == "leaf" and n.active_view and n.active_view.doc then
+              return n.active_view.doc
+            end
+            if n.a then local d = find_doc(n.a); if d then return d end end
+            if n.b then local d = find_doc(n.b); if d then return d end end
+            return nil
+          end
+          doc = find_doc(core.root_view.root_node)
+        end
+
+        if doc then
+          doc:insert(doc:get_selection(), r.text)
+          self.copy_flash_idx = r.idx
+          core.log("Applied code snippet directly into editor document.")
+          core.redraw = true
+        else
+          system.set_clipboard(r.text)
+          self.copy_flash_idx = r.idx
+          core.log("No open document found — snippet copied to clipboard.")
+          core.redraw = true
+        end
+        return true
+      end
+    end
+  end
 
   -- Model picker button
   if self._model_rect then
