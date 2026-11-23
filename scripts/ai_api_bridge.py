@@ -1424,6 +1424,7 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
                 
         core_tools = [read_file, web_search] if read_only else [local_shell, read_file, write_file, web_search]
         tools = list(core_tools)
+        mcp_tools = []
 
         def create_llm(p_name, m_name, p_key):
             if p_name == "gemini":
@@ -1964,7 +1965,7 @@ HOW TO ACT:
                 
                 clean_status = status_msg.replace("[", "(").replace("]", ")")
                 print(f"\n[STATUS:{clean_status}]", flush=True)
-                matched_tool = next((t for t in tools if t.name == tool_name), None)
+                matched_tool = next((t for t in tools if t.name == tool_name), None) or next((t for t in mcp_tools if t.name == tool_name), None)
                 if matched_tool:
                     try:
                         result = await matched_tool.ainvoke(tool_args)
@@ -2011,6 +2012,7 @@ HOW TO ACT:
         db_path = os.path.join(config_dir, "ai_threads.db")
 
         async with AsyncExitStack() as stack:
+            mcp_tools = []
             mcp_config_path = os.path.join(config_dir, "mcp_config.json")
             if enable_tools and not read_only and os.path.exists(mcp_config_path):
                 try:
@@ -2046,17 +2048,77 @@ HOW TO ACT:
 
                         srv_tools = await asyncio.wait_for(init_single_server(), timeout=14.0)
                         if srv_tools:
-                            tools.extend(srv_tools)
+                            mcp_tools.extend(srv_tools)
                             print(f"[MCP] Loaded {len(srv_tools)} tools from server '{srv_name}'", flush=True)
                     except Exception as srv_err:
                         print(f"[MCP NOTICE] Server '{srv_name}' skipped ({srv_err}).", flush=True)
 
-            # Smart tool budgeting to prevent rate limits and model confusion
-            # Groq on-demand tier has a strict 7,000 ITPM limit; 8 tools keeps schema size under 1.6k tokens.
-            max_tools_budget = 8 if provider == "groq" else (25 if provider in ["ollama", "nvidia"] else 120)
-            if len(tools) > max_tools_budget:
-                print(f"\n[INFO] Bounding tool count to {max_tools_budget} for {provider} to maintain optimal attention and avoid token limits.", flush=True)
-                tools = tools[:max_tools_budget]
+            # Smart tool relevance ranking and budgeting
+            # Groq on-demand tier has a strict 7,000 ITPM limit; 14 tools keeps schema size under 2k tokens while giving full domain access.
+            max_tools_budget = 14 if provider == "groq" else (35 if provider in ["ollama", "nvidia"] else 120)
+
+            if mcp_tools:
+                import re
+                p_lower = (prompt or "").lower()
+                DOMAIN_CLUSTERS = {
+                    "email": ["email", "emails", "gmail", "mail", "inbox", "message", "messages", "draft", "drafts", "recipient", "send mail", "read mail"],
+                    "calendar": ["calendar", "event", "events", "schedule", "meeting", "meetings", "appointment", "agenda", "remind", "reminder"],
+                    "sheets": ["sheet", "sheets", "spreadsheet", "spreadsheets", "excel", "csv", "table", "row", "column", "cells", "cell", "range", "calc"],
+                    "docs": ["doc", "docs", "document", "documents", "word", "write up", "article", "paper", "text document"],
+                    "slides": ["slide", "slides", "presentation", "presentations", "powerpoint", "deck", "keynote", "pitch"],
+                    "drive": ["drive", "google drive", "upload file", "folder", "folders", "shared drive", "cloud file"],
+                    "github": ["github", "git", "pr", "prs", "pull request", "pull requests", "issue", "issues", "repo", "repos", "repository", "repositories", "branch", "branches", "commit", "commits"]
+                }
+                
+                active_domains = {d for d, kws in DOMAIN_CLUSTERS.items() if any(kw in p_lower for kw in kws)}
+                prompt_keywords = set(re.findall(r'\b[a-zA-Z]{3,}\b', p_lower)) - {
+                    "what", "have", "this", "that", "with", "from", "your", "most", "some", "read", "readout", "analyze", "check", "show", "give", "please", "help"
+                }
+
+                GENERIC_PRIORITY = {
+                    "query_gmail_emails", "gmail_get_message_details",
+                    "calendar_get_events", "create_calendar_event",
+                    "drive_search_files", "drive_read_file_content",
+                    "sheets_read_range", "docs_create_document",
+                    "create_slide", "search_issues"
+                }
+
+                def score_mcp_tool(tool_obj):
+                    t_name = getattr(tool_obj, "name", "").lower()
+                    t_desc = getattr(tool_obj, "description", "").lower()
+                    score = 0
+                    
+                    if active_domains:
+                        for d in active_domains:
+                            if d == "email" and any(k in t_name for k in ["gmail", "email", "mail"]): score += 100
+                            elif d == "calendar" and any(k in t_name for k in ["calendar", "event"]): score += 100
+                            elif d == "sheets" and any(k in t_name for k in ["sheet", "range", "cells"]): score += 100
+                            elif d == "docs" and "doc" in t_name: score += 100
+                            elif d == "slides" and any(k in t_name for k in ["slide", "presentation"]): score += 100
+                            elif d == "drive" and "drive" in t_name: score += 100
+                            elif d == "github" and any(k in t_name for k in ["github", "repo", "issue", "pull", "branch", "commit"]): score += 100
+                    else:
+                        if getattr(tool_obj, "name", "") in GENERIC_PRIORITY:
+                            score += 50
+
+                    for w in prompt_keywords:
+                        if w in t_name: score += 25
+                        elif w in t_desc: score += 10
+                        
+                    return score
+
+                ranked_mcp_tools = sorted(mcp_tools, key=score_mcp_tool, reverse=True)
+                avail_mcp_slots = max(1, max_tools_budget - len(core_tools))
+                
+                if len(ranked_mcp_tools) > avail_mcp_slots:
+                    matched_count = sum(1 for t in ranked_mcp_tools if score_mcp_tool(t) > 0)
+                    selected_mcp = ranked_mcp_tools[:avail_mcp_slots]
+                    tools = list(core_tools) + selected_mcp
+                    print(f"\n[INFO] Selected {len(selected_mcp)} most relevant MCP tools for {provider} (budget: {max_tools_budget}, domain matches: {matched_count}).", flush=True)
+                else:
+                    tools = list(core_tools) + ranked_mcp_tools
+            else:
+                tools = list(core_tools)
                 
             if enable_tools and tools:
                 llm_with_tools = llm.bind_tools(tools) if llm else None

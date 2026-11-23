@@ -4687,10 +4687,11 @@ function AGView:draw()
     end
 
     ty = ty + msg_h + 6 * SCALE
-    total_h = total_h + style.font:get_height() + 2 * SCALE + msg_h + 6 * SCALE
+    total_h = total_h + style.font:get_height() + 6 * SCALE + msg_h + 6 * SCALE
   end
 
-  self:state().max_scroll = math.max(0, total_h - chat_h)
+  local bottom_pad = 48 * SCALE
+  self:state().max_scroll = math.max(0, (total_h + bottom_pad) - chat_h)
   if self:state().scroll_to_bottom then
     if self:state().scroll_y ~= self:state().max_scroll then
       self:state().scroll_y = self:state().max_scroll
