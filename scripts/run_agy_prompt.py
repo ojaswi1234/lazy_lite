@@ -15,12 +15,21 @@ def main():
     agy_path = sys.argv[1]
     prompt_file = sys.argv[2]
     conv_id = None
+    model_name = None
 
     if "--conversation" in sys.argv:
         try:
             c_idx = sys.argv.index("--conversation")
             if c_idx + 1 < len(sys.argv):
                 conv_id = sys.argv[c_idx + 1]
+        except Exception:
+            pass
+
+    if "--model" in sys.argv:
+        try:
+            m_idx = sys.argv.index("--model")
+            if m_idx + 1 < len(sys.argv):
+                model_name = sys.argv[m_idx + 1]
         except Exception:
             pass
 
@@ -36,8 +45,13 @@ def main():
         sys.exit(1)
 
     cmd = [agy_path, "--dangerously-skip-permissions"]
+    if model_name and model_name.strip() and model_name.strip() != "Default":
+        cmd.extend(["--model", model_name.strip()])
+
     if conv_id and conv_id.strip():
-        cmd.extend(["--conversation", conv_id.strip()])
+        brain_path = os.path.expanduser(f"~/.gemini/antigravity-cli/brain/{conv_id.strip()}")
+        if os.path.exists(brain_path):
+            cmd.extend(["--conversation", conv_id.strip()])
 
     try:
         proc = subprocess.Popen(

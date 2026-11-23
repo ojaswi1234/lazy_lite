@@ -2461,6 +2461,7 @@ def main():
     parser.add_argument("--provider", type=str, default="all")
     parser.add_argument("--model", type=str)
     parser.add_argument("--prompt", type=str)
+    parser.add_argument("--prompt-file", type=str, help="Read prompt directly from file to bypass command line limits")
     parser.add_argument("--thread-id", type=str, default="default_thread")
     parser.add_argument("--get-history", action="store_true")
     parser.add_argument("--enable-tools", action="store_true")
@@ -2560,6 +2561,14 @@ def main():
 
     import re
     pass
+    if getattr(args, "prompt_file", None) and os.path.exists(args.prompt_file):
+        try:
+            with open(args.prompt_file, "r", encoding="utf-8", errors="replace") as pf:
+                args.prompt = pf.read()
+        except Exception as e:
+            sys.stderr.write(f"Failed to read --prompt-file: {e}\n")
+            sys.exit(1)
+
     # Intercept and expand pasted text files directly into the prompt to bypass OS command-line limits
     if args.prompt:
         def replace_pasted_text(match):
