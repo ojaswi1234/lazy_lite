@@ -1,5 +1,6 @@
 -- mod-version:3
 local core = require "core"
+local command = require "core.command"
 local Node = require "core.node"
 local RootView = require "core.rootview"
 local style = require "core.style"
