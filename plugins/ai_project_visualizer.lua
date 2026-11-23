@@ -42,11 +42,14 @@ local function ensure_dir(path)
   end
 end
 
--- Forward declarations for all 4 architectural modules
-local LayoutEngine    = {}
-local AIAnalyzer      = {}
-local DiagramRenderer = {}
-local SVGExporter     = {}
+-- Forward declarations for all 4 architectural modules and core utilities
+local LayoutEngine      = {}
+local AIAnalyzer        = {}
+local DiagramRenderer   = {}
+local SVGExporter       = {}
+local get_project_files = nil
+local json_decode       = nil
+local json_encode       = nil
 
 -- =============================================================================
 -- SECTION 1: LAYOUT ENGINE
@@ -1228,7 +1231,7 @@ local _active = false
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Minimal JSON encoder
 -- ─────────────────────────────────────────────────────────────────────────────
-local function json_encode(val, depth)
+json_encode = function(val, depth)
   depth = depth or 0
   if depth > 50 then return '"..."' end
   local t = type(val)
@@ -1274,7 +1277,7 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Minimal JSON decoder (recursive descent)
 -- ─────────────────────────────────────────────────────────────────────────────
-local function json_decode(str)
+json_decode = function(str)
   local pos = 1
 
   local function skip_ws()
@@ -6938,8 +6941,15 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
   view.hero_rects.explore_btn = { x = bx_btn, y = by_btn, w = bw, h = bh }
 
   -- 5. Footer info & shortcut
-  local files = get_project_files()
-  local info_text = string.format("%d project files detected • Analysis starts only when you click Explore", #files)
+  local count = view._cached_file_count
+  local now = system.get_time()
+  if not count or (now - (view._cached_file_count_time or 0) > 3) then
+    local files = get_project_files and get_project_files() or {}
+    count = #files
+    view._cached_file_count = count
+    view._cached_file_count_time = now
+  end
+  local info_text = string.format("%d project files detected • Analysis starts only when you click Explore", count)
   local iw = fcode:get_width(info_text)
   renderer.draw_text(fcode, info_text, math.floor(cx - iw / 2), by + 180, { 140, 155, 180, 255 })
 
@@ -7588,7 +7598,7 @@ local function show_toast(msg)
   end)
 end
 
-local function get_project_files()
+get_project_files = function()
   local files = {}
   local seen = {}
 
