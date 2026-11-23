@@ -59,6 +59,8 @@ local COLOR_SEC_HIGH    = c(234, 88, 12)
 local COLOR_SEC_MEDIUM  = c(202, 138, 4)
 local COLOR_SEC_LOW     = c(59, 130, 246)
 
+local HEADER_H          = 36 * SCALE
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Pixel-Perfect Orthogonal Line & Arrowhead Primitives
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -736,6 +738,7 @@ function TerraformVisualizerView:scan_project()
   end
 
   self:compute_canvas_layout()
+  self:fit_to_view()
 
   self.last_scan_time = system.get_time()
   self.is_scanning = false
@@ -746,9 +749,49 @@ end
 -- 2D Canvas Auto-Layout Engine (Phase 2 & Phase 3)
 -- ============================================================================
 
+function TerraformVisualizerView:get_all_drawable_nodes()
+  local list = {}
+  for _, r in ipairs(self.resources or {}) do table.insert(list, r) end
+  for _, d in ipairs(self.data_sources or {}) do table.insert(list, d) end
+  for _, m in ipairs(self.modules or {}) do table.insert(list, m) end
+  return list
+end
+
+function TerraformVisualizerView:update_container_bounds()
+  for _, cbox in ipairs(self.containers or {}) do
+    local r = nil
+    for _, res in ipairs(self.resources or {}) do
+      if res.id == cbox.id then r = res; break end
+    end
+    if r and r.x and r.y then
+      local rw = r.w or (210 * SCALE)
+      local rh = r.h or (68 * SCALE)
+      local min_x, min_y = r.x - 16 * SCALE, r.y - 16 * SCALE
+      local max_x, max_y = r.x + rw + 16 * SCALE, r.y + rh + 16 * SCALE
+
+      for _, cid in ipairs(cbox.children or {}) do
+        for _, child in ipairs(self.resources or {}) do
+          if child.id == cid and child.x and child.y then
+            local cw = child.w or (210 * SCALE)
+            local ch = child.h or (68 * SCALE)
+            min_x = math.min(min_x, child.x - 14 * SCALE)
+            min_y = math.min(min_y, child.y - 14 * SCALE)
+            max_x = math.max(max_x, child.x + cw + 14 * SCALE)
+            max_y = math.max(max_y, child.y + ch + 14 * SCALE)
+          end
+        end
+      end
+      cbox.x = min_x
+      cbox.y = min_y
+      cbox.w = max_x - min_x
+      cbox.h = max_y - min_y
+    end
+  end
+end
+
 function TerraformVisualizerView:compute_canvas_layout()
-  local start_x = 80 * SCALE
-  local start_y = 80 * SCALE
+  local start_x = 60 * SCALE
+  local start_y = 60 * SCALE
   local node_w = 210 * SCALE
   local node_h = 68 * SCALE
   local gap_x = 70 * SCALE
@@ -762,7 +805,7 @@ function TerraformVisualizerView:compute_canvas_layout()
     storage_other = {}
   }
 
-  for _, r in ipairs(self.resources) do
+  for _, r in ipairs(self.resources or {}) do
     r.w = node_w
     r.h = node_h
     local cat = get_resource_category(r.type)
@@ -777,6 +820,23 @@ function TerraformVisualizerView:compute_canvas_layout()
     else
       table.insert(cols.storage_other, r)
     end
+  end
+
+  for _, d in ipairs(self.data_sources or {}) do
+    d.w = node_w
+    d.h = node_h
+    local cat = get_resource_category(d.type)
+    if cat == "vpc" or cat == "subnet" then
+      table.insert(cols.subnets, d)
+    else
+      table.insert(cols.storage_other, d)
+    end
+  end
+
+  for _, m in ipairs(self.modules or {}) do
+    m.w = node_w
+    m.h = node_h
+    table.insert(cols.compute_db, m)
   end
 
   local col_order = { cols.vpcs, cols.subnets, cols.network_security, cols.compute_db, cols.storage_other }
@@ -794,32 +854,50 @@ function TerraformVisualizerView:compute_canvas_layout()
     end
   end
 
-  -- Calculate Container Bounding Boxes
-  for _, cbox in ipairs(self.containers) do
-    local r = nil
-    for _, res in ipairs(self.resources) do
-      if res.id == cbox.id then r = res; break end
-    end
-    if r then
-      local min_x, min_y = r.x - 16 * SCALE, r.y - 16 * SCALE
-      local max_x, max_y = r.x + r.w + 16 * SCALE, r.y + r.h + 16 * SCALE
+  self:update_container_bounds()
+end
 
-      for _, cid in ipairs(cbox.children) do
-        for _, child in ipairs(self.resources) do
-          if child.id == cid then
-            min_x = math.min(min_x, child.x - 14 * SCALE)
-            min_y = math.min(min_y, child.y - 14 * SCALE)
-            max_x = math.max(max_x, child.x + child.w + 14 * SCALE)
-            max_y = math.max(max_y, child.y + child.h + 14 * SCALE)
-          end
-        end
-      end
-      cbox.x = min_x
-      cbox.y = min_y
-      cbox.w = max_x - min_x
-      cbox.h = max_y - min_y
+function TerraformVisualizerView:fit_to_view()
+  local all_items = self:get_all_drawable_nodes()
+
+  if #all_items == 0 then
+    self.pan = { x = 60 * SCALE, y = 60 * SCALE }
+    self.zoom = 1.0
+    return
+  end
+
+  local min_x, min_y =  math.huge,  math.huge
+  local max_x, max_y = -math.huge, -math.huge
+  for _, n in ipairs(all_items) do
+    if n.x and n.y then
+      min_x = math.min(min_x, n.x)
+      min_y = math.min(min_y, n.y)
+      max_x = math.max(max_x, n.x + (n.w or 210 * SCALE))
+      max_y = math.max(max_y, n.y + (n.h or 68 * SCALE))
     end
   end
+
+  if min_x == math.huge then
+    self.pan = { x = 60 * SCALE, y = 60 * SCALE }
+    self.zoom = 1.0
+    return
+  end
+
+  local gw = math.max(max_x - min_x, 100 * SCALE)
+  local gh = math.max(max_y - min_y, 100 * SCALE)
+  local avail_w = math.max(self.size.x - 80 * SCALE, 120 * SCALE)
+  local avail_h = math.max(self.size.y - HEADER_H - 80 * SCALE, 120 * SCALE)
+
+  local fit_scale = math.min(avail_w / gw, avail_h / gh)
+  fit_scale = math.max(0.35, math.min(1.2, fit_scale))
+  self.zoom = fit_scale
+
+  -- Center the content in the viewport
+  local cx_world = (min_x + max_x) / 2
+  local cy_world = (min_y + max_y) / 2
+  self.pan.x = (self.size.x / 2) / self.zoom - cx_world
+  self.pan.y = ((self.size.y - HEADER_H) / 2) / self.zoom - cy_world
+  core.redraw = true
 end
 
 -- Compute Upstream and Downstream Blast Radius (Phase 4)
@@ -854,13 +932,15 @@ end
 -- ============================================================================
 
 function TerraformVisualizerView:world_to_screen(wx, wy)
+  local top_y = self.position.y + HEADER_H
   return self.position.x + (wx + self.pan.x) * self.zoom,
-         self.position.y + (wy + self.pan.y) * self.zoom
+         top_y + (wy + self.pan.y) * self.zoom
 end
 
 function TerraformVisualizerView:screen_to_world(sx, sy)
+  local top_y = self.position.y + HEADER_H
   return (sx - self.position.x) / self.zoom - self.pan.x,
-         (sy - self.position.y) / self.zoom - self.pan.y
+         (sy - top_y) / self.zoom - self.pan.y
 end
 
 -- ============================================================================
@@ -873,13 +953,14 @@ function TerraformVisualizerView:on_mouse_wheel(y, x)
     local factor = y > 0 and 1.15 or 0.87
     local new_zoom = math.max(0.3, math.min(2.5, old_zoom * factor))
 
-    local mx = x or (self.position.x + self.size.x / 2)
-    local my = self.position.y + self.size.y / 2
+    local mx = self.mouse_x or (self.position.x + self.size.x / 2)
+    local my = self.mouse_y or (self.position.y + HEADER_H + (self.size.y - HEADER_H) / 2)
     local wx, wy = self:screen_to_world(mx, my)
 
     self.zoom = new_zoom
+    local top_y = self.position.y + HEADER_H
     self.pan.x = (mx - self.position.x) / self.zoom - wx
-    self.pan.y = (my - self.position.y) / self.zoom - wy
+    self.pan.y = (my - top_y) / self.zoom - wy
     core.redraw = true
     return true
   else
@@ -892,6 +973,8 @@ end
 
 function TerraformVisualizerView:on_mouse_moved(x, y, dx, dy)
   TerraformVisualizerView.super.on_mouse_moved(self, x, y, dx, dy)
+  self.mouse_x = x
+  self.mouse_y = y
 
   if self.mode == "canvas" then
     if self.is_panning then
@@ -901,12 +984,15 @@ function TerraformVisualizerView:on_mouse_moved(x, y, dx, dy)
       return
     end
 
+    local all_nodes = self:get_all_drawable_nodes()
+
     if self.dragging_node_id then
-      for _, r in ipairs(self.resources) do
+      for _, r in ipairs(all_nodes) do
         if r.id == self.dragging_node_id then
           local wx, wy = self:screen_to_world(x, y)
           r.x = wx - self.drag_offset.x
           r.y = wy - self.drag_offset.y
+          self:update_container_bounds()
           core.redraw = true
           break
         end
@@ -915,12 +1001,14 @@ function TerraformVisualizerView:on_mouse_moved(x, y, dx, dy)
     end
 
     local found_node = nil
-    for _, r in ipairs(self.resources) do
-      local sx, sy = self:world_to_screen(r.x, r.y)
-      local sw, sh = r.w * self.zoom, r.h * self.zoom
-      if x >= sx and x <= sx + sw and y >= sy and y <= sy + sh then
-        found_node = r.id
-        break
+    for _, r in ipairs(all_nodes) do
+      if r.x and r.y then
+        local sx, sy = self:world_to_screen(r.x, r.y)
+        local sw, sh = (r.w or (210 * SCALE)) * self.zoom, (r.h or (68 * SCALE)) * self.zoom
+        if x >= sx and x <= sx + sw and y >= sy and y <= sy + sh then
+          found_node = r.id
+          break
+        end
       end
     end
 
@@ -951,23 +1039,38 @@ function TerraformVisualizerView:on_mouse_pressed(button, x, y, clicks)
     if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
       if btn.action == "set_mode" then
         self.mode = btn.mode
+        if self.mode == "canvas" then
+          local node = core.root_view.root_node:get_node_for_view(self)
+          if node and node.size.x < 560 * SCALE then
+            node.size.x = 560 * SCALE
+            self.size.x = 560 * SCALE
+            self.target_size = 560 * SCALE
+          end
+          self:fit_to_view()
+        else
+          local node = core.root_view.root_node:get_node_for_view(self)
+          if node and node.size.x > 380 * SCALE then
+            node.size.x = 380 * SCALE
+            self.size.x = 380 * SCALE
+            self.target_size = 380 * SCALE
+          end
+        end
         core.redraw = true
         return true
       elseif btn.action == "refresh" then
         self:scan_project()
         return true
-      elseif btn.action == "reset_canvas" then
-        self.zoom = 1.0
-        self.pan = { x = 60 * SCALE, y = 60 * SCALE }
+      elseif btn.action == "reset_canvas" or btn.action == "fit_view" then
+        self:fit_to_view()
         self.selected_node_id = nil
         self.blast_radius_ids = {}
         core.redraw = true
         return true
       elseif btn.action == "zoom_in" then
-        self:on_mouse_wheel(1, self.position.x + self.size.x / 2)
+        self:on_mouse_wheel(1, 0)
         return true
       elseif btn.action == "zoom_out" then
-        self:on_mouse_wheel(-1, self.position.x + self.size.x / 2)
+        self:on_mouse_wheel(-1, 0)
         return true
       elseif btn.action == "export_mermaid" then
         command.perform("terraform_visualizer:export_mermaid")
@@ -986,29 +1089,32 @@ function TerraformVisualizerView:on_mouse_pressed(button, x, y, clicks)
     end
 
     if button == "left" then
-      for _, r in ipairs(self.resources) do
-        local sx, sy = self:world_to_screen(r.x, r.y)
-        local sw, sh = r.w * self.zoom, r.h * self.zoom
-        if x >= sx and x <= sx + sw and y >= sy and y <= sy + sh then
-          if clicks == 2 and r.abs_file and r.line then
-            local doc = core.open_doc(r.abs_file)
-            if doc then
-              local doc_view = core.root_view:open_doc(doc)
-              doc:set_selection(r.line, 1, r.line, 1)
-              if doc_view and doc_view.scroll_to_line then
-                doc_view:scroll_to_line(r.line, true)
+      local all_nodes = self:get_all_drawable_nodes()
+      for _, r in ipairs(all_nodes) do
+        if r.x and r.y then
+          local sx, sy = self:world_to_screen(r.x, r.y)
+          local sw, sh = (r.w or (210 * SCALE)) * self.zoom, (r.h or (68 * SCALE)) * self.zoom
+          if x >= sx and x <= sx + sw and y >= sy and y <= sy + sh then
+            if clicks == 2 and r.abs_file and r.line then
+              local doc = core.open_doc(r.abs_file)
+              if doc then
+                local doc_view = core.root_view:open_doc(doc)
+                doc:set_selection(r.line, 1, r.line, 1)
+                if doc_view and doc_view.scroll_to_line then
+                  doc_view:scroll_to_line(r.line, true)
+                end
               end
+              return true
+            else
+              self.selected_node_id = r.id
+              self:compute_blast_radius(r.id)
+              self.dragging_node_id = r.id
+              local wx, wy = self:screen_to_world(x, y)
+              self.drag_offset.x = wx - r.x
+              self.drag_offset.y = wy - r.y
+              core.redraw = true
+              return true
             end
-            return true
-          else
-            self.selected_node_id = r.id
-            self:compute_blast_radius(r.id)
-            self.dragging_node_id = r.id
-            local wx, wy = self:screen_to_world(x, y)
-            self.drag_offset.x = wx - r.x
-            self.drag_offset.y = wy - r.y
-            core.redraw = true
-            return true
           end
         end
       end
@@ -1130,6 +1236,7 @@ function TerraformVisualizerView:draw_canvas_mode(cx, cy, cw, ch)
   renderer.draw_rect(cx, cy, cw, ch, COLOR_BG_CANVAS)
 
   local font = style.font
+  local bfont = style.big_font or font
   local cfont = style.code_font or font
   local fh = font:get_height()
 
@@ -1145,9 +1252,39 @@ function TerraformVisualizerView:draw_canvas_mode(cx, cy, cw, ch)
     end
   end
 
+  local all_drawable = self:get_all_drawable_nodes()
+
+  -- Empty state notice
+  if #all_drawable == 0 then
+    local cx_mid = cx + cw / 2
+    local cy_mid = cy + ch / 2
+    local msg = self.is_scanning and "Scanning workspace for Terraform resources..." or "No Terraform Resources Detected"
+    local sub = self.is_scanning and "Parsing .tf files in the active project..." or "Open a Terraform workspace or click Scan to generate 2D infrastructure map"
+    local mw = bfont:get_width(msg)
+    local sw = font:get_width(sub)
+    renderer.draw_text(bfont, msg, cx_mid - mw / 2, cy_mid - 32 * SCALE, style.text)
+    renderer.draw_text(font, sub, cx_mid - sw / 2, cy_mid + 4 * SCALE, style.dim)
+
+    if not self.is_scanning then
+      local btn_text = " 🔍 Scan Workspace "
+      local bw = font:get_width(btn_text) + 24 * SCALE
+      local bh = 32 * SCALE
+      local bx = cx_mid - bw / 2
+      local by = cy_mid + 36 * SCALE
+      local b_hov = (self.mouse_x and self.mouse_y and self.mouse_x >= bx and self.mouse_x <= bx + bw and self.mouse_y >= by and self.mouse_y <= by + bh)
+      renderer.draw_rect(bx, by, bw, bh, b_hov and COLOR_ACCENT or COLOR_BG_CARD)
+      renderer.draw_rect(bx, by, bw, 1, COLOR_BORDER_HIGH)
+      renderer.draw_text(font, btn_text, bx + 12 * SCALE, by + (bh - fh) / 2, b_hov and style.background or style.text)
+      table.insert(self.canvas_buttons, { action = "refresh", x = bx, y = by, w = bw, h = bh })
+    end
+
+    core.pop_clip_rect()
+    return
+  end
+
   -- Draw Containers (VPCs & Subnets bounding boxes - Phase 3)
-  for _, cbox in ipairs(self.containers) do
-    if cbox.w > 0 and cbox.h > 0 then
+  for _, cbox in ipairs(self.containers or {}) do
+    if cbox.w and cbox.w > 0 and cbox.h and cbox.h > 0 and cbox.x and cbox.y then
       local sx, sy = self:world_to_screen(cbox.x, cbox.y)
       local sw, sh = cbox.w * self.zoom, cbox.h * self.zoom
 
@@ -1160,7 +1297,7 @@ function TerraformVisualizerView:draw_canvas_mode(cx, cy, cw, ch)
       renderer.draw_rect(sx, sy, 1, sh, border_col)
       renderer.draw_rect(sx + sw - 1, sy, 1, sh, border_col)
 
-      local clabel = string.format("[%s] %s (%s)", cbox.kind:upper(), cbox.name, cbox.cidr)
+      local clabel = string.format("[%s] %s (%s)", cbox.kind:upper(), cbox.name or "", cbox.cidr or "")
       local lw = cfont:get_width(clabel) + 12 * SCALE
       local lh = cfont:get_height() + 4 * SCALE
       renderer.draw_rect(sx + 8 * SCALE, sy + 6 * SCALE, lw, lh, COLOR_BG_CARD)
@@ -1169,16 +1306,19 @@ function TerraformVisualizerView:draw_canvas_mode(cx, cy, cw, ch)
   end
 
   -- Draw Directed Dependency Edges (Phase 1 & 2 - Manhattan Orthogonal Routing)
-  for _, e in ipairs(self.edges) do
-    local r1, r2 = nil, nil
-    for _, r in ipairs(self.resources) do
-      if r.id == e.from then r1 = r end
-      if r.id == e.to then r2 = r end
-    end
+  local node_by_id = {}
+  for _, n in ipairs(all_drawable) do node_by_id[n.id] = n end
 
-    if r1 and r2 then
-      local x1, y1 = self:world_to_screen(r1.x + r1.w, r1.y + r1.h / 2)
-      local x2, y2 = self:world_to_screen(r2.x, r2.y + r2.h / 2)
+  for _, e in ipairs(self.edges or {}) do
+    local r1 = node_by_id[e.from]
+    local r2 = node_by_id[e.to]
+
+    if r1 and r2 and r1.x and r1.y and r2.x and r2.y then
+      local rw1 = r1.w or (210 * SCALE)
+      local rh1 = r1.h or (68 * SCALE)
+      local rh2 = r2.h or (68 * SCALE)
+      local x1, y1 = self:world_to_screen(r1.x + rw1, r1.y + rh1 / 2)
+      local x2, y2 = self:world_to_screen(r2.x, r2.y + rh2 / 2)
 
       local edge_color = c(80, 90, 110, 140)
       local edge_w = 1.5 * SCALE
@@ -1202,87 +1342,91 @@ function TerraformVisualizerView:draw_canvas_mode(cx, cy, cw, ch)
   end
 
   -- Draw Node Cards (Phase 2 & 4)
-  for _, r in ipairs(self.resources) do
-    local sx, sy = self:world_to_screen(r.x, r.y)
-    local sw, sh = r.w * self.zoom, r.h * self.zoom
+  for _, r in ipairs(all_drawable) do
+    if r.x and r.y then
+      local rw = r.w or (210 * SCALE)
+      local rh = r.h or (68 * SCALE)
+      local sx, sy = self:world_to_screen(r.x, r.y)
+      local sw, sh = rw * self.zoom, rh * self.zoom
 
-    if sx + sw >= cx and sx <= cx + cw and sy + sh >= cy and sy <= cy + ch then
-      local is_sel = (r.id == self.selected_node_id)
-      local is_hov = (r.id == self.hovered_node_id)
-      local pinfo = get_provider_info(r.provider)
-      local cat, cat_col, cat_icon = get_resource_category(r.type)
+      if sx + sw >= cx and sx <= cx + cw and sy + sh >= cy and sy <= cy + ch then
+        local is_sel = (r.id == self.selected_node_id)
+        local is_hov = (r.id == self.hovered_node_id)
+        local pinfo = get_provider_info(r.provider or "custom")
+        local cat, cat_col, cat_icon = get_resource_category(r.type or r.kind or "resource")
 
-      local card_bg = COLOR_BG_CARD
-      local border_col = COLOR_BORDER
+        local card_bg = COLOR_BG_CARD
+        local border_col = COLOR_BORDER
 
-      if self.selected_node_id then
-        if is_sel then
-          card_bg = COLOR_BG_SELECTED
-          border_col = COLOR_ACCENT
-        elseif self.blast_radius_ids[r.id] == "downstream" then
-          border_col = COLOR_DIFF_DELETE
-          card_bg = c(55, 35, 40)
-        elseif self.blast_radius_ids[r.id] == "upstream" then
-          border_col = COLOR_GCP
-          card_bg = c(30, 45, 65)
-        else
-          card_bg = c(28, 30, 38, 120)
+        if self.selected_node_id then
+          if is_sel then
+            card_bg = COLOR_BG_SELECTED
+            border_col = COLOR_ACCENT
+          elseif self.blast_radius_ids[r.id] == "downstream" then
+            border_col = COLOR_DIFF_DELETE
+            card_bg = c(55, 35, 40)
+          elseif self.blast_radius_ids[r.id] == "upstream" then
+            border_col = COLOR_GCP
+            card_bg = c(30, 45, 65)
+          else
+            card_bg = c(28, 30, 38, 120)
+          end
+        elseif is_hov then
+          card_bg = COLOR_BG_HOVER
+          border_col = COLOR_BORDER_HIGH
         end
-      elseif is_hov then
-        card_bg = COLOR_BG_HOVER
-        border_col = COLOR_BORDER_HIGH
-      end
 
-      renderer.draw_rect(sx, sy, sw, sh, card_bg)
-      renderer.draw_rect(sx, sy, sw, 1, border_col)
-      renderer.draw_rect(sx, sy + sh - 1, sw, 1, border_col)
-      renderer.draw_rect(sx, sy, 1, sh, border_col)
-      renderer.draw_rect(sx + sw - 1, sy, 1, sh, border_col)
+        renderer.draw_rect(sx, sy, sw, sh, card_bg)
+        renderer.draw_rect(sx, sy, sw, 1, border_col)
+        renderer.draw_rect(sx, sy + sh - 1, sw, 1, border_col)
+        renderer.draw_rect(sx, sy, 1, sh, border_col)
+        renderer.draw_rect(sx + sw - 1, sy, 1, sh, border_col)
 
-      renderer.draw_rect(sx, sy, 4 * SCALE * self.zoom, sh, pinfo.color)
+        renderer.draw_rect(sx, sy, 4 * SCALE * self.zoom, sh, pinfo.color)
 
-      local badge_text = string.format("%s %s", cat_icon, pinfo.name)
-      renderer.draw_text(cfont, badge_text, sx + 8 * SCALE * self.zoom, sy + 6 * SCALE * self.zoom, pinfo.color)
+        local badge_text = string.format("%s %s", cat_icon, pinfo.name)
+        renderer.draw_text(cfont, badge_text, sx + 8 * SCALE * self.zoom, sy + 6 * SCALE * self.zoom, pinfo.color)
 
-      local name_str = r.name
-      if #name_str > 18 then name_str = name_str:sub(1, 16) .. ".." end
-      renderer.draw_text(font, name_str, sx + 8 * SCALE * self.zoom, sy + 22 * SCALE * self.zoom, style.text)
+        local name_str = r.name or r.id or "resource"
+        if #name_str > 18 then name_str = name_str:sub(1, 16) .. ".." end
+        renderer.draw_text(font, name_str, sx + 8 * SCALE * self.zoom, sy + 22 * SCALE * self.zoom, style.text)
 
-      local sub_type = r.type
-      if #sub_type > 22 then sub_type = sub_type:sub(1, 20) .. ".." end
-      renderer.draw_text(cfont, sub_type, sx + 8 * SCALE * self.zoom, sy + 40 * SCALE * self.zoom, style.dim)
+        local sub_type = r.type or r.kind or "resource"
+        if #sub_type > 22 then sub_type = sub_type:sub(1, 20) .. ".." end
+        renderer.draw_text(cfont, sub_type, sx + 8 * SCALE * self.zoom, sy + 40 * SCALE * self.zoom, style.dim)
 
-      if r.plan_action then
-        local pcol = COLOR_DIFF_UPDATE
-        local pchar = "~"
-        if r.plan_action == "create" then pcol = COLOR_DIFF_CREATE; pchar = "+"
-        elseif r.plan_action == "delete" then pcol = COLOR_DIFF_DELETE; pchar = "-"
-        elseif r.plan_action == "replace" then pcol = COLOR_DIFF_REPLACE; pchar = "+/-"
+        if r.plan_action then
+          local pcol = COLOR_DIFF_UPDATE
+          local pchar = "~"
+          if r.plan_action == "create" then pcol = COLOR_DIFF_CREATE; pchar = "+"
+          elseif r.plan_action == "delete" then pcol = COLOR_DIFF_DELETE; pchar = "-"
+          elseif r.plan_action == "replace" then pcol = COLOR_DIFF_REPLACE; pchar = "+/-"
+          end
+          local pw = cfont:get_width(pchar) + 8 * SCALE * self.zoom
+          local ph = cfont:get_height() + 2 * SCALE * self.zoom
+          local px = sx + sw - pw - 6 * SCALE * self.zoom
+          local py = sy + 6 * SCALE * self.zoom
+          renderer.draw_rect(px, py, pw, ph, pcol)
+          renderer.draw_text(cfont, pchar, px + 4 * SCALE * self.zoom, py + 1 * SCALE * self.zoom, style.background)
         end
-        local pw = cfont:get_width(pchar) + 8 * SCALE * self.zoom
-        local ph = cfont:get_height() + 2 * SCALE * self.zoom
-        local px = sx + sw - pw - 6 * SCALE * self.zoom
-        local py = sy + 6 * SCALE * self.zoom
-        renderer.draw_rect(px, py, pw, ph, pcol)
-        renderer.draw_text(cfont, pchar, px + 4 * SCALE * self.zoom, py + 1 * SCALE * self.zoom, style.background)
-      end
 
-      if #r.findings > 0 then
-        local sec_str = string.format("Alert %d", #r.findings)
-        local sw_w = cfont:get_width(sec_str) + 8 * SCALE * self.zoom
-        local sw_h = cfont:get_height() + 2 * SCALE * self.zoom
-        local px = sx + sw - sw_w - 6 * SCALE * self.zoom
-        local py = sy + sh - sw_h - 6 * SCALE * self.zoom
-        renderer.draw_rect(px, py, sw_w, sw_h, COLOR_SEC_HIGH)
-        renderer.draw_text(cfont, sec_str, px + 4 * SCALE * self.zoom, py + 1 * SCALE * self.zoom, style.background)
+        if r.findings and #r.findings > 0 then
+          local sec_str = string.format("Alert %d", #r.findings)
+          local sw_w = cfont:get_width(sec_str) + 8 * SCALE * self.zoom
+          local sw_h = cfont:get_height() + 2 * SCALE * self.zoom
+          local px = sx + sw - sw_w - 6 * SCALE * self.zoom
+          local py = sy + sh - sw_h - 6 * SCALE * self.zoom
+          renderer.draw_rect(px, py, sw_w, sw_h, COLOR_SEC_HIGH)
+          renderer.draw_text(cfont, sec_str, px + 4 * SCALE * self.zoom, py + 1 * SCALE * self.zoom, style.background)
+        end
       end
     end
   end
 
   -- ── Floating Canvas Control Overlay (Zoom, Reset, Export) ─────────────────
-  local ctl_x = cx + cw - 160 * SCALE
+  local ctl_x = cx + cw - 194 * SCALE
   local ctl_y = cy + ch - 48 * SCALE
-  local ctl_w = 148 * SCALE
+  local ctl_w = 182 * SCALE
   local ctl_h = 36 * SCALE
 
   renderer.draw_rect(ctl_x, ctl_y, ctl_w, ctl_h, COLOR_BG_PANEL)
@@ -1297,13 +1441,14 @@ function TerraformVisualizerView:draw_canvas_mode(cx, cy, cw, ch)
 
   add_ctl_btn("+", ctl_x + 6 * SCALE, 26 * SCALE, "zoom_in")
   add_ctl_btn("-", ctl_x + 36 * SCALE, 26 * SCALE, "zoom_out")
-  add_ctl_btn("Reset", ctl_x + 66 * SCALE, 44 * SCALE, "reset_canvas")
-  add_ctl_btn("MMD", ctl_x + 114 * SCALE, 28 * SCALE, "export_mermaid")
+  add_ctl_btn("Fit", ctl_x + 66 * SCALE, 36 * SCALE, "fit_view")
+  add_ctl_btn("Reset", ctl_x + 106 * SCALE, 42 * SCALE, "reset_canvas")
+  add_ctl_btn("MMD", ctl_x + 152 * SCALE, 24 * SCALE, "export_mermaid")
 
   -- ── Floating Blast Radius HUD (if node is selected) ───────────────────────
   if self.selected_node_id then
     local sel_res = nil
-    for _, r in ipairs(self.resources) do if r.id == self.selected_node_id then sel_res = r; break end end
+    for _, r in ipairs(all_drawable) do if r.id == self.selected_node_id then sel_res = r; break end end
     if sel_res then
       local down_count = 0
       local up_count = 0
@@ -1666,9 +1811,15 @@ command.add(nil, {
   ["terraform_visualizer:open_canvas"] = function()
     if not tv_view then tv_view = TerraformVisualizerView() end
     tv_view.mode = "canvas"
-    tv_view.target_size = 500 * SCALE
+    tv_view.target_size = 560 * SCALE
     local primary = core.root_view:get_primary_node()
-    if not core.root_view.root_node:get_node_for_view(tv_view) then
+    local existing_node = core.root_view.root_node:get_node_for_view(tv_view)
+    if existing_node then
+      if existing_node ~= primary then
+        existing_node:remove_view(core.root_view.root_node, tv_view)
+        primary:add_view(tv_view)
+      end
+    else
       primary:add_view(tv_view)
     end
     core.set_active_view(tv_view)
