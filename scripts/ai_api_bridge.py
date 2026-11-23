@@ -233,17 +233,15 @@ def list_models(provider, keys):
                 elif p == "nvidia":
                     return [f"nvidia/{m}" for m in [
                         "nvidia/nemotron-3.5-bolt-e4b",
-                        "poolside/laguna-xs-2.1",
                         "nvidia/nemotron-3.5-lightning-30b-a3b",
-                        "minimaxai/minimax-m3.1-flash",
                         "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
                         "nvidia/nemotron-3-ultra-550b-a55b",
                         "nvidia/nemotron-3.5-super-vl-120b-a12b",
+                        "nvidia/riva-translate-4b-instruct-v2",
+                        "minimaxai/minimax-m3.1-flash",
                         "mistralai/mistral-large-4-1t-a52b",
-                        "moonshotai/kimi-k3.1-pro",
-                        "z-ai/glm-5.3-flash",
-                        "stepfun-ai/step-5-preview",
-                        "bigcode/starcoder2-15b"
+                        "poolside/laguna-xs-2.1",
+                        "stepfun-ai/step-5-preview"
                     ]]
                 return [f"MISSING_API_KEY:{p}"]
             continue
@@ -352,12 +350,13 @@ def list_models(provider, keys):
                             "embed", "rerank", "guard", "safety", "detector", "calibration",
                             "clip", "pii", "ising", "audio", "video", "gliner", "reward",
                             "qa-", "qa_", "retriever", "whisper", "tts", "vila", "glimmer",
-                            "topic-control", "body-pose", "kumo", "rfd4"
+                            "topic-control", "body-pose", "kumo", "rfd4", "starcoder",
+                            "gemma-3-", "cosmos-reason"
                         ]
                         chat_traits = [
                             "bolt", "lightning", "reason", "ultra", "super", "laguna",
-                            "flash", "preview", "instruct", "chat", "starcoder", "kimi",
-                            "step", "glm", "minimax", "mistral", "nemotron"
+                            "flash", "preview", "instruct", "chat",
+                            "step", "minimax", "mistral", "nemotron", "riva"
                         ]
                         for m in data.get("data", []):
                             mid = m.get("id", "")
@@ -371,25 +370,20 @@ def list_models(provider, keys):
                 # Verified free-tier preview models from build.nvidia.com
                 verified_active = [
                     "nvidia/nemotron-3.5-bolt-e4b",
-                    "poolside/laguna-xs-2.1",
                     "nvidia/nemotron-3.5-lightning-30b-a3b",
-                    "minimaxai/minimax-m3.1-flash",
                     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
                     "nvidia/nemotron-3-ultra-550b-a55b",
                     "nvidia/nemotron-3.5-super-vl-120b-a12b",
+                    "nvidia/riva-translate-4b-instruct-v2",
+                    "minimaxai/minimax-m3.1-flash",
                     "mistralai/mistral-large-4-1t-a52b",
-                    "moonshotai/kimi-k3.1-pro",
-                    "z-ai/glm-5.3-flash",
-                    "stepfun-ai/step-5-preview",
-                    "bigcode/starcoder2-15b"
+                    "poolside/laguna-xs-2.1",
+                    "stepfun-ai/step-5-preview"
                 ]
                 if not m_list:
                     m_list = verified_active
                 else:
                     final_list = [v for v in verified_active if v in m_list]
-                    for other in m_list:
-                        if other not in final_list:
-                            final_list.append(other)
                     m_list = final_list if final_list else verified_active
                 models.extend([f"nvidia/{m}" for m in m_list])
             elif p == "openai":
