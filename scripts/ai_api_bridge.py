@@ -2019,11 +2019,12 @@ HOW TO ACT:
                         mcp_data = json.load(f)
                 except Exception as e:
                     mcp_data = {}
-                    print(f"[ERROR Reading mcp_config.json]: {e}\n", flush=True)
+                    sys.stderr.write(f"[ERROR Reading mcp_config.json]: {e}\n")
 
                 server_items = list(mcp_data.get("mcpServers", {}).items())
                 for srv_name, srv_conf in server_items:
                     try:
+                        print(f"\n[STATUS:Loading MCP ({srv_name})...]", flush=True)
                         merged_env = os.environ.copy()
                         tool_env = srv_conf.get("env", {})
                         if isinstance(tool_env, dict):
@@ -2048,9 +2049,9 @@ HOW TO ACT:
                         srv_tools = await asyncio.wait_for(init_single_server(), timeout=14.0)
                         if srv_tools:
                             mcp_tools.extend(srv_tools)
-                            print(f"[MCP] Loaded {len(srv_tools)} tools from server '{srv_name}'", flush=True)
+                            sys.stderr.write(f"[MCP] Loaded {len(srv_tools)} tools from server '{srv_name}'\n")
                     except Exception as srv_err:
-                        print(f"[MCP NOTICE] Server '{srv_name}' skipped ({srv_err}).", flush=True)
+                        sys.stderr.write(f"[MCP NOTICE] Server '{srv_name}' skipped ({srv_err})\n")
 
             # Smart tool relevance ranking and budgeting
             # Groq on-demand tier has a strict 7,000 ITPM limit; 14 tools keeps schema size under 2k tokens while giving full domain access.
@@ -2113,9 +2114,14 @@ HOW TO ACT:
                     matched_count = sum(1 for t in ranked_mcp_tools if score_mcp_tool(t) > 0)
                     selected_mcp = ranked_mcp_tools[:avail_mcp_slots]
                     tools = list(core_tools) + selected_mcp
-                    print(f"\n[INFO] Selected {len(selected_mcp)} most relevant MCP tools for {provider} (budget: {max_tools_budget}, domain matches: {matched_count}).", flush=True)
+                    sys.stderr.write(f"[INFO] Selected {len(selected_mcp)} most relevant MCP tools for {provider} (budget: {max_tools_budget}, domain matches: {matched_count})\n")
+                    if matched_count > 0:
+                        print(f"\n[STATUS:Loaded {len(selected_mcp)} MCP tools ({matched_count} matched)]", flush=True)
+                    else:
+                        print(f"\n[STATUS:Loaded {len(selected_mcp)} MCP tools]", flush=True)
                 else:
                     tools = list(core_tools) + ranked_mcp_tools
+                    print(f"\n[STATUS:Loaded {len(ranked_mcp_tools)} MCP tools]", flush=True)
             else:
                 tools = list(core_tools)
                 

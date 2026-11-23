@@ -2606,6 +2606,10 @@ function AGView:update()
           out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
           out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
           out = out:gsub("Using tool:[^\n]*\r?\n?", "")
+          out = out:gsub("%[MCP%][^\r\n]*\r?\n?", "")
+          out = out:gsub("%[MCP NOTICE%][^\r\n]*\r?\n?", "")
+          out = out:gsub("%[INFO%][^\r\n]*\r?\n?", "")
+          out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
           out = out:gsub("<tool_call.-</tool_call>%s*", "")
           out = out:gsub("<function.-</function>%s*", "")
           out = out:gsub("<function_call.-</function_call>%s*", "")
@@ -2616,6 +2620,9 @@ function AGView:update()
           out = out:gsub("^%s*%]%s*\r?\n", "")
           out = out:gsub("%s*%]%s*$", "")
           out = out:gsub("\n\n\n+", "\n\n")
+          if not tab._ai_buf or tab._ai_buf == "" then
+            out = out:gsub("^\r?\n+", "")
+          end
           if #out > 0 then
             tab._ai_buf = (tab._ai_buf or "") .. out
           end
@@ -2640,6 +2647,10 @@ function AGView:update()
             out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
             out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
             out = out:gsub("Using tool:[^\n]*\r?\n?", "")
+            out = out:gsub("%[MCP%][^\r\n]*\r?\n?", "")
+            out = out:gsub("%[MCP NOTICE%][^\r\n]*\r?\n?", "")
+            out = out:gsub("%[INFO%][^\r\n]*\r?\n?", "")
+            out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
             out = out:gsub("<tool_call.-</tool_call>%s*", "")
             out = out:gsub("<function.-</function>%s*", "")
             out = out:gsub("<function_call.-</function_call>%s*", "")
@@ -2650,6 +2661,9 @@ function AGView:update()
             out = out:gsub("^%s*%]%s*\r?\n", "")
             out = out:gsub("%s*%]%s*$", "")
             out = out:gsub("\n\n\n+", "\n\n")
+            if not tab._ai_buf or tab._ai_buf == "" then
+              out = out:gsub("^\r?\n+", "")
+            end
             if #out > 0 then
               tab._ai_buf = (tab._ai_buf or "") .. out
             end
@@ -4519,6 +4533,25 @@ function AGView:draw()
       local function compact_status(st)
         if not st or st == "" then return "" end
         st = st:gsub("%.+$", "")
+
+        -- Handle MCP status updates
+        local mcp_cnt, mcp_mat = st:match("^Loaded%s+(%d+)%s+MCP tools%s*%((%d+)%s*matched%)")
+        if mcp_cnt and mcp_mat then
+          return string.format("Ready (%s MCP tools, %s matched)", mcp_cnt, mcp_mat)
+        end
+        local mcp_cnt = st:match("^Loaded%s+(%d+)%s+MCP tools")
+        if mcp_cnt then
+          return string.format("Ready (%s MCP tools)", mcp_cnt)
+        end
+        local srv = st:match("^Loading MCP%s*%((.-)%)")
+        if srv then
+          srv = srv:gsub("^@modelcontextprotocol/server%-", ""):gsub("^server%-", "")
+          if #srv > 16 then srv = srv:sub(1, 13) .. "..." end
+          return string.format("Connecting %s", srv)
+        end
+        if st:match("^Loading MCP tools") or st:match("^Connecting MCP tools") then
+          return "Connecting MCP tools"
+        end
         
         -- Handle "[AGENT] Using tool: foo" or "Using tool: foo"
         local agent_t = st:match("Using tool:%s*([%w_]+)")
