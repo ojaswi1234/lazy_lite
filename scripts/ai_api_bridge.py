@@ -1389,7 +1389,7 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
                             f"1. This is a standalone Android Package (APK). You can directly run REA MCP tools (such as inspect_android_package, decode_android_resources, search_android_classes) directly on this file path ('{resolved}')."
                             if is_apk_file else
                             f"GUIDANCE FOR REVERSE ENGINEERING:\n"
-                            f"1. To unpack this archive, execute via local_shell (e.g. Expand-Archive -Path '{resolved}' -DestinationPath '<extract_dir>' -Force or tar -xf '{resolved}' -C '<extract_dir>').\n"
+                            f"1. To unpack this archive, execute via local_shell: python -m zipfile -e '{resolved}' '<extract_dir>' (or tar -xf '{resolved}' -C '<extract_dir>').\n"
                             f"2. Then directly run REA MCP tools (such as inspect_android_package, decode_android_resources, search_android_classes) on the extracted inner APK file(s)."
                         )
                         return (
@@ -1586,7 +1586,7 @@ HOW TO ACT:
      - If required input files or targets (e.g. an APK file, binary path, repo name, or search query) are not yet specified, call available discovery tools (e.g. list_adb_devices, resolve_adb_packages, search_issues) or clearly ask the user for the file path/target while stating the exact tools you are ready to execute on it.
    - Global Filesystem Scope & Package Archives (.xapk, .apk, .ipa, .zip):
      - You have global filesystem scope across the user's computer. Files specified by absolute path (e.g. in Downloads, Desktop, or other directories) can be accessed, read, and inspected directly. Never refuse or claim a file is inaccessible because it is outside the workspace.
-     - An .xapk file is a standard ZIP container containing the base .apk and asset packages. To inspect or reverse engineer it, read_file will automatically inspect its inner APKs, or you can unpack it via local_shell (e.g. Expand-Archive -Path "<path.xapk>" -DestinationPath "<extract_dir>" -Force or tar -xf "<path.xapk>"), then immediately invoke REA tools (e.g. inspect_android_package, decode_android_resources, search_android_classes) on the extracted .apk!"""
+     - An .xapk file is a standard ZIP container containing the base .apk and asset packages. To inspect or reverse engineer it, read_file will automatically inspect its inner APKs, or you can unpack it via local_shell (e.g. python -m zipfile -e "<path.xapk>" "<extract_dir>" or tar -xf "<path.xapk>" -C "<extract_dir>"), then immediately invoke REA tools (e.g. inspect_android_package, decode_android_resources, search_android_classes) on the extracted .apk!"""
 
         custom_skill_prompt = ""
         installed_skills_list = []
