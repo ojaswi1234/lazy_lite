@@ -308,8 +308,7 @@ function TerraformVisualizerView:on_mouse_pressed(button, x, y, clicks)
         elseif item.action == "jump" and item.abs_file and item.line then
           local doc = core.open_doc(item.abs_file)
           if doc then
-            local node = core.root_view:get_active_node_default()
-            local doc_view = node:open_doc(doc)
+            local doc_view = core.root_view:open_doc(doc)
             doc:set_selection(item.line, 1, item.line, 1)
             if doc_view and doc_view.scroll_to_line then
               doc_view:scroll_to_line(item.line, true)
@@ -521,7 +520,9 @@ local function toggle_tf_view()
   if tv_view and core.root_view.root_node:get_node_for_view(tv_view) then
     local node = core.root_view.root_node:get_node_for_view(tv_view)
     if sidebar and node == sidebar and node.active_view == tv_view then
-      node:close_view(core.root_view.root_node, tv_view)
+      for i = #node.views, 1, -1 do
+        node:close_view(core.root_view.root_node, node.views[i])
+      end
       tv_view = nil
     elseif sidebar and node == sidebar then
       node:set_active_view(tv_view)
@@ -534,10 +535,16 @@ local function toggle_tf_view()
     if not tv_view then tv_view = TerraformVisualizerView() end
     tv_view.visible = true
     if sidebar then
+      for i = #sidebar.views, 1, -1 do
+        if sidebar.views[i] ~= tv_view then
+          sidebar:close_view(core.root_view.root_node, sidebar.views[i])
+        end
+      end
       if not core.root_view.root_node:get_node_for_view(tv_view) then
         sidebar:add_view(tv_view)
       end
       sidebar:set_active_view(tv_view)
+      core.set_active_view(tv_view)
     else
       local primary = core.root_view:get_primary_node()
       sidebar = primary:split("right", tv_view, { x = true }, true)
@@ -553,9 +560,11 @@ local function toggle_tf_view()
           sidebar._ab_patched = true
         end
         rawset(_G, "_ag_sidebar_node", sidebar)
+        sidebar.size.x = 380 * SCALE
+        tv_view.size.x = 380 * SCALE
+        core.set_active_view(tv_view)
       end
     end
-    core.set_active_view(tv_view)
     tv_view:scan_project()
   end
   core.redraw = true

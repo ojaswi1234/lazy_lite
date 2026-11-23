@@ -70,7 +70,9 @@ local function is_sidebar_view(view)
   return name == "AI Plugins"
       or name == "Docker"
       or name == "Podman"
+      or name == "Podman Manager"
       or name == "LeetCode"
+      or name:find("^LeetCode") ~= nil
       or name == "MongoDB Explorer"
       or name == "MongoDB"
       or name == "Antigravity"
@@ -98,9 +100,9 @@ function ActivityBar:new()
   }
   -- Bottom-anchored auth button
   self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "Aether AI / Toggle" }
-  self.active_id = "ai_plugin"
+  self.active_id = nil
   self.target_size = 48 * SCALE
-  self.visible = false -- Start hidden; will be pulled open by the AI Sidebar
+  self.visible = true -- Activity Bar is always docked and visible
 end
 
 function ActivityBar:get_name() return self.name end
@@ -108,19 +110,12 @@ function ActivityBar:get_name() return self.name end
 function ActivityBar:update()
   ActivityBar.super.update(self)
   
-  -- Dynamically check if the AI sidebar is active and has views
-  local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
-  local has_views = sidebar and sidebar.views and #sidebar.views > 0
-  
-  -- If sidebar is closed/empty, hide the Activity Bar so it "slides along with it"
-  if has_views and not self.visible then
-    self.visible = true
-  elseif not has_views and self.visible then
-    self.visible = false
-  end
+  -- Activity Bar stays permanently docked on the right
+  self.visible = true
 
   -- Track the active item in the activity bar based on sidebar's active view
-  if sidebar and sidebar.active_view then
+  local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
+  if sidebar and sidebar.active_view and sidebar.views and #sidebar.views > 0 then
     local vname = sidebar.active_view.name or (sidebar.active_view.get_name and sidebar.active_view:get_name()) or ""
     if vname == "AI Plugins" then
       self.active_id = "ai_plugin"
@@ -128,20 +123,24 @@ function ActivityBar:update()
       self.active_id = "visualizer"
     elseif vname == "Terraform Visualizer" or vname == "Terraform" then
       self.active_id = "terraform"
-    elseif vname == "Docker" or vname == "Podman" then
+    elseif vname == "Docker" or vname == "Podman" or vname == "Podman Manager" then
       self.active_id = "podman"
-    elseif vname == "LeetCode" then
+    elseif vname == "LeetCode" or vname:find("^LeetCode") then
       self.active_id = "leetcode"
     elseif vname == "MongoDB Explorer" or vname == "MongoDB" then
       self.active_id = "mongodb"
     elseif vname == "YouTube Player" then
       self.active_id = "yt_player"
     elseif vname == "Antigravity" or vname == "Aether" then
+      self.active_id = "auth"
+    else
       self.active_id = nil
     end
+  else
+    self.active_id = nil
   end
   
-  local dest = self.visible and self.target_size or 0
+  local dest = self.target_size or (48 * SCALE)
   self:move_towards(self.size, "x", dest)
 end
 
@@ -372,13 +371,6 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
     local idx = math.floor(rel_y / cell) + 1
     if self.items[idx] then
       local item = self.items[idx]
-      local current_node = _G.get_sidebar_node and _G.get_sidebar_node(true)
-      
-      if self.active_id == item.id then
-        self.active_id = nil
-      else
-        self.active_id = item.id
-      end
       command.perform(item.command)
       return true
     end

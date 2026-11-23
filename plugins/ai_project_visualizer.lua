@@ -992,16 +992,32 @@ local ALLOWED_EXTENSIONS = {
 AIAnalyzer.PROVIDERS = {
   groq = {
     name = "Groq",
-    default_model = "openai/gpt-oss-120b",
-    models = { "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b" },
+    default_model = "openai/gpt-oss-20b",
+    models = { "openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b" },
     endpoint = "https://api.groq.com/openai/v1/chat/completions",
     type = "openai_chat",
     env_keys = { "GROQ_API_KEY" },
   },
+  nvidia = {
+    name = "NVIDIA NIM",
+    default_model = "nvidia/nemotron-3.5-bolt-e4b",
+    models = {
+      "nvidia/nemotron-3.5-bolt-e4b",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "minimaxai/minimax-m3.1-flash",
+      "stepfun-ai/step-5-preview",
+      "poolside/laguna-xs-2.1",
+    },
+    endpoint = "https://integrate.api.nvidia.com/v1/chat/completions",
+    type = "openai_chat",
+    env_keys = { "NVIDIA_API_KEY", "NVAPI_KEY" },
+  },
   ollama = {
     name = "Ollama Cloud",
     default_model = "gpt-oss:120b",
-    models = { "gpt-oss:120b", "deepseek-v4.1-flash", "mistral-large-3:675b", "gemma4:31b", "nemotron-3-nano:30b" },
+    models = { "gpt-oss:120b", "gemma4:31b", "nemotron-3-nano:30b", "gpt-oss:20b", "llama3.3", "mistral-large-3:675b" },
     endpoint = "https://ollama.com/v1/chat/completions",
     type = "openai_chat",
     env_keys = { "OLLAMA_API_KEY", "OLLAMA_HOST" },
@@ -1031,6 +1047,91 @@ AIAnalyzer.PROVIDERS = {
     env_keys = { "ANTHROPIC_API_KEY" },
   },
 }
+
+-- Label helper for categorization
+function AIAnalyzer.get_model_label(model_name)
+  local m = (model_name or ""):lower()
+  if m:find("reason") or m:find("r1") or m:find("120b") or m:find("ultra") or m:find("thinking") or m:find("opus") then
+    return " [Reasoning]"
+  elseif m:find("bolt") or m:find("flash") or m:find("20b") or m:find("instant") or m:find("mini") or m:find("lite") then
+    return " [Fast]"
+  elseif m:find("code") or m:find("coder") or m:find("qwen") or m:find("codex") then
+    return " [Coder]"
+  elseif m:find("4o") or m:find("sonnet") or m:find("gemini%-3%.[78]") or m:find("step") then
+    return " [Flagship]"
+  end
+  return " [General]"
+end
+
+-- Read cached dynamic models from model_cache.json
+function AIAnalyzer.get_cached_models(provider)
+  local models = {}
+  local seen = {}
+  local udir = rawget(_G, "USERDIR") or (os.getenv("USERPROFILE") or os.getenv("HOME") or "") .. "/.config/lite-xl"
+  local sep = package.config:sub(1,1)
+  local cache_paths = {
+    udir .. sep .. "model_cache.json",
+    udir:gsub('\\', '/') .. "/model_cache.json",
+  }
+
+  for _, cp in ipairs(cache_paths) do
+    local f = io.open(cp, "r")
+    if f then
+      local content = f:read("*a")
+      f:close()
+      if content and #content > 0 then
+        local data = json_decode(content)
+        if type(data) == "table" then
+          if data.cloud_api and type(data.cloud_api.models) == "table" then
+            local prefix = provider .. "/"
+            for _, m in ipairs(data.cloud_api.models) do
+              local mname = (type(m) == "table" and m.name) or (type(m) == "string" and m)
+              if mname and mname:sub(1, #prefix) == prefix then
+                local actual = mname:sub(#prefix + 1)
+                if not seen[actual] then
+                  seen[actual] = true
+                  table.insert(models, actual)
+                end
+              end
+            end
+          end
+          if provider == "gemini" then
+            for _, section in ipairs({ data.opencode, data.agy }) do
+              if section and type(section.models) == "table" then
+                for _, m in ipairs(section.models) do
+                  local mname = (type(m) == "table" and m.name) or (type(m) == "string" and m)
+                  if mname and mname:lower():find("gemini") then
+                    local clean_m = mname:match("^(%S+)")
+                    if clean_m then
+                      clean_m = clean_m:gsub("^google/", ""):gsub("^opencode/", "")
+                      if clean_m:find("gemini") and not seen[clean_m] then
+                        seen[clean_m] = true
+                        table.insert(models, clean_m)
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+      if #models > 0 then break end
+    end
+  end
+
+  local pinfo = AIAnalyzer.PROVIDERS[provider]
+  if pinfo and pinfo.models then
+    for _, m in ipairs(pinfo.models) do
+      if not seen[m] then
+        seen[m] = true
+        table.insert(models, m)
+      end
+    end
+  end
+
+  return models
+end
 
 -- Cancel flag
 local _cancel_requested = false
@@ -1240,6 +1341,7 @@ function AIAnalyzer.load_saved_keys()
         if k and v then
           v = v:gsub('^["\']', ''):gsub('["\']$', '')
           if k == "GROQ_API_KEY" and not keys["groq"] then keys["groq"] = v end
+          if (k == "NVIDIA_API_KEY" or k == "NVAPI_KEY") and not keys["nvidia"] then keys["nvidia"] = v end
           if (k == "GEMINI_API_KEY" or k == "GOOGLE_API_KEY") and not keys["gemini"] then keys["gemini"] = v end
           if (k == "OLLAMA_API_KEY" or k == "OLLAMA_HOST") and not keys["ollama"] then keys["ollama"] = v end
           if k == "OPENAI_API_KEY" and not keys["openai"] then keys["openai"] = v end
@@ -1252,6 +1354,9 @@ function AIAnalyzer.load_saved_keys()
 
   -- 3. Environment variables
   if not keys["groq"] and os.getenv("GROQ_API_KEY") then keys["groq"] = os.getenv("GROQ_API_KEY") end
+  if not keys["nvidia"] and (os.getenv("NVIDIA_API_KEY") or os.getenv("NVAPI_KEY")) then
+    keys["nvidia"] = os.getenv("NVIDIA_API_KEY") or os.getenv("NVAPI_KEY")
+  end
   if not keys["gemini"] and (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) then
     keys["gemini"] = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
   end
@@ -1530,8 +1635,12 @@ local function call_provider(provider, model, api_key, prompt, is_json)
       model = model,
       messages = messages,
       temperature = 0.2,
-      max_completion_tokens = 8192,
     }
+    if provider == "openai" then
+      req.max_completion_tokens = 8192
+    else
+      req.max_tokens = 8192
+    end
     if is_json then
       req.response_format = { type = "json_object" }
     end
@@ -7605,7 +7714,7 @@ end
 
 function VisualizerView:select_provider_dialog()
   local keys = AIAnalyzer.load_saved_keys()
-  local providers_list = { "groq", "ollama", "gemini", "openai", "anthropic" }
+  local providers_list = { "groq", "nvidia", "ollama", "gemini", "openai", "anthropic" }
   local items = {}
 
   for _, p in ipairs(providers_list) do
@@ -7635,6 +7744,44 @@ function VisualizerView:select_provider_dialog()
 
       local pinfo = AIAnalyzer.PROVIDERS[selected_prov]
 
+      local function prompt_for_model()
+        local cached_models = AIAnalyzer.get_cached_models(selected_prov)
+        local cur_model = (selected_prov == self.provider and self.model) or pinfo.default_model or ""
+        local model_items = {}
+
+        for _, m in ipairs(cached_models) do
+          local lbl = AIAnalyzer.get_model_label(m)
+          local is_curr = (m == cur_model) and " (Current)" or ""
+          table.insert(model_items, string.format("%s%s%s", m, lbl, is_curr))
+        end
+
+        core.command_view:enter("Select Model for " .. pinfo.name .. " (filter or type custom)", {
+          text = cur_model,
+          submit = function(model_text)
+            model_text = model_text:match("^%s*(.-)%s*$")
+            if not model_text or #model_text == 0 then
+              model_text = cur_model
+            end
+            -- Strip capability tag and current tag
+            model_text = model_text:gsub("%s*%[.-%].*", ""):gsub("%s*%(.-%).*", "")
+            model_text = model_text:match("^%s*(.-)%s*$")
+            self:set_provider_and_model(selected_prov, model_text)
+            show_toast(string.format("AI Visualizer: Switched to %s (%s)", pinfo.name, model_text))
+            self:reanalyze()
+          end,
+          suggest = function(filter_text)
+            local q = (filter_text or ""):lower()
+            local res = {}
+            for _, item in ipairs(model_items) do
+              if item:lower():find(q, 1, true) then
+                table.insert(res, item)
+              end
+            end
+            return res
+          end
+        })
+      end
+
       -- If key is missing, prompt to enter it and save it to ai_api_keys.json
       if not keys[selected_prov] or #keys[selected_prov] == 0 then
         core.command_view:enter("Enter API Key for " .. pinfo.name, {
@@ -7642,29 +7789,16 @@ function VisualizerView:select_provider_dialog()
             key_text = key_text:match("^%s*(.-)%s*$")
             if key_text and #key_text > 0 then
               AIAnalyzer.save_key(selected_prov, key_text)
-              self:set_provider_and_model(selected_prov, pinfo.default_model)
-              show_toast("Saved key & switched to " .. pinfo.name)
-              self:reanalyze()
+              keys[selected_prov] = key_text
+              show_toast("Saved key for " .. pinfo.name)
+              prompt_for_model()
             end
           end
         })
         return
       end
 
-      -- If key exists, choose model
-      local def_model = (selected_prov == self.provider and self.model) or pinfo.default_model or ""
-      core.command_view:enter("Enter Model for " .. pinfo.name .. " (default: " .. def_model .. ")", {
-        text = def_model,
-        submit = function(model_text)
-          model_text = model_text:match("^%s*(.-)%s*$")
-          if not model_text or #model_text == 0 then
-            model_text = def_model
-          end
-          self:set_provider_and_model(selected_prov, model_text)
-          show_toast(string.format("AI Visualizer: Switched to %s (%s)", pinfo.name, model_text))
-          self:reanalyze()
-        end
-      })
+      prompt_for_model()
     end,
     suggest = function(text)
       local res = {}
@@ -7681,7 +7815,7 @@ end
 function VisualizerView:cycle_provider()
   local keys = AIAnalyzer.load_saved_keys()
   local available = {}
-  local providers_list = { "groq", "ollama", "gemini", "openai", "anthropic" }
+  local providers_list = { "groq", "nvidia", "ollama", "gemini", "openai", "anthropic" }
   for _, p in ipairs(providers_list) do
     if keys[p] and #keys[p] > 0 then
       table.insert(available, p)
@@ -10252,6 +10386,11 @@ local function open_visualizer()
   local new_view = VisualizerView()
   new_view.visible = true
   if sidebar then
+    for i = #sidebar.views, 1, -1 do
+      if sidebar.views[i] ~= new_view then
+        sidebar:close_view(core.root_view.root_node, sidebar.views[i])
+      end
+    end
     if not core.root_view.root_node:get_node_for_view(new_view) then
       sidebar:add_view(new_view)
     end
@@ -10271,6 +10410,8 @@ local function open_visualizer()
         sidebar._ab_patched = true
       end
       rawset(_G, "_ag_sidebar_node", sidebar)
+      sidebar.size.x = 520 * SCALE
+      new_view.size.x = 520 * SCALE
     end
   end
   core.set_active_view(new_view)
@@ -10282,7 +10423,9 @@ local function toggle_visualizer()
   local view, node = find_visualizer_view()
   if view and node then
     if sidebar and node == sidebar and node.active_view == view then
-      node:close_view(core.root_view.root_node, view)
+      for i = #node.views, 1, -1 do
+        node:close_view(core.root_view.root_node, node.views[i])
+      end
     elseif sidebar and node == sidebar then
       node:set_active_view(view)
       core.set_active_view(view)
@@ -10293,10 +10436,16 @@ local function toggle_visualizer()
     if not view then view = VisualizerView() end
     view.visible = true
     if sidebar then
+      for i = #sidebar.views, 1, -1 do
+        if sidebar.views[i] ~= view then
+          sidebar:close_view(core.root_view.root_node, sidebar.views[i])
+        end
+      end
       if not core.root_view.root_node:get_node_for_view(view) then
         sidebar:add_view(view)
       end
       sidebar:set_active_view(view)
+      core.set_active_view(view)
     else
       local primary = core.root_view:get_primary_node()
       sidebar = primary:split("right", view, { x = true }, true)
@@ -10312,9 +10461,11 @@ local function toggle_visualizer()
           sidebar._ab_patched = true
         end
         rawset(_G, "_ag_sidebar_node", sidebar)
+        sidebar.size.x = 520 * SCALE
+        view.size.x = 520 * SCALE
+        core.set_active_view(view)
       end
     end
-    core.set_active_view(view)
   end
   core.redraw = true
 end
