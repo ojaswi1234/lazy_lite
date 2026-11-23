@@ -6,12 +6,13 @@ import sys
 import os
 import re
 import uuid
+import time
 import subprocess
 import shutil
 from contextlib import asynccontextmanager, AsyncExitStack
 import queue
 import threading
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, TypedDict, Optional, Any, Dict, List, Union
 import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 from ai_memory import MicroMemory
@@ -1237,6 +1238,158 @@ KNOWN_MCP_INFO = {
     }
 }
 
+# ==================================================================================================
+# Universal Model Context Protocol (MCP) Semantic Discovery, Indexing & Execution Engine
+# ==================================================================================================
+
+DOMAIN_TAXONOMY = {
+    "Reverse Engineering & Decompilation": ["reverse", "decompile", "disassemble", "apktool", "jadx", "jeb", "smali"],
+    "Android & Mobile Analysis": ["android", "apk", "adb", "dex"],
+    "Binary & Native Inspection": ["binary", "native", "macho", "pe", "elf", "procedure", "assembly", "instruction", "call_graph"],
+    "Dynamic Debugging & Instrumentation": ["frida", "gdb", "rizin", "cutter", "debug", "session", "instrument"],
+    "Web & JavaScript Runtime": ["web", "javascript", "electron", "browser", "dom", "npm"],
+    "Packet & Network Protocol Analysis": ["packet", "pcap", "signal", "network"],
+    "Firmware & Hardware Extraction": ["firmware", "hardware", "flash"],
+    "Email & Messaging": ["gmail", "mail", "email", "message", "thread", "inbox", "slack"],
+    "Calendar & Scheduling": ["calendar", "event", "schedule", "meeting", "meet"],
+    "Google Docs & Office Suite": ["document", "sheet", "slide", "cells", "spreadsheet"],
+    "Cloud Drive & Storage": ["drive", "folder", "upload", "download", "storage", "database", "sql"],
+    "GitHub & Version Control": ["git", "github", "repo", "branch", "pull", "commit", "issue"]
+}
+
+def stem(word):
+    word = (word or "").lower()
+    for sfx in ["ing", "ies", "es", "ed", "s", "tion", "ment", "able", "al"]:
+        if word.endswith(sfx) and len(word) > len(sfx) + 2:
+            return word[:-len(sfx)]
+    return word
+
+def tokenize(text):
+    if not text: return []
+    s1 = re.sub(r'(.)([A-Z][a-z]+)', r'\1_\2', text)
+    s2 = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s1)
+    raw = re.findall(r'[a-zA-Z0-9]{2,}', s2.lower())
+    stop = {
+        "the", "and", "for", "with", "from", "this", "that", "you", "your", "have", "most",
+        "some", "please", "help", "can", "use", "using", "into", "onto", "out", "any", "all",
+        "our", "are", "were", "been", "how", "why", "when", "what", "which", "will", "would",
+        "should", "could", "also", "just", "about", "tool", "tools", "mcp"
+    }
+    return [stem(w) for w in raw if w not in stop]
+
+def classify_mcp_tools(tools):
+    names_and_descs = " ".join([getattr(t, "name", "") + " " + getattr(t, "description", "") for t in tools]).lower()
+    matched = []
+    for domain, kws in DOMAIN_TAXONOMY.items():
+        if any(kw in names_and_descs for kw in kws):
+            matched.append(domain)
+    return matched
+
+def get_mcp_catalog_cache_path():
+    config_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(config_dir, "mcp_catalog_cache.json")
+
+def load_mcp_catalog_cache():
+    p = get_mcp_catalog_cache_path()
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8-sig") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_mcp_catalog_cache(cache_data):
+    p = get_mcp_catalog_cache_path()
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f, indent=2)
+    except Exception:
+        pass
+
+def update_server_catalog_profile(srv_name, tools):
+    if not tools:
+        return
+    cache = load_mcp_catalog_cache()
+    tool_names = [getattr(t, "name", "") for t in tools]
+    domains = classify_mcp_tools(tools)
+    
+    priority_prefixes = ("inspect_", "search_", "list_", "get_", "read_", "create_", "decode_", "trace_", "extract_", "binary_")
+    key_tools = []
+    for ep in priority_prefixes:
+        for t in tool_names:
+            if t.startswith(ep) and t not in key_tools:
+                key_tools.append(t)
+                if len(key_tools) >= 6: break
+        if len(key_tools) >= 6: break
+    if len(key_tools) < 6:
+        for t in tool_names:
+            if t not in key_tools:
+                key_tools.append(t)
+                if len(key_tools) >= 6: break
+        
+    cache[srv_name] = {
+        "title": srv_name.replace("@modelcontextprotocol/server-", "").replace("server-", "").replace("-", " ").title(),
+        "tool_count": len(tools),
+        "domains": domains[:6],
+        "key_tools": key_tools,
+        "last_updated": int(time.time())
+    }
+    save_mcp_catalog_cache(cache)
+
+class UniversalToolRanker:
+    def __init__(self, tools):
+        import math
+        from collections import Counter
+        self.tools = tools
+        self.doc_index = []
+        df = Counter()
+        for t in tools:
+            name_tokens = tokenize(getattr(t, "name", ""))
+            srv_tokens = tokenize(getattr(t, "_mcp_server", ""))
+            desc_tokens = tokenize(getattr(t, "description", ""))
+            
+            term_weights = Counter()
+            for tok in name_tokens: term_weights[tok] += 5.0
+            for tok in srv_tokens: term_weights[tok] += 4.0
+            for tok in desc_tokens: term_weights[tok] += 2.0
+            
+            for tok in term_weights.keys():
+                df[tok] += 1
+            self.doc_index.append((t, term_weights))
+            
+        N = max(1, len(tools))
+        self.idf = {tok: math.log(1.0 + (N / count)) for tok, count in df.items()}
+
+    def rank(self, prompt, budget=15):
+        q_tokens = tokenize(prompt)
+        scored = []
+        p_lower = (prompt or "").lower()
+        ENTRYPOINTS = ("inspect_", "search_", "list_", "get_", "read_", "decode_", "trace_", "overview", "find_", "binary_")
+        
+        for t, term_weights in self.doc_index:
+            t_name = getattr(t, "name", "")
+            t_srv = getattr(t, "_mcp_server", "").lower()
+            score = 0.0
+            
+            for q in q_tokens:
+                if q in term_weights:
+                    score += term_weights[q] * (1.0 + self.idf.get(q, 1.0))
+            
+            # Server name matching with strict word boundaries
+            if t_srv:
+                parts = [p for p in re.split(r'[/_\-@]', t_srv) if len(p) >= 3 and p not in ["server", "modelcontextprotocol"]]
+                if any(re.search(rf'\b{re.escape(part)}\b', p_lower) for part in parts):
+                    score += 50.0
+                
+            if any(t_name.startswith(ep) for ep in ENTRYPOINTS):
+                score += 5.0
+                
+            scored.append((t, score))
+            
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:budget]
+
 def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None):
     async def _run_agent_async():
         try:
@@ -1644,13 +1797,23 @@ HOW TO ACT:
                     mcp_data = json.load(f)
                 mcp_servers = mcp_data.get("mcpServers", {})
                 if mcp_servers:
+                    cat_cache = load_mcp_catalog_cache()
                     server_lines = []
                     for srv_name, srv_conf in mcp_servers.items():
-                        info = KNOWN_MCP_INFO.get(srv_name)
-                        if not info:
-                            base = srv_name.split("/")[-1].replace("server-", "")
-                            info = KNOWN_MCP_INFO.get(base, {"title": srv_name.title(), "description": f"Custom MCP Server ({srv_conf.get('command', 'tool')})"})
-                        server_lines.append(f"- **{srv_name}**: {info['description']}")
+                        prof = cat_cache.get(srv_name)
+                        if prof:
+                            dom_str = ", ".join(prof.get("domains", []))
+                            kt_str = ", ".join(prof.get("key_tools", [])[:5])
+                            desc = f"{prof.get('tool_count', 0)} tools. Capabilities: {dom_str}."
+                            if kt_str:
+                                desc += f" Key discovery tools: {kt_str}."
+                        else:
+                            info = KNOWN_MCP_INFO.get(srv_name)
+                            if not info:
+                                base = srv_name.split("/")[-1].replace("server-", "")
+                                info = KNOWN_MCP_INFO.get(base, {"title": srv_name.title(), "description": f"Custom MCP Server ({srv_conf.get('command', 'tool')})"})
+                            desc = info["description"]
+                        server_lines.append(f"- **{srv_name}**: {desc}")
                     
                     if server_lines:
                         if enable_tools and not read_only:
@@ -1659,13 +1822,14 @@ HOW TO ACT:
                             status_note = "[STATUS: CONFIGURED IN LITE-XL — To execute or call these tools directly, the user can toggle 'Auto' (Autopilot) or 'MCP' in the chat header]"
                         
                         installed_mcp_context = (
-                            f"\n\nINSTALLED & CONFIGURED MCP (Model Context Protocol) TOOLS & SERVERS:\n"
+                            f"\n\nINSTALLED & CONFIGURED MCP (Model Context Protocol) CAPABILITIES:\n"
                             f"{status_note}\n"
                             + "\n".join(server_lines) +
-                            "\nWhen asked what MCP tools or servers you have, accurately describe these installed MCP tools and their capabilities. "
-                            "When live tools are bound in this session, actively leverage and invoke them to accomplish the user's task. "
-                            "When the user requests reverse engineering (e.g. Android apps, watch apps, APKs, binaries, firmware), you have access to REA (Reverse Engineer Anything) tools: "
-                            "actively invoke REA tools (such as list_adb_devices, resolve_adb_packages, pull_adb_package, inspect_android_package, decode_android_resources, search_android_classes, binary_overview, or batch_decompile) or guide the user step-by-step using these capabilities rather than giving canned refusals.\n"
+                            "\n\nUNIVERSAL MCP EXECUTION FRAMEWORK & ZERO-REFUSAL CONTRACT:\n"
+                            "1. DIRECT TOOL INVOCATION: The highest-relevance tools for your prompt are directly bound for 1-hop execution.\n"
+                            "2. DYNAMIC TOOL DISCOVERY: To search for or inspect ANY tool schema across all connected servers, call `search_mcp_tools(query='...')`.\n"
+                            "3. DYNAMIC TOOL EXECUTION: To execute ANY tool from any server (even if not directly bound in your session), call `call_mcp_tool(server_name='...', tool_name='...', arguments={...})`.\n"
+                            "4. ZERO-REFUSAL POLICY: You have 100% full execution access to every tool in every configured MCP server. NEVER claim you cannot perform a task supported by your servers or that you lack specialized tools. Always discover and execute the appropriate tools.\n"
                         )
         except Exception:
             pass
@@ -2036,6 +2200,14 @@ HOW TO ACT:
                     q = (tool_args.get("query") or tool_args.get("q") or "").strip().rstrip(".")
                     q_short = (q[:18] + "...") if len(q) > 18 else q
                     status_msg = f"Searching '{q_short}'{step_tag}" if q_short else f"Searching web{step_tag}"
+                elif tool_name == "call_mcp_tool":
+                    inner_tool = (tool_args.get("tool_name") or "tool").replace("_", " ")
+                    inner_srv = tool_args.get("server_name") or "mcp"
+                    status_msg = f"Calling {inner_tool} ({inner_srv}){step_tag}"
+                elif tool_name == "search_mcp_tools":
+                    q = (tool_args.get("query") or "").strip().rstrip(".")
+                    q_short = (q[:18] + "...") if len(q) > 18 else q
+                    status_msg = f"Searching tools ({q_short}){step_tag}" if q_short else f"Searching tools{step_tag}"
                 else:
                     t_clean = tool_name.replace("mcp__", "").replace("tool_", "").replace("_", " ")
                     status_msg = f"Running {t_clean}{step_tag}"
@@ -2132,96 +2304,94 @@ HOW TO ACT:
                     except Exception as srv_err:
                         pass
 
+            # Define Universal Meta-Tools for Dynamic MCP Discovery & Invocation
+            if enable_tools and not read_only:
+                class SearchMcpToolsInput(BaseModel):
+                    query: str = Field(description="Search keywords describing the capability, action, or target (e.g. 'apk', 'decompile', 'github pr', 'gmail draft')")
+                    server: Optional[str] = Field(None, description="Optional server name filter (e.g. 'rea-agents', 'google-workspace', '@modelcontextprotocol/server-github')")
+
+                class CallMcpToolInput(BaseModel):
+                    server_name: str = Field(description="The MCP server providing the tool (e.g. 'rea-agents', 'google-workspace', '@modelcontextprotocol/server-github')")
+                    tool_name: str = Field(description="The exact name of the tool to execute")
+                    arguments: Optional[Any] = Field(default_factory=dict, description="Dictionary or JSON object of arguments matching the tool's input schema")
+
+                @tool(args_schema=SearchMcpToolsInput)
+                def search_mcp_tools(query: str, server: Optional[str] = None) -> str:
+                    """Search for available tools across all connected MCP servers by keywords or functionality.
+                    Use this to discover specialized tools not present in your directly bound tool list.
+                    Returns tool names, server names, descriptions, and required argument schemas."""
+                    if not mcp_tools:
+                        return "No MCP servers or tools are currently connected."
+                    s_filter = (server or "").strip().lower()
+                    candidates = [t for t in mcp_tools if not s_filter or s_filter in getattr(t, "_mcp_server", "").lower()]
+                    if not candidates:
+                        available_srvs = sorted(list({getattr(t, "_mcp_server", "") for t in mcp_tools}))
+                        return f"No tools found for server '{server}'. Connected servers: {', '.join(available_srvs)}"
+                    
+                    sub_ranker = UniversalToolRanker(candidates)
+                    matches = sub_ranker.rank(query, budget=6)
+                    res_lines = [f"Found {len(matches)} relevant MCP tools:"]
+                    for t, sc in matches:
+                        srv = getattr(t, "_mcp_server", "mcp")
+                        desc = getattr(t, "description", "")
+                        schema_str = ""
+                        if hasattr(t, "args_schema") and t.args_schema:
+                            try:
+                                schema_str = f"\n  Parameters: {json.dumps(t.args_schema.schema().get('properties', {}), indent=2)}"
+                            except Exception: pass
+                        elif hasattr(t, "inputSchema") and t.inputSchema:
+                            try:
+                                schema_str = f"\n  Parameters: {json.dumps(t.inputSchema.get('properties', {}), indent=2)}"
+                            except Exception: pass
+                        res_lines.append(f"\n- **{t.name}** (Server: `{srv}`):\n  {desc}{schema_str}")
+                    res_lines.append("\nTo execute any of these tools, invoke call_mcp_tool(server_name='...', tool_name='...', arguments={...}).")
+                    return "\n".join(res_lines)
+
+                @tool(args_schema=CallMcpToolInput)
+                async def call_mcp_tool(server_name: str, tool_name: str, arguments: Optional[Any] = None) -> str:
+                    """Execute any tool from any connected MCP server dynamically.
+                    Arguments must be a valid dictionary matching the tool's input schema.
+                    Use search_mcp_tools first if you need to inspect the required parameters."""
+                    if not mcp_tools:
+                        return "Error: No MCP tools are connected."
+                    args = arguments or {}
+                    if isinstance(args, str):
+                        try: args = json.loads(args)
+                        except Exception: args = {}
+                    target = next((t for t in mcp_tools if t.name == tool_name and getattr(t, "_mcp_server", "") == server_name), None)
+                    if not target:
+                        target = next((t for t in mcp_tools if t.name == tool_name), None)
+                    if not target:
+                        return f"Error: Tool '{tool_name}' not found on server '{server_name}'. Use search_mcp_tools to find available tools."
+                    try:
+                        result = await target.ainvoke(args)
+                        return str(result)
+                    except Exception as e:
+                        return f"Error executing {tool_name} on {server_name}: {str(e)}"
+
+                meta_tools = [search_mcp_tools, call_mcp_tool]
+            else:
+                meta_tools = []
+
+            core_tools_with_meta = list(core_tools) + meta_tools
+
             # Smart tool relevance ranking and budgeting (Universal Semantic Engine)
             # Groq on-demand tier has a strict 7,000 ITPM limit; 14 tools keeps schema size under 2k tokens while giving full domain access.
             max_tools_budget = 14 if provider == "groq" else (35 if provider in ["ollama", "nvidia"] else 120)
 
             if mcp_tools:
-                import re
-                p_lower = (prompt or "").lower()
-                
-                # 1. Extract intent tokens and action stems from user prompt
-                stop_words = {
-                    "what", "have", "this", "that", "with", "from", "your", "most", "some",
-                    "read", "readout", "analyze", "check", "show", "give", "please", "help",
-                    "for", "the", "and", "can", "you", "use", "using", "into", "onto", "out",
-                    "any", "all", "our", "are", "were", "been", "being", "how", "why", "when"
-                }
-                raw_tokens = set(re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', p_lower)) - stop_words
-                SYNONYM_MAP = {
-                    "app": ["application", "package", "apk", "bundle", "executable"],
-                    "apps": ["application", "package", "apk", "bundle"],
-                    "reverse": ["reconstruct", "decompile", "disassemble", "inspect", "binary", "artifact", "unpack", "extract"],
-                    "engineer": ["reverse", "decompile", "disassemble", "analysis", "trace"],
-                    "decompil": ["decompile", "disassemble", "apktool", "jadx", "jeb"],
-                    "apk": ["android", "package", "apktool", "dex", "manifest"],
-                    "xapk": ["android", "package", "zip", "extract", "apk"],
-                    "mobile": ["android", "adb", "apk", "ios"],
-                    "watch": ["android", "device", "bluetooth", "ble", "fitness", "app", "apk"],
-                    "email": ["gmail", "mail", "message", "inbox", "thread"],
-                    "emails": ["gmail", "mail", "messages", "inbox", "threads"],
-                    "mail": ["gmail", "email", "inbox", "message"],
-                    "github": ["repo", "issue", "pr", "pull_request", "commit", "branch"],
-                    "calendar": ["event", "schedule", "meeting", "meet"],
-                    "drive": ["file", "document", "folder", "upload", "download"],
-                    "sheet": ["spreadsheet", "cells", "rows", "columns", "table"],
-                    "sheets": ["spreadsheet", "cells", "rows", "columns", "table"],
-                }
-                prompt_tokens = set(raw_tokens)
-                for tok in raw_tokens:
-                    if tok in SYNONYM_MAP:
-                        prompt_tokens.update(SYNONYM_MAP[tok])
+                # Refresh dynamic catalog cache in background for all connected servers
+                srv_map_all = {}
+                for t in mcp_tools:
+                    srv = getattr(t, "_mcp_server", "default")
+                    srv_map_all.setdefault(srv, []).append(t)
+                for srv, tools_list in srv_map_all.items():
+                    update_server_catalog_profile(srv, tools_list)
 
-                # 2. Check for explicit server mentions using strict word boundaries to avoid substring false positives
-                mentioned_servers = set()
-                server_names = {getattr(t, "_mcp_server", "") for t in mcp_tools if getattr(t, "_mcp_server", "")}
-                for srv in server_names:
-                    parts = [p.replace("server-", "") for p in re.split(r'[/_\-@]', srv.lower()) if len(p) >= 3 and p not in ["modelcontextprotocol", "server"]]
-                    for part in parts:
-                        if re.search(rf'\b{re.escape(part)}\b', p_lower):
-                            mentioned_servers.add(srv)
-                            break
-
-                # 3. High-level entrypoint action prefixes prioritizing user-facing discovery
-                ENTRYPOINT_PREFIXES = (
-                    "list_", "get_", "search_", "query_", "inspect_", "read_", "resolve_",
-                    "fetch_", "overview", "show_", "find_", "decode_", "trace_"
-                )
-
-                def score_mcp_tool(tool_obj):
-                    t_name = getattr(tool_obj, "name", "").lower()
-                    t_desc = getattr(tool_obj, "description", "").lower()
-                    t_srv = getattr(tool_obj, "_mcp_server", "")
-                    score = 0
-
-                    # Factor A: Explicit server mention boost (+250)
-                    if t_srv and t_srv in mentioned_servers:
-                        score += 250
-
-                    # Factor B: Semantic token matches in tool name (+70 exact token, +35 partial)
-                    for tok in prompt_tokens:
-                        if re.search(rf'\b{re.escape(tok)}\b', t_name):
-                            score += 70
-                        elif tok in t_name:
-                            score += 35
-
-                    # Factor C: Semantic token matches in tool description (+20 per token)
-                    for tok in prompt_tokens:
-                        if tok in t_desc:
-                            score += 20
-
-                    # Factor D: Entrypoint boost (+25) to prioritize discovery tools
-                    if any(t_name.startswith(ep) or f"_{ep}" in t_name for ep in ENTRYPOINT_PREFIXES):
-                        score += 25
-
-                    return score
-
-                # 4. Multi-server fair-share allocation to guarantee diversity across servers
-                avail_mcp_slots = max(1, max_tools_budget - len(core_tools))
-                scored_tools = [(t, score_mcp_tool(t)) for t in mcp_tools]
-                scored_tools.sort(key=lambda x: x[1], reverse=True)
-                
-                matched_count = sum(1 for t, s in scored_tools if s > 25)
+                ranker = UniversalToolRanker(mcp_tools)
+                avail_mcp_slots = max(1, max_tools_budget - len(core_tools_with_meta))
+                scored_tools = ranker.rank(prompt, budget=len(mcp_tools))
+                matched_count = sum(1 for t, s in scored_tools if s > 15)
 
                 if len(mcp_tools) > avail_mcp_slots:
                     srv_map = {}
@@ -2230,7 +2400,7 @@ HOW TO ACT:
                         srv_map.setdefault(srv, []).append((t, s))
 
                     selected_mcp = []
-                    active_servers = [srv for srv, tools_list in srv_map.items() if any(s > 25 for _, s in tools_list)]
+                    active_servers = [srv for srv, tools_list in srv_map.items() if any(s > 15 for _, s in tools_list)]
                     if len(active_servers) > 1:
                         per_srv_quota = max(1, avail_mcp_slots // len(active_servers))
                         for srv in active_servers:
@@ -2248,16 +2418,16 @@ HOW TO ACT:
                                 if len(selected_mcp) >= avail_mcp_slots:
                                     break
                     
-                    tools = list(core_tools) + selected_mcp
+                    tools = list(core_tools_with_meta) + selected_mcp
                     if matched_count > 0:
                         print(f"\n[STATUS:Ready with {len(selected_mcp)} MCP tools ({matched_count} matched)]", flush=True)
                     else:
                         print(f"\n[STATUS:Ready with {len(selected_mcp)} MCP tools]", flush=True)
                 else:
-                    tools = list(core_tools) + mcp_tools
+                    tools = list(core_tools_with_meta) + mcp_tools
                     print(f"\n[STATUS:Ready with {len(mcp_tools)} MCP tools]", flush=True)
             else:
-                tools = list(core_tools)
+                tools = list(core_tools_with_meta)
                 
             if enable_tools and tools:
                 llm_with_tools = llm.bind_tools(tools) if llm else None
@@ -3397,12 +3567,16 @@ def main():
                     async with AsyncExitStack() as stack:
                         read, write = await stack.enter_async_context(robust_stdio_client(params))
                         session = await stack.enter_async_context(ClientSession(read, write))
-                        await asyncio.wait_for(session.initialize(), timeout=7.0)
-                        tools_res = await asyncio.wait_for(session.list_tools(), timeout=5.0)
-                        names = [t.name for t in tools_res.tools]
-                        return names
+                        await asyncio.wait_for(session.initialize(), timeout=15.0)
+                        tools_res = await asyncio.wait_for(session.list_tools(), timeout=12.0)
+                        return tools_res.tools
 
-                tool_names = asyncio.run(_do_handshake())
+                raw_tools = asyncio.run(_do_handshake())
+                tool_names = [t.name for t in raw_tools]
+                try:
+                    update_server_catalog_profile(tool_id, raw_tools)
+                except Exception:
+                    pass
                 result["success"] = True
                 result["status"] = "connected"
                 result["tool_count"] = len(tool_names)
@@ -3412,10 +3586,16 @@ def main():
             result["success"] = False
             result["status"] = "error"
             err_msg = str(e)
-            if "TaskGroup" in err_msg or "closed" in err_msg.lower():
+            if hasattr(e, "exceptions") and e.exceptions:
+                sub_errs = [str(x) for x in e.exceptions]
+                if any("timeout" in s.lower() for s in sub_errs):
+                    err_msg = "Handshake timed out (server took >15s to respond)."
+                else:
+                    err_msg = "; ".join(sub_errs[:2])
+            elif "TaskGroup" in err_msg or "closed" in err_msg.lower():
                 err_msg = "Process closed unexpectedly. Missing required authentication token or invalid credentials."
             elif "timeout" in err_msg.lower():
-                err_msg = "Handshake timed out (server took >7s to respond). Credentials may be required."
+                err_msg = "Handshake timed out (server took >15s to respond)."
             result["error"] = err_msg
             result["message"] = f"Connection failed: {err_msg[:120]}"
 

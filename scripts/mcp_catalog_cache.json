@@ -1,0 +1,61 @@
+{
+  "rea-agents": {
+    "title": "Rea Agents",
+    "tool_count": 207,
+    "domains": [
+      "Reverse Engineering & Decompilation",
+      "Android & Mobile Analysis",
+      "Binary & Native Inspection",
+      "Dynamic Debugging & Instrumentation",
+      "Web & JavaScript Runtime",
+      "Packet & Network Protocol Analysis"
+    ],
+    "key_tools": [
+      "inspect_native_load_image",
+      "inspect_native_data_type",
+      "inspect_native_instruction",
+      "inspect_native_dispatch_metadata",
+      "inspect_native_api",
+      "inspect_macho"
+    ],
+    "last_updated": 1795439367
+  },
+  "google-workspace": {
+    "title": "Google Workspace",
+    "tool_count": 57,
+    "domains": [
+      "Android & Mobile Analysis",
+      "Binary & Native Inspection",
+      "Web & JavaScript Runtime",
+      "Email & Messaging",
+      "Calendar & Scheduling",
+      "Google Docs & Office Suite"
+    ],
+    "key_tools": [
+      "get_presentation",
+      "get_slides",
+      "create_calendar_event",
+      "create_gmail_draft",
+      "create_presentation",
+      "create_slide"
+    ],
+    "last_updated": 1795439367
+  },
+  "@modelcontextprotocol/server-github": {
+    "title": "Github",
+    "tool_count": 26,
+    "domains": [
+      "Binary & Native Inspection",
+      "GitHub & Version Control"
+    ],
+    "key_tools": [
+      "search_repositories",
+      "search_code",
+      "search_issues",
+      "search_users",
+      "list_commits",
+      "list_issues"
+    ],
+    "last_updated": 1795439367
+  }
+}

@@ -2606,9 +2606,19 @@ function AGView:update()
           out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
           out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
           out = out:gsub("Using tool:[^\n]*\r?\n?", "")
-          out = out:gsub("%[MCP%][^\r\n]*\r?\n?", "")
+          out = out:gsub("%[MCP%]%s*([^\r\n]*)\r?\n?", function(mcp_msg)
+            if mcp_msg and #mcp_msg > 0 then
+              tab.progress_status = mcp_msg
+            end
+            return ""
+          end)
           out = out:gsub("%[MCP NOTICE%][^\r\n]*\r?\n?", "")
-          out = out:gsub("%[INFO%][^\r\n]*\r?\n?", "")
+          out = out:gsub("%[INFO%]%s*([^\r\n]*)\r?\n?", function(info_msg)
+            if info_msg and #info_msg > 0 then
+              tab.progress_status = info_msg
+            end
+            return ""
+          end)
           out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
           out = out:gsub("<tool_call.-</tool_call>%s*", "")
           out = out:gsub("<function.-</function>%s*", "")
@@ -2647,9 +2657,19 @@ function AGView:update()
             out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
             out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
             out = out:gsub("Using tool:[^\n]*\r?\n?", "")
-            out = out:gsub("%[MCP%][^\r\n]*\r?\n?", "")
+            out = out:gsub("%[MCP%]%s*([^\r\n]*)\r?\n?", function(mcp_msg)
+              if mcp_msg and #mcp_msg > 0 then
+                tab.progress_status = mcp_msg
+              end
+              return ""
+            end)
             out = out:gsub("%[MCP NOTICE%][^\r\n]*\r?\n?", "")
-            out = out:gsub("%[INFO%][^\r\n]*\r?\n?", "")
+            out = out:gsub("%[INFO%]%s*([^\r\n]*)\r?\n?", function(info_msg)
+              if info_msg and #info_msg > 0 then
+                tab.progress_status = info_msg
+              end
+              return ""
+            end)
             out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
             out = out:gsub("<tool_call.-</tool_call>%s*", "")
             out = out:gsub("<function.-</function>%s*", "")
@@ -4543,6 +4563,19 @@ function AGView:draw()
         if mcp_cnt then
           return string.format("Ready (%s MCP tools)", mcp_cnt)
         end
+        local sel_cnt = st:match("^Selected%s+(%d+)%s+most relevant MCP tools") or st:match("^Selected%s+(%d+)%s+MCP tools")
+        if sel_cnt then
+          return string.format("Ready (%s MCP tools selected)", sel_cnt)
+        end
+        local ld_cnt, ld_srv = st:match("^Loaded%s+(%d+)%s+tools%s+from%s+server%s+['\"]?([^'\"\r\n]+)['\"]?")
+        if not ld_cnt then
+          ld_cnt, ld_srv = st:match("^Loaded%s+(%d+)%s+tools%s*%((.-)%)")
+        end
+        if ld_cnt and ld_srv then
+          ld_srv = ld_srv:gsub("^@modelcontextprotocol/server%-", ""):gsub("^server%-", "")
+          if #ld_srv > 16 then ld_srv = ld_srv:sub(1, 13) .. "..." end
+          return string.format("Connected %s (%s tools)", ld_srv, ld_cnt)
+        end
         local srv = st:match("^Loading MCP%s*%((.-)%)")
         if srv then
           srv = srv:gsub("^@modelcontextprotocol/server%-", ""):gsub("^server%-", "")
@@ -4723,7 +4756,7 @@ function AGView:draw()
     total_h = total_h + style.font:get_height() + 6 * SCALE + msg_h + 6 * SCALE
   end
 
-  local bottom_pad = 120 * SCALE
+  local bottom_pad = math.max(160 * SCALE, input_h + 40 * SCALE)
   self:state().max_scroll = math.max(0, (total_h + bottom_pad) - chat_h)
   if self:state().scroll_to_bottom then
     if self:state().scroll_y ~= self:state().max_scroll then
@@ -6343,7 +6376,7 @@ function AGView:_launch_team_builder()
       self:fetch_models()
       table.insert(items, "gemini/gemini-2.5-flash")
       table.insert(items, "groq/llama3-70b-8192")
-      table.insert(items, "nvidia/meta/llama-3.3-70b-instruct")
+      table.insert(items, "nvidia/nvidia/nemotron-3.5-bolt-e4b")
     end
     
     core.command_view:enter("Select Model for " .. role, {
@@ -6446,7 +6479,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
                 local defaults = {
                   groq      = "groq/qwen/qwen3.8-27b",
                   gemini    = "gemini/gemini-2.5-flash",
-                  nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
+                  nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
                   openai    = "openai/gpt-4o",
                   anthropic = "anthropic/claude-3-7-sonnet-20250219",
                   ollama    = "ollama/mistral-large-3:675b",
@@ -7433,7 +7466,7 @@ function AGView:on_mouse_released(button, mx, my)
               local defaults = {
                 groq      = "groq/qwen/qwen3.8-27b",
                 gemini    = "gemini/gemini-2.5-flash",
-                nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
+                nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
                 openai    = "openai/gpt-4o",
                 anthropic = "anthropic/claude-3-7-sonnet-20250219",
                 ollama    = "ollama/mistral-large-3:675b",
@@ -7555,7 +7588,7 @@ function AGView:_prompt_for_api_key(provider)
             local defaults = {
               groq      = "groq/qwen/qwen3.8-27b",
               gemini    = "gemini/gemini-2.5-flash",
-              nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
+              nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
               openai    = "openai/gpt-4o",
               anthropic = "anthropic/claude-3-7-sonnet-20250219",
               ollama    = "ollama/mistral-large-3:675b",
