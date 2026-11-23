@@ -559,6 +559,7 @@ function TerraformVisualizerView:scan_project()
               end
               if not exists then
                 current_block = {
+                  id = "provider." .. p_name,
                   name = p_name,
                   file = rel_path,
                   abs_file = full_path,
@@ -581,6 +582,7 @@ function TerraformVisualizerView:scan_project()
               table.insert(self.modules, current_block)
             elseif v_name then
               current_block = {
+                id = "var." .. v_name,
                 name = v_name,
                 file = rel_path,
                 abs_file = full_path,
@@ -590,6 +592,7 @@ function TerraformVisualizerView:scan_project()
               table.insert(self.variables, current_block)
             elseif o_name then
               current_block = {
+                id = "output." .. o_name,
                 name = o_name,
                 file = rel_path,
                 abs_file = full_path,
@@ -602,15 +605,17 @@ function TerraformVisualizerView:scan_project()
 
           if current_block then
             local k, v = trimmed:match('^([%w_%-]+)%s*=%s*(.+)$')
-            if k and v then
+            if k and v and current_block.attrs then
               current_block.attrs[k] = v
             end
 
-            for ref_type, ref_name in trimmed:gmatch('([%w_%-]+)%.([%w_%-]+)%.?[%w_%-]*') do
-              if ref_type ~= "var" and ref_type ~= "local" and ref_type ~= "count" and ref_type ~= "each" then
-                local candidate = ref_type .. "." .. ref_name
-                if not raw_deps_map[current_block.id] then raw_deps_map[current_block.id] = {} end
-                raw_deps_map[current_block.id][candidate] = true
+            if current_block.id then
+              for ref_type, ref_name in trimmed:gmatch('([%w_%-]+)%.([%w_%-]+)%.?[%w_%-]*') do
+                if ref_type ~= "var" and ref_type ~= "local" and ref_type ~= "count" and ref_type ~= "each" then
+                  local candidate = ref_type .. "." .. ref_name
+                  if not raw_deps_map[current_block.id] then raw_deps_map[current_block.id] = {} end
+                  raw_deps_map[current_block.id][candidate] = true
+                end
               end
             end
           end
@@ -825,7 +830,7 @@ function TerraformVisualizerView:compute_blast_radius(root_id)
 
   local function visit_upstream(id)
     for _, e in ipairs(self.edges) do
-      if e.to == id and not self.blast_radius_ids[e.from] then
+      if e.to == id and e.from and not self.blast_radius_ids[e.from] then
         self.blast_radius_ids[e.from] = "upstream"
         visit_upstream(e.from)
       end
@@ -835,7 +840,7 @@ function TerraformVisualizerView:compute_blast_radius(root_id)
 
   local function visit_downstream(id)
     for _, e in ipairs(self.edges) do
-      if e.from == id and not self.blast_radius_ids[e.to] then
+      if e.from == id and e.to and not self.blast_radius_ids[e.to] then
         self.blast_radius_ids[e.to] = "downstream"
         visit_downstream(e.to)
       end
