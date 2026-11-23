@@ -1375,15 +1375,22 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
                             except Exception: pass
                         size_mb = os.path.getsize(resolved) / (1024 * 1024)
                         print(f"\n[STATUS:Inspecting archive {fname} ({size_mb:.1f}MB)]", flush=True)
+                        is_apk_file = low_res.endswith(".apk")
+                        guidance_lines = (
+                            f"GUIDANCE FOR REVERSE ENGINEERING:\n"
+                            f"1. This is a standalone Android Package (APK). You can directly run REA MCP tools (such as inspect_android_package, decode_android_resources, search_android_classes) directly on this file path ('{resolved}')."
+                            if is_apk_file else
+                            f"GUIDANCE FOR REVERSE ENGINEERING:\n"
+                            f"1. To unpack this archive, execute via local_shell (e.g. Expand-Archive -Path '{resolved}' -DestinationPath '<extract_dir>' -Force or tar -xf '{resolved}' -C '<extract_dir>').\n"
+                            f"2. Then directly run REA MCP tools (such as inspect_android_package, decode_android_resources, search_android_classes) on the extracted inner APK file(s)."
+                        )
                         return (
                             f"Package Archive: '{os.path.basename(resolved)}' ({size_mb:.2f} MB)\n"
                             f"Total Archive Entries: {len(namelist)}\n"
                             f"Inner APKs ({len(apk_files)}): {', '.join(apk_files[:10]) if apk_files else 'None'}\n"
                             f"DEX Files ({len(dex_files)}): {', '.join(dex_files[:10]) if dex_files else 'None'}\n"
                             f"{manifest_snippet}\n\n"
-                            f"GUIDANCE FOR REVERSE ENGINEERING:\n"
-                            f"1. To unpack this archive, execute via local_shell (e.g. Expand-Archive -Path '{resolved}' -DestinationPath '<extract_dir>' -Force or tar -xf '{resolved}' -C '<extract_dir>').\n"
-                            f"2. Then directly run REA MCP tools (such as inspect_android_package, decode_android_resources, search_android_classes) on the extracted inner APK file(s)."
+                            f"{guidance_lines}"
                         )
                 except Exception as zip_err:
                     pass
@@ -1848,7 +1855,7 @@ HOW TO ACT:
             except Exception as e:
                 err_str = str(e).lower()
                 if any(k in err_str for k in ["tool calling", "tools", "invalid_request", "400", "413", "too large", "tpm", "rate_limit_exceeded"]):
-                    sys.stderr.write(f"\n[DIAGNOSTIC] Tool schema rejected or TPM exceeded. Attempting core tools fallback.\n")
+                    sys.stderr.write(f"\n[DIAGNOSTIC] Tool schema rejected or TPM exceeded ({e}). Attempting core tools fallback.\n")
                     sys.stderr.flush()
                     
                     from langchain_core.messages import AIMessage, HumanMessage
@@ -2128,7 +2135,30 @@ HOW TO ACT:
                     "for", "the", "and", "can", "you", "use", "using", "into", "onto", "out",
                     "any", "all", "our", "are", "were", "been", "being", "how", "why", "when"
                 }
-                prompt_tokens = set(re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', p_lower)) - stop_words
+                raw_tokens = set(re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', p_lower)) - stop_words
+                SYNONYM_MAP = {
+                    "app": ["application", "package", "apk", "bundle", "executable"],
+                    "apps": ["application", "package", "apk", "bundle"],
+                    "reverse": ["reconstruct", "decompile", "disassemble", "inspect", "binary", "artifact", "unpack", "extract"],
+                    "engineer": ["reverse", "decompile", "disassemble", "analysis", "trace"],
+                    "decompil": ["decompile", "disassemble", "apktool", "jadx", "jeb"],
+                    "apk": ["android", "package", "apktool", "dex", "manifest"],
+                    "xapk": ["android", "package", "zip", "extract", "apk"],
+                    "mobile": ["android", "adb", "apk", "ios"],
+                    "watch": ["android", "device", "bluetooth", "ble", "fitness", "app", "apk"],
+                    "email": ["gmail", "mail", "message", "inbox", "thread"],
+                    "emails": ["gmail", "mail", "messages", "inbox", "threads"],
+                    "mail": ["gmail", "email", "inbox", "message"],
+                    "github": ["repo", "issue", "pr", "pull_request", "commit", "branch"],
+                    "calendar": ["event", "schedule", "meeting", "meet"],
+                    "drive": ["file", "document", "folder", "upload", "download"],
+                    "sheet": ["spreadsheet", "cells", "rows", "columns", "table"],
+                    "sheets": ["spreadsheet", "cells", "rows", "columns", "table"],
+                }
+                prompt_tokens = set(raw_tokens)
+                for tok in raw_tokens:
+                    if tok in SYNONYM_MAP:
+                        prompt_tokens.update(SYNONYM_MAP[tok])
 
                 # 2. Check for explicit server mentions using strict word boundaries to avoid substring false positives
                 mentioned_servers = set()
@@ -2190,18 +2220,19 @@ HOW TO ACT:
                     selected_mcp = []
                     active_servers = [srv for srv, tools_list in srv_map.items() if any(s > 25 for _, s in tools_list)]
                     if len(active_servers) > 1:
-                        per_srv_quota = max(3, avail_mcp_slots // len(active_servers))
+                        per_srv_quota = max(1, avail_mcp_slots // len(active_servers))
                         for srv in active_servers:
-                            top_for_srv = [t for t, s in srv_map[srv][:per_srv_quota]]
-                            selected_mcp.extend(top_for_srv)
+                            for t, s in srv_map[srv][:per_srv_quota]:
+                                if len(selected_mcp) < avail_mcp_slots:
+                                    selected_mcp.append(t)
 
-                    remaining_slots = avail_mcp_slots - len(selected_mcp)
-                    if remaining_slots > 0:
-                        selected_set = set(selected_mcp)
+                    if len(selected_mcp) < avail_mcp_slots:
+                        selected_names = {getattr(t, "name", str(id(t))) for t in selected_mcp}
                         for t, s in scored_tools:
-                            if t not in selected_set:
+                            t_name = getattr(t, "name", str(id(t)))
+                            if t_name not in selected_names:
                                 selected_mcp.append(t)
-                                selected_set.add(t)
+                                selected_names.add(t_name)
                                 if len(selected_mcp) >= avail_mcp_slots:
                                     break
                     
