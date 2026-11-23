@@ -205,6 +205,32 @@ def validate_keys(keys):
     except:
         pass
 
+NVIDIA_ACTIVE_MODELS = [
+    "nvidia/nemotron-3.5-bolt-e4b",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "stepfun-ai/step-5-preview",
+    "minimaxai/minimax-m3.1-flash",
+    "bigcode/starcoder2-15b",
+    "poolside/laguna-xs-2.1"
+]
+
+def clean_nvidia_model(m_name):
+    if not m_name:
+        return "nvidia/nemotron-3.5-bolt-e4b"
+    if m_name in NVIDIA_ACTIVE_MODELS:
+        return m_name
+    if m_name.startswith("nvidia/"):
+        sub = m_name[7:]
+        if sub in NVIDIA_ACTIVE_MODELS:
+            return sub
+        if sub.startswith("nvidia/"):
+            return sub
+        if "/" in sub:
+            return sub
+    return m_name
+
 def list_models(provider, keys):
     models = []
     providers = ["gemini", "groq", "nvidia", "openai", "anthropic", "ollama", "omniroute"] if provider == "all" else [provider]
@@ -231,16 +257,7 @@ def list_models(provider, keys):
                 if p == "ollama":
                     return [f"ollama/{m}" for m in ["gpt-oss:120b", "gemma4:31b", "nemotron-3-nano:30b", "gpt-oss:20b", "llama3.3", "mistral-large-3:675b"]]
                 elif p == "nvidia":
-                    return [f"nvidia/{m}" for m in [
-                        "meta/llama-3.3-70b-instruct",
-                        "meta/llama-3.1-405b-instruct",
-                        "deepseek-ai/deepseek-r1",
-                        "deepseek-ai/deepseek-coder-v2-lite-instruct",
-                        "nvidia/llama-3.3-nemotron-super-49b",
-                        "nvidia/nemotron-4-340b-instruct",
-                        "qwen/qwen2.5-coder-32b-instruct",
-                        "mistralai/mistral-large-2-instruct"
-                    ]]
+                    return [f"nvidia/{m}" for m in NVIDIA_ACTIVE_MODELS]
                 return [f"MISSING_API_KEY:{p}"]
             continue
         try:
@@ -365,17 +382,8 @@ def list_models(provider, keys):
                 except Exception:
                     pass
 
-                # Verified free-tier preview models from build.nvidia.com
-                verified_active = [
-                    "meta/llama-3.3-70b-instruct",
-                    "meta/llama-3.1-405b-instruct",
-                    "deepseek-ai/deepseek-r1",
-                    "deepseek-ai/deepseek-coder-v2-lite-instruct",
-                    "nvidia/llama-3.3-nemotron-super-49b",
-                    "nvidia/nemotron-4-340b-instruct",
-                    "qwen/qwen2.5-coder-32b-instruct",
-                    "mistralai/mistral-large-2-instruct"
-                ]
+                # Verified active models from build.nvidia.com
+                verified_active = list(NVIDIA_ACTIVE_MODELS)
                 if not m_list:
                     m_list = verified_active
                 else:
@@ -484,7 +492,7 @@ def list_models(provider, keys):
 
 RECOMMENDED_MODELS = {
     "groq": ["qwen/qwen3.8-27b", "llama-3.3-70b-versatile"],
-    "nvidia": ["meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1", "nvidia/llama-3.3-nemotron-super-49b"],
+    "nvidia": ["nvidia/nemotron-3.5-bolt-e4b", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "nvidia/nemotron-3.5-lightning-30b-a3b"],
     "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
     "openai": ["gpt-4o", "gpt-4o-mini"],
     "ollama": ["llama3.3", "mistral-large-3:675b", "qwen2.5-coder"],
@@ -1468,7 +1476,9 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         mcp_tools = []
 
         def create_llm(p_name, m_name, p_key):
-            if m_name and p_name and m_name.startswith(f"{p_name}/"):
+            if p_name == "nvidia":
+                m_name = clean_nvidia_model(m_name)
+            elif m_name and p_name and m_name.startswith(f"{p_name}/"):
                 m_name = m_name[len(p_name) + 1:]
             if p_name == "gemini":
                 from langchain_google_genai import ChatGoogleGenerativeAI
