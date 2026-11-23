@@ -4723,7 +4723,7 @@ function AGView:draw()
     total_h = total_h + style.font:get_height() + 6 * SCALE + msg_h + 6 * SCALE
   end
 
-  local bottom_pad = 48 * SCALE
+  local bottom_pad = 120 * SCALE
   self:state().max_scroll = math.max(0, (total_h + bottom_pad) - chat_h)
   if self:state().scroll_to_bottom then
     if self:state().scroll_y ~= self:state().max_scroll then
@@ -4731,6 +4731,16 @@ function AGView:draw()
       core.redraw = true
     end
     self:state().scroll_to_bottom = false
+  end
+
+  -- Modern subtle scrollbar indicator for chat view
+  if self:state().max_scroll > 0 then
+    local sb_w = 4 * SCALE
+    local sb_x = x + w - sb_w - 2 * SCALE
+    local scroll_pct = (self:state().scroll_y or 0) / self:state().max_scroll
+    local sb_h = math.max(20 * SCALE, math.floor((chat_h / (total_h + bottom_pad)) * chat_h))
+    local sb_y = chat_top + math.floor(scroll_pct * (chat_h - sb_h))
+    renderer.draw_rect(sb_x, sb_y, sb_w, sb_h, { P.border[1], P.border[2], P.border[3], 120 })
   end
 
   core.pop_clip_rect()
@@ -6333,7 +6343,7 @@ function AGView:_launch_team_builder()
       self:fetch_models()
       table.insert(items, "gemini/gemini-2.5-flash")
       table.insert(items, "groq/llama3-70b-8192")
-      table.insert(items, "nvidia/nvidia/nemotron-3.5-bolt-e4b")
+      table.insert(items, "nvidia/meta/llama-3.3-70b-instruct")
     end
     
     core.command_view:enter("Select Model for " .. role, {
@@ -6436,7 +6446,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
                 local defaults = {
                   groq      = "groq/qwen/qwen3.8-27b",
                   gemini    = "gemini/gemini-2.5-flash",
-                  nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
+                  nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
                   openai    = "openai/gpt-4o",
                   anthropic = "anthropic/claude-3-7-sonnet-20250219",
                   ollama    = "ollama/mistral-large-3:675b",
@@ -7423,7 +7433,7 @@ function AGView:on_mouse_released(button, mx, my)
               local defaults = {
                 groq      = "groq/qwen/qwen3.8-27b",
                 gemini    = "gemini/gemini-2.5-flash",
-                nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
+                nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
                 openai    = "openai/gpt-4o",
                 anthropic = "anthropic/claude-3-7-sonnet-20250219",
                 ollama    = "ollama/mistral-large-3:675b",
@@ -7545,7 +7555,7 @@ function AGView:_prompt_for_api_key(provider)
             local defaults = {
               groq      = "groq/qwen/qwen3.8-27b",
               gemini    = "gemini/gemini-2.5-flash",
-              nvidia    = "nvidia/nvidia/nemotron-3.5-bolt-e4b",
+              nvidia    = "nvidia/meta/llama-3.3-70b-instruct",
               openai    = "openai/gpt-4o",
               anthropic = "anthropic/claude-3-7-sonnet-20250219",
               ollama    = "ollama/mistral-large-3:675b",
