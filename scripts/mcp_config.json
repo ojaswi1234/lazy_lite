@@ -21,6 +21,15 @@
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": ""
       }
+    },
+    "rea-agents": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "rea-agents",
+        "--mcp"
+      ],
+      "env": {}
     }
   }
 }

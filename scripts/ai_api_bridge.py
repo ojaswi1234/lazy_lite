@@ -1222,6 +1222,14 @@ KNOWN_MCP_INFO = {
     "brave-search": {
         "title": "Brave Search MCP",
         "description": "Brave Search MCP (Live web search and news)."
+    },
+    "rea-agents": {
+        "title": "Reverse Engineer Anything (REA)",
+        "description": "Reverse Engineer Anything (REA) (Decompile, disassemble, inspect binaries/APKs/firmware, analyze functions, trace features, recover source, and extract Android/Electron/web/native application structures)."
+    },
+    "rea": {
+        "title": "Reverse Engineer Anything (REA)",
+        "description": "Reverse Engineer Anything (REA) (Decompile, disassemble, inspect binaries/APKs/firmware, analyze functions, trace features, recover source, and extract Android/Electron/web/native application structures)."
     }
 }
 
@@ -1595,7 +1603,9 @@ HOW TO ACT:
                             f"{status_note}\n"
                             + "\n".join(server_lines) +
                             "\nWhen asked what MCP tools or servers you have, accurately describe these installed MCP tools and their capabilities. "
-                            "If live tool calling is not enabled in this session, remind the user they can toggle 'Auto' (Autopilot) or 'MCP' in the header to execute them live.\n"
+                            "When live tools are bound in this session, actively leverage and invoke them to accomplish the user's task. "
+                            "When the user requests reverse engineering (e.g. Android apps, watch apps, APKs, binaries, firmware), you have access to REA (Reverse Engineer Anything) tools: "
+                            "actively invoke REA tools (such as list_adb_devices, resolve_adb_packages, pull_adb_package, inspect_android_package, decode_android_resources, search_android_classes, binary_overview, or batch_decompile) or guide the user step-by-step using these capabilities rather than giving canned refusals.\n"
                         )
         except Exception:
             pass
@@ -2043,10 +2053,10 @@ HOW TO ACT:
                         async def init_single_server():
                             read, write = await stack.enter_async_context(robust_stdio_client(params))
                             session = await stack.enter_async_context(ClientSession(read, write))
-                            await asyncio.wait_for(session.initialize(), timeout=10.0)
-                            return await asyncio.wait_for(load_mcp_tools(session), timeout=5.0)
+                            await asyncio.wait_for(session.initialize(), timeout=12.0)
+                            return await asyncio.wait_for(load_mcp_tools(session), timeout=10.0)
 
-                        srv_tools = await asyncio.wait_for(init_single_server(), timeout=14.0)
+                        srv_tools = await asyncio.wait_for(init_single_server(), timeout=25.0)
                         if srv_tools:
                             mcp_tools.extend(srv_tools)
                             sys.stderr.write(f"[MCP] Loaded {len(srv_tools)} tools from server '{srv_name}'\n")
@@ -2067,12 +2077,18 @@ HOW TO ACT:
                     "docs": ["doc", "docs", "document", "documents", "word", "write up", "article", "paper", "text document"],
                     "slides": ["slide", "slides", "presentation", "presentations", "powerpoint", "deck", "keynote", "pitch"],
                     "drive": ["drive", "google drive", "upload file", "folder", "folders", "shared drive", "cloud file"],
-                    "github": ["github", "git", "pr", "prs", "pull request", "pull requests", "issue", "issues", "repo", "repos", "repository", "repositories", "branch", "branches", "commit", "commits"]
+                    "github": ["github", "git", "pr", "prs", "pull request", "pull requests", "issue", "issues", "repo", "repos", "repository", "repositories", "branch", "branches", "commit", "commits"],
+                    "reverse_engineering": [
+                        "reverse engineer", "reverse engineering", "reverse", "engineer", "decompile", "disassemble",
+                        "binary", "binaries", "apk", "android", "ipa", "ios", "firmware", "trace", "xrefs", "rea",
+                        "native", "demangle", "ghidra", "hopper", "ida", "rizin", "apktool", "dylib", "strings",
+                        "procedure", "assembly", "watch", "noise", "decompilation", "reconstruct"
+                    ]
                 }
                 
                 active_domains = {d for d, kws in DOMAIN_CLUSTERS.items() if any(kw in p_lower for kw in kws)}
                 prompt_keywords = set(re.findall(r'\b[a-zA-Z]{3,}\b', p_lower)) - {
-                    "what", "have", "this", "that", "with", "from", "your", "most", "some", "read", "readout", "analyze", "check", "show", "give", "please", "help"
+                    "what", "have", "this", "that", "with", "from", "your", "most", "some", "read", "readout", "analyze", "check", "show", "give", "please", "help", "for"
                 }
 
                 GENERIC_PRIORITY = {
@@ -2080,7 +2096,11 @@ HOW TO ACT:
                     "calendar_get_events", "create_calendar_event",
                     "drive_search_files", "drive_read_file_content",
                     "sheets_read_range", "docs_create_document",
-                    "create_slide", "search_issues"
+                    "create_slide", "search_issues",
+                    "binary_overview", "binary_session", "inspect_android_package",
+                    "search_android_classes", "decode_android_resources", "identify_flutter_build",
+                    "trace_feature", "search_strings", "search_procedures", "batch_decompile",
+                    "list_adb_devices", "resolve_adb_packages", "pull_adb_package", "inspect_adb_package"
                 }
 
                 def score_mcp_tool(tool_obj):
@@ -2097,6 +2117,9 @@ HOW TO ACT:
                             elif d == "slides" and any(k in t_name for k in ["slide", "presentation"]): score += 100
                             elif d == "drive" and "drive" in t_name: score += 100
                             elif d == "github" and any(k in t_name for k in ["github", "repo", "issue", "pull", "branch", "commit"]): score += 100
+                            elif d == "reverse_engineering":
+                                if any(k in t_name for k in ["android", "adb", "apk", "binary", "decompile", "disasm", "trace", "search_", "decode_", "identify_", "resolve_", "inspect_", "xrefs", "procedure", "string", "open_binary", "batch_decompile", "overview"]):
+                                    score += 100
                     else:
                         if getattr(tool_obj, "name", "") in GENERIC_PRIORITY:
                             score += 50
@@ -3193,7 +3216,7 @@ def main():
             cfg["mcpServers"] = {}
             
         # Dynamically install tool via direct native NPX execution
-        tool_args = ["-y", f"github:{target[3:]}"] if target.startswith("gh/") else ["-y", target]
+        tool_args = ["-y", target, "--mcp"] if target in ("rea-agents", "rea") else (["-y", f"github:{target[3:]}"] if target.startswith("gh/") else ["-y", target])
         cfg["mcpServers"][target] = {
             "command": "npx",
             "args": tool_args,
@@ -3295,7 +3318,7 @@ def main():
     if args.get_tool_config:
         tool_id = args.get_tool_config
         cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
-        default_args = ["-y", f"github:{tool_id[3:]}"] if tool_id.startswith("gh/") else ["-y", tool_id]
+        default_args = ["-y", tool_id, "--mcp"] if tool_id in ("rea-agents", "rea") else (["-y", f"github:{tool_id[3:]}"] if tool_id.startswith("gh/") else ["-y", tool_id])
         res = {
             "id": tool_id,
             "installed": False,
@@ -3390,7 +3413,7 @@ def main():
                 print(f"Error parsing config data: {e}", file=sys.stderr)
                 sys.exit(1)
 
-        default_run_args = ["-y", f"github:{tool_id[3:]}"] if tool_id.startswith("gh/") else ["-y", tool_id]
+        default_run_args = ["-y", tool_id, "--mcp"] if tool_id in ("rea-agents", "rea") else (["-y", f"github:{tool_id[3:]}"] if tool_id.startswith("gh/") else ["-y", tool_id])
         current = cfg["mcpServers"].get(tool_id, {
             "command": "npx",
             "args": default_run_args,
