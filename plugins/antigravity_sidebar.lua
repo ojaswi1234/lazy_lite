@@ -748,7 +748,7 @@ config.antigravity = {
     return "agy"
   end)(),
 
-  target_width = 330,
+  target_width = 450,
   auto_skip_permissions = true,
   selected_model = nil,  -- nil means use CLI default
 
@@ -3935,7 +3935,7 @@ function AGView:draw()
       { icon = "🛠", title = "Suggest Clean Refactor", prompt = "Suggest a clean, modular refactoring to improve readability and structure.", desc = "Simplify & modernize code" },
     }
 
-    local card_w = math.min(w - 2 * pad - 8 * SCALE, 340 * SCALE)
+    local card_w = math.min(w - 2 * pad - 8 * SCALE, 400 * SCALE)
     local card_h = 38 * SCALE
     local card_x = x + math.floor((w - card_w) / 2)
 
