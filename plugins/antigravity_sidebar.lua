@@ -7741,6 +7741,7 @@ command.add(nil, {
         node:close_view(core.root_view.root_node, node.views[i])
       end
       instance.visible = false
+      rawset(_G, "_ag_sidebar_node", nil)
     else
       -- Toggle ON: force AI open, closing any other plugin in the sidebar
       if sidebar then
@@ -7999,6 +8000,7 @@ command.add(
 
 local keymap = require "core.keymap"
 keymap.add {
+  ["ctrl+shift+a"] = "antigravity:toggle",
   ["return"]       = "antigravity:return",
   ["enter"]        = "antigravity:return",
   ["shift+return"] = "antigravity:newline",

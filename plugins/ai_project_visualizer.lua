@@ -10662,7 +10662,7 @@ command.add(nil, {
 
 keymap.add({
   ["ctrl+shift+v"] = "ai_project_visualizer:toggle",
-  ["ctrl+shift+a"] = "ai_project_visualizer:run_audit",
+  ["ctrl+shift+u"] = "ai_project_visualizer:run_audit",
   ["ctrl+shift+y"] = "ai_project_visualizer:reanalyze",
   ["ctrl+shift+e"] = "ai_project_visualizer:export_onboarding_guide",
   ["alt+0"]        = "ai_project_visualizer:next_tab",

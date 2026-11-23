@@ -102,7 +102,8 @@ function ActivityBar:new()
   self.auth_item = { id = "auth", icon = "\u{f084}", command = "antigravity:toggle", tooltip = "Aether AI / Toggle" }
   self.active_id = nil
   self.target_size = 48 * SCALE
-  self.visible = true -- Activity Bar is always docked and visible
+  self.visible = false -- Start hidden; slides open along with the AI sidebar and sidebar views
+  self.size = { x = 0, y = 0 }
 end
 
 function ActivityBar:get_name() return self.name end
@@ -110,12 +111,27 @@ function ActivityBar:get_name() return self.name end
 function ActivityBar:update()
   ActivityBar.super.update(self)
   
-  -- Activity Bar stays permanently docked on the right
-  self.visible = true
+  -- Dynamically check if the AI sidebar is active and has views
+  local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
+  local has_views = false
+  if sidebar and sidebar.views then
+    for _, v in ipairs(sidebar.views) do
+      if is_sidebar_view(v) and v.visible ~= false then
+        has_views = true
+        break
+      end
+    end
+  end
+  
+  -- If sidebar is closed/empty, hide the Activity Bar so it "slides along with it"
+  if has_views and not self.visible then
+    self.visible = true
+  elseif not has_views and self.visible then
+    self.visible = false
+  end
 
   -- Track the active item in the activity bar based on sidebar's active view
-  local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
-  if sidebar and sidebar.active_view and sidebar.views and #sidebar.views > 0 then
+  if sidebar and sidebar.active_view and has_views then
     local vname = sidebar.active_view.name or (sidebar.active_view.get_name and sidebar.active_view:get_name()) or ""
     if vname == "AI Plugins" then
       self.active_id = "ai_plugin"
@@ -140,7 +156,7 @@ function ActivityBar:update()
     self.active_id = nil
   end
   
-  local dest = self.target_size or (48 * SCALE)
+  local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "x", dest)
 end
 
@@ -167,6 +183,7 @@ function ActivityBar:get_auth_label()
 end
 
 function ActivityBar:draw()
+  if not self.visible and self.size.x <= 1 then return end
   self:draw_background(style.background3 or style.background)
   local x, y = self.position.x, self.position.y
   local cell = 48 * SCALE
@@ -358,10 +375,7 @@ function ActivityBar:on_mouse_pressed(button, x, y, clicks)
       elseif not is_authed then
         command.perform("antigravity:auth")
       else
-        local sidebar = _G.get_sidebar_node and _G.get_sidebar_node(true)
-        if not sidebar or sidebar.active_view ~= inst then
-          command.perform("antigravity:toggle")
-        end
+        command.perform("antigravity:toggle")
       end
       return true
     end
