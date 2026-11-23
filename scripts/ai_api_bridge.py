@@ -2405,6 +2405,20 @@ def main():
 
     OFFICIAL_MCP_TOOLS = [
         {
+            "id": "google-workspace",
+            "name": "Google Workspace",
+            "title": "Google Workspace MCP (Gmail, Docs, Sheets, Slides, Calendar, Meet)",
+            "author": "Google Workspace / FastMCP",
+            "description": "Integrated suite for Gmail, Google Docs, Sheets, Slides, Calendar events, and Google Meet video conferences.",
+            "domain": "Productivity & Cloud",
+            "source": "official",
+            "source_label": "Official MCP",
+            "stars": 4200,
+            "verified": True,
+            "command": "python",
+            "args": ["-m", "google_workspace_mcp"]
+        },
+        {
             "id": "@modelcontextprotocol/server-filesystem",
             "name": "Filesystem",
             "title": "Official Filesystem MCP",
@@ -3173,8 +3187,13 @@ def main():
             "sqlite": ["SQLITE_DATABASE_PATH"],
             "mcp-server-sqlite": ["SQLITE_DATABASE_PATH"],
             "everything": ["EVERYTHING_SDK_DLL_PATH"],
-            "gmail": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"],
-            "google-drive": ["GOOGLE_DRIVE_CREDENTIALS_JSON"],
+            "google-workspace": ["GOOGLE_WORKSPACE_CLIENT_ID", "GOOGLE_WORKSPACE_CLIENT_SECRET", "GOOGLE_WORKSPACE_REFRESH_TOKEN"],
+            "gmail": ["GOOGLE_WORKSPACE_CLIENT_ID", "GOOGLE_WORKSPACE_CLIENT_SECRET", "GOOGLE_WORKSPACE_REFRESH_TOKEN"],
+            "google-docs": ["GOOGLE_WORKSPACE_CLIENT_ID", "GOOGLE_WORKSPACE_CLIENT_SECRET", "GOOGLE_WORKSPACE_REFRESH_TOKEN"],
+            "google-sheets": ["GOOGLE_WORKSPACE_CLIENT_ID", "GOOGLE_WORKSPACE_CLIENT_SECRET", "GOOGLE_WORKSPACE_REFRESH_TOKEN"],
+            "google-slides": ["GOOGLE_WORKSPACE_CLIENT_ID", "GOOGLE_WORKSPACE_CLIENT_SECRET", "GOOGLE_WORKSPACE_REFRESH_TOKEN"],
+            "google-calendar": ["GOOGLE_WORKSPACE_CLIENT_ID", "GOOGLE_WORKSPACE_CLIENT_SECRET", "GOOGLE_WORKSPACE_REFRESH_TOKEN"],
+            "google-drive": ["GOOGLE_WORKSPACE_CLIENT_ID", "GOOGLE_WORKSPACE_CLIENT_SECRET", "GOOGLE_WORKSPACE_REFRESH_TOKEN"],
             "nvidia-nemotron": ["NVIDIA_API_KEY", "NVAPI_KEY"],
             "nvidia-retriever": ["NVIDIA_API_KEY", "NVAPI_KEY"],
             "nvidia-cuopt": ["NVIDIA_API_KEY", "NVAPI_KEY"],
@@ -3245,6 +3264,13 @@ def main():
 
     if args.open_tool_auth:
         tool_id = args.open_tool_auth
+        if tool_id in ("google-workspace", "gmail", "google-docs", "google-sheets", "google-slides", "google-calendar", "google-drive"):
+            setup_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setup_google_workspace_mcp.py")
+            if os.path.exists(setup_script):
+                import subprocess
+                subprocess.Popen([sys.executable, setup_script], creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0)
+                print(f"Launched Google Workspace OAuth Setup: {setup_script}", flush=True)
+                sys.exit(0)
         import webbrowser
         auth_urls = {
             "github": "https://github.com/settings/tokens/new?scopes=repo,read:org,user&description=Lite-XL+MCP",
