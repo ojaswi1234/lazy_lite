@@ -1468,6 +1468,8 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         mcp_tools = []
 
         def create_llm(p_name, m_name, p_key):
+            if m_name and p_name and m_name.startswith(f"{p_name}/"):
+                m_name = m_name[len(p_name) + 1:]
             if p_name == "gemini":
                 from langchain_google_genai import ChatGoogleGenerativeAI
                 return ChatGoogleGenerativeAI(model=m_name, api_key=p_key, temperature=0.2, streaming=True)
