@@ -7903,16 +7903,26 @@ function VisualizerView:select_provider_dialog()
   end
 
   core.command_view:enter("Select AI Provider for Visualizer", {
-    submit = function(text)
+    submit = function(text, item)
+      local raw = (type(item) == "table" and item.text) or (type(item) == "string" and item) or text or ""
+      raw = raw:match("^%s*(.-)%s*$") or ""
       local selected_prov = nil
-      for _, p in ipairs(providers_list) do
-        local pinfo = AIAnalyzer.PROVIDERS[p]
-        if text:lower():find(pinfo.name:lower(), 1, true) or text:lower():find(p:lower(), 1, true) then
-          selected_prov = p
-          break
+      if #raw > 0 then
+        for _, p in ipairs(providers_list) do
+          local pinfo = AIAnalyzer.PROVIDERS[p]
+          if pinfo and (raw:lower():find(pinfo.name:lower(), 1, true) or raw:lower():find(p:lower(), 1, true)) then
+            selected_prov = p
+            break
+          end
+        end
+        if not selected_prov then
+          local match = raw:match("^([%w_]+)")
+          if match then
+            selected_prov = match:lower()
+          end
         end
       end
-      selected_prov = selected_prov or text:match("^([%w_]+)"):lower()
+      selected_prov = selected_prov or self.provider or "nvidia"
 
       if not AIAnalyzer.PROVIDERS[selected_prov] then
         show_toast("Unknown provider: " .. tostring(selected_prov))
@@ -7934,28 +7944,32 @@ function VisualizerView:select_provider_dialog()
 
         core.command_view:enter("Select Model for " .. pinfo.name .. " (filter or type custom)", {
           text = cur_model,
-          submit = function(model_text)
-            model_text = model_text:match("^%s*(.-)%s*$")
-            if not model_text or #model_text == 0 then
-              model_text = cur_model
+          submit = function(model_text, model_item)
+            local raw_m = (type(model_item) == "table" and model_item.text) or (type(model_item) == "string" and model_item) or model_text or ""
+            raw_m = raw_m:match("^%s*(.-)%s*$") or ""
+            if #raw_m == 0 then
+              raw_m = cur_model
             end
             -- Strip capability tag and current tag
-            model_text = model_text:gsub("%s*%[.-%].*", ""):gsub("%s*%(.-%).*", "")
-            model_text = model_text:match("^%s*(.-)%s*$")
-            self:set_provider_and_model(selected_prov, model_text)
+            raw_m = raw_m:gsub("%s*%[.-%].*", ""):gsub("%s*%(.-%).*", "")
+            raw_m = raw_m:match("^%s*(.-)%s*$") or ""
+            if #raw_m == 0 then
+              raw_m = cur_model
+            end
+            self:set_provider_and_model(selected_prov, raw_m)
             if not self.diagrams or #self.categories == 0 then
-              show_toast(string.format("AI Visualizer: Provider set to %s (%s). Click [Explore] to begin.", pinfo.name, model_text))
+              show_toast(string.format("AI Visualizer: Provider set to %s (%s). Click [Explore] to begin.", pinfo.name, raw_m))
             else
-              show_toast(string.format("AI Visualizer: Model switched to %s (%s). Press Ctrl+Shift+Y to re-analyze.", pinfo.name, model_text))
+              show_toast(string.format("AI Visualizer: Model switched to %s (%s). Press Ctrl+Shift+Y to re-analyze.", pinfo.name, raw_m))
             end
             core.redraw = true
           end,
           suggest = function(filter_text)
             local q = (filter_text or ""):lower()
             local res = {}
-            for _, item in ipairs(model_items) do
-              if item:lower():find(q, 1, true) then
-                table.insert(res, item)
+            for _, item_entry in ipairs(model_items) do
+              if item_entry:lower():find(q, 1, true) then
+                table.insert(res, item_entry)
               end
             end
             return res
@@ -7967,8 +7981,8 @@ function VisualizerView:select_provider_dialog()
       if not keys[selected_prov] or #keys[selected_prov] == 0 then
         core.command_view:enter("Enter API Key for " .. pinfo.name, {
           submit = function(key_text)
-            key_text = key_text:match("^%s*(.-)%s*$")
-            if key_text and #key_text > 0 then
+            key_text = (key_text or ""):match("^%s*(.-)%s*$") or ""
+            if #key_text > 0 then
               AIAnalyzer.save_key(selected_prov, key_text)
               keys[selected_prov] = key_text
               show_toast("Saved key for " .. pinfo.name)
@@ -7982,9 +7996,10 @@ function VisualizerView:select_provider_dialog()
       prompt_for_model()
     end,
     suggest = function(text)
+      local q = (text or ""):lower()
       local res = {}
       for _, item in ipairs(items) do
-        if item:lower():find(text:lower(), 1, true) then
+        if item:lower():find(q, 1, true) then
           table.insert(res, item)
         end
       end
