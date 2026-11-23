@@ -7745,14 +7745,15 @@ command.add(nil, {
     else
       -- Toggle ON: force AI open, closing any other plugin in the sidebar
       if sidebar then
-        -- Sidebar exists — close other views and add/activate AI
-        for i = #sidebar.views, 1, -1 do
-          if sidebar.views[i] ~= instance then
-            sidebar:close_view(core.root_view.root_node, sidebar.views[i])
-          end
-        end
+        -- Sidebar exists — add AI first, then remove other views so node is never destroyed
         if not core.root_view.root_node:get_node_for_view(instance) then
           sidebar:add_view(instance)
+        end
+        for i = #sidebar.views, 1, -1 do
+          local v = sidebar.views[i]
+          if v ~= instance then
+            sidebar:remove_view(core.root_view.root_node, v)
+          end
         end
         sidebar:set_active_view(instance)
         instance.visible = true

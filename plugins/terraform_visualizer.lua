@@ -1609,6 +1609,7 @@ local function toggle_tf_view()
         node:close_view(core.root_view.root_node, node.views[i])
       end
       tv_view = nil
+      rawset(_G, "_ag_sidebar_node", nil)
     elseif sidebar and node == sidebar then
       node:set_active_view(tv_view)
       core.set_active_view(tv_view)
@@ -1620,13 +1621,15 @@ local function toggle_tf_view()
     if not tv_view then tv_view = TerraformVisualizerView() end
     tv_view.visible = true
     if sidebar then
-      for i = #sidebar.views, 1, -1 do
-        if sidebar.views[i] ~= tv_view then
-          sidebar:close_view(core.root_view.root_node, sidebar.views[i])
-        end
-      end
+      -- Add new view first so node is never empty/destroyed
       if not core.root_view.root_node:get_node_for_view(tv_view) then
         sidebar:add_view(tv_view)
+      end
+      for i = #sidebar.views, 1, -1 do
+        local v = sidebar.views[i]
+        if v ~= tv_view then
+          sidebar:remove_view(core.root_view.root_node, v)
+        end
       end
       sidebar:set_active_view(tv_view)
       core.set_active_view(tv_view)
@@ -1647,6 +1650,7 @@ local function toggle_tf_view()
         rawset(_G, "_ag_sidebar_node", sidebar)
         sidebar.size.x = 380 * SCALE
         tv_view.size.x = 380 * SCALE
+        sidebar:set_active_view(tv_view)
         core.set_active_view(tv_view)
       end
     end

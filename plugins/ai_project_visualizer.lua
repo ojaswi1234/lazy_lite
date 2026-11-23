@@ -990,14 +990,6 @@ local ALLOWED_EXTENSIONS = {
 
 -- Supported providers configuration
 AIAnalyzer.PROVIDERS = {
-  groq = {
-    name = "Groq",
-    default_model = "openai/gpt-oss-20b",
-    models = { "openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b" },
-    endpoint = "https://api.groq.com/openai/v1/chat/completions",
-    type = "openai_chat",
-    env_keys = { "GROQ_API_KEY" },
-  },
   nvidia = {
     name = "NVIDIA NIM",
     default_model = "nvidia/nemotron-3.5-bolt-e4b",
@@ -1006,34 +998,61 @@ AIAnalyzer.PROVIDERS = {
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
       "nvidia/nemotron-3.5-lightning-30b-a3b",
       "nvidia/nemotron-3-ultra-550b-a55b",
-      "minimaxai/minimax-m3.1-flash",
       "stepfun-ai/step-5-preview",
+      "minimaxai/minimax-m3.1-flash",
       "poolside/laguna-xs-2.1",
     },
     endpoint = "https://integrate.api.nvidia.com/v1/chat/completions",
     type = "openai_chat",
     env_keys = { "NVIDIA_API_KEY", "NVAPI_KEY" },
   },
-  ollama = {
-    name = "Ollama Cloud",
-    default_model = "gpt-oss:120b",
-    models = { "gpt-oss:120b", "gemma4:31b", "nemotron-3-nano:30b", "gpt-oss:20b", "llama3.3", "mistral-large-3:675b" },
-    endpoint = "https://ollama.com/v1/chat/completions",
-    type = "openai_chat",
-    env_keys = { "OLLAMA_API_KEY", "OLLAMA_HOST" },
-  },
   gemini = {
     name = "Google Gemini",
-    default_model = "gemini-3.8-flash",
-    models = { "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview" },
+    default_model = "gemini-3.7-flash",
+    models = {
+      "gemini-3.7-flash",
+      "gemini-3.5-flash",
+      "gemini-3.1-pro-preview",
+      "gemini-2.5-flash",
+      "gemini-3.8-flash",
+      "gemini-3.5-flash-lite",
+    },
     endpoint = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
     type = "gemini",
     env_keys = { "GEMINI_API_KEY", "GOOGLE_API_KEY" },
   },
+  groq = {
+    name = "Groq",
+    default_model = "openai/gpt-oss-20b",
+    models = {
+      "openai/gpt-oss-20b",
+      "openai/gpt-oss-120b",
+      "qwen/qwen3.8-27b",
+      "openai/gpt-oss-safeguard-20b",
+    },
+    endpoint = "https://api.groq.com/openai/v1/chat/completions",
+    type = "openai_chat",
+    env_keys = { "GROQ_API_KEY" },
+  },
+  ollama = {
+    name = "Ollama Cloud",
+    default_model = "gpt-oss:120b",
+    models = {
+      "gpt-oss:120b",
+      "gemma4:31b",
+      "nemotron-3-nano:30b",
+      "gpt-oss:20b",
+      "llama3.3",
+      "mistral-large-3:675b",
+    },
+    endpoint = "https://ollama.com/v1/chat/completions",
+    type = "openai_chat",
+    env_keys = { "OLLAMA_API_KEY", "OLLAMA_HOST" },
+  },
   openai = {
     name = "OpenAI",
     default_model = "gpt-4o",
-    models = { "gpt-4o", "gpt-4o-mini" },
+    models = { "gpt-4o", "gpt-4o-mini", "o1", "o3-mini" },
     endpoint = "https://api.openai.com/v1/chat/completions",
     type = "openai_chat",
     env_keys = { "OPENAI_API_KEY" },
@@ -1041,7 +1060,7 @@ AIAnalyzer.PROVIDERS = {
   anthropic = {
     name = "Anthropic",
     default_model = "claude-3-7-sonnet-20250219",
-    models = { "claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022" },
+    models = { "claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022" },
     endpoint = "https://api.anthropic.com/v1/messages",
     type = "anthropic",
     env_keys = { "ANTHROPIC_API_KEY" },
@@ -1050,23 +1069,91 @@ AIAnalyzer.PROVIDERS = {
 
 -- Label helper for categorization
 function AIAnalyzer.get_model_label(model_name)
-  local m = (model_name or ""):lower()
-  if m:find("reason") or m:find("r1") or m:find("120b") or m:find("ultra") or m:find("thinking") or m:find("opus") then
+  if not model_name or type(model_name) ~= "string" then return " [General]" end
+  local n = model_name:lower()
+
+  -- 1. Reasoning / Thinking
+  if n:match("[/%-_%.]o[134]") or n:match("^o[134]") or
+     n:find("r1") or n:find("reason") or n:find("qwq") or n:find("thinking") or n:find("thought") or
+     n:find("120b") or n:find("550b") or n:find("opus") then
     return " [Reasoning]"
-  elseif m:find("bolt") or m:find("flash") or m:find("20b") or m:find("instant") or m:find("mini") or m:find("lite") then
-    return " [Fast]"
-  elseif m:find("code") or m:find("coder") or m:find("qwen") or m:find("codex") then
+  end
+
+  -- 2. Coder / Code
+  if n:find("coder") or n:find("starcoder") or n:find("code") or n:find("codex") or n:find("qwen") then
     return " [Coder]"
-  elseif m:find("4o") or m:find("sonnet") or m:find("gemini%-3%.[78]") or m:find("step") then
+  end
+
+  -- 3. Speed / Performance Brands
+  if n:find("bolt") then
+    return " [Bolt]"
+  elseif n:find("lightning") then
+    return " [Lightning]"
+  elseif n:find("flash") then
+    if n:find("lite") then return " [Lite]" end
+    return " [Flash]"
+  elseif n:find("instant") or n:find("mini") or n:find("nano") or n:find("20b") then
+    return " [Fast]"
+  elseif n:find("lite") then
+    return " [Lite]"
+  end
+
+  -- 4. Flagship & Frontier
+  if n:find("4o") or n:find("sonnet") or n:find("gemini%-3%.[5678]") or n:find("step") or n:find("minimax") then
     return " [Flagship]"
   end
+
   return " [General]"
 end
 
--- Read cached dynamic models from model_cache.json
+-- Read cached dynamic models from active Aether instance and model_cache.json
 function AIAnalyzer.get_cached_models(provider)
   local models = {}
   local seen = {}
+
+  -- 1. First check live in-memory model cache from Aether instance if available
+  local ag_inst = rawget(_G, "_ag_instance")
+  if ag_inst and ag_inst.tool_model_lists then
+    if provider == "groq" or provider == "nvidia" or provider == "ollama" then
+      local cmodels = ag_inst.tool_model_lists["cloud_api"]
+      if cmodels and type(cmodels) == "table" then
+        local prefix = provider .. "/"
+        for _, m in ipairs(cmodels) do
+          local mname = (type(m) == "table" and m.name) or (type(m) == "string" and m)
+          if mname and mname:sub(1, #prefix) == prefix then
+            local actual = mname:sub(#prefix + 1)
+            if actual:sub(1, #prefix) == prefix then actual = actual:sub(#prefix + 1) end
+            if not seen[actual] then
+              seen[actual] = true
+              table.insert(models, actual)
+            end
+          end
+        end
+      end
+    end
+    if provider == "gemini" then
+      for _, tid in ipairs({ "agy", "opencode" }) do
+        local tmodels = ag_inst.tool_model_lists[tid]
+        if tmodels and type(tmodels) == "table" then
+          for _, m in ipairs(tmodels) do
+            local mname = (type(m) == "table" and m.name) or (type(m) == "string" and m)
+            if mname and mname:lower():find("gemini") then
+              local clean_m = mname:match("^(%S+)")
+              if clean_m then
+                clean_m = clean_m:gsub("^google/", ""):gsub("^opencode/", "")
+                if clean_m:find("gemini") and not seen[clean_m] then
+                  seen[clean_m] = true
+                  table.insert(models, clean_m)
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- 2. Check disk model_cache.json
   local udir = rawget(_G, "USERDIR") or (os.getenv("USERPROFILE") or os.getenv("HOME") or "") .. "/.config/lite-xl"
   local sep = package.config:sub(1,1)
   local cache_paths = {
@@ -1088,6 +1175,7 @@ function AIAnalyzer.get_cached_models(provider)
               local mname = (type(m) == "table" and m.name) or (type(m) == "string" and m)
               if mname and mname:sub(1, #prefix) == prefix then
                 local actual = mname:sub(#prefix + 1)
+                if actual:sub(1, #prefix) == prefix then actual = actual:sub(#prefix + 1) end
                 if not seen[actual] then
                   seen[actual] = true
                   table.insert(models, actual)
@@ -1412,7 +1500,7 @@ end
 function AIAnalyzer.get_active_provider(preferred_provider, preferred_model)
   local keys = AIAnalyzer.load_saved_keys()
 
-  -- If preferred provider specified and has key
+  -- 1. If preferred provider specified and has key
   if preferred_provider and keys[preferred_provider:lower()] then
     local p = preferred_provider:lower()
     local pinfo = AIAnalyzer.PROVIDERS[p]
@@ -1420,8 +1508,16 @@ function AIAnalyzer.get_active_provider(preferred_provider, preferred_model)
     return p, m, keys[p]
   end
 
-  -- Priority auto-detection
-  local priority = { "groq", "ollama", "gemini", "openai", "anthropic" }
+  -- 2. If preferred provider specified even if no key stored yet
+  if preferred_provider and AIAnalyzer.PROVIDERS[preferred_provider:lower()] then
+    local p = preferred_provider:lower()
+    local pinfo = AIAnalyzer.PROVIDERS[p]
+    local m = preferred_model or (pinfo and pinfo.default_model)
+    return p, m, keys[p]
+  end
+
+  -- 3. Auto-detection priority: NVIDIA NIM, Gemini, Groq, Ollama, OpenAI, Anthropic
+  local priority = { "nvidia", "gemini", "groq", "ollama", "openai", "anthropic" }
   for _, p in ipairs(priority) do
     if keys[p] and #keys[p] > 0 then
       local pinfo = AIAnalyzer.PROVIDERS[p]
@@ -1431,7 +1527,8 @@ function AIAnalyzer.get_active_provider(preferred_provider, preferred_model)
   end
 
   -- Default fallback if nothing has key
-  return "gemini", "gemini-3.8-flash", nil
+  local def_pinfo = AIAnalyzer.PROVIDERS["nvidia"]
+  return "nvidia", (def_pinfo and def_pinfo.default_model) or "nvidia/nemotron-3.5-bolt-e4b", nil
 end
 
 local function get_temp_file(suffix)
@@ -6762,27 +6859,93 @@ function DiagramRenderer.draw_error(view, msg, cx, cy)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Draw "nothing to map" empty state
+-- Draw "nothing to map" empty state / Interactive Exploration Hero
 -- ─────────────────────────────────────────────────────────────────────────────
 function DiagramRenderer.draw_empty(view, cx, cy, label)
   local font = style.font
+  local fcode = style.code_font or font
+  local fbig = style.big_font or font
   label = label or "Nothing to map"
-  local nw = 180
-  local nh = 60
-  local bx = cx - nw / 2
-  local by = cy - nh / 2
 
-  draw_rect(bx - 1, by - 1, nw + 2, nh + 2, COLORS.node_border)
-  draw_rect(bx, by, nw, nh, COLORS.node_default)
+  -- If diagrams already exist and this is just an empty category tab:
+  if view and view.diagrams and #view.categories > 0 then
+    local nw = 180
+    local nh = 60
+    local bx = cx - nw / 2
+    local by = cy - nh / 2
 
-  local tw = font:get_width(label)
-  local th = font:get_height()
-  renderer.draw_text(font, label, math.floor(bx + (nw - tw) / 2), math.floor(by + (nh - th) / 2), COLORS.empty_text)
+    draw_rect(bx - 1, by - 1, nw + 2, nh + 2, COLORS.node_border)
+    draw_rect(bx, by, nw, nh, COLORS.node_default)
 
-  local sub = "Open a multi-file project and press Ctrl+Shift+V"
-  local sfont = style.code_font
-  local sw  = sfont:get_width(sub)
-  renderer.draw_text(sfont, sub, math.floor(cx - sw / 2), math.floor(by + nh + 12), COLORS.empty_text)
+    local tw = font:get_width(label)
+    local th = font:get_height()
+    renderer.draw_text(font, label, math.floor(bx + (nw - tw) / 2), math.floor(by + (nh - th) / 2), COLORS.empty_text)
+    return
+  end
+
+  -- Initial / Unmapped Project Hero State
+  view.hero_rects = {}
+
+  local card_w = math.min(540, (view.size.x or 800) - 80)
+  local card_h = 240
+  local bx = math.floor(cx - card_w / 2)
+  local by = math.floor(cy - card_h / 2)
+
+  -- Outer container with subtle border & background
+  draw_rect(bx - 1, by - 1, card_w + 2, card_h + 2, { 55, 68, 95, 200 })
+  draw_rect(bx, by, card_w, card_h, { 22, 27, 38, 252 })
+
+  -- Top glowing accent bar
+  draw_rect(bx, by, card_w, 3, { 99, 102, 241, 255 })
+
+  -- 1. Hero Title
+  local title = "✦ Architecture Visualizer"
+  local tw = fbig:get_width(title)
+  renderer.draw_text(fbig, title, math.floor(cx - tw / 2), by + 20, { 245, 250, 255, 255 })
+
+  -- 2. Subtitle
+  local sub = "Interactive Architectural Topology & Dependency Mapping"
+  local sw = font:get_width(sub)
+  renderer.draw_text(font, sub, math.floor(cx - sw / 2), by + 50, { 160, 175, 205, 255 })
+
+  -- 3. Provider & Model Selector Pill (Interactive click to configure)
+  local prov = (view.provider or "nvidia"):upper()
+  local mod = view.model or "nvidia/nemotron-3.5-bolt-e4b"
+  if #mod > 32 then mod = mod:sub(1, 29) .. "..." end
+  local pill_text = string.format(" Provider: %s   Model: %s  [Change] ", prov, mod)
+  local pw = fcode:get_width(pill_text) + 20
+  local px = math.floor(cx - pw / 2)
+  local py = by + 86
+  local ph = 26
+  local p_hov = is_hovered(view.mouse_x or 0, view.mouse_y or 0, px, py, pw, ph)
+
+  draw_rect(px, py, pw, ph, p_hov and { 45, 60, 88, 255 } or { 32, 42, 62, 255 })
+  draw_rect(px, py, pw, 1, p_hov and { 130, 175, 255, 255 } or { 70, 95, 140, 255 })
+  renderer.draw_text(fcode, pill_text, px + 10, py + math.floor((ph - fcode:get_height()) / 2), p_hov and { 255, 255, 255, 255 } or { 190, 215, 255, 255 })
+  view.hero_rects.provider_pill = { x = px, y = py, w = pw, h = ph }
+
+  -- 4. Action Button: [ 🚀 Explore & Map Project ]
+  local btn_text = " 🚀 Explore & Map Project "
+  local bw = font:get_width(btn_text) + 40
+  local bx_btn = math.floor(cx - bw / 2)
+  local by_btn = by + 128
+  local bh = 36
+  local b_hov = is_hovered(view.mouse_x or 0, view.mouse_y or 0, bx_btn, by_btn, bw, bh)
+
+  draw_rect(bx_btn, by_btn, bw, bh, b_hov and { 79, 70, 229, 255 } or { 67, 56, 202, 255 })
+  draw_rect(bx_btn, by_btn, bw, 1, b_hov and { 165, 180, 252, 255 } or { 129, 140, 248, 255 })
+  renderer.draw_text(font, btn_text, bx_btn + 20, by_btn + math.floor((bh - font:get_height()) / 2), { 255, 255, 255, 255 })
+  view.hero_rects.explore_btn = { x = bx_btn, y = by_btn, w = bw, h = bh }
+
+  -- 5. Footer info & shortcut
+  local files = get_project_files()
+  local info_text = string.format("%d project files detected • Analysis starts only when you click Explore", #files)
+  local iw = fcode:get_width(info_text)
+  renderer.draw_text(fcode, info_text, math.floor(cx - iw / 2), by + 180, { 140, 155, 180, 255 })
+
+  local hint_text = "(or press Ctrl+Shift+Y to start anytime)"
+  local hw = fcode:get_width(hint_text)
+  renderer.draw_text(fcode, hint_text, math.floor(cx - hw / 2), by + 202, { 100, 115, 140, 255 })
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -7642,11 +7805,15 @@ function VisualizerView:new()
   local proj_dir = core.project_dir or "."
   self.cache_path = proj_dir .. "/.visualizer/cache.json"
 
-  if not self:load_cache() then
-    self:start_analysis()
-  else
+  if self:load_cache() then
     self:run_layout()
     self:reset_viewport()
+  else
+    -- Await explicit user exploration trigger; do NOT auto-start Groq or any API
+    self.diagrams = nil
+    self.categories = {}
+    self.status_message = nil
+    self.is_analyzing = false
   end
 end
 
@@ -7714,7 +7881,7 @@ end
 
 function VisualizerView:select_provider_dialog()
   local keys = AIAnalyzer.load_saved_keys()
-  local providers_list = { "groq", "nvidia", "ollama", "gemini", "openai", "anthropic" }
+  local providers_list = { "nvidia", "gemini", "groq", "ollama", "openai", "anthropic" }
   local items = {}
 
   for _, p in ipairs(providers_list) do
@@ -7752,7 +7919,7 @@ function VisualizerView:select_provider_dialog()
         for _, m in ipairs(cached_models) do
           local lbl = AIAnalyzer.get_model_label(m)
           local is_curr = (m == cur_model) and " (Current)" or ""
-          table.insert(model_items, string.format("%s%s%s", m, lbl, is_curr))
+          table.insert(model_items, string.format("%-44s %-14s%s", m, lbl, is_curr))
         end
 
         core.command_view:enter("Select Model for " .. pinfo.name .. " (filter or type custom)", {
@@ -7766,8 +7933,12 @@ function VisualizerView:select_provider_dialog()
             model_text = model_text:gsub("%s*%[.-%].*", ""):gsub("%s*%(.-%).*", "")
             model_text = model_text:match("^%s*(.-)%s*$")
             self:set_provider_and_model(selected_prov, model_text)
-            show_toast(string.format("AI Visualizer: Switched to %s (%s)", pinfo.name, model_text))
-            self:reanalyze()
+            if not self.diagrams or #self.categories == 0 then
+              show_toast(string.format("AI Visualizer: Provider set to %s (%s). Click [Explore] to begin.", pinfo.name, model_text))
+            else
+              show_toast(string.format("AI Visualizer: Model switched to %s (%s). Press Ctrl+Shift+Y to re-analyze.", pinfo.name, model_text))
+            end
+            core.redraw = true
           end,
           suggest = function(filter_text)
             local q = (filter_text or ""):lower()
@@ -7815,7 +7986,7 @@ end
 function VisualizerView:cycle_provider()
   local keys = AIAnalyzer.load_saved_keys()
   local available = {}
-  local providers_list = { "groq", "nvidia", "ollama", "gemini", "openai", "anthropic" }
+  local providers_list = { "nvidia", "gemini", "groq", "ollama", "openai", "anthropic" }
   for _, p in ipairs(providers_list) do
     if keys[p] and #keys[p] > 0 then
       table.insert(available, p)
@@ -7836,8 +8007,8 @@ function VisualizerView:cycle_provider()
   local next_p = available[next_idx]
   local pinfo = AIAnalyzer.PROVIDERS[next_p]
   self:set_provider_and_model(next_p, pinfo.default_model)
-  show_toast(string.format("AI Visualizer: Switched to %s (%s)", pinfo.name, pinfo.default_model))
-  self:reanalyze()
+  show_toast(string.format("AI Visualizer: Provider set to %s (%s)", pinfo.name, pinfo.default_model))
+  core.redraw = true
 end
 
 
@@ -9727,7 +9898,19 @@ end
 function VisualizerView:on_mouse_pressed(button, px, py, clicks)
   if button ~= "left" then return end
 
-  -- 0. Enlarged Architecture Audit Finding Modal Click Interception
+  -- 0a. Interactive Exploration Hero Click Handling (Unmapped / Ready State)
+  if self.hero_rects and (not self.diagrams or #self.categories == 0) then
+    if self.hero_rects.explore_btn and point_in_rect(px, py, self.hero_rects.explore_btn) then
+      self:start_analysis()
+      return true
+    end
+    if self.hero_rects.provider_pill and point_in_rect(px, py, self.hero_rects.provider_pill) then
+      self:select_provider_dialog()
+      return true
+    end
+  end
+
+  -- 0b. Enlarged Architecture Audit Finding Modal Click Interception
   if self.audit_finding_enlarged and self.audit_enlarged_rects and self.audit_enlarged_rects.is_enlarged then
     local r = self.audit_enlarged_rects
     -- 1. Close / Dismiss button (Esc or [X])
@@ -10386,13 +10569,15 @@ local function open_visualizer()
   local new_view = VisualizerView()
   new_view.visible = true
   if sidebar then
-    for i = #sidebar.views, 1, -1 do
-      if sidebar.views[i] ~= new_view then
-        sidebar:close_view(core.root_view.root_node, sidebar.views[i])
-      end
-    end
+    -- Add new view first so node is never empty/destroyed
     if not core.root_view.root_node:get_node_for_view(new_view) then
       sidebar:add_view(new_view)
+    end
+    for i = #sidebar.views, 1, -1 do
+      local v = sidebar.views[i]
+      if v ~= new_view then
+        sidebar:remove_view(core.root_view.root_node, v)
+      end
     end
     sidebar:set_active_view(new_view)
   else
@@ -10426,6 +10611,7 @@ local function toggle_visualizer()
       for i = #node.views, 1, -1 do
         node:close_view(core.root_view.root_node, node.views[i])
       end
+      rawset(_G, "_ag_sidebar_node", nil)
     elseif sidebar and node == sidebar then
       node:set_active_view(view)
       core.set_active_view(view)
@@ -10436,13 +10622,15 @@ local function toggle_visualizer()
     if not view then view = VisualizerView() end
     view.visible = true
     if sidebar then
-      for i = #sidebar.views, 1, -1 do
-        if sidebar.views[i] ~= view then
-          sidebar:close_view(core.root_view.root_node, sidebar.views[i])
-        end
-      end
+      -- Add new view first so node is never empty/destroyed
       if not core.root_view.root_node:get_node_for_view(view) then
         sidebar:add_view(view)
+      end
+      for i = #sidebar.views, 1, -1 do
+        local v = sidebar.views[i]
+        if v ~= view then
+          sidebar:remove_view(core.root_view.root_node, v)
+        end
       end
       sidebar:set_active_view(view)
       core.set_active_view(view)
@@ -10460,6 +10648,16 @@ local function toggle_visualizer()
           end
           sidebar._ab_patched = true
         end
+        rawset(_G, "_ag_sidebar_node", sidebar)
+        sidebar.size.x = 520 * SCALE
+        view.size.x = 520 * SCALE
+        sidebar:set_active_view(view)
+        core.set_active_view(view)
+      end
+    end
+  end
+  core.redraw = true
+end
         rawset(_G, "_ag_sidebar_node", sidebar)
         sidebar.size.x = 520 * SCALE
         view.size.x = 520 * SCALE
