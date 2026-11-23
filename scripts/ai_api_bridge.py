@@ -2503,6 +2503,7 @@ def main():
         cmd_str = args.open_cli_terminal
         if sys.platform == "win32":
             import subprocess
+            import shutil
             banner = (
                 "echo ======================================================== & "
                 "echo   Aether / Antigravity CLI Authentication & "
@@ -2511,8 +2512,41 @@ def main():
                 "echo."
             )
             full_cmd = f"{banner} & {cmd_str}"
-            subprocess.Popen(["cmd.exe", "/k", full_cmd], creationflags=subprocess.CREATE_NEW_CONSOLE)
-            print(f"Spawned interactive console window for {cmd_str}", flush=True)
+            # Check for Windows Terminal (wt.exe)
+            wt_candidates = [
+                shutil.which("wt"),
+                shutil.which("wt.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe"),
+                os.path.expandvars(r"%ProgramFiles%\WindowsApps\Microsoft.WindowsTerminal_*\wt.exe"),
+            ]
+            wt_bin = None
+            for cand in wt_candidates:
+                if cand and os.path.exists(cand):
+                    wt_bin = cand
+                    break
+
+            launched = False
+            if wt_bin:
+                try:
+                    subprocess.Popen([wt_bin, "-w", "new", "--title", "Aether CLI Authentication", "cmd.exe", "/k", full_cmd])
+                    launched = True
+                    print(f"Spawned Windows Terminal window for {cmd_str}", flush=True)
+                except Exception:
+                    pass
+
+            if not launched:
+                # Try via shell start "" wt.exe
+                try:
+                    subprocess.Popen(f'start "" wt.exe -w new --title "Aether CLI Authentication" cmd.exe /k "{full_cmd}"', shell=True)
+                    launched = True
+                    print(f"Spawned Windows Terminal via shell for {cmd_str}", flush=True)
+                except Exception:
+                    pass
+
+            if not launched:
+                # Fall back to standalone cmd.exe window with CREATE_NEW_CONSOLE
+                subprocess.Popen(["cmd.exe", "/k", full_cmd], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                print(f"Spawned fallback console window for {cmd_str}", flush=True)
             sys.exit(0)
         else:
             import subprocess

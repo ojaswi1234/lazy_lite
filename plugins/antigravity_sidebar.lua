@@ -7838,14 +7838,33 @@ command.add(nil, {
 
     local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
     if PLATFORM == "Windows" then
-      local ok = pcall(function()
-        process.start({ "python", bridge, "--open-cli-terminal", auth_cmd_str }, {
-          stdin = process.REDIRECT_DISCARD,
-        })
-      end)
-      if not ok then
-        local banner = string.format("echo ======================================================== & echo   %s Authentication & echo ======================================================== & echo   Paste your authorization token or log in below: & echo. & %s", tname, auth_cmd_str)
-        os.execute(string.format('start "%s CLI Authentication" cmd.exe /k "%s"', tname, banner))
+      local banner = string.format("echo ======================================================== & echo   %s Authentication & echo ======================================================== & echo   Paste your authorization token or log in below: & echo. & %s", tname, auth_cmd_str)
+      local wt_title = tname .. " CLI Authentication"
+      local localappdata = os.getenv("LOCALAPPDATA") or ""
+      local wt_alias = localappdata .. "\\Microsoft\\WindowsApps\\wt.exe"
+      
+      -- Priority 1: Launch modern Windows Terminal (wt.exe) in a new window
+      local launched = false
+      local wt_cmd = string.format('start "" "%s" -w new --title "%s" cmd.exe /k "%s"', wt_alias, wt_title, banner)
+      local ret = os.execute(wt_cmd)
+      if ret == 0 then
+        launched = true
+      else
+        local ret2 = os.execute(string.format('start "" wt.exe -w new --title "%s" cmd.exe /k "%s"', wt_title, banner))
+        if ret2 == 0 then launched = true end
+      end
+
+      -- Priority 2: Fallback to Python bridge launcher
+      if not launched then
+        local ok = pcall(function()
+          process.start({ "python", bridge, "--open-cli-terminal", auth_cmd_str }, {
+            stdin = process.REDIRECT_DISCARD,
+          })
+        end)
+        if not ok then
+          -- Priority 3: Fallback to standard cmd.exe window
+          os.execute(string.format('start "%s" cmd.exe /k "%s"', wt_title, banner))
+        end
       end
     elseif PLATFORM == "Mac OS X" then
       process.start({ "osascript", "-e", 'tell app "Terminal" to do script "' .. auth_cmd_str .. '"' }, {
