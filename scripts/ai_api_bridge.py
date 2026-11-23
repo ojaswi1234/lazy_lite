@@ -2488,6 +2488,7 @@ def main():
     parser.add_argument("--save-tool-config", type=str, help="Save MCP tool configuration")
     parser.add_argument("--config-data", type=str, help="JSON or FILE:path for save-tool-config")
     parser.add_argument("--open-tool-auth", type=str, help="Open browser auth for MCP tool")
+    parser.add_argument("--open-cli-terminal", type=str, help="Launch visible interactive console terminal for CLI tool")
     parser.add_argument("--install-skill", type=str)
     parser.add_argument("--uninstall-skill", type=str)
     parser.add_argument("--preview-skill", type=str)
@@ -2497,6 +2498,31 @@ def main():
     parser.add_argument("--add-source-repo", type=str, help="Add custom GitHub repository as marketplace source")
     parser.add_argument("--get-sources", action="store_true", help="List active marketplace sources")
     args = parser.parse_args()
+
+    if args.open_cli_terminal:
+        cmd_str = args.open_cli_terminal
+        if sys.platform == "win32":
+            import subprocess
+            banner = (
+                "echo ======================================================== & "
+                "echo   Aether / Antigravity CLI Authentication & "
+                "echo ======================================================== & "
+                "echo   Paste your authorization token or log in below: & "
+                "echo."
+            )
+            full_cmd = f"{banner} & {cmd_str}"
+            subprocess.Popen(["cmd.exe", "/k", full_cmd], creationflags=subprocess.CREATE_NEW_CONSOLE)
+            print(f"Spawned interactive console window for {cmd_str}", flush=True)
+            sys.exit(0)
+        else:
+            import subprocess
+            for term in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"]:
+                try:
+                    subprocess.Popen([term, "-e", cmd_str])
+                    sys.exit(0)
+                except Exception:
+                    pass
+            sys.exit(0)
 
     import re
     pass

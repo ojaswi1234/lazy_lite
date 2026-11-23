@@ -7720,6 +7720,8 @@ command.add(nil, {
   ["aether:submit"] = function(prompt) command.perform("antigravity:submit", prompt) end,
   ["aether:ask"] = function() command.perform "antigravity:ask" end,
   ["aether:auth"] = function() command.perform "antigravity:auth" end,
+  ["aether:terminal"] = function() command.perform "antigravity:auth" end,
+  ["antigravity:open-terminal"] = function() command.perform "antigravity:auth" end,
 
   ["antigravity:toggle"] = function()
     if not instance then
@@ -7834,10 +7836,17 @@ command.add(nil, {
       auth_cmd_str = "echo No automatic auth command configured for " .. tname .. ". Please authenticate manually via terminal."
     end
 
+    local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
     if PLATFORM == "Windows" then
-      process.start({ "cmd.exe", "/c", "start", "cmd.exe", "/k", "echo Launching Authentication for " .. tname .. "... && " .. auth_cmd_str }, {
-        stdin = process.REDIRECT_DISCARD,
-      })
+      local ok = pcall(function()
+        process.start({ "python", bridge, "--open-cli-terminal", auth_cmd_str }, {
+          stdin = process.REDIRECT_DISCARD,
+        })
+      end)
+      if not ok then
+        local banner = string.format("echo ======================================================== & echo   %s Authentication & echo ======================================================== & echo   Paste your authorization token or log in below: & echo. & %s", tname, auth_cmd_str)
+        os.execute(string.format('start "%s CLI Authentication" cmd.exe /k "%s"', tname, banner))
+      end
     elseif PLATFORM == "Mac OS X" then
       process.start({ "osascript", "-e", 'tell app "Terminal" to do script "' .. auth_cmd_str .. '"' }, {
         stdin = process.REDIRECT_DISCARD,
@@ -7847,7 +7856,7 @@ command.add(nil, {
         stdin = process.REDIRECT_DISCARD,
       }) end)
     end
-    core.log(tname .. ": Launched authentication/CLI terminal in a new window.")
+    core.log(tname .. ": Launched authentication window. Paste your token or log in there.")
     
     if not instance then instance = AGView() end
     instance.auth_status = "checking"
