@@ -382,6 +382,15 @@ function core.error(fmt, ...)
     if err_str:find("antigravity") and not err_str:find("%[Antigravity%]") then _healer_in_error = false; return ret end
     if err_str:find("auto_healer") then _healer_in_error = false; return ret end
     if is_duplicate(err_str) then _healer_in_error = false; return ret end
+    if err_str:find("%[AI Visualizer%]")
+       or err_str:find("Rate limit")
+       or err_str:find("Filesystem is too slow")
+       or err_str:find("Request too large")
+       or err_str:find("Invalid JSON")
+       or err_str:find("Groq error") then
+      _healer_in_error = false
+      return ret
+    end
 
     local trace = debug.traceback("", 2)
 
@@ -453,6 +462,14 @@ core.add_thread(function()
     local err_text = fp:read("*a")
     fp:close()
     os.remove(path)
+
+    if err_text:find("Filesystem is too slow")
+       or err_text:find("project files will not be indexed")
+       or err_text:find("Rate limit")
+       or err_text:find("Groq error")
+       or err_text:find("Request too large") then
+      return
+    end
 
     local prompt = string.format(
       "Activate skill `lite_xl_healer`! The editor CRASHED in my last session with this fatal error:\n\n```\n%s\n```\n\n**Note to AI**: This crash happened in the PREVIOUS session. If you have already deployed a fix that resolves this, simply explain that to me so we don't get confused. Otherwise, please analyze this and APPLY THE FIX IMMEDIATELY. DO NOT wait for my permission.",

@@ -7428,6 +7428,9 @@ function VisualizerView:new()
   VisualizerView.super.new(self)
   self.name = "AI Project Visualizer"
   self.scrollable = false
+  self.target_size = 520 * SCALE
+  self.visible = true
+  self.size = { x = 520 * SCALE, y = 0 }
 
   self.diagrams            = {}
   self.categories          = {}
@@ -8307,8 +8310,22 @@ function VisualizerView:export_svg()
   end
 end
 
+function VisualizerView:set_target_size(axis, value)
+  if axis == "x" then
+    self.target_size = value
+    return true
+  end
+end
+
 function VisualizerView:update()
   VisualizerView.super.update(self)
+  local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node(true)
+  local node = core.root_view.root_node:get_node_for_view(self)
+  if sidebar and node == sidebar then
+    self.target_size = self.target_size or (520 * SCALE)
+    local dest = (self.visible ~= false) and self.target_size or 0
+    self:move_towards(self.size, "x", dest, nil, "visualizer_view")
+  end
   if self.is_analyzing then
     self.spinner_time = self.spinner_time + (1 / (config.fps or 60))
     core.redraw = true
@@ -10221,35 +10238,39 @@ end
 
 local function open_visualizer()
   local view, node = find_visualizer_view()
+  local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node()
   if view then
-    if node then node:set_active_view(view) end
+    if sidebar and node == sidebar then
+      sidebar:set_active_view(view)
+    elseif node then
+      node:set_active_view(view)
+    end
     core.set_active_view(view)
     return view
   end
 
-  local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node()
   local new_view = VisualizerView()
+  new_view.visible = true
   if sidebar then
-    sidebar:add_view(new_view)
+    if not core.root_view.root_node:get_node_for_view(new_view) then
+      sidebar:add_view(new_view)
+    end
     sidebar:set_active_view(new_view)
   else
-    local active_node = (core.root_view.get_active_node_default and core.root_view:get_active_node_default())
-                        or (core.root_view.get_active_node and core.root_view:get_active_node())
-    if not active_node or active_node.locked then
-      active_node = core.root_view.get_primary_node and core.root_view:get_primary_node()
-    end
-    if active_node and active_node.split then
-      local target_node = active_node:split("right")
-      if target_node then
-        target_node:add_view(new_view)
-      else
-        active_node:add_view(new_view)
+    local primary = core.root_view:get_primary_node()
+    sidebar = primary:split("right", new_view, { x = true }, true)
+    if sidebar then
+      sidebar.should_show_tabs = function() return false end
+      if not sidebar._ab_patched then
+        local old_av = sidebar.add_view
+        sidebar.add_view = function(self, v)
+          local l = self.locked; self.locked = nil
+          old_av(self, v)
+          self.locked = l
+        end
+        sidebar._ab_patched = true
       end
-    elseif active_node and active_node.add_view then
-      active_node:add_view(new_view)
-    else
-      local primary = core.root_view.get_primary_node and core.root_view:get_primary_node()
-      if primary then primary:add_view(new_view) end
+      rawset(_G, "_ag_sidebar_node", sidebar)
     end
   end
   core.set_active_view(new_view)
@@ -10260,19 +10281,42 @@ local function toggle_visualizer()
   local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node()
   local view, node = find_visualizer_view()
   if view and node then
-    if sidebar and node == sidebar then
-      if sidebar.active_view == view then
-        node:close_view(core.root_view.root_node, view)
-      else
-        node:set_active_view(view)
-        core.set_active_view(view)
-      end
+    if sidebar and node == sidebar and node.active_view == view then
+      node:close_view(core.root_view.root_node, view)
+    elseif sidebar and node == sidebar then
+      node:set_active_view(view)
+      core.set_active_view(view)
     else
       node:close_view(core.root_view.root_node, view)
     end
   else
-    open_visualizer()
+    if not view then view = VisualizerView() end
+    view.visible = true
+    if sidebar then
+      if not core.root_view.root_node:get_node_for_view(view) then
+        sidebar:add_view(view)
+      end
+      sidebar:set_active_view(view)
+    else
+      local primary = core.root_view:get_primary_node()
+      sidebar = primary:split("right", view, { x = true }, true)
+      if sidebar then
+        sidebar.should_show_tabs = function() return false end
+        if not sidebar._ab_patched then
+          local old_av = sidebar.add_view
+          sidebar.add_view = function(self, v)
+            local l = self.locked; self.locked = nil
+            old_av(self, v)
+            self.locked = l
+          end
+          sidebar._ab_patched = true
+        end
+        rawset(_G, "_ag_sidebar_node", sidebar)
+      end
+    end
+    core.set_active_view(view)
   end
+  core.redraw = true
 end
 
 command.add(VisualizerView, {

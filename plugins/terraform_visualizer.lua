@@ -32,6 +32,9 @@ function TerraformVisualizerView:new()
   TerraformVisualizerView.super.new(self)
   self.name = "Terraform Visualizer"
   self.scrollable = true
+  self.target_size = 380 * SCALE
+  self.visible = true
+  self.size = { x = 380 * SCALE, y = 0 }
 
   self.providers = {}   -- list of { name, alias, file, abs_file, line }
   self.resources = {}   -- list of { kind="resource", provider, type, name, file, abs_file, line }
@@ -60,6 +63,12 @@ function TerraformVisualizerView:new()
   self.scroll = { x = 0, y = 0, to = { x = 0, y = 0 } }
 end
 
+function TerraformVisualizerView:update()
+  TerraformVisualizerView.super.update(self)
+  local dest = self.visible and self.target_size or 0
+  self:move_towards(self.size, "x", dest, nil, "terraform_visualizer")
+end
+
 function TerraformVisualizerView:get_name()
   return "Terraform Visualizer"
 end
@@ -70,7 +79,7 @@ end
 
 function TerraformVisualizerView:set_target_size(axis, value)
   if axis == "x" then
-    self.size.x = value
+    self.target_size = value
     return true
   elseif axis == "y" then
     self.size.y = value
@@ -511,41 +520,45 @@ local function toggle_tf_view()
   local sidebar = rawget(_G, "get_sidebar_node") and _G.get_sidebar_node()
   if tv_view and core.root_view.root_node:get_node_for_view(tv_view) then
     local node = core.root_view.root_node:get_node_for_view(tv_view)
-    if sidebar and node == sidebar then
-      if sidebar.active_view == tv_view then
-        node:close_view(core.root_view.root_node, tv_view)
-        tv_view = nil
-      else
-        node:set_active_view(tv_view)
-        core.set_active_view(tv_view)
-      end
+    if sidebar and node == sidebar and node.active_view == tv_view then
+      node:close_view(core.root_view.root_node, tv_view)
+      tv_view = nil
+    elseif sidebar and node == sidebar then
+      node:set_active_view(tv_view)
+      core.set_active_view(tv_view)
     else
       node:close_view(core.root_view.root_node, tv_view)
       tv_view = nil
     end
   else
     if not tv_view then tv_view = TerraformVisualizerView() end
+    tv_view.visible = true
     if sidebar then
-      sidebar:add_view(tv_view)
+      if not core.root_view.root_node:get_node_for_view(tv_view) then
+        sidebar:add_view(tv_view)
+      end
       sidebar:set_active_view(tv_view)
     else
-      local active_node = (core.root_view.get_active_node_default and core.root_view:get_active_node_default())
-                          or (core.root_view.get_active_node and core.root_view:get_active_node())
-                          or (core.root_view.get_primary_node and core.root_view:get_primary_node())
-      if active_node and active_node.split then
-        local target_node = active_node:split("right")
-        if target_node then
-          target_node:add_view(tv_view)
-        else
-          active_node:add_view(tv_view)
+      local primary = core.root_view:get_primary_node()
+      sidebar = primary:split("right", tv_view, { x = true }, true)
+      if sidebar then
+        sidebar.should_show_tabs = function() return false end
+        if not sidebar._ab_patched then
+          local old_av = sidebar.add_view
+          sidebar.add_view = function(self, v)
+            local l = self.locked; self.locked = nil
+            old_av(self, v)
+            self.locked = l
+          end
+          sidebar._ab_patched = true
         end
-      elseif active_node and active_node.add_view then
-        active_node:add_view(tv_view)
+        rawset(_G, "_ag_sidebar_node", sidebar)
       end
     end
     core.set_active_view(tv_view)
     tv_view:scan_project()
   end
+  core.redraw = true
 end
 
 command.add(nil, {
