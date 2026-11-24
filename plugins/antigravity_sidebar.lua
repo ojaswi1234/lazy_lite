@@ -6818,7 +6818,7 @@ end
 
     -- Layout Math
     local SCROLL  = self.history_scroll_y or 0
-    local ROW_H   = 82 * SCALE
+    local ROW_H   = 88 * SCALE
     local CANOPY  = 210 * SCALE
     local MARGIN  = 16 * SCALE
 
@@ -6866,6 +6866,32 @@ end
       return y0 + (y1 - y0) * t + bend * (t - t * t)
     end
 
+    local function eval_cubic_pt(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, t)
+      local u = 1 - t
+      local u2, t2 = u * u, t * t
+      local b0, b1, b2, b3 = u2 * u, 3 * u2 * t, 3 * u * t2, t2 * t
+      return b0 * p0x + b1 * p1x + b2 * p2x + b3 * p3x,
+             b0 * p0y + b1 * p1y + b2 * p2y + b3 * p3y
+    end
+
+    -- Centered cubic Bezier bark renderer for natural organic S-curved branches & forks
+    local function draw_bezier_branch(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, thick0, thick1, color)
+      local dist = math.abs(p3x - p0x) + math.abs(p3y - p0y)
+      local steps = math.max(16, math.floor(dist))
+      fill_circle(math.floor(p0x), math.floor(p0y), math.max(1, math.floor(thick0 * 0.45)), color)
+      local _, prev_y = p0x, p0y
+      for i = 0, steps do
+        local t = i / steps
+        local bx, by = eval_cubic_pt(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, t)
+        local thick  = math.max(1, thick0 + (thick1 - thick0) * (t ^ 1.15))
+        local half_t = thick * 0.5
+        local y_lo   = math.min(by, prev_y) - half_t
+        local y_hi   = math.max(by, prev_y) + half_t
+        renderer.draw_rect(math.floor(bx), math.floor(y_lo), 2, math.max(1, math.ceil(y_hi - y_lo)), color)
+        prev_y = by
+      end
+    end
+
     -- PASS 1: The Trunk & Fibrous Spreading Roots
     local scroll_trunk_top = cy_of(max_row) - 65 * SCALE
     local root_y           = cy_of(1) + 88 * SCALE
@@ -6908,21 +6934,60 @@ end
     end
 
     -- PASS 2: Boughs, Branches, & Ascending Fork Leaves
-    local function draw_normal_sub_branches(x0, y0, x1, y1, bend, dir, side_w, is_left, seed, count)
-      local presets = {
-        { ft = 0.36 + (seed % 5) * 0.025, reach = 0.28 + (seed % 4) * 0.02, dy = -(13 + (seed % 4)) * SCALE, t0 = 4.5 },
-        { ft = 0.64 + (seed % 4) * 0.020, reach = 0.19 + ((seed + 2) % 3) * 0.02, dy = -(10 + ((seed + 1) % 4)) * SCALE, t0 = 3.2 },
-      }
-      local n_subs = math.min(#presets, count or 2)
-      for si = 1, n_subs do
-        local p       = presets[si]
-        local fx0     = math.floor(x0 + (x1 - x0) * p.ft)
-        local fy0     = math.floor(eval_curve_y(y0, y1, bend, p.ft))
-        local raw_fx1 = fx0 + dir * math.floor(side_w * p.reach)
-        local fx1     = is_left and math.max(x1 + 6 * SCALE, raw_fx1) or math.min(x1 - 6 * SCALE, raw_fx1)
-        local fy1     = fy0 + p.dy
-        draw_curve_stroke(fx0, fy0, fx1, fy1, -5 * SCALE, p.t0 * SCALE, 1 * SCALE, C_TR)
+    local function draw_natural_branch_tree(x0, base_cy, x1, dir, side_w, is_left, thick0, seed, sub_count)
+      local span_x = x1 - x0
+      local p0x, p0y = x0, base_cy + 8 * SCALE
+      local p1x, p1y = x0 + span_x * 0.28, base_cy + 7 * SCALE
+      local p2x, p2y = x0 + span_x * 0.65, base_cy - 7 * SCALE
+      local p3x, p3y = x1, base_cy - 18 * SCALE
+
+      -- Main gracefully arching S-curve limb (thick trunk collar tapering smoothly to crown tip)
+      draw_bezier_branch(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, thick0, 1.8 * SCALE, C_TR)
+
+      local n_subs = sub_count or 2
+      local tips = {}
+
+      -- Sub-branch 1: Upper-crown Y-fork rising organically from inner-mid limb
+      if n_subs >= 1 then
+        local ft1 = 0.34 + (seed % 5) * 0.02
+        local fx0, fy0 = eval_cubic_pt(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, ft1)
+        local raw_fx3 = fx0 + dir * math.floor(side_w * (0.34 + (seed % 4) * 0.02))
+        local fx3 = is_left and math.max(x1 + 10 * SCALE, raw_fx3) or math.min(x1 - 10 * SCALE, raw_fx3)
+        local fy3 = fy0 - (24 + (seed % 5)) * SCALE
+        local fx1 = fx0 + (fx3 - fx0) * 0.32
+        local fy1 = fy0 - 3 * SCALE
+        local fx2 = fx0 + (fx3 - fx0) * 0.68
+        local fy2 = fy3 + 5 * SCALE
+        draw_bezier_branch(fx0, fy0, fx1, fy1, fx2, fy2, fx3, fy3, 4.8 * SCALE, 1.2 * SCALE, C_TR)
+        table.insert(tips, { x = fx3, y = fy3, t = 0.65, side = -1 })
+
+        -- Delicate secondary crown forklet off Sub-branch 1 when full tree branch shown
+        if n_subs >= 2 then
+          local sx0, sy0 = eval_cubic_pt(fx0, fy0, fx1, fy1, fx2, fy2, fx3, fy3, 0.52)
+          local raw_sx3 = sx0 + dir * math.floor(side_w * 0.16)
+          local sx3 = is_left and math.max(x1 + 6 * SCALE, raw_sx3) or math.min(x1 - 6 * SCALE, raw_sx3)
+          local sy3 = sy0 - 11 * SCALE
+          draw_bezier_branch(sx0, sy0, sx0 + (sx3 - sx0) * 0.4, sy0 - 2 * SCALE, sx0 + (sx3 - sx0) * 0.75, sy3 + 2 * SCALE, sx3, sy3, 2.4 * SCALE, 1.0 * SCALE, C_TR)
+          table.insert(tips, { x = sx3, y = sy3, t = 0.80, side = -1 })
+        end
       end
+
+      -- Sub-branch 2: Outer lower-lateral fork balancing the upward crown arch (true organic Y-split)
+      if n_subs >= 2 then
+        local ft2 = 0.60 + ((seed + 2) % 4) * 0.02
+        local gx0, gy0 = eval_cubic_pt(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, ft2)
+        local raw_gx3 = gx0 + dir * math.floor(side_w * (0.28 + ((seed + 1) % 3) * 0.02))
+        local gx3 = is_left and math.max(x1 + 4 * SCALE, raw_gx3) or math.min(x1 - 4 * SCALE, raw_gx3)
+        local gy3 = gy0 + (2 + (seed % 4)) * SCALE
+        local gx1 = gx0 + (gx3 - gx0) * 0.35
+        local gy1 = gy0 + 4 * SCALE
+        local gx2 = gx0 + (gx3 - gx0) * 0.72
+        local gy2 = gy3 + 2 * SCALE
+        draw_bezier_branch(gx0, gy0, gx1, gy1, gx2, gy2, gx3, gy3, 3.6 * SCALE, 1.0 * SCALE, C_TR)
+        table.insert(tips, { x = gx3, y = gy3, t = 0.90, side = 1 })
+      end
+
+      return p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, tips
     end
 
     local function draw_bough(cy, top_conv_cy, is_left, label, group_name, collapsed)
@@ -6933,26 +6998,24 @@ end
       local base_y = cy - 6 * SCALE
 
       if collapsed then
-        -- When branch dropdown is collapsed/unselected, render a full normal branch + normal sub-branches
-        local x0   = sx
-        local y0   = cy + 4 * SCALE
-        local x1   = sx + dir * math.floor(side_w * 0.90)
-        local y1   = cy - 12 * SCALE
-        local bend = -10 * SCALE
-        draw_curve_stroke(x0, y0, x1, y1, bend, 13 * SCALE, 2 * SCALE, C_TR)
-        draw_normal_sub_branches(x0, y0, x1, y1, bend, dir, side_w, is_left, #group_name * 37, 2)
-        -- Subtle natural foliage along the folded branch
-        for li, lt in ipairs({ 0.46, 0.70, 0.88 }) do
-          local lbx = math.floor(x0 + (x1 - x0) * lt)
-          local lby = math.floor(eval_curve_y(y0, y1, bend, lt))
-          local lside = (li % 2 == 1) and -1 or 1
-          draw_botanical_leaf(lbx, lby, dir, lside, lt * 0.6, false, C_LEAF_D, C_LEAF)
+        -- Unselected/collapsed dropdown renders a full, organic tree bough + forked sub-branches + soft foliage
+        local x1 = sx + dir * math.floor(side_w * 0.90)
+        local p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, sub_tips =
+          draw_natural_branch_tree(sx, cy, x1, dir, side_w, is_left, 13 * SCALE, #group_name * 37, 2)
+
+        -- Subtle natural leaf clusters along sub-branch tips & outer main crown
+        for _, tp in ipairs(sub_tips) do
+          draw_botanical_leaf(math.floor(tp.x), math.floor(tp.y), dir, tp.side, tp.t, false, C_LEAF_D, C_LEAF)
         end
+        local tip_x, tip_y = eval_cubic_pt(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, 0.92)
+        draw_botanical_leaf(math.floor(tip_x), math.floor(tip_y), dir, -1, 0.85, false, C_LEAF, C_LEAF_D)
       else
         -- Expanded bough collar exiting trunk into continuous vertical group spine
-        draw_curve_stroke(sx, cy + 4 * SCALE, limb_x, base_y, -4 * SCALE, 18 * SCALE, 9 * SCALE, C_TR)
+        draw_bezier_branch(sx, cy + 8 * SCALE, sx + dir * 10 * SCALE, cy + 6 * SCALE,
+                           limb_x - dir * 4 * SCALE, base_y + 2 * SCALE, limb_x, base_y,
+                           15 * SCALE, 8 * SCALE, C_TR)
         if top_conv_cy then
-          local spine_top = math.max(y, top_conv_cy)
+          local spine_top = math.max(y, top_conv_cy + 4 * SCALE)
           local spine_bot = math.min(y + tree_h, base_y + 4 * SCALE)
           if spine_top < spine_bot then
             local spine_w = math.max(4, math.floor(7 * SCALE))
@@ -6964,14 +7027,14 @@ end
 
       -- Clickable group dropdown pill tucked cleanly below the bough/branch
       if cy > y - ROW_H and cy < y + tree_h + ROW_H then
-        local lw      = f:get_width(label)
-        local pad_x   = 8 * SCALE
-        local bw_pill = lw + pad_x * 2
-        local bh_pill = fh + 6 * SCALE
-        local anchor_x = is_left and (trunk_x - math.floor(side_w * 0.14)) or (trunk_x + TRUNK_W + math.floor(side_w * 0.14))
+        local lw       = f:get_width(label)
+        local pad_x    = 8 * SCALE
+        local bw_pill  = lw + pad_x * 2
+        local bh_pill  = fh + 6 * SCALE
+        local anchor_x = is_left and (trunk_x - math.floor(side_w * 0.16)) or (trunk_x + TRUNK_W + math.floor(side_w * 0.16))
         local lx = is_left and math.max(x + 6 * SCALE, anchor_x - bw_pill)
                             or math.min(x + w - bw_pill - 6 * SCALE, anchor_x)
-        local ly = cy + 12 * SCALE
+        local ly = cy + 16 * SCALE
 
         local is_hov_bough = (self.hover_hist_bough == group_name)
         local pill_bg = is_hov_bough and (P.bg_btn_hl or P.bg_btn) or (P.bg_dark or P.bg)
@@ -6992,22 +7055,16 @@ end
       local side_w  = is_left and LEFT_W or RIGHT_W
       local sx      = is_left and trunk_x or (trunk_x + TRUNK_W)
       local limb_x  = n.bough_row and (sx + dir * math.floor(side_w * 0.11)) or sx
+      local x1      = sx + dir * math.floor(side_w * 0.92)
 
-      -- Smooth natural convex arch rising gently off the limb on its own row
-      local x0   = limb_x
-      local y0   = conv_cy + 4 * SCALE
-      local x1   = sx + dir * math.floor(side_w * 0.92)
-      local y1   = conv_cy - 12 * SCALE
-      local bend = -10 * SCALE
-
-      draw_curve_stroke(x0, y0, x1, y1, bend, 9 * SCALE, 2 * SCALE, C_TR)
-
-      -- Normal, smooth forward-forking woody sub-branches (fixed aesthetic, independent of fork count)
       local tid_seed = 0
       for ci = 1, #(n.thread_id or "") do
         tid_seed = (tid_seed * 31 + string.byte(n.thread_id, ci)) % 997
       end
-      draw_normal_sub_branches(x0, y0, x1, y1, bend, dir, side_w, is_left, tid_seed, 1 + (tid_seed % 2))
+
+      -- Natural S-curve branch + fixed aesthetic sub-branches (independent of fork count)
+      local p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y =
+        draw_natural_branch_tree(limb_x, conv_cy, x1, dir, side_w, is_left, 9 * SCALE, tid_seed, 1 + (tid_seed % 2))
 
       -- Draw forked conversations strictly as natural leaves attached along the branch wood:
       -- i = 1 (oldest) near trunk/limb -> i = #leaves (latest) toward outer side
@@ -7017,15 +7074,14 @@ end
 
       for i, leaf in ipairs(leaves) do
         local lt = (#leaves == 1) and 0.62 or (0.22 + ((i - 1) / (#leaves - 1)) * 0.66)
-        local bx = math.floor(x0 + (x1 - x0) * lt)
-        local by = math.floor(eval_curve_y(y0, y1, bend, lt))
+        local bx, by = eval_cubic_pt(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, lt)
         local side  = (i % 2 == 1) and -1 or 1
         local age_t = (#leaves == 1) and 1.0 or ((i - 1) / (#leaves - 1))
         local col_f = (age_t > 0.55) and C_LEAF or C_LEAF_D
         local col_v = (age_t > 0.55) and P.bg or C_LEAF
         local is_active = (self.hover_hist_leaf == leaf.thread_id) or (active_tid == leaf.thread_id)
 
-        local mid_x, mid_y = draw_botanical_leaf(bx, by, dir, side, age_t, is_active, col_f, col_v)
+        local mid_x, mid_y = draw_botanical_leaf(math.floor(bx), math.floor(by), dir, side, age_t, is_active, col_f, col_v)
 
         local hit_r = 10 * SCALE
         table.insert(self._hist_leaf_rects, {
@@ -7137,7 +7193,7 @@ end
         local pill_w     = math.floor(side_w * 0.78)
         local pill_x     = is_left and (trunk_x - pill_w - math.floor(side_w * 0.16))
                                    or (trunk_x + TRUNK_W + math.floor(side_w * 0.16))
-        local pill_y     = cy + 12 * SCALE
+        local pill_y     = cy + 16 * SCALE
         local pill_h     = fh + 8 * SCALE
 
         local is_hov     = (self.hover_hist_node ~= nil and self.hover_hist_node == n.thread_id)
