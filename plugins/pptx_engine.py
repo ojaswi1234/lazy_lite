@@ -348,10 +348,13 @@ def extract_slide_structured(prs, slide):
 
                     # Bullet indicator
                     level = p.level or 0
-                    has_bullet = p_text.strip().startswith("•") or p_text.strip().startswith("-") or level > 0
+                    final_text = p_text.strip()
+                    has_bullet = final_text.startswith("•") or final_text.startswith("-") or level > 0
+                    if has_bullet and not (final_text.startswith("•") or final_text.startswith("-")):
+                        final_text = "• " + final_text
 
                     paras.append({
-                        "text": p_text.strip(),
+                        "text": final_text,
                         "size": round(pt_size, 1),
                         "bold": is_bold,
                         "color": p_color,
