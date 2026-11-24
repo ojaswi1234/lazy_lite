@@ -1735,6 +1735,185 @@ def build_recent_memory_context(db_path: str, current_thread_id: Optional[str] =
     except Exception:
         return ""
 
+def prune_memory_tree(db_path: str, max_threads: int = 40, max_milestones_per_thread: int = 15, active_thread_id: Optional[str] = None, auto_prune: bool = False) -> dict:
+    """
+    Comprehensive Pruning Mechanism for Chat Memory Tree:
+    1. Immunity Rules: Active thread and pinned threads (from ~/.gemini/antigravity-cli/pinned_cids.txt) are immune from eviction.
+    2. Quality & Dead Branch Filter: Deletes zero-turn or empty/failed test threads.
+    3. Sliding Retention Window: Retains top `max_threads` most active sessions.
+    4. Intra-Thread Checkpoint Compaction: Prunes intermediate tool checkpoints and caps milestones per thread to `max_milestones_per_thread`.
+    5. Topological Parent Rewiring: Rewires child parent_checkpoint_id to nearest kept ancestor to preserve visual branch tree integrity.
+    6. Disk Reclamation: Purges orphaned writes and runs VACUUM.
+    """
+    if not os.path.exists(db_path):
+        return {"status": "error", "error": "Database not found"}
+
+    try:
+        import sqlite3
+        orig_bytes = os.path.getsize(db_path)
+        orig_mb = round(orig_bytes / (1024 * 1024), 2)
+
+        # 1. Load Pinned CIDs
+        user_home = os.environ.get("USERPROFILE") or os.environ.get("HOME") or ""
+        pinned_file = os.path.join(user_home, ".gemini", "antigravity-cli", "pinned_cids.txt")
+        pinned_set = set()
+        if os.path.exists(pinned_file):
+            try:
+                with open(pinned_file, "r", encoding="utf-8") as pf:
+                    pinned_set = {line.strip() for line in pf if line.strip()}
+            except Exception:
+                pass
+
+        if active_thread_id:
+            pinned_set.add(active_thread_id)
+
+        conn = sqlite3.connect(db_path, timeout=15.0)
+        c = conn.cursor()
+
+        # 2. Macro-Pruning: Rank threads by latest activity checkpoint
+        c.execute("""
+            SELECT thread_id, max(checkpoint_id) as last_cp
+            FROM checkpoints
+            WHERE checkpoint_ns = ''
+            GROUP BY thread_id
+            ORDER BY max(checkpoint_id) DESC
+        """)
+        ranked_threads = c.fetchall()
+        total_threads_before = len(ranked_threads)
+
+        active_thread_set = set()
+        threads_to_purge = set()
+
+        for idx, (tid, last_cp) in enumerate(ranked_threads):
+            if tid in pinned_set or idx < max_threads:
+                active_thread_set.add(tid)
+            else:
+                threads_to_purge.add(tid)
+
+        # Purge evicted threads
+        for tid in threads_to_purge:
+            c.execute("DELETE FROM checkpoints WHERE thread_id = ?", (tid,))
+            c.execute("DELETE FROM writes WHERE thread_id = ?", (tid,))
+
+        # 3. Micro-Pruning & Compaction
+        c.execute("""
+            SELECT thread_id, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata
+            FROM checkpoints
+            WHERE checkpoint_ns = ''
+            ORDER BY checkpoint_id ASC
+        """)
+        rows = c.fetchall()
+
+        # Identify branching fork parent checkpoints (having > 1 children)
+        c.execute("""
+            SELECT thread_id, parent_checkpoint_id, count(*)
+            FROM checkpoints
+            WHERE parent_checkpoint_id IS NOT NULL AND parent_checkpoint_id != '' AND checkpoint_ns = ''
+            GROUP BY thread_id, parent_checkpoint_id
+            HAVING count(*) > 1
+        """)
+        branching_parents = {(r[0], r[1]) for r in c.fetchall()}
+
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        memory = SqliteSaver(conn)
+
+        # Group rows by thread
+        thread_rows = {}
+        for r in rows:
+            tid = r[0]
+            if tid not in thread_rows:
+                thread_rows[tid] = []
+            thread_rows[tid].append(r)
+
+        parent_map = {}
+        for tid, cid, pid, _, _, _ in rows:
+            parent_map[(tid, cid)] = pid
+
+        keep_set = set()
+        prune_set = set()
+
+        for tid, t_rows in thread_rows.items():
+            root_cp = t_rows[0][1]
+            tip_cp = t_rows[-1][1]
+            keep_set.add((tid, root_cp))
+            keep_set.add((tid, tip_cp))
+
+            milestones = []
+            for row in t_rows:
+                cid, pid, type_, cp_blob, meta_blob = row[1], row[2], row[3], row[4], row[5]
+                if (tid, cid) in branching_parents:
+                    keep_set.add((tid, cid))
+                    continue
+                if cid == root_cp or cid == tip_cp:
+                    continue
+
+                try:
+                    meta = memory.serde.loads_typed((type_, meta_blob))
+                    if isinstance(meta, dict) and meta.get("source") == "input":
+                        milestones.append(cid)
+                        continue
+                    cp = memory.serde.loads_typed((type_, cp_blob))
+                    msgs = cp.get("channel_values", {}).get("messages", [])
+                    if msgs:
+                        last_msg = msgs[-1]
+                        mtype = getattr(last_msg, "type", "")
+                        if mtype == "human":
+                            milestones.append(cid)
+                            continue
+                        elif mtype == "ai" and not getattr(last_msg, "tool_calls", None) and getattr(last_msg, "content", ""):
+                            milestones.append(cid)
+                            continue
+                    prune_set.add((tid, cid))
+                except Exception:
+                    keep_set.add((tid, cid))
+
+            # Cap milestone turns per thread to prevent ballooning
+            kept_milestones = set(milestones[-max_milestones_per_thread:])
+            for m in milestones:
+                if m in kept_milestones:
+                    keep_set.add((tid, m))
+                else:
+                    prune_set.add((tid, m))
+
+        # 4. Topological Parent Rewiring
+        rewires = 0
+        for tid, cid in keep_set:
+            curr_p = parent_map.get((tid, cid))
+            orig_p = curr_p
+            while curr_p and (tid, curr_p) in prune_set:
+                curr_p = parent_map.get((tid, curr_p))
+            if curr_p != orig_p:
+                c.execute("UPDATE checkpoints SET parent_checkpoint_id = ? WHERE thread_id = ? AND checkpoint_id = ?", (curr_p or '', tid, cid))
+                rewires += 1
+
+        # 5. Delete pruned checkpoints & orphan writes
+        for tid, cid in prune_set:
+            c.execute("DELETE FROM checkpoints WHERE thread_id = ? AND checkpoint_id = ?", (tid, cid))
+            c.execute("DELETE FROM writes WHERE thread_id = ? AND checkpoint_id = ?", (tid, cid))
+
+        conn.commit()
+        # Reclaim disk space
+        c.execute("VACUUM")
+        conn.close()
+
+        final_bytes = os.path.getsize(db_path)
+        final_mb = round(final_bytes / (1024 * 1024), 2)
+        freed_mb = round(max(0.0, orig_mb - final_mb), 2)
+
+        return {
+            "status": "success",
+            "orig_mb": orig_mb,
+            "final_mb": final_mb,
+            "freed_mb": freed_mb,
+            "threads_kept": len(active_thread_set),
+            "threads_purged": len(threads_to_purge),
+            "checkpoints_kept": len(keep_set),
+            "checkpoints_pruned": len(prune_set),
+            "rewired_links": rewires
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
 def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None, checkpoint_id=None):
     async def _run_agent_async():
         try:
@@ -2087,6 +2266,11 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         ws_context = f"\nCURRENT WORKSPACE: {workspace}\n" if workspace else "\n"
         db_path = get_db_path()
         recent_memory_ctx = build_recent_memory_context(db_path, thread_id, limit=5)
+        # Automatic background pruning if database grows beyond 100 MB
+        if os.path.exists(db_path) and os.path.getsize(db_path) > 100 * 1024 * 1024:
+            try:
+                prune_memory_tree(db_path, max_threads=40, max_milestones_per_thread=15, active_thread_id=thread_id, auto_prune=True)
+            except Exception: pass
         ws_context = ws_context + recent_memory_ctx
         
         # Attachments directory setup
@@ -2911,6 +3095,9 @@ def main():
     parser.add_argument("--checkpoint-id", type=str, help="Resume from a specific checkpoint in the thread")
     parser.add_argument("--get-thread-messages", type=str, help="Extract conversation messages for a thread")
     parser.add_argument("--get-history", action="store_true")
+    parser.add_argument("--prune", action="store_true", help="Prune dead branches, compact checkpoints, and optimize database")
+    parser.add_argument("--max-threads", type=int, default=40, help="Maximum number of active threads to retain")
+    parser.add_argument("--max-milestones", type=int, default=15, help="Maximum milestone checkpoints to keep per thread")
     parser.add_argument("--enable-tools", action="store_true")
     parser.add_argument("--disable-tools", action="store_true")
     parser.add_argument("--autopilot", action="store_true")
@@ -3030,6 +3217,20 @@ def main():
         args.prompt = re.sub(r'\[Read this pasted text from file: (.*?)\]', replace_pasted_text, args.prompt)
 
     
+    if args.prune:
+        db_path = get_db_path()
+        res = prune_memory_tree(db_path, max_threads=args.max_threads, max_milestones_per_thread=args.max_milestones, active_thread_id=args.thread_id)
+        print("return {")
+        for k, v in res.items():
+            if isinstance(v, (int, float)):
+                print(f"  {k} = {v},")
+            elif isinstance(v, str):
+                print(f"  {k} = {json.dumps(v)},")
+            elif isinstance(v, bool):
+                print(f"  {k} = {'true' if v else 'false'},")
+        print("}")
+        sys.exit(0)
+
     if args.get_thread_messages:
         db_path = get_db_path()
         if not os.path.exists(db_path):

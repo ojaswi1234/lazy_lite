@@ -2087,7 +2087,7 @@ function AGView:submit(prompt, is_auto_continuation)
     self:state().has_session = true
     self:state().status = "idle"
     local tool_name = (tool and tool.name) or "Aether Engine"
-    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history & active swarm\n  `/api` - Manage API Keys & MCP Tools\n  `/team clear` - Disband active swarm (keeps chat history)\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation"
+    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history & active swarm\n  `/api` - Manage API Keys & MCP Tools\n  `/team clear` - Disband active swarm (keeps chat history)\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation\n  `/prune` - Prune dead branches & compact memory tree"
     core.add_thread(function()
       local p = process.start({"python", USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py", "--get-installed-skills"})
       if p then
@@ -2268,6 +2268,13 @@ function AGView:submit(prompt, is_auto_continuation)
   end
 
   local prompt_text = prompt:match("^%s*(.-)%s*$")
+
+  if prompt_text == "/prune" then
+    self:state().input = ""
+    self:_add_session("user", "/prune")
+    self:prune_history()
+    return
+  end
 
   if prompt_text:match("^/resume") then
     self:state().input = ""
@@ -6304,6 +6311,12 @@ function AGView:on_mouse_moved(mx, my, ...)
     self.hover_hist_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
   end
 
+  self.hover_prune_btn = false
+  if self._hist_prune_rect then
+    local r = self._hist_prune_rect
+    self.hover_prune_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+
   self.hover_hist_node = nil
   if self.show_history_tree and self._hist_node_rects then
     for _, r in ipairs(self._hist_node_rects) do
@@ -6315,13 +6328,13 @@ function AGView:on_mouse_moved(mx, my, ...)
     end
   end
 
-  if self.hover_hist_btn then
+  if self.hover_hist_btn or self.hover_prune_btn then
     system.set_cursor("hand")
   end
 
   -- Only trigger redraw when hover state actually changed (prevents 60fps forced redraws on every mouse move)
   local new_sig = tostring(self.hover_btn) .. tostring(self.hover_send) .. tostring(self.hover_attach)
-                  .. tostring(self.hover_hist_node) .. tostring(self.hover_hist_btn)
+                  .. tostring(self.hover_hist_node) .. tostring(self.hover_hist_btn) .. tostring(self.hover_prune_btn)
                   .. tostring(self.hover_model_btn) .. tostring(self.hover_model_idx)
                   .. tostring(self.hover_copy_idx) .. tostring(self.hover_hitl)
                   .. tostring(self.hover_link_url)
@@ -6333,6 +6346,57 @@ function AGView:on_mouse_moved(mx, my, ...)
   end
 end
 
+  function AGView:prune_history()
+    if self.history_pruning then
+      core.log("[Memory Tree] Pruning is already in progress...")
+      return
+    end
+    self.history_pruning = true
+    core.log("[Memory Tree] ✂️ Pruning dead branches & compacting database...")
+    core.redraw = true
+    core.add_thread(function()
+      local config_dir = USERDIR .. PATHSEP .. "scripts"
+      local cmd = "python " .. config_dir .. PATHSEP .. "ai_api_bridge.py --prune"
+      local proc = process.start({ "cmd", "/c", cmd })
+      local out_tbl = {}
+      while true do
+        local chunk = proc:read_stdout(65536)
+        if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
+        if not proc:running() then break end
+        coroutine.yield(0.1)
+      end
+      while true do
+        local chunk = proc:read_stdout(65536)
+        if not chunk or #chunk == 0 then break end
+        table.insert(out_tbl, chunk)
+      end
+      local out = table.concat(out_tbl)
+      self.history_pruning = false
+      if out and out ~= "" then
+        local env = {}
+        local fn = load(out, "prune_res", "t", env)
+        if fn then
+          local ok, res = pcall(fn)
+          if ok and type(res) == "table" and res.status == "success" then
+            local msg = string.format("✂️ Memory Tree Pruned: Freed %.1f MB (database now %.1f MB). Kept %d active threads, compacted %d checkpoints, rewired %d links.",
+              res.freed_mb or 0, res.final_mb or 0, res.threads_kept or 0, res.checkpoints_pruned or 0, res.rewired_links or 0)
+            core.log(msg)
+            if self:state() then
+              self:_add_session("ai", msg)
+            end
+            if self.show_history_tree then
+              self:fetch_history()
+            end
+            core.redraw = true
+            return
+          end
+        end
+      end
+      core.log("[Memory Tree] Pruning complete.")
+      if self.show_history_tree then self:fetch_history() end
+      core.redraw = true
+    end)
+  end
 
   function AGView:fetch_history()
     if self.history_state == "loading" then return end
@@ -7393,6 +7457,12 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     if self.hover_hist_btn then
       self.show_history_tree = not self.show_history_tree
       if self.show_history_tree then self:fetch_history() end
+      core.redraw = true
+      return
+    end
+
+    if self.hover_prune_btn then
+      self:prune_history()
       core.redraw = true
       return
     end
@@ -9789,6 +9859,14 @@ function AGView:draw(...)
     local h_btn_y = y + 103 * SCALE
     self._hist_toggle_rect = { x = h_btn_x, y = h_btn_y, w = h_btn_w, h = 30 * SCALE }
     
+    -- Draw prune button right beside toggle button
+    local p_btn_w = 32 * SCALE
+    local p_btn_x = h_btn_x - p_btn_w - 6 * SCALE
+    self._hist_prune_rect = { x = p_btn_x, y = h_btn_y, w = p_btn_w, h = 30 * SCALE }
+    local is_p_hov = self.hover_prune_btn
+    renderer.draw_rect(p_btn_x, h_btn_y, p_btn_w, 30 * SCALE, is_p_hov and P.fg_accent or (self.history_pruning and _COLOR_CACHE_31 or P.bg_dark))
+    renderer.draw_text(style.font, self.history_pruning and "..." or "✂", p_btn_x + 9 * SCALE, h_btn_y + 6 * SCALE, is_p_hov and P.bg or P.fg_accent)
+
     -- We need mx, my to check hover. But draw doesn't get mx, my directly. 
     -- We can just use self.hover_hist_btn which is updated by on_mouse_moved.
     local is_hov = self.hover_hist_btn
