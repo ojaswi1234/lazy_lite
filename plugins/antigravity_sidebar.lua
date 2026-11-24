@@ -7432,17 +7432,11 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         end
       end
 
-      -- 5. Check Fork Leaves (single click pins in Inspector; double-click resumes directly)
+      -- 5. Check Fork Leaves (click restores/continues chat directly from this forked leaf)
       if self._hist_leaf_rects then
         for _, r in ipairs(self._hist_leaf_rects) do
           if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-            if clicks and clicks >= 2 then
-              open_history_thread(r.thread, r.id, r.topic, false)
-            else
-              self.pinned_hist_item = r.conv
-              self._hover_inspector_item = r.conv
-              core.redraw = true
-            end
+            open_history_thread(r.thread, r.id, r.topic, false)
             return true
           end
         end
@@ -7470,6 +7464,16 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
       end
       core.redraw = true
       return true
+    elseif button == "right" and self._hist_leaf_rects then
+      -- Right-click pins a leaf in the Bottom Inspector for Fork/Inspection without leaving tree
+      for _, r in ipairs(self._hist_leaf_rects) do
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          self.pinned_hist_item = r.conv
+          self._hover_inspector_item = r.conv
+          core.redraw = true
+          return true
+        end
+      end
     end
     -- Also consume other mouse buttons in memory tree
     return true
