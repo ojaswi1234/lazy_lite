@@ -1100,7 +1100,7 @@ Capabilities.register("git", {
 
       local ok, GitDiffView = pcall(require, "plugins.git_diff_view")
       if ok and GitDiffView then
-        local tab_name = target_file ~= "" and (target_file:match("[^/\]+$") or target_file) or "Repository"
+        local tab_name = target_file ~= "" and (target_file:match("[^/\\]+$") or target_file) or "Repository"
         local view = GitDiffView(diff_out, tab_name .. " (Diff)")
         local node = core.root_view:get_active_node_default()
         if node then
