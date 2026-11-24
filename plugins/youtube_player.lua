@@ -864,6 +864,7 @@ command.add(nil, {
     else
       if not yt_view_instance then
         yt_view_instance = YTView()
+        rawset(_G, "_yt_instance", yt_view_instance)
       end
       
       if sidebar then
@@ -906,23 +907,36 @@ command.add(nil, {
     end
   end,
   
-  ["youtube-player:quick-play"] = function()
-    core.command_view:enter("Search YouTube to Quick Play", {
-      submit = function(text)
-        if not yt_view_instance then
-          command.perform("youtube-player:toggle")
-        end
-        if yt_view_instance then
-          yt_view_instance:ensure_backend()
-          yt_view_instance.status_msg = "Quick Playing..."
-          yt_view_instance.results = {}
-          yt_view_instance.auto_play_first = true
-          yt_view_instance.pending_resume_time = nil
-          yt_view_instance:send({cmd = "search", query = text, page = 1, search_type = "video"})
-          core.redraw = true
-        end
+  ["youtube-player:quick-play"] = function(query)
+    local function do_play(text)
+      if not yt_view_instance then
+        command.perform("youtube-player:toggle")
       end
-    })
+      if yt_view_instance then
+        yt_view_instance:ensure_backend()
+        yt_view_instance.status_msg = "Quick Playing: " .. tostring(text)
+        yt_view_instance.results = {}
+        yt_view_instance.auto_play_first = true
+        yt_view_instance.pending_resume_time = nil
+        yt_view_instance:send({cmd = "search", query = text, page = 1, search_type = "video"})
+        core.redraw = true
+      end
+    end
+    if query and type(query) == "string" and #query > 0 then
+      do_play(query)
+    else
+      core.command_view:enter("Search YouTube to Quick Play", {
+        submit = do_play
+      })
+    end
+  end,
+
+  ["youtube-player:search"] = function(query)
+    if not yt_view_instance then command.perform("youtube-player:toggle") end
+    if yt_view_instance and query and #query > 0 then
+      yt_view_instance:ensure_backend()
+      yt_view_instance:send({cmd = "search", query = query, page = 1, search_type = "video"})
+    end
   end
 })
 

@@ -2315,13 +2315,22 @@ function AGView:submit(prompt)
   if av and av.doc then fname = av.doc.filename end
 
   local full_prompt = expanded_prompt
-  -- Prepend ambient micro-awareness pulse from agent_meta_tools
-  if core.agent_meta_tools and core.agent_meta_tools.pulse then
-    local pulse_line = core.agent_meta_tools.pulse()
-    if pulse_line and #pulse_line > 0 then
-      full_prompt = pulse_line .. "\n\n" .. full_prompt
-    end
+  -- Prepend ambient micro-awareness pulse & host capabilities from agent_meta_tools
+  local host_guidance = ""
+  if core.agent_meta_tools then
+    local pulse_line = core.agent_meta_tools.pulse and core.agent_meta_tools.pulse() or ""
+    host_guidance = pulse_line .. "\n" ..
+      "[LITE-XL AGENTIC HOST: You have direct control over this Lite XL editor and its plugins! " ..
+      "To actuate Lite XL actions, emit: [LITEXL:subsystem:action:{...}]. " ..
+      "Subsystems: " ..
+      "• youtube: play songs/videos directly -> [LITEXL:youtube:play:{\"query\":\"song name\"}] | " ..
+      "• editor: split views or switch tabs -> [LITEXL:editor:open_split:{\"layout\":\"side_by_side\"}] | " ..
+      "• leetcode: run or fetch DSA problems -> [LITEXL:leetcode:fetch_problem:{\"slug\":\"problem-name\"}] | " ..
+      "• terminal: toggle terminal -> [LITEXL:terminal:toggle] | " ..
+      "• git: open diff view -> [LITEXL:git:open_diff]. " ..
+      "NEVER tell the user to paste an HTML iframe or open a link manually when an editor capability exists! Emit the actuation tag directly.]\n\n"
   end
+  full_prompt = host_guidance .. full_prompt
   if fname and tool_id == "agy" then
     full_prompt = string.format("Regarding the active file %s: %s", fname, full_prompt)
   end

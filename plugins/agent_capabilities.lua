@@ -581,6 +581,67 @@ Capabilities.register("voice", {
   }
 })
 
+-- ── 13. Register "youtube" Subsystem ──────────────────────────────────────────
+Capabilities.register("youtube", {
+  summary = "Integrated YouTube audio and video music player with quick-play and playback controls",
+  actions_meta = {
+    play = "Searches YouTube and plays song or video immediately (param: query or title).",
+    search = "Searches YouTube and lists video results (param: query).",
+    toggle = "Toggles YouTube player panel view in split or sidebar.",
+    play_pause = "Toggles playback between play and pause.",
+    seek_forward = "Seeks playback forward 10 seconds.",
+    seek_backward = "Seeks playback backward 10 seconds."
+  },
+  actions = {
+    play = function(p)
+      local q = p.query or p.title or p.song or p.name
+      if not q or q == "" then error("Missing 'query' or 'title' to play.") end
+      if command.map["youtube-player:quick-play"] then
+        command.perform("youtube-player:quick-play", q)
+        return string.format("Started playing '%s' on YouTube player.", q)
+      end
+      return "YouTube player plugin not loaded."
+    end,
+    search = function(p)
+      local q = p.query or p.title
+      if not q or q == "" then error("Missing 'query'.") end
+      if command.map["youtube-player:search"] then
+        command.perform("youtube-player:search", q)
+        return string.format("Searched YouTube for '%s'.", q)
+      end
+      return "YouTube player plugin not loaded."
+    end,
+    toggle = function(p)
+      if command.map["youtube-player:toggle"] then
+        command.perform("youtube-player:toggle")
+        return "Toggled YouTube player."
+      end
+      return "YouTube toggle requested."
+    end,
+    play_pause = function(p)
+      if command.map["youtube-player:play-pause"] then
+        command.perform("youtube-player:play-pause")
+        return "Toggled YouTube playback."
+      end
+      return "Playback toggle requested."
+    end,
+    seek_forward = function(p)
+      if command.map["youtube-player:seek-forward"] then
+        command.perform("youtube-player:seek-forward")
+        return "Seeked forward 10s."
+      end
+      return "Seek forward requested."
+    end,
+    seek_backward = function(p)
+      if command.map["youtube-player:seek-backward"] then
+        command.perform("youtube-player:seek-backward")
+        return "Seeked backward 10s."
+      end
+      return "Seek backward requested."
+    end
+  }
+})
+
 -- Export on core
 core.capabilities = Capabilities
 

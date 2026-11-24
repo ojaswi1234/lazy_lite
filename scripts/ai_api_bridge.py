@@ -1753,6 +1753,16 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         if not enable_tools:
             system_prompt = f"""You are Aether, an advanced AI coding assistant running inside the Lite XL editor.{ws_context}
 SYSTEM ENVIRONMENT: Windows. Shell commands are executed via PowerShell.
+HOST ENGINE CAPABILITIES: You are directly integrated into Lite XL and its plugins.
+To actuate Lite XL actions, emit: [LITEXL:subsystem:action:{{...}}].
+Supported Subsystems:
+• youtube: play songs/videos directly -> [LITEXL:youtube:play:{{"query":"song name"}}]
+• editor: manage splits & tabs -> [LITEXL:editor:open_split:{{"layout":"side_by_side"}}]
+• leetcode: run or fetch DSA problems -> [LITEXL:leetcode:fetch_problem:{{"slug":"problem-name"}}]
+• terminal: toggle terminal -> [LITEXL:terminal:toggle]
+• git: open diff view -> [LITEXL:git:open_diff]
+• voice: toggle voice typing -> [LITEXL:voice:toggle]
+NEVER tell the user to manually paste an HTML iframe or open a link when a Lite XL subsystem can perform it. Emit the actuation tag directly.
 You are in conversational chat mode. Answer the user's questions directly, helpfully, and concisely using GitHub-flavored Markdown.
 When discussing code, provide code snippets formatted in appropriate markdown code blocks.
 If the user asks you to explore, read, or edit files, let them know they can toggle 'Auto' (Autopilot) mode using the button in the chat header so you can use tools to inspect or edit their workspace files directly.
@@ -1775,6 +1785,9 @@ You have full access to local shell execution, file editing, and web search.{ws_
 SYSTEM ENVIRONMENT: Windows. Shell commands are executed via PowerShell.
 
 AVAILABLE TOOLS & INSTRUCTIONS:
+- litexl_do(subsystem, action, params): Direct actuator for Lite XL. Controls YouTube player ('youtube:play'), editor splits ('editor:open_split'), LeetCode, terminal, git, and voice typing.
+- litexl_pulse(): Fetches ambient 20-token pulse of active buffer, tabs, and subsystem.
+- litexl_discover(subsystem): Inspects available Lite XL subsystems and actions on-demand.
 - local_shell(command): Execute PowerShell commands in the project root. Use 'Get-ChildItem -Force' or 'dir' to explore directory contents, 'npm test' or 'git status' for dev tasks.
 - read_file(filepath, start_line, end_line): Read file contents. You have global scope across the filesystem: absolute paths anywhere on the machine (e.g. 'C:\\Users\\...\\Downloads\\...') are read directly, while relative paths resolve to the workspace. For package archives (.xapk, .apk, .zip), read_file inspects the inner contents.
 - write_file(filepath, content): Create or overwrite files. ALWAYS provide the complete file content.
