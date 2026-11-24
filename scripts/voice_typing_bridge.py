@@ -6,8 +6,8 @@ boundaries via RMS Voice Activity Detection, and streams transcribed speech to L
 AI Sidebar via JSON-line stdout events.
 
 Supports:
-1. Groq Whisper (whisper-large-v3-turbo) — Sub-200ms latency cloud transcription.
-2. Gemini Live / Transcribe API — Real-time WebSockets transcription via google-genai.
+1. Groq Whisper (whisper-large-v3-turbo) — Sub-200ms latency cloud transcription with connection pooling.
+2. Gemini 2.5 Flash Transcribe — Real-time audio transcription via google-genai.
 3. Windows SAPI Speech Recognition — Offline fallback.
 """
 
@@ -22,11 +22,11 @@ import threading
 import argparse
 from typing import Optional, Dict, Any
 
-# Ensure UTF-8 output on Windows
+# Ensure line-buffered UTF-8 output on Windows
 if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 if hasattr(sys.stderr, 'reconfigure'):
-    sys.stderr.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)
 
 def log_event(event: str, **kwargs):
     payload = {"event": event}
@@ -50,7 +50,7 @@ def load_keys():
     # Fallback to env
     for k in ["groq", "gemini"]:
         if not keys.get(k):
-            env_val = os.environ.get(f"{k.upper()}_API_KEY") or os.environ.get(f"GOOGLE_API_KEY" if k == "gemini" else "")
+            env_val = os.environ.get(f"{k.upper()}_API_KEY") or os.environ.get("GOOGLE_API_KEY" if k == "gemini" else "")
             if env_val:
                 keys[k] = env_val
     return keys
@@ -63,11 +63,16 @@ class VoiceEngine:
         self.silence_sec = silence_sec
         self.rms_threshold = rms_threshold
         self.running = True
-        self.audio_queue = queue.Queue()
+        self.audio_queue = queue.Queue(maxsize=300)
         self.sample_rate = 16000
         self.channels = 1
         self.keys = load_keys()
         self.active_backend = self._resolve_backend()
+
+        # Reusable client instances to prevent per-chunk SSL handshake latency
+        self.groq_client = None
+        self.gemini_client = None
+        self._init_clients()
 
     def _resolve_backend(self) -> str:
         if self.backend_choice == "groq" or (self.backend_choice == "auto" and self.keys.get("groq")):
@@ -76,16 +81,28 @@ class VoiceEngine:
             return "gemini"
         return "sapi"
 
-    def transcribe_audio_chunk(self, audio_bytes: bytes) -> str:
-        """Transcribes PCM 16-bit audio bytes using the active backend."""
-        if not audio_bytes or len(audio_bytes) < 4800: # Less than 0.15s
-            return ""
-
-        # Backend 1: Groq Whisper
-        if self.active_backend == "groq":
+    def _init_clients(self):
+        if self.active_backend == "groq" and self.keys.get("groq"):
             try:
                 from groq import Groq
-                client = Groq(api_key=self.keys["groq"])
+                self.groq_client = Groq(api_key=self.keys["groq"])
+            except Exception as e:
+                log_event("error", message=f"Failed to init Groq client: {e}")
+        elif self.active_backend == "gemini" and self.keys.get("gemini"):
+            try:
+                from google import genai
+                self.gemini_client = genai.Client(api_key=self.keys["gemini"])
+            except Exception as e:
+                log_event("error", message=f"Failed to init Gemini client: {e}")
+
+    def transcribe_audio_chunk(self, audio_bytes: bytes) -> str:
+        """Transcribes PCM 16-bit audio bytes using the active backend."""
+        if not audio_bytes or len(audio_bytes) < 4800:  # Less than 0.15s
+            return ""
+
+        # Backend 1: Groq Whisper (Persistent Client)
+        if self.active_backend == "groq" and self.groq_client:
+            try:
                 wav_buffer = io.BytesIO()
                 with wave.open(wav_buffer, 'wb') as wf:
                     wf.setnchannels(self.channels)
@@ -95,18 +112,24 @@ class VoiceEngine:
                 wav_buffer.seek(0)
                 wav_buffer.name = "speech.wav"
 
-                resp = client.audio.transcriptions.create(
+                resp = self.groq_client.audio.transcriptions.create(
                     file=wav_buffer,
                     model="whisper-large-v3-turbo",
                     response_format="verbose_json",
-                    temperature=0.0
+                    temperature=0.0,
+                    language="en",
+                    prompt="Lite XL code editor commands, chat, programming instructions."
                 )
                 raw_text = resp.text.strip() if hasattr(resp, "text") else str(resp).strip()
                 cleaned = raw_text.strip(" .!?,;:\r\n")
 
                 # Discard typical Whisper silence hallucinations
-                noise_phrases = ["you", "thank you", "thanks for watching", "subtitles", "bye", "okay", "um", "uh"]
-                if cleaned.lower() in noise_phrases and len(audio_bytes) < 24000:
+                noise_phrases = {
+                    "you", "thank you", "thanks for watching", "subtitles",
+                    "bye", "okay", "um", "uh", "thank you.", "subtitles by",
+                    "so", "yeah", "am", "the", "a", "i", "..."
+                }
+                if cleaned.lower() in noise_phrases and len(audio_bytes) < 28000:
                     return ""
                 return cleaned
             except Exception as e:
@@ -114,11 +137,9 @@ class VoiceEngine:
                 return ""
 
         # Backend 2: Gemini
-        elif self.active_backend == "gemini":
+        elif self.active_backend == "gemini" and self.gemini_client:
             try:
-                from google import genai
                 from google.genai import types
-                client = genai.Client(api_key=self.keys["gemini"])
                 wav_buffer = io.BytesIO()
                 with wave.open(wav_buffer, 'wb') as wf:
                     wf.setnchannels(self.channels)
@@ -127,7 +148,7 @@ class VoiceEngine:
                     wf.writeframes(audio_bytes)
                 wav_bytes = wav_buffer.getvalue()
 
-                resp = client.models.generate_content(
+                resp = self.gemini_client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=[
                         types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
@@ -171,7 +192,15 @@ class VoiceEngine:
 
         def audio_callback(indata, frames, time_info, status):
             if self.running:
-                self.audio_queue.put(bytes(indata))
+                try:
+                    self.audio_queue.put_nowait(bytes(indata))
+                except queue.Full:
+                    # Drop oldest frame to avoid latency lag
+                    try:
+                        self.audio_queue.get_nowait()
+                        self.audio_queue.put_nowait(bytes(indata))
+                    except Exception:
+                        pass
 
         try:
             stream = sd.RawInputStream(
@@ -189,11 +218,12 @@ class VoiceEngine:
         speaking = False
         silence_start = None
         last_interim_time = 0
+        last_level_emit = 0
 
         with stream:
             while self.running:
                 try:
-                    chunk = self.audio_queue.get(timeout=0.1)
+                    chunk = self.audio_queue.get(timeout=0.08)
                 except queue.Empty:
                     continue
 
@@ -202,8 +232,11 @@ class VoiceEngine:
                     continue
                 rms = float(np.sqrt(np.mean(samples.astype(np.float32)**2)))
 
-                # Emit volume level
-                log_event("level", rms=round(rms, 1))
+                # Emit volume level throttled to max ~5Hz (every 200ms) to prevent pipe flooding
+                now = time.time()
+                if now - last_level_emit >= 0.2:
+                    last_level_emit = now
+                    log_event("level", rms=round(rms, 1), speaking=speaking)
 
                 is_sound = rms > self.rms_threshold
 
@@ -218,8 +251,7 @@ class VoiceEngine:
                     silence_start = None
 
                     # If speaking continuously, trigger interim transcription periodically
-                    now = time.time()
-                    if len(speech_buffer) > (self.sample_rate * 2 * 1.5) and (now - last_interim_time > 1.8):
+                    if len(speech_buffer) > (self.sample_rate * 2 * 1.5) and (now - last_interim_time > 2.0):
                         last_interim_time = now
                         sub_bytes = bytes(speech_buffer)
                         def run_interim(b):
@@ -251,21 +283,52 @@ class VoiceEngine:
 
         log_event("status", state="stopped")
 
-# ── Stdin Watchdog for instant stop ───────────────────────────────────────────
+# ── Non-blocking Stdin Watchdog for instant stop without Windows pipe deadlocks ─
 def stdin_watchdog(engine: VoiceEngine):
+    """Monitors stdin using non-blocking pipe inspection so the thread never hangs on exit."""
+    try:
+        import msvcrt
+        import ctypes
+        is_windows = (sys.platform == "win32")
+    except Exception:
+        is_windows = False
+
     while engine.running:
-        try:
-            line = sys.stdin.readline()
-            if not line:
+        if is_windows:
+            try:
+                handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+                avail = ctypes.c_ulong(0)
+                success = ctypes.windll.kernel32.PeekNamedPipe(
+                    handle, None, 0, None, ctypes.byref(avail), None
+                )
+                if not success:
+                    # Pipe was closed by parent process
+                    engine.running = False
+                    break
+                if avail.value > 0:
+                    line = sys.stdin.readline()
+                    if not line:
+                        engine.running = False
+                        break
+                    cmd = line.strip().upper()
+                    if cmd in ["STOP", "QUIT", "EXIT", "KILL"]:
+                        engine.running = False
+                        break
+            except Exception:
                 engine.running = False
                 break
-            cmd = line.strip().upper()
-            if cmd in ["STOP", "QUIT", "EXIT", "KILL"]:
+        else:
+            # Fallback for non-windows
+            try:
+                line = sys.stdin.readline()
+                if not line or line.strip().upper() in ["STOP", "QUIT", "EXIT", "KILL"]:
+                    engine.running = False
+                    break
+            except Exception:
                 engine.running = False
                 break
-        except Exception:
-            engine.running = False
-            break
+
+        time.sleep(0.1)
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 def main():

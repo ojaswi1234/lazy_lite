@@ -2531,7 +2531,7 @@ function AGView:start_voice()
     return
   end
 
-  local proc = process.start({"python", script}, {
+  local proc = process.start({"python", "-u", script}, {
     stdout = process.REDIRECT_PIPE,
     stdin  = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE
@@ -2543,6 +2543,7 @@ function AGView:start_voice()
 
   self.voice_proc = proc
   self.voice_active = true
+  self.voice_speaking = false
   self.voice_level = 0
   core.log("[Voice] 🎙️ Real-time voice typing active (Speak normally, auto-submits on silence)")
   core.redraw = true
@@ -2551,7 +2552,7 @@ function AGView:start_voice()
     local ok_json, json = pcall(require, "plugins.lsp.json")
     local line_acc = ""
     while self.voice_active and self.voice_proc and self.voice_proc:running() do
-      local chunk = self.voice_proc:read_stdout()
+      local chunk = self.voice_proc:read_stdout(4096)
       if chunk and #chunk > 0 then
         line_acc = line_acc .. chunk
         while line_acc:find("\n") do
@@ -2562,8 +2563,18 @@ function AGView:start_voice()
             if p_ok and evt and evt.event then
               if evt.event == "level" then
                 self.voice_level = evt.rms or 0
+                if evt.speaking ~= nil then
+                  self.voice_speaking = evt.speaking
+                end
               elseif evt.event == "status" then
                 if evt.state == "speaking" then
+                  self.voice_speaking = true
+                  core.redraw = true
+                elseif evt.state == "listening" then
+                  self.voice_speaking = false
+                  core.redraw = true
+                elseif evt.state == "processing" then
+                  self.voice_speaking = false
                   core.redraw = true
                 end
               elseif evt.event == "interim" and evt.text and #evt.text > 0 then
@@ -2573,16 +2584,19 @@ function AGView:start_voice()
               elseif evt.event == "final" and evt.text and #evt.text > 0 then
                 self:state().input = evt.text
                 self:state().cursor = #(self:state().input)
+                self.voice_speaking = false
                 core.redraw = true
                 if evt.auto_submit then
                   local q = (self:state().input or ""):match("^%s*(.-)%s*$")
                   if q and #q > 0 then
+                    self:stop_voice()
                     self:submit(q)
                     self:state().input = ""
                     self:state().cursor = 0
                     self:state().history = { { input = "", cursor = 0 } }
                     self:state().history_idx = 1
                     core.redraw = true
+                    return
                   end
                 end
               end
@@ -2601,6 +2615,7 @@ end
 function AGView:stop_voice()
   if not self.voice_active and not self.voice_proc then return end
   self.voice_active = false
+  self.voice_speaking = false
   self.voice_level = 0
   if self.voice_proc then
     pcall(function() self.voice_proc:write("STOP\n") end)
@@ -2626,6 +2641,10 @@ function AGView:update()
   -- Size animation (treeview pattern)
   local dest = self.visible and self.target_size or 0
   self:move_towards(self.size, "x", dest, nil, "antigravity")
+
+  if self.voice_active then
+    core.redraw = true
+  end
 
 
 
@@ -3825,7 +3844,7 @@ function AGView:draw()
   local text_y_start = inp_y + c_pad
 
   if #raw_input == 0 then
-    local placeholder = self.voice_active and "🎙️ Listening... (Speak normally, auto-submits on silence)" or "Ask anything..."
+    local placeholder = self.voice_active and (self.voice_speaking and "🎙️ Hearing you... (Speak normally)" or "🎙️ Listening... (Speak normally, auto-submits on silence)") or "Ask anything..."
     renderer.draw_text(font, placeholder, inp_x + c_pad, text_y_start, self.voice_active and { common.color "#E06C75" } or P.fg_muted)
     if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
       renderer.draw_rect(inp_x + c_pad, text_y_start, 2 * SCALE, font:get_height(), P.fg_accent)
@@ -3919,7 +3938,7 @@ function AGView:draw()
 
   -- Voice Typing Button (Next to Send button)
   local is_voice = (self.voice_active == true)
-  local voice_lbl = is_voice and "🔴 Live" or "🎙️"
+  local voice_lbl = is_voice and (self.voice_speaking and "🔴 Speaking" or "🔴 Live") or "🎙️"
   local voice_w = is_voice and (small_font:get_width(voice_lbl) + 16 * SCALE) or (26 * SCALE)
   local voice_x = send_x - 4 * SCALE - voice_w
 
@@ -3983,10 +4002,12 @@ function AGView:draw()
   -- Draw Voice Typing Button
   local vy = act_y + math.floor((action_row_h - mh) / 2)
   if is_voice then
-    local v_pulse = (math.sin(self.tick / 8) + 1) / 2
-    local v_alpha = math.floor(40 + 80 * v_pulse)
-    renderer.draw_rect(voice_x - 2 * SCALE, vy - 2 * SCALE, voice_w + 4 * SCALE, mh + 4 * SCALE, { 235, 60, 60, v_alpha })
-    renderer.draw_rect(voice_x, vy, voice_w, mh, { 210, 45, 45, 230 })
+    local v_level_factor = math.min(1.0, math.max(0.0, ((self.voice_level or 0) - 300) / 1000))
+    local v_pulse = (math.sin(self.tick / 6) + 1) / 2
+    local halo_pad = math.floor(2 * SCALE + (self.voice_speaking and (4 * SCALE * v_level_factor + 2 * SCALE * v_pulse) or (2 * SCALE * v_pulse)))
+    local v_alpha = self.voice_speaking and math.floor(70 + 120 * v_level_factor) or math.floor(40 + 70 * v_pulse)
+    renderer.draw_rect(voice_x - halo_pad, vy - halo_pad, voice_w + halo_pad * 2, mh + halo_pad * 2, { 235, 60, 60, v_alpha })
+    renderer.draw_rect(voice_x, vy, voice_w, mh, self.voice_speaking and { 220, 35, 35, 240 } or { 190, 45, 45, 230 })
     renderer.draw_text(small_font, voice_lbl, voice_x + 8 * SCALE, vy + math.floor((mh - small_font:get_height()) / 2), { 255, 255, 255 })
   else
     local v_bg = self.hover_voice_btn and P.bg_btn_hl or _COLOR_CACHE_22
