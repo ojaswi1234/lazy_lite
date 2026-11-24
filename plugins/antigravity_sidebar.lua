@@ -6779,23 +6779,15 @@ end
       return lines
     end
 
-    -- Organic pointed botanical leaf sprouting from stem endpoint along direction
+    -- Organic pointed botanical leaf growing directly along the branch wood (no brown stick gap)
     local function draw_botanical_leaf(bx, by, dir, side, age_t, is_active, color_fill, color_vein)
-      local stem_len = 8 * SCALE
-      local ux = dir * 0.72
-      local uy = side * 0.69
-      local sx = bx + ux * stem_len
-      local sy = by + uy * stem_len
+      local ux = dir * 0.82
+      local uy = side * 0.57
+      -- Base touches the branch surface with a subtle 1.5px green attachment
+      local sx = bx + ux * (1.5 * SCALE)
+      local sy = by + uy * (1.5 * SCALE)
 
-      -- Petiole stem connecting leaf cleanly to the branch wood
-      local stem_steps = math.max(2, math.floor(stem_len))
-      for s = 0, stem_steps do
-        local u = s / stem_steps
-        renderer.draw_rect(math.floor(bx + ux * stem_len * u), math.floor(by + uy * stem_len * u), 2, 2, C_TR)
-      end
-
-      -- Leaf blade oriented diagonally outward
-      local leaf_len = (12 + 2 * age_t) * SCALE
+      local leaf_len = (11 + 2 * age_t) * SCALE
       local max_r    = 4.5 * SCALE
       local tip_x    = sx + ux * leaf_len
       local tip_y    = sy + uy * leaf_len
@@ -6890,87 +6882,89 @@ end
       return y0 + (y1 - y0) * t + bend * (t - t * t)
     end
 
-    local function draw_bough(cy, is_left, label, group_name, collapsed)
+    local function draw_bough(cy, top_conv_cy, is_left, label, group_name, collapsed)
       local dir    = is_left and -1 or 1
       local side_w = is_left and LEFT_W or RIGHT_W
       local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
-      local tip_x  = sx + dir * math.floor(side_w * 0.24)
-      local tip_y  = cy - 12 * SCALE
+      local limb_x = sx + dir * math.floor(side_w * 0.11)
+      local base_y = cy - 6 * SCALE
 
-      draw_curve_stroke(sx, cy, tip_x, tip_y, 14 * SCALE, 22 * SCALE, 9 * SCALE, C_TR)
-      fill_circle(tip_x, tip_y, 5 * SCALE, C_LEAF_D)
+      -- Bough collar smoothly exiting trunk into group spine
+      draw_curve_stroke(sx, cy + 4 * SCALE, limb_x, base_y, -4 * SCALE, 18 * SCALE, 9 * SCALE, C_TR)
 
-      -- Clickable group pill beside bough tip
-      local lw  = f:get_width(label)
-      local pad_x = 8 * SCALE
-      local bw_pill = lw + pad_x * 2
-      local bh_pill = fh + 6 * SCALE
-      local lx = is_left and math.max(x + 6 * SCALE, tip_x - bw_pill - 6 * SCALE)
-                          or math.min(x + w - bw_pill - 6 * SCALE, tip_x + 6 * SCALE)
-      local ly = tip_y - math.floor(bh_pill / 2)
+      -- Vertical tapered bark spine feeding all branches inside this expanded group
+      if not collapsed and top_conv_cy then
+        local spine_top = math.max(y, top_conv_cy)
+        local spine_bot = math.min(y + tree_h, base_y + 4 * SCALE)
+        if spine_top < spine_bot then
+          local spine_w = math.max(4, math.floor(7 * SCALE))
+          renderer.draw_rect(is_left and (limb_x - spine_w + 2) or (limb_x - 2),
+                             math.floor(spine_top), spine_w, math.ceil(spine_bot - spine_top), C_TR)
+        end
+      end
 
-      local is_hov_bough = (self.hover_hist_bough == group_name)
-      local pill_bg = is_hov_bough and (P.bg_btn_hl or P.bg_btn) or (P.bg_dark or P.bg)
-      renderer.draw_rect(lx, ly, bw_pill, bh_pill, pill_bg)
-      draw_rect_outline(lx, ly, bw_pill, bh_pill, is_hov_bough and P.fg_accent or (collapsed and P.border or C_LEAF_D))
-      renderer.draw_text(f, label, lx + pad_x, ly + 3 * SCALE, is_hov_bough and P.fg_accent or C_LEAF)
+      -- Clickable group pill cleanly beside bough base (only when base is visible)
+      if cy > y - ROW_H and cy < y + tree_h + ROW_H then
+        local lw      = f:get_width(label)
+        local pad_x   = 8 * SCALE
+        local bw_pill = lw + pad_x * 2
+        local bh_pill = fh + 6 * SCALE
+        local lx = is_left and math.max(x + 6 * SCALE, limb_x - bw_pill - 10 * SCALE)
+                            or math.min(x + w - bw_pill - 6 * SCALE, limb_x + 10 * SCALE)
+        local ly = base_y - math.floor(bh_pill / 2)
 
-      table.insert(self._hist_bough_rects, {
-        group = group_name,
-        x = lx, y = ly, w = bw_pill, h = bh_pill
-      })
+        local is_hov_bough = (self.hover_hist_bough == group_name)
+        local pill_bg = is_hov_bough and (P.bg_btn_hl or P.bg_btn) or (P.bg_dark or P.bg)
+        renderer.draw_rect(lx, ly, bw_pill, bh_pill, pill_bg)
+        draw_rect_outline(lx, ly, bw_pill, bh_pill, is_hov_bough and P.fg_accent or (collapsed and P.border or C_LEAF_D))
+        renderer.draw_text(f, label, lx + pad_x, ly + 3 * SCALE, is_hov_bough and P.fg_accent or C_LEAF)
+
+        table.insert(self._hist_bough_rects, {
+          group = group_name,
+          x = lx, y = ly, w = bw_pill, h = bh_pill
+        })
+      end
     end
 
-    local function draw_branch_and_leaves(n, bough_cy, conv_cy)
+    local function draw_branch_and_leaves(n, conv_cy)
       local is_left = n.is_left
       local dir     = is_left and -1 or 1
       local side_w  = is_left and LEFT_W or RIGHT_W
       local sx      = is_left and trunk_x or (trunk_x + TRUNK_W)
+      local limb_x  = n.bough_row and (sx + dir * math.floor(side_w * 0.11)) or sx
 
-      local x0   = bough_cy and (sx + dir * math.floor(side_w * 0.18)) or sx
-      local y0   = bough_cy and (bough_cy - 10 * SCALE) or conv_cy
+      -- Smooth natural convex arch rising gently off the limb on its own row
+      local x0   = limb_x
+      local y0   = conv_cy + 4 * SCALE
       local x1   = sx + dir * math.floor(side_w * 0.92)
-      local y1   = conv_cy - 10 * SCALE
-      local bend = bough_cy and (24 * SCALE) or (34 * SCALE)
+      local y1   = conv_cy - 12 * SCALE
+      local bend = -10 * SCALE
 
-      draw_curve_stroke(x0, y0, x1, y1, bend, 11 * SCALE, 2 * SCALE, C_TR)
+      draw_curve_stroke(x0, y0, x1, y1, bend, 9 * SCALE, 2 * SCALE, C_TR)
 
-      -- Deterministic decorative woody sub-twigs (shape/length/count independent of fork count)
+      -- At most 1 normal, smooth forward-forking woody sub-branch (fixed aesthetic, independent of fork count)
       local tid_seed = 0
       for ci = 1, #(n.thread_id or "") do
         tid_seed = (tid_seed * 31 + string.byte(n.thread_id, ci)) % 997
       end
-      local twig_specs = {
-        { t = 0.36 + (tid_seed % 7) * 0.015, reach = 0.22 + (tid_seed % 5) * 0.02, dy = -(16 + (tid_seed % 6)) * SCALE },
-        { t = 0.65 + (tid_seed % 5) * 0.015, reach = 0.17 + ((tid_seed + 3) % 4) * 0.02, dy = -(13 + ((tid_seed + 2) % 5)) * SCALE },
-      }
-      local twig_cnt = (tid_seed % 3 == 0) and 1 or 2
-      for ti = 1, twig_cnt do
-        local sp  = twig_specs[ti]
-        local tx0 = math.floor(x0 + (x1 - x0) * sp.t)
-        local ty0 = math.floor(eval_curve_y(y0, y1, bend, sp.t))
-        local tx1 = math.min(x1 + dir * 4 * SCALE, tx0 + dir * math.floor(side_w * sp.reach))
-        if is_left then tx1 = math.max(x1, tx0 + dir * math.floor(side_w * sp.reach)) end
-        local ty1 = ty0 + sp.dy
-        draw_curve_stroke(tx0, ty0, tx1, ty1, 8 * SCALE, 4.5 * SCALE, 1.5 * SCALE, C_TR)
-        fill_circle(tx1, math.floor(ty1), 2 * SCALE, C_LEAF_D)
+      if tid_seed % 3 ~= 0 then
+        local ft  = 0.42 + (tid_seed % 5) * 0.03
+        local fx0 = math.floor(x0 + (x1 - x0) * ft)
+        local fy0 = math.floor(eval_curve_y(y0, y1, bend, ft))
+        local raw_fx1 = fx0 + dir * math.floor(side_w * (0.24 + (tid_seed % 4) * 0.02))
+        local fx1 = is_left and math.max(x1 + 6 * SCALE, raw_fx1) or math.min(x1 - 6 * SCALE, raw_fx1)
+        local fy1 = fy0 - (12 + (tid_seed % 4)) * SCALE
+        draw_curve_stroke(fx0, fy0, fx1, fy1, -5 * SCALE, 4 * SCALE, 1 * SCALE, C_TR)
       end
 
-      -- Terminal bud at outer tip
-      local leaves = n.leaves or {}
-      if #leaves == 0 then
-        fill_circle(x1, math.floor(y1), 3.5 * SCALE, C_LEAF)
-      else
-        fill_circle(x1, math.floor(y1), 2.5 * SCALE, C_LEAF_D)
-      end
-
-      -- Draw forked conversations strictly as Leaves along the branch:
-      -- i = 1 (oldest) near trunk -> i = #leaves (latest) at outer tip
+      -- Draw forked conversations strictly as natural leaves attached along the branch wood:
+      -- i = 1 (oldest) near trunk/limb -> i = #leaves (latest) toward outer side
+      local leaves         = n.leaves or {}
       local active_inspect = self.pinned_hist_item or self._hover_inspector_item
       local active_tid     = active_inspect and active_inspect.thread_id or nil
 
       for i, leaf in ipairs(leaves) do
-        local lt = (#leaves == 1) and 0.64 or (0.22 + ((i - 1) / (#leaves - 1)) * 0.66)
+        local lt = (#leaves == 1) and 0.62 or (0.22 + ((i - 1) / (#leaves - 1)) * 0.66)
         local bx = math.floor(x0 + (x1 - x0) * lt)
         local by = math.floor(eval_curve_y(y0, y1, bend, lt))
         local side  = (i % 2 == 1) and -1 or 1
@@ -7000,21 +6994,27 @@ end
       end
     end
 
-    local node_by_row = {}
+    -- Track highest conversation row per bough so vertical bark spine renders continuously when scrolled
+    local group_top_row = {}
     for _, n in ipairs(self.history_nodes) do
-      if n.row then node_by_row[n.row] = n end
+      if not n.is_bough and n.bough_group and n.row then
+        local g = n.bough_group
+        if not group_top_row[g] or n.row > group_top_row[g] then
+          group_top_row[g] = n.row
+        end
+      end
     end
 
     for _, n in ipairs(self.history_nodes) do
       local cy = cy_of(n.row)
       if n.is_bough then
-        if cy > y - ROW_H and cy < y + tree_h + ROW_H * 8 then
-          draw_bough(cy, n.is_left, n.label or "", n.group, n.collapsed)
+        local top_r   = group_top_row[n.group]
+        local top_cy  = top_r and cy_of(top_r) or cy
+        if top_cy < y + tree_h + ROW_H and cy > y - ROW_H then
+          draw_bough(cy, top_r and top_cy or nil, n.is_left, n.label or "", n.group, n.collapsed)
         end
       elseif cy > y - ROW_H and cy < y + tree_h + ROW_H then
-        local bnode = n.bough_row and node_by_row[n.bough_row] or nil
-        local b_cy  = bnode and cy_of(bnode.row) or nil
-        draw_branch_and_leaves(n, b_cy, cy)
+        draw_branch_and_leaves(n, cy)
       end
     end
 
@@ -7082,9 +7082,9 @@ end
       if cy > y - ROW_H and cy < y + tree_h + ROW_H then
         local is_left    = n.is_left
         local side_w     = is_left and LEFT_W or RIGHT_W
-        local pill_w     = math.floor(side_w * 0.80)
-        local pill_x     = is_left and (trunk_x - pill_w - math.floor(side_w * 0.14))
-                                   or (trunk_x + TRUNK_W + math.floor(side_w * 0.14))
+        local pill_w     = math.floor(side_w * 0.78)
+        local pill_x     = is_left and (trunk_x - pill_w - math.floor(side_w * 0.16))
+                                   or (trunk_x + TRUNK_W + math.floor(side_w * 0.16))
         local pill_y     = cy + 12 * SCALE
         local pill_h     = fh + 8 * SCALE
 
