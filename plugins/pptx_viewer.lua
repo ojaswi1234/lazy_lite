@@ -4,10 +4,11 @@
 -- 1. Native FreeType Typography: TrueType kerning, authentic weights (Calibri Bold/Regular),
 --    high contrast vibrant colors, word-wrapping, and multi-level bullet hierarchy. Zero raster blur or gibberish.
 -- 2. Clean Vector Canvas: Precision cards, containers, borders, fills, and embedded pictures.
--- 3. Interactive Slideshow / Presentation Mode with On-Screen Navigation Buttons & Controls.
--- 4. Slide Deck Explorer Thumbnail Strip for Instant Jump Navigation.
--- 5. Blank Screen Blackboard / Whiteboard Mode with Dedicated UI Buttons.
--- 6. Complete internal containment - strictly inside Lite XL (zero external browser or Office popups).
+-- 3. True Fullscreen Slideshow Mode: Fills 100% of the physical screen edge-to-edge (zero editor chrome).
+-- 4. Interactive Slideshow HUD & On-Screen Side Navigation Arrows (< and >).
+-- 5. Slide Deck Explorer Thumbnail Strip for Instant Jump Navigation.
+-- 6. Blank Screen Blackboard / Whiteboard Mode with Dedicated UI Buttons.
+-- 7. Complete internal containment - strictly inside Lite XL (zero external browser or Office popups).
 
 local core = require "core"
 local system = require "system"
@@ -82,7 +83,7 @@ end
 local _FONT_CACHE = {}
 
 local function get_slide_font(size_pt, is_bold, scale_factor)
-  local px_size = math.max(11, math.min(140, math.floor((size_pt or 18) * scale_factor * 1.333)))
+  local px_size = math.max(11, math.min(160, math.floor((size_pt or 18) * scale_factor * 1.333)))
   local cache_key = px_size .. "_" .. (is_bold and "b" or "r")
 
   if not _FONT_CACHE[cache_key] then
@@ -152,6 +153,10 @@ function PptxView:new(filename)
   self.blank_screen = nil
   self.show_slideshow_notes = false
 
+  -- Previous window state for restoring after fullscreen
+  self.prev_window_mode = nil
+  self.prev_title_visible = nil
+
   -- HUD auto-hide state for slideshow mode
   self.hud_visible = true
   self.hud_timer = 3.5
@@ -196,6 +201,13 @@ end
 
 function PptxView:get_filename()
   return self.filename
+end
+
+function PptxView:destroy()
+  if self.slideshow_mode then
+    self:exit_slideshow()
+  end
+  PptxView.super.destroy(self)
 end
 
 -- ============================================================================
@@ -325,7 +337,7 @@ function PptxView:goto_match(match_idx)
 end
 
 -- ============================================================================
--- SLIDESHOW PRESENTATION MODE TOGGLES
+-- FULLSCREEN SLIDESHOW PRESENTATION CONTROLS
 -- ============================================================================
 
 function PptxView:start_slideshow()
@@ -334,8 +346,20 @@ function PptxView:start_slideshow()
   self.show_slideshow_notes = false
   self.hud_visible = true
   self.hud_timer = 3.5
+
+  -- Switch Lite XL window to True Fullscreen Mode
+  self.prev_window_mode = system.get_window_mode()
+  system.set_window_mode("fullscreen")
+  if core.title_view then
+    self.prev_title_visible = core.title_view.visible
+    core.show_title_bar(false)
+    if core.title_view.configure_hit_test then
+      core.title_view:configure_hit_test(false)
+    end
+  end
+
   core.redraw = true
-  core.log("[Slideshow] Presentation started.")
+  core.log("[Slideshow] Fullscreen presentation active. Press Escape to exit, Space/Arrows or on-screen buttons to navigate.")
 end
 
 function PptxView:exit_slideshow()
@@ -343,8 +367,18 @@ function PptxView:exit_slideshow()
     self.slideshow_mode = false
     self.blank_screen = nil
     self.show_slideshow_notes = false
+
+    -- Restore window mode and title bar
+    system.set_window_mode(self.prev_window_mode or "normal")
+    if core.title_view and self.prev_title_visible ~= nil then
+      core.show_title_bar(self.prev_title_visible)
+      if core.title_view.configure_hit_test then
+        core.title_view:configure_hit_test(self.prev_title_visible)
+      end
+    end
+
     core.redraw = true
-    core.log("[Slideshow] Returned to deck view.")
+    core.log("[Slideshow] Exited fullscreen presentation.")
   end
 end
 
@@ -391,10 +425,14 @@ function PptxView:update()
 
   -- Update HUD auto-hide timer during slideshow
   if self.slideshow_mode and self.hud_visible and self.hud_timer > 0 then
-    self.hud_timer = self.hud_timer - 0.05
-    if self.hud_timer <= 0 then
-      self.hud_visible = false
-      core.redraw = true
+    if not self.hovered_btn then
+      self.hud_timer = self.hud_timer - 0.05
+      if self.hud_timer <= 0 then
+        self.hud_visible = false
+        core.redraw = true
+      end
+    else
+      self.hud_timer = 3.5
     end
   end
 
@@ -509,11 +547,10 @@ function PptxView:get_slide_dimensions(slide_data, avail_w, avail_h)
   local aspect = (slide_data and slide_data.aspect_ratio) or self.aspect_ratio or 1.7778
 
   if self.slideshow_mode then
-    local pad = 36 * SCALE
-    local sw = avail_w - pad * 2
+    local sw = avail_w
     local sh = sw / aspect
-    if sh > avail_h - pad * 2 then
-      sh = avail_h - pad * 2
+    if sh > avail_h then
+      sh = avail_h
       sw = sh * aspect
     end
     return sw, sh, 1.0, 1.0
@@ -746,34 +783,13 @@ function PptxView:draw_browsh_slide(page_data, cx, cy, pw, ph)
   local char_w = pw / cols
   local lh = ph / rows
 
-  -- Drop shadow & card border
   renderer.draw_rect(cx - 6 * SCALE, cy - 6 * SCALE, pw + 12 * SCALE, ph + 12 * SCALE, _COLOR_SHADOW)
   renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or _COLOR_BORDER)
   renderer.draw_rect(cx, cy, pw, ph, page_bg)
 
-  local view_top = self.position.y + (self.slideshow_mode and 0 or self.toolbar_h)
-  local view_bot = self.position.y + self.size.y
+  local view_top = self.slideshow_mode and 0 or (self.position.y + self.toolbar_h)
+  local view_bot = self.slideshow_mode and select(2, system.get_window_size()) or (self.position.y + self.size.y)
 
-  -- 1. Half-Block Subpixel Graphics Runs
-  local graphic_runs = page_data.graphic_runs or {}
-  for _, run in ipairs(graphic_runs) do
-    local r = run[1]
-    local c = run[2]
-    local count = run[3]
-    local fg = invert_color(run[4], self.inverted)
-    local bg = invert_color(run[5], self.inverted)
-
-    local ry = cy + r * lh
-    if ry + lh >= view_top and ry <= view_bot then
-      local rx = cx + c * char_w
-      local rw = count * char_w
-      renderer.draw_rect(rx, ry, rw, lh, bg)
-      local blocks = string.rep(HALF_BLOCK, count)
-      renderer.draw_text(font, blocks, rx, ry, fg)
-    end
-  end
-
-  -- 2. Text Stream Overlay
   local text_lines = page_data.text_lines or {}
   for _, line in ipairs(text_lines) do
     local r = line[1]
@@ -799,12 +815,14 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
   local page_bg = invert_color(raw_bg, self.inverted)
 
   -- Stage Drop Shadow & Presentation Card Border
-  renderer.draw_rect(cx - 8 * SCALE, cy - 8 * SCALE, pw + 16 * SCALE, ph + 16 * SCALE, _COLOR_SHADOW)
-  renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or _COLOR_BORDER)
+  if not self.slideshow_mode then
+    renderer.draw_rect(cx - 8 * SCALE, cy - 8 * SCALE, pw + 16 * SCALE, ph + 16 * SCALE, _COLOR_SHADOW)
+    renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or _COLOR_BORDER)
+  end
   renderer.draw_rect(cx, cy, pw, ph, page_bg)
 
-  local view_top = self.position.y + (self.slideshow_mode and 0 or self.toolbar_h)
-  local view_bot = self.position.y + self.size.y
+  local view_top = self.slideshow_mode and 0 or (self.position.y + self.toolbar_h)
+  local view_bot = self.slideshow_mode and select(2, system.get_window_size()) or (self.position.y + self.size.y)
 
   -- 1. Draw Vector Shapes (Cards, Banners, Background Containers, Dividers)
   local shapes = page_data.shapes or {}
@@ -944,8 +962,8 @@ function PptxView:draw_text_slide(page_data, cx, cy, pw, ph)
   renderer.draw_rect(cx - 10 * SCALE, cy, pw + 20 * SCALE, 1, style.divider or _COLOR_BORDER)
 
   local y = cy + 20 * SCALE
-  local view_top = self.position.y + (self.slideshow_mode and 0 or self.toolbar_h)
-  local view_bot = self.position.y + self.size.y
+  local view_top = self.slideshow_mode and 0 or (self.position.y + self.toolbar_h)
+  local view_bot = self.slideshow_mode and select(2, system.get_window_size()) or (self.position.y + self.size.y)
 
   local line_num = 1
   for line in (text .. "\n"):gmatch("(.-)\n") do
@@ -960,16 +978,11 @@ function PptxView:draw_text_slide(page_data, cx, cy, pw, ph)
 end
 
 -- ============================================================================
--- SLIDESHOW OVERLAYS: FLOATING HUD, SIDE NAV BUTTONS & PRESENTER NOTES
+-- FULLSCREEN SLIDESHOW OVERLAYS: FLOATING HUD, SIDE ARROWS & NOTES
 -- ============================================================================
 
-function PptxView:draw_slideshow_hud()
+function PptxView:draw_slideshow_hud(tx, ty, tw, th)
   if not self.hud_visible then return end
-
-  local tx = self.position.x
-  local ty = self.position.y
-  local tw = self.size.x
-  local th = self.size.y
 
   local hud_w = 560 * SCALE
   local hud_h = 44 * SCALE
@@ -980,7 +993,6 @@ function PptxView:draw_slideshow_hud()
   renderer.draw_rect(hud_x, hud_y, hud_w, hud_h, _COLOR_BG_HUD)
   renderer.draw_rect(hud_x, hud_y, hud_w, hud_h, _COLOR_BORDER_LIGHT)
 
-  self.hud_buttons = {}
   local bx = hud_x + 8 * SCALE
   local by = hud_y + 6 * SCALE
   local bh = hud_h - 12 * SCALE
@@ -1016,8 +1028,8 @@ end
 function PptxView:draw_slideshow_side_nav(tx, ty, tw, th)
   if not self.hud_visible then return end
 
-  local side_btn_w = 44 * SCALE
-  local side_btn_h = 68 * SCALE
+  local side_btn_w = 48 * SCALE
+  local side_btn_h = 72 * SCALE
   local side_btn_y = ty + (th - side_btn_h) / 2
 
   -- Left Previous Button
@@ -1043,15 +1055,11 @@ function PptxView:draw_slideshow_side_nav(tx, ty, tw, th)
   end
 end
 
-function PptxView:draw_slideshow_notes_overlay()
+function PptxView:draw_slideshow_notes_overlay(tx, ty, tw, th)
   if not self.show_slideshow_notes then return end
 
-  local tx = self.position.x
-  local ty = self.position.y
-  local tw = self.size.x
-
-  local card_w = math.min(tw - 60 * SCALE, 700 * SCALE)
-  local card_h = 160 * SCALE
+  local card_w = math.min(tw - 60 * SCALE, 740 * SCALE)
+  local card_h = 170 * SCALE
   local card_x = tx + (tw - card_w) / 2
   local card_y = ty + 30 * SCALE
 
@@ -1090,60 +1098,74 @@ function PptxView:draw_slideshow_notes_overlay()
   core.pop_clip_rect()
 end
 
+-- Dedicated Fullscreen Presentation Renderer
+function PptxView:draw_fullscreen(tx, ty, tw, th)
+  self.hud_buttons = {}
+
+  -- 1. True Fullscreen Stage Background
+  renderer.draw_rect(tx, ty, tw, th, _COLOR_BLACK)
+
+  -- Blank Screen Mode
+  if self.blank_screen == "black" then
+    renderer.draw_rect(tx, ty, tw, th, _COLOR_BLACK)
+    self:draw_slideshow_hud(tx, ty, tw, th)
+    return
+  elseif self.blank_screen == "white" then
+    renderer.draw_rect(tx, ty, tw, th, _COLOR_WHITE)
+    self:draw_slideshow_hud(tx, ty, tw, th)
+    return
+  end
+
+  local page_data = self.cache[self.slide .. "_" .. self.mode]
+  if self.loading then
+    local msg = self.loading_msg or "Loading slide..."
+    local lh = style.font:get_height()
+    common.draw_text(style.font, _COLOR_ACCENT, msg, "center", tx, ty + th / 2 - 20, tw, lh)
+    core.redraw = true
+  elseif self.error_msg then
+    common.draw_text(style.font, _COLOR_ERROR, "Error: " .. self.error_msg, "center", tx, ty + th / 2 - 20, tw, 20)
+  elseif page_data then
+    -- Fit slide 100% edge-to-edge preserving aspect ratio
+    local aspect = page_data.aspect_ratio or self.aspect_ratio or 1.7778
+    local sw = tw
+    local sh = sw / aspect
+    if sh > th then
+      sh = th
+      sw = sh * aspect
+    end
+    local cx = tx + math.floor((tw - sw) / 2)
+    local cy = ty + math.floor((th - sh) / 2)
+
+    if self.mode == "browsh" then
+      self:draw_browsh_slide(page_data, cx, cy, sw, sh)
+    elseif self.mode == "hd" then
+      self:draw_hd_slide(page_data, cx, cy, sw, sh)
+    elseif self.mode == "text" then
+      self:draw_text_slide(page_data, cx, cy, sw, sh)
+    end
+  end
+
+  self:draw_slideshow_notes_overlay(tx, ty, tw, th)
+  self:draw_slideshow_side_nav(tx, ty, tw, th)
+  self:draw_slideshow_hud(tx, ty, tw, th)
+end
+
 -- ============================================================================
--- MAIN VIEW DRAW ENTRYPOINT
+-- MAIN VIEW DRAW ENTRYPOINT (DECK / EDITOR VIEW)
 -- ============================================================================
 
 function PptxView:draw()
+  if self.slideshow_mode then
+    local win_w, win_h = system.get_window_size()
+    self:draw_fullscreen(0, 0, win_w, win_h)
+    return
+  end
+
   local tx = self.position.x
   local ty = self.position.y
   local tw = self.size.x
   local th = self.size.y
 
-  if self.slideshow_mode then
-    -- 1. Fullscreen Presentation Background
-    renderer.draw_rect(tx, ty, tw, th, _COLOR_BLACK)
-
-    -- Blank Screen Mode
-    if self.blank_screen == "black" then
-      renderer.draw_rect(tx, ty, tw, th, _COLOR_BLACK)
-      self:draw_slideshow_hud()
-      return
-    elseif self.blank_screen == "white" then
-      renderer.draw_rect(tx, ty, tw, th, _COLOR_WHITE)
-      self:draw_slideshow_hud()
-      return
-    end
-
-    local page_data = self.cache[self.slide .. "_" .. self.mode]
-    if self.loading then
-      local msg = self.loading_msg or "Loading slide..."
-      local lh = style.font:get_height()
-      common.draw_text(style.font, _COLOR_ACCENT, msg, "center", tx, ty + th / 2 - 20, tw, lh)
-      core.redraw = true
-    elseif self.error_msg then
-      common.draw_text(style.font, _COLOR_ERROR, "Error: " .. self.error_msg, "center", tx, ty + th / 2 - 20, tw, 20)
-    elseif page_data then
-      local pw, ph = self:get_slide_dimensions(page_data, tw, th)
-      local cx = tx + (tw - pw) / 2
-      local cy = ty + (th - ph) / 2
-
-      if self.mode == "browsh" then
-        self:draw_browsh_slide(page_data, cx, cy, pw, ph)
-      elseif self.mode == "hd" then
-        self:draw_hd_slide(page_data, cx, cy, pw, ph)
-      elseif self.mode == "text" then
-        self:draw_text_slide(page_data, cx, cy, pw, ph)
-      end
-    end
-
-    self:draw_slideshow_notes_overlay()
-    self:draw_slideshow_side_nav(tx, ty, tw, th)
-    self:draw_slideshow_hud()
-    return
-  end
-
-  -- 2. Standard Deck / Editor View
   self:draw_background(style.background or _COLOR_BG_DARK)
 
   local stage_x = tx
@@ -1277,6 +1299,18 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
           end
           return true
         end
+      end
+    end
+
+    -- If notes overlay is shown and click is inside its body, consume click
+    if self.show_slideshow_notes then
+      local tw, th = system.get_window_size()
+      local card_w = math.min(tw - 60 * SCALE, 740 * SCALE)
+      local card_h = 170 * SCALE
+      local card_x = (tw - card_w) / 2
+      local card_y = th - card_h - 80 * SCALE
+      if px >= card_x and px <= card_x + card_w and py >= card_y and py <= card_y + card_h then
+        return true
       end
     end
 
@@ -1502,6 +1536,99 @@ if core.root_view and core.root_view.open_doc then
 end
 
 -- ============================================================================
+-- FULLSCREEN PRESENTATION ROOTVIEW OVERRIDE
+-- ============================================================================
+
+local function is_active_pptx_slideshow()
+  return core.active_view and type(core.active_view.is) == "function"
+         and core.active_view:is(PptxView) and core.active_view.slideshow_mode
+end
+
+local function hook_rootview_for_slideshow()
+  -- 1. Hook RootView:draw
+  local old_rootview_draw = RootView.draw
+  RootView.draw = function(self)
+    if is_active_pptx_slideshow() then
+      local win_w, win_h = system.get_window_size()
+      core.active_view:draw_fullscreen(0, 0, win_w, win_h)
+      return
+    end
+    return old_rootview_draw(self)
+  end
+
+  if core.root_view and core.root_view.draw then
+    local old_inst_draw = core.root_view.draw
+    core.root_view.draw = function(self)
+      if is_active_pptx_slideshow() then
+        local win_w, win_h = system.get_window_size()
+        core.active_view:draw_fullscreen(0, 0, win_w, win_h)
+        return
+      end
+      return old_inst_draw(self)
+    end
+  end
+
+  -- 2. Hook RootView:on_mouse_pressed
+  local old_rootview_mouse_pressed = RootView.on_mouse_pressed
+  RootView.on_mouse_pressed = function(self, button, x, y, clicks)
+    if is_active_pptx_slideshow() then
+      return core.active_view:on_mouse_pressed(button, x, y, clicks)
+    end
+    return old_rootview_mouse_pressed(self, button, x, y, clicks)
+  end
+
+  if core.root_view and core.root_view.on_mouse_pressed then
+    local old_inst_mouse_pressed = core.root_view.on_mouse_pressed
+    core.root_view.on_mouse_pressed = function(self, button, x, y, clicks)
+      if is_active_pptx_slideshow() then
+        return core.active_view:on_mouse_pressed(button, x, y, clicks)
+      end
+      return old_inst_mouse_pressed(self, button, x, y, clicks)
+    end
+  end
+
+  -- 3. Hook RootView:on_mouse_moved
+  local old_rootview_mouse_moved = RootView.on_mouse_moved
+  RootView.on_mouse_moved = function(self, x, y, dx, dy)
+    if is_active_pptx_slideshow() then
+      return core.active_view:on_mouse_moved(x, y, dx, dy)
+    end
+    return old_rootview_mouse_moved and old_rootview_mouse_moved(self, x, y, dx, dy)
+  end
+
+  if core.root_view and core.root_view.on_mouse_moved then
+    local old_inst_mouse_moved = core.root_view.on_mouse_moved
+    core.root_view.on_mouse_moved = function(self, x, y, dx, dy)
+      if is_active_pptx_slideshow() then
+        return core.active_view:on_mouse_moved(x, y, dx, dy)
+      end
+      return old_inst_mouse_moved and old_inst_mouse_moved(self, x, y, dx, dy)
+    end
+  end
+
+  -- 4. Hook RootView:on_mouse_wheel
+  local old_rootview_mouse_wheel = RootView.on_mouse_wheel
+  RootView.on_mouse_wheel = function(self, y, x)
+    if is_active_pptx_slideshow() then
+      return core.active_view:on_mouse_wheel(y, x)
+    end
+    return old_rootview_mouse_wheel and old_rootview_mouse_wheel(self, y, x)
+  end
+
+  if core.root_view and core.root_view.on_mouse_wheel then
+    local old_inst_mouse_wheel = core.root_view.on_mouse_wheel
+    core.root_view.on_mouse_wheel = function(self, y, x)
+      if is_active_pptx_slideshow() then
+        return core.active_view:on_mouse_wheel(y, x)
+      end
+      return old_inst_mouse_wheel and old_inst_mouse_wheel(self, y, x)
+    end
+  end
+end
+
+hook_rootview_for_slideshow()
+
+-- ============================================================================
 -- COMMAND PALETTE & KEYBINDINGS
 -- ============================================================================
 
@@ -1509,15 +1636,23 @@ local function is_pptx_active()
   return core.active_view and core.active_view:is(PptxView)
 end
 
+local function is_pptx_slideshow_active()
+  return core.active_view and core.active_view:is(PptxView) and core.active_view.slideshow_mode
+end
+
+command.add(function()
+  return is_pptx_slideshow_active(), core.active_view
+end, {
+  ["pptx:exit-slideshow"] = function(view)
+    view:exit_slideshow()
+  end,
+})
+
 command.add(function()
   return is_pptx_active(), core.active_view
 end, {
   ["pptx:start-slideshow"] = function(view)
     view:start_slideshow()
-  end,
-
-  ["pptx:exit-slideshow"] = function(view)
-    view:exit_slideshow()
   end,
 
   ["pptx:toggle-slideshow"] = function(view)
