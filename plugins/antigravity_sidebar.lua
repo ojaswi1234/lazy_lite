@@ -2762,7 +2762,6 @@ function AGView:update()
           out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
           out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
           out = out:gsub("^%s*%]%s*\r?\n", "")
-          out = out:gsub("%s*%]%s*$", "")
           out = out:gsub("\n\n\n+", "\n\n")
           if not tab._ai_buf or tab._ai_buf == "" then
             out = out:gsub("^\r?\n+", "")
@@ -2813,7 +2812,6 @@ function AGView:update()
             out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
             out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
             out = out:gsub("^%s*%]%s*\r?\n", "")
-            out = out:gsub("%s*%]%s*$", "")
             out = out:gsub("\n\n\n+", "\n\n")
             if not tab._ai_buf or tab._ai_buf == "" then
               out = out:gsub("^\r?\n+", "")
@@ -2840,10 +2838,17 @@ function AGView:update()
             if core.agent_meta_tools and core.agent_meta_tools.execute then
               local ok_json, json = pcall(require, "plugins.lsp.json")
               if ok_json and json and json.decode then
-                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:(.-)%]", function(tag_body)
+                local function parse_and_exec(tag_body)
+                  if not tag_body or tag_body == "" then return "" end
+                  -- Strip any stray bracket or trailing whitespace
+                  tag_body = tag_body:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%]%s*$", "")
+
                   -- Case 1: Pure JSON object [LITEXL:{"subsystem":"...","action":"..."}]
-                  if tag_body:match("^%s*{") then
+                  if tag_body:match("^{") then
                     local parse_ok, act = pcall(json.decode, tag_body)
+                    if not parse_ok and not tag_body:match("}%s*$") then
+                      parse_ok, act = pcall(json.decode, tag_body .. "}")
+                    end
                     if parse_ok and act and act.subsystem and act.action then
                       local exec_ok, res = core.agent_meta_tools.execute(act.subsystem, act.action, act.params or {})
                       local badge_icon = exec_ok and "⚡" or "⚠️"
@@ -2855,11 +2860,18 @@ function AGView:update()
                     if sub and act then
                       local params = {}
                       if raw_p and raw_p:match("%S") then
+                        raw_p = raw_p:gsub("%]%s*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
                         local p_ok, parsed = pcall(json.decode, raw_p)
+                        if not p_ok and raw_p:match("^{") and not raw_p:match("}%s*$") then
+                          p_ok, parsed = pcall(json.decode, raw_p .. "}")
+                        end
                         if p_ok and type(parsed) == "table" then
                           params = parsed
                         else
-                          local clean_p = raw_p:gsub('^%s*["\']?', ''):gsub('["\']?%s*$', '')
+                          local clean_p = raw_p:gsub('^%s*["\'%{]*', ''):gsub('["\'%}]*%s*$', '')
+                          local q_val = raw_p:match('["\']?query["\']?%s*:%s*["\']([^"\']+)["\']') or
+                                        raw_p:match('["\']?query["\']?%s*:%s*([^%s,"\'%}]+)')
+                          if q_val then clean_p = q_val end
                           params = { query = clean_p, title = clean_p, song = clean_p, slug = clean_p, path = clean_p, target = clean_p, slide = clean_p, page = clean_p }
                         end
                       end
@@ -2869,13 +2881,18 @@ function AGView:update()
                     end
                   end
                   return ""
-                end)
+                end
+
+                -- Match both closed tags [LITEXL:...:...] and unclosed tags [LITEXL:...
+                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:(.-)%]", parse_and_exec)
+                if tab._ai_buf:find("%[LITEXL:") then
+                  tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([^\r\n]+)", parse_and_exec)
+                end
               end
             end
             tab._ai_buf = tab._ai_buf:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
             tab._ai_buf = tab._ai_buf:gsub("\r?\n%s*%]%s*\r?\n", "\n")
             tab._ai_buf = tab._ai_buf:gsub("^%s*%]%s*\r?\n", "")
-            tab._ai_buf = tab._ai_buf:gsub("%s*%]%s*$", "")
             tab._ai_buf = tab._ai_buf:gsub("^%s+", ""):gsub("%s+$", "")
           end
           if not tab._ai_buf or tab._ai_buf:match("^%s*$") then

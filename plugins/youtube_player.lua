@@ -156,13 +156,26 @@ end
 
 function YTView:start_backend()
   local exe_path = USERDIR .. "/plugins/yt_player/yt_backend.exe"
-  if not system.get_file_info(exe_path) then
-    self.status_msg = "Error: yt_backend.exe not found"
-    return
+  local py_path = USERDIR .. "/plugins/yt_player/yt_backend.py"
+  local proc = nil
+  local proc_opts = {
+    stdin  = process.REDIRECT_PIPE,
+    stdout = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_DISCARD
+  }
+
+  if system.get_file_info(exe_path) then
+    local ok, p = pcall(process.start, {exe_path}, proc_opts)
+    if ok and p then proc = p end
   end
 
-  local ok, proc = pcall(process.start, {exe_path})
-  if not ok or not proc then
+  if not proc and system.get_file_info(py_path) then
+    local py_cmd = PLATFORM == "Windows" and "python" or "python3"
+    local ok, p = pcall(process.start, {py_cmd, py_path}, proc_opts)
+    if ok and p then proc = p end
+  end
+
+  if not proc then
     self.status_msg = "Error starting backend"
     return
   end
@@ -204,6 +217,9 @@ function YTView:ensure_backend()
 end
 
 function YTView:send(data)
+  if not self.backend_proc or not self.backend_proc:running() then
+    self:start_backend()
+  end
   if self.backend_proc and self.backend_proc:running() then
     local ok_json, json = pcall(require, "plugins.lsp.json")
     if not ok_json or not json then return end
@@ -910,7 +926,19 @@ command.add(nil, {
   ["youtube-player:quick-play"] = function(query)
     local function do_play(text)
       if not yt_view_instance then
-        command.perform("youtube-player:toggle")
+        yt_view_instance = YTView()
+        rawset(_G, "_yt_instance", yt_view_instance)
+        local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
+        if sidebar then
+          sidebar:add_view(yt_view_instance)
+        else
+          local node = core.root_view:get_active_node_default()
+          if node then
+            local w = core.root_view.size.x
+            local h = core.root_view.size.y
+            node:split("right", yt_view_instance, {x = math.max(200, w - 400), y = h}, true)
+          end
+        end
       end
       if yt_view_instance then
         yt_view_instance:ensure_backend()
@@ -932,7 +960,21 @@ command.add(nil, {
   end,
 
   ["youtube-player:search"] = function(query)
-    if not yt_view_instance then command.perform("youtube-player:toggle") end
+    if not yt_view_instance then
+      yt_view_instance = YTView()
+      rawset(_G, "_yt_instance", yt_view_instance)
+      local sidebar = _G.get_sidebar_node and _G.get_sidebar_node()
+      if sidebar then
+        sidebar:add_view(yt_view_instance)
+      else
+        local node = core.root_view:get_active_node_default()
+        if node then
+          local w = core.root_view.size.x
+          local h = core.root_view.size.y
+          node:split("right", yt_view_instance, {x = math.max(200, w - 400), y = h}, true)
+        end
+      end
+    end
     if yt_view_instance and query and #query > 0 then
       yt_view_instance:ensure_backend()
       yt_view_instance:send({cmd = "search", query = query, page = 1, search_type = "video"})

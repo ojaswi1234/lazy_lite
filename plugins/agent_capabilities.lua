@@ -738,6 +738,9 @@ Capabilities.register("youtube", {
     play = function(p)
       local q = p.query or p.title or p.song or p.name or p.target
       if not q or q == "" then error("Missing 'query' or 'title' to play.") end
+      if not command.map["youtube-player:quick-play"] then
+        pcall(require, "plugins.youtube_player")
+      end
       if command.map["youtube-player:quick-play"] then
         command.perform("youtube-player:quick-play", q)
         return string.format("Started playing '%s' on YouTube player.", q)
@@ -747,6 +750,9 @@ Capabilities.register("youtube", {
     search = function(p)
       local q = p.query or p.title or p.target
       if not q or q == "" then error("Missing 'query'.") end
+      if not command.map["youtube-player:search"] then
+        pcall(require, "plugins.youtube_player")
+      end
       if command.map["youtube-player:search"] then
         command.perform("youtube-player:search", q)
         return string.format("Searched YouTube for '%s'.", q)
