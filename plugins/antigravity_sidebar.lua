@@ -6240,6 +6240,47 @@ function AGView:on_mouse_moved(mx, my, ...)
     end
   end
 
+  -- Full isolation for Chat Memory Tree View
+  if self.show_history_tree then
+    self.hover_auto_btn = false
+    self.hover_ro_btn = false
+    self.hover_voice_btn = false
+    self.hover_model_btn = false
+    self.hover_model_idx = nil
+    self.hover_hitl = nil
+    self.hover_link_url = nil
+
+    self.hover_hist_btn = false
+    if self._hist_toggle_rect then
+      local r = self._hist_toggle_rect
+      self.hover_hist_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+    end
+
+    self.hover_prune_btn = false
+    if self._hist_prune_rect then
+      local r = self._hist_prune_rect
+      self.hover_prune_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+    end
+
+    self.hover_hist_node = nil
+    if self._hist_node_rects then
+      for _, r in ipairs(self._hist_node_rects) do
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          self.hover_hist_node = r.id
+          break
+        end
+      end
+    end
+
+    if self.hover_hist_btn or self.hover_prune_btn or self.hover_hist_node then
+      system.set_cursor("hand")
+    else
+      system.set_cursor("arrow")
+    end
+    core.redraw = true
+    return
+  end
+
   -- Model button hover
   self.hover_model_btn = false
   self.hover_model_idx = nil
@@ -6931,6 +6972,98 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     end
   end
 
+  -- Full isolation for Chat Memory Tree View (prevents any background click-through)
+  if self.show_history_tree then
+    if button == "left" then
+      -- 1. Check Header Close Button
+      if self._hist_toggle_rect then
+        local r = self._hist_toggle_rect
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          self.show_history_tree = false
+          core.redraw = true
+          return true
+        end
+      end
+
+      -- 2. Check Header Prune Button
+      if self._hist_prune_rect then
+        local r = self._hist_prune_rect
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          self:prune_history()
+          core.redraw = true
+          return true
+        end
+      end
+
+      -- 3. Check History / Milestone Node Cards
+      if self._hist_node_rects then
+        for _, r in ipairs(self._hist_node_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            core.log("Resuming thread: " .. r.thread)
+            self.show_history_tree = false
+            self.show_skills_modal = false
+            self.enable_tools = false
+            self.marketplace_skills = nil
+            self:state().cid = r.thread
+            self:state().thread_id = r.thread
+            self:state().checkpoint_id = r.id
+            self:state().sessions = {}
+            self:state().has_session = true
+            self:state().status = "idle"
+            self:_add_session("ai", "Resuming conversation thread: " .. r.thread .. "...\nLoading past conversation...")
+            self:state().scroll_to_bottom = true
+            core.redraw = true
+
+            -- Asynchronously fetch thread messages to rehydrate UI
+            core.add_thread(function()
+              local py_bin = "python"
+              local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
+              local proc = process.start({py_bin, bridge, "--get-thread-messages", r.thread})
+              if proc then
+                local out_tbl = {}
+                while true do
+                  local chunk = proc:read_stdout(65536)
+                  if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
+                  if not proc:running() then break end
+                  coroutine.yield(0.05)
+                end
+                while true do
+                  local chunk = proc:read_stdout(65536)
+                  if not chunk or #chunk == 0 then break end
+                  table.insert(out_tbl, chunk)
+                end
+                local out = table.concat(out_tbl)
+                if out and out ~= "" then
+                  local env = {}
+                  local fn = load(out, "thread_messages", "t", env)
+                  if fn then
+                    local ok, msgs = pcall(fn)
+                    if ok and type(msgs) == "table" and #msgs > 0 then
+                      self:state().sessions = {}
+                      for _, m in ipairs(msgs) do
+                        self:_add_session(m.role or "ai", m.text or "")
+                      end
+                      self:_add_session("ai", "⚡ Resumed conversation at checkpoint `" .. tostring(r.id):sub(1, 16) .. "`.\nYou can continue asking questions from this memory branch.")
+                      self:state().scroll_to_bottom = true
+                      core.redraw = true
+                    end
+                  end
+                end
+              end
+            end)
+            return true
+          end
+        end
+      end
+
+      -- Consume all other left clicks inside memory tree to prevent click-through to background chat/autopilot controls!
+      core.redraw = true
+      return true
+    end
+    -- Also consume other mouse buttons in memory tree
+    return true
+  end
+
   -- 1. Full isolation for API Management View (prevent any background click-through)
   if self.show_api_view then
     if button == "left" then
@@ -7498,73 +7631,6 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
       self.show_history_tree = not self.show_history_tree
       if self.show_history_tree then self:fetch_history() end
       core.redraw = true
-      return
-    end
-
-    if self.hover_prune_btn then
-      self:prune_history()
-      core.redraw = true
-      return
-    end
-    
-    if self.show_history_tree and self.hover_hist_node then
-      for _, r in ipairs(self._hist_node_rects) do
-        if r.id == self.hover_hist_node then
-          core.log("Resuming thread: " .. r.thread)
-          self.show_history_tree = false
-          self.show_skills_modal = false
-          self.enable_tools = false
-          self.marketplace_skills = nil
-          self:state().cid = r.thread
-          self:state().thread_id = r.thread
-          self:state().checkpoint_id = r.id
-          self:state().sessions = {}
-          self:state().has_session = true
-          self:state().status = "idle"
-          self:_add_session("ai", "Resuming conversation thread: " .. r.thread .. "...\nLoading past conversation...")
-          self:state().scroll_to_bottom = true
-          core.redraw = true
-          
-          -- Asynchronously fetch thread messages to rehydrate UI
-          core.add_thread(function()
-            local py_bin = "python"
-            local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
-            local proc = process.start({py_bin, bridge, "--get-thread-messages", r.thread})
-            if proc then
-              local out_tbl = {}
-              while true do
-                local chunk = proc:read_stdout(65536)
-                if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
-                if not proc:running() then break end
-                coroutine.yield(0.05)
-              end
-              while true do
-                local chunk = proc:read_stdout(65536)
-                if not chunk or #chunk == 0 then break end
-                table.insert(out_tbl, chunk)
-              end
-              local out = table.concat(out_tbl)
-              if out and out ~= "" then
-                local env = {}
-                local fn = load(out, "thread_messages", "t", env)
-                if fn then
-                  local ok, msgs = pcall(fn)
-                  if ok and type(msgs) == "table" and #msgs > 0 then
-                    self:state().sessions = {}
-                    for _, m in ipairs(msgs) do
-                      self:_add_session(m.role or "ai", m.text or "")
-                    end
-                    self:_add_session("ai", "⚡ Resumed conversation at checkpoint `" .. tostring(r.id):sub(1, 16) .. "`.\nYou can continue asking questions from this memory branch.")
-                    self:state().scroll_to_bottom = true
-                    core.redraw = true
-                  end
-                end
-              end
-            end
-          end)
-          break
-        end
-      end
       return
     end
   end
@@ -9885,6 +9951,14 @@ end
 
 function AGView:draw(...)
   if self.show_history_tree then
+    self._auto_rect = nil
+    self._ro_rect = nil
+    self._voice_rect = nil
+    self._model_rect = nil
+    self._input_rect = nil
+    self._hitl_rects = nil
+    self._insert_rects = nil
+    self._starter_card_rects = nil
     local x, y = self.position.x, self.position.y
     local w, h = self.size.x, self.size.y
     local pad = 10 * SCALE
