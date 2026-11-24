@@ -3,9 +3,9 @@
 -- Features:
 -- 1. Browsh-Style Dual-Layer Sub-Pixel Character Matrix ('▀' U+2580 + True Text Stream)
 -- 2. HD Vector / Raster Run-Length-Encoded GPU/SDL2 Span Acceleration with Spatial Banding
--- 3. Interactive Slideshow / Presentation Mode (F5) with Auto-Hiding HUD & Speaker Notes
+-- 3. Interactive Slideshow / Presentation Mode with On-Screen Navigation Buttons & Controls
 -- 4. Slide Deck Explorer Thumbnail Strip for Instant Jump Navigation
--- 5. Blank Screen Blackboard / Whiteboard Mode (B / W keys)
+-- 5. Blank Screen Blackboard / Whiteboard Mode with Dedicated UI Buttons
 -- 6. Complete internal containment - strictly inside Lite XL (zero external browser or Office popups)
 
 local core = require "core"
@@ -115,10 +115,10 @@ function PptxView:new(filename)
 
   -- HUD auto-hide state for slideshow mode
   self.hud_visible = true
-  self.hud_timer = 3.0 -- Visible for 3 seconds on mouse movement
+  self.hud_timer = 3.5
 
   -- Layout Sizing
-  self.toolbar_h = 36 * SCALE
+  self.toolbar_h = 38 * SCALE
   self.thumbnail_w = 200 * SCALE
   self.notes_h = 130 * SCALE
   self.thumbnail_scroll = { y = 0, to = { y = 0 } }
@@ -138,7 +138,7 @@ function PptxView:new(filename)
 
   self.loading = (filename ~= nil and filename ~= "")
   self.loading_msg = self.loading and "Opening presentation..." or nil
-  self.error_msg = (not self.loading) and "No presentation loaded. Press Alt+P to open a PPTX file." or nil
+  self.error_msg = (not self.loading) and "No presentation loaded. Use Open Presentation button or File menu." or nil
 
   self.search_query = nil
   self.search_matches = {}
@@ -223,7 +223,6 @@ function PptxView:request_slide(slide_idx, mode)
 end
 
 function PptxView:prefetch_next_slide()
-  -- Background pre-render of subsequent slide for instant transitions
   local next_slide = self.slide + 1
   if next_slide <= self.slide_count then
     local key = next_slide .. "_" .. self.mode
@@ -246,7 +245,7 @@ function PptxView:goto_slide(slide_idx)
   self.slide = slide_idx
   self.scroll.to.x = 0
   self.scroll.to.y = 0
-  self.blank_screen = nil -- Exiting blank screen on slide navigation
+  self.blank_screen = nil
   self:request_slide(slide_idx)
   core.redraw = true
 end
@@ -303,9 +302,9 @@ function PptxView:start_slideshow()
   self.blank_screen = nil
   self.show_slideshow_notes = false
   self.hud_visible = true
-  self.hud_timer = 3.0
+  self.hud_timer = 3.5
   core.redraw = true
-  core.log("[Slideshow] Presentation started. Press Esc to exit, Space/Arrows to navigate, B for black screen, N for notes.")
+  core.log("[Slideshow] Presentation started.")
 end
 
 function PptxView:exit_slideshow()
@@ -503,7 +502,6 @@ function PptxView:get_slide_dimensions(slide_data, avail_w, avail_h)
   local aspect = self.aspect_ratio or 1.7778
 
   if self.slideshow_mode then
-    -- Fit 100% of available viewport while strictly preserving aspect ratio
     local sw = avail_w
     local sh = sw / aspect
     if sh > avail_h then
@@ -577,11 +575,11 @@ function PptxView:draw_toolbar()
 
   self.toolbar_buttons = {}
   local bx = x + 10 * SCALE
-  local by = y + 4 * SCALE
-  local bh = h - 8 * SCALE
+  local by = y + 5 * SCALE
+  local bh = h - 10 * SCALE
 
   local function draw_btn(id, label, active, bw, accent)
-    bw = bw or (style.font:get_width(label) + 16 * SCALE)
+    bw = bw or (style.font:get_width(label) + 18 * SCALE)
     local is_hover = self.hovered_btn == id
 
     local btn_bg = accent and (is_hover and _COLOR_ACCENT_HOVER or _COLOR_ACCENT)
@@ -600,37 +598,38 @@ function PptxView:draw_toolbar()
   end
 
   -- 1. Prominent Slideshow Launch Button
-  draw_btn("slideshow_start", "▶ Slideshow (F5)", false, nil, true)
+  draw_btn("slideshow_start", "Start Slideshow", false, nil, true)
   bx = bx + 6 * SCALE
 
-  -- 2. Slide Navigation
-  draw_btn("prev_slide", "◀ Prev", false)
-  local slide_str = string.format("Slide %d / %d", self.slide, self.slide_count)
-  local slide_w = style.font:get_width(slide_str) + 16 * SCALE
+  -- 2. Slide Navigation Buttons
+  draw_btn("prev_slide", "Previous", false)
+  local slide_str = string.format("Slide %d of %d", self.slide, self.slide_count)
+  local slide_w = style.font:get_width(slide_str) + 18 * SCALE
   draw_btn("goto_slide", slide_str, false, slide_w)
-  draw_btn("next_slide", "Next ▶", false)
+  draw_btn("next_slide", "Next", false)
   bx = bx + 8 * SCALE
 
-  -- 3. Side & Bottom Toggles
-  draw_btn("toggle_thumbnails", "📑 Deck Rail", self.show_thumbnails)
-  draw_btn("toggle_notes", "📝 Notes", self.show_notes)
+  -- 3. Side & Bottom Panels
+  draw_btn("toggle_thumbnails", "Thumbnails", self.show_thumbnails)
+  draw_btn("toggle_notes", "Speaker Notes", self.show_notes)
   bx = bx + 8 * SCALE
 
-  -- 4. Zoom Controls
-  draw_btn("zoom_out", "-", false, 28 * SCALE)
+  -- 4. Zoom & Fit Controls
+  draw_btn("zoom_out", "Zoom -", false)
   local zoom_str = string.format("%d%%", math.floor(self.zoom * 100))
   draw_btn("zoom_reset", zoom_str, false, 48 * SCALE)
-  draw_btn("zoom_in", "+", false, 28 * SCALE)
+  draw_btn("zoom_in", "Zoom +", false)
+  draw_btn("zoom_fit", "Fit Slide", false)
   bx = bx + 8 * SCALE
 
   -- 5. Render Modes
   draw_btn("mode_hd", "HD Spans", self.mode == "hd")
-  draw_btn("mode_browsh", "Browsh Matrix", self.mode == "browsh")
+  draw_btn("mode_browsh", "Browsh", self.mode == "browsh")
   draw_btn("mode_text", "Text", self.mode == "text")
-  draw_btn("toggle_invert", self.inverted and "Dark" or "Light", self.inverted)
+  draw_btn("toggle_invert", self.inverted and "Dark Mode" or "Light Mode", self.inverted)
 
   -- 6. Search Button (Right Aligned)
-  local search_lbl = self.search_query and ("Find: '" .. self.search_query .. "'") or "🔍 Find"
+  local search_lbl = self.search_query and ("Find: " .. self.search_query) or "Find"
   local sw = style.font:get_width(search_lbl) + 18 * SCALE
   local sx = x + w - sw - 12 * SCALE
   local s_hover = self.hovered_btn == "search"
@@ -689,7 +688,7 @@ function PptxView:draw_thumbnails(x, y, w, h)
 
     -- Speaker Notes Indicator
     if has_notes then
-      local note_str = "📝 Notes"
+      local note_str = "Notes"
       common.draw_text(style.font, _COLOR_WARN, note_str, "left", title_x, cur_y + 30 * SCALE, title_w, 18 * SCALE)
     end
 
@@ -715,11 +714,11 @@ function PptxView:draw_notes_drawer(x, y, w, h)
   local title_h = 24 * SCALE
   local meta = self.slides_meta[self.slide]
   local s_title = meta and meta.title or ("Slide " .. self.slide)
-  common.draw_text(style.font, _COLOR_ACCENT, "SPEAKER NOTES — " .. s_title, "left", x + 16 * SCALE, y + 6 * SCALE, w, title_h)
+  common.draw_text(style.font, _COLOR_ACCENT, "SPEAKER NOTES - " .. s_title, "left", x + 16 * SCALE, y + 6 * SCALE, w, title_h)
 
   local page_data = self.cache[self.slide .. "_" .. self.mode]
   local notes_text = (page_data and page_data.notes and page_data.notes ~= "") and page_data.notes
-                      or "No speaker notes for this slide."
+                      or "No speaker notes recorded for this slide."
 
   local text_fg = (page_data and page_data.notes and page_data.notes ~= "") and _COLOR_TEXT or _COLOR_TEXT_DIM
   local ny = y + title_h + 6 * SCALE
@@ -874,7 +873,7 @@ function PptxView:draw_text_slide(page_data, cx, cy, pw, ph)
 end
 
 -- ============================================================================
--- SLIDESHOW OVERLAYS: FLOATING HUD & PRESENTER NOTES
+-- SLIDESHOW OVERLAYS: FLOATING HUD, SIDE NAV BUTTONS & PRESENTER NOTES
 -- ============================================================================
 
 function PptxView:draw_slideshow_hud()
@@ -885,7 +884,7 @@ function PptxView:draw_slideshow_hud()
   local tw = self.size.x
   local th = self.size.y
 
-  local hud_w = 460 * SCALE
+  local hud_w = 560 * SCALE
   local hud_h = 44 * SCALE
   local hud_x = tx + (tw - hud_w) / 2
   local hud_y = ty + th - hud_h - 24 * SCALE
@@ -895,31 +894,66 @@ function PptxView:draw_slideshow_hud()
   renderer.draw_rect(hud_x, hud_y, hud_w, hud_h, _COLOR_BORDER_LIGHT)
 
   self.hud_buttons = {}
-  local bx = hud_x + 10 * SCALE
+  local bx = hud_x + 8 * SCALE
   local by = hud_y + 6 * SCALE
   local bh = hud_h - 12 * SCALE
 
-  local function draw_hud_btn(id, label, active, bw)
+  local function draw_hud_btn(id, label, active, bw, accent)
     bw = bw or (style.font:get_width(label) + 16 * SCALE)
     local is_hover = self.hovered_btn == id
-    local btn_bg = active and _COLOR_ACCENT or (is_hover and _COLOR_BORDER or _COLOR_CARD_BG)
-    local btn_fg = active and _COLOR_WHITE or (is_hover and _COLOR_WHITE or _COLOR_TEXT)
+    local btn_bg = accent and (is_hover and _COLOR_ACCENT_HOVER or _COLOR_ACCENT)
+                    or (active and _COLOR_ACCENT
+                    or (is_hover and _COLOR_BORDER or _COLOR_CARD_BG))
+    local btn_fg = (accent or active or is_hover) and _COLOR_WHITE or _COLOR_TEXT
 
     renderer.draw_rect(bx, by, bw, bh, btn_bg)
     renderer.draw_rect(bx, by, bw, bh, _COLOR_BORDER)
     common.draw_text(style.font, btn_fg, label, "center", bx, by, bw, bh)
 
     table.insert(self.hud_buttons, { id = id, x = bx, y = by, w = bw, h = bh })
-    bx = bx + bw + 8 * SCALE
+    bx = bx + bw + 6 * SCALE
   end
 
-  draw_hud_btn("hud_prev", "◀ Prev", false)
-  local slide_str = string.format("%d / %d", self.slide, self.slide_count)
-  draw_hud_btn("hud_indicator", slide_str, false, 70 * SCALE)
-  draw_hud_btn("hud_next", "Next ▶", false)
-  draw_hud_btn("hud_notes", "📝 Notes (N)", self.show_slideshow_notes)
-  draw_hud_btn("hud_blank", "⬛ Blank (B)", self.blank_screen ~= nil)
-  draw_hud_btn("hud_exit", "✕ Exit (Esc)", false)
+  draw_hud_btn("hud_first", "First", false)
+  draw_hud_btn("hud_prev", "Previous", false)
+  local slide_str = string.format("Slide %d of %d", self.slide, self.slide_count)
+  local slide_w = style.font:get_width(slide_str) + 18 * SCALE
+  draw_hud_btn("hud_indicator", slide_str, false, slide_w)
+  draw_hud_btn("hud_next", "Next", false)
+  draw_hud_btn("hud_last", "Last", false)
+  draw_hud_btn("hud_notes", "Notes", self.show_slideshow_notes)
+  draw_hud_btn("hud_blank", "Blank", self.blank_screen ~= nil)
+  draw_hud_btn("hud_exit", "Exit", false, nil, true)
+end
+
+function PptxView:draw_slideshow_side_nav(tx, ty, tw, th)
+  if not self.hud_visible then return end
+
+  local side_btn_w = 44 * SCALE
+  local side_btn_h = 68 * SCALE
+  local side_btn_y = ty + (th - side_btn_h) / 2
+
+  -- Left Previous Button
+  if self.slide > 1 then
+    local left_x = tx + 16 * SCALE
+    local is_left_hover = (self.hovered_btn == "side_prev")
+    local left_bg = is_left_hover and _COLOR_ACCENT or _COLOR_BG_HUD
+    renderer.draw_rect(left_x, side_btn_y, side_btn_w, side_btn_h, left_bg)
+    renderer.draw_rect(left_x, side_btn_y, side_btn_w, side_btn_h, _COLOR_BORDER_LIGHT)
+    common.draw_text(style.font, _COLOR_WHITE, "<", "center", left_x, side_btn_y, side_btn_w, side_btn_h)
+    table.insert(self.hud_buttons, { id = "side_prev", x = left_x, y = side_btn_y, w = side_btn_w, h = side_btn_h })
+  end
+
+  -- Right Next Button
+  if self.slide < self.slide_count then
+    local right_x = tx + tw - side_btn_w - 16 * SCALE
+    local is_right_hover = (self.hovered_btn == "side_next")
+    local right_bg = is_right_hover and _COLOR_ACCENT or _COLOR_BG_HUD
+    renderer.draw_rect(right_x, side_btn_y, side_btn_w, side_btn_h, right_bg)
+    renderer.draw_rect(right_x, side_btn_y, side_btn_w, side_btn_h, _COLOR_BORDER_LIGHT)
+    common.draw_text(style.font, _COLOR_WHITE, ">", "center", right_x, side_btn_y, side_btn_w, side_btn_h)
+    table.insert(self.hud_buttons, { id = "side_next", x = right_x, y = side_btn_y, w = side_btn_w, h = side_btn_h })
+  end
 end
 
 function PptxView:draw_slideshow_notes_overlay()
@@ -929,7 +963,7 @@ function PptxView:draw_slideshow_notes_overlay()
   local ty = self.position.y
   local tw = self.size.x
 
-  local card_w = math.min(tw - 60 * SCALE, 680 * SCALE)
+  local card_w = math.min(tw - 60 * SCALE, 700 * SCALE)
   local card_h = 160 * SCALE
   local card_x = tx + (tw - card_w) / 2
   local card_y = ty + 30 * SCALE
@@ -939,7 +973,18 @@ function PptxView:draw_slideshow_notes_overlay()
 
   local meta = self.slides_meta[self.slide]
   local s_title = meta and meta.title or ("Slide " .. self.slide)
-  common.draw_text(style.font, _COLOR_ACCENT, "🎙️ PRESENTER NOTES — " .. s_title, "left", card_x + 16 * SCALE, card_y + 10 * SCALE, card_w - 32 * SCALE, 20 * SCALE)
+  common.draw_text(style.font, _COLOR_ACCENT, "PRESENTER NOTES - " .. s_title, "left", card_x + 16 * SCALE, card_y + 10 * SCALE, card_w - 100 * SCALE, 20 * SCALE)
+
+  -- Close Button in Header
+  local close_btn_w = 64 * SCALE
+  local close_btn_h = 22 * SCALE
+  local close_btn_x = card_x + card_w - close_btn_w - 12 * SCALE
+  local close_btn_y = card_y + 8 * SCALE
+  local is_close_hover = (self.hovered_btn == "notes_close")
+  renderer.draw_rect(close_btn_x, close_btn_y, close_btn_w, close_btn_h, is_close_hover and _COLOR_ACCENT or _COLOR_BORDER)
+  renderer.draw_rect(close_btn_x, close_btn_y, close_btn_w, close_btn_h, _COLOR_BORDER_LIGHT)
+  common.draw_text(style.font, _COLOR_WHITE, "Close", "center", close_btn_x, close_btn_y, close_btn_w, close_btn_h)
+  table.insert(self.hud_buttons, { id = "notes_close", x = close_btn_x, y = close_btn_y, w = close_btn_w, h = close_btn_h })
 
   local page_data = self.cache[self.slide .. "_" .. self.mode]
   local notes_text = (page_data and page_data.notes and page_data.notes ~= "") and page_data.notes
@@ -972,7 +1017,7 @@ function PptxView:draw()
     -- 1. Fullscreen Presentation Background
     renderer.draw_rect(tx, ty, tw, th, _COLOR_BLACK)
 
-    -- Blank Screen Mode (B / W keys)
+    -- Blank Screen Mode
     if self.blank_screen == "black" then
       renderer.draw_rect(tx, ty, tw, th, _COLOR_BLACK)
       self:draw_slideshow_hud()
@@ -1006,6 +1051,7 @@ function PptxView:draw()
     end
 
     self:draw_slideshow_notes_overlay()
+    self:draw_slideshow_side_nav(tx, ty, tw, th)
     self:draw_slideshow_hud()
     return
   end
@@ -1073,7 +1119,7 @@ end
 function PptxView:on_mouse_moved(px, py, dx, dy)
   if self.slideshow_mode then
     self.hud_visible = true
-    self.hud_timer = 3.0
+    self.hud_timer = 3.5
     core.redraw = true
 
     self.hovered_btn = nil
@@ -1126,15 +1172,21 @@ end
 
 function PptxView:on_mouse_pressed(button, px, py, clicks)
   if self.slideshow_mode then
-    -- Check HUD buttons
+    -- Check HUD & on-screen buttons
     if self.hud_visible then
       for _, btn in ipairs(self.hud_buttons) do
         if px >= btn.x and px <= btn.x + btn.w and py >= btn.y and py <= btn.y + btn.h then
-          if btn.id == "hud_prev" then self:previous_slide()
-          elseif btn.id == "hud_next" then self:next_slide()
+          if btn.id == "hud_first" then self:goto_slide(1)
+          elseif btn.id == "hud_prev" or btn.id == "side_prev" then self:previous_slide()
+          elseif btn.id == "hud_next" or btn.id == "side_next" then self:next_slide()
+          elseif btn.id == "hud_last" then self:goto_slide(self.slide_count)
+          elseif btn.id == "hud_indicator" then command.perform("pptx:goto-slide")
           elseif btn.id == "hud_notes" then self:toggle_notes()
           elseif btn.id == "hud_blank" then self:toggle_blank_screen("black")
           elseif btn.id == "hud_exit" then self:exit_slideshow()
+          elseif btn.id == "notes_close" then
+            self.show_slideshow_notes = false
+            core.redraw = true
           end
           return true
         end
@@ -1178,6 +1230,11 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
           core.redraw = true
         elseif btn.id == "zoom_reset" then
           self.zoom = 1.0
+          core.redraw = true
+        elseif btn.id == "zoom_fit" then
+          self.zoom = 1.0
+          self.scroll.to.x = 0
+          self.scroll.to.y = 0
           core.redraw = true
         elseif btn.id == "mode_hd" then
           self.mode = "hd"
@@ -1239,18 +1296,14 @@ function PptxView:on_mouse_wheel(y, x)
     return true
   end
 
-  -- Scroll thumbnail list if mouse is over thumbnail panel
-  if self.show_thumbnails and system.get_time() then
-    -- Let normal scroll work or zoom with Ctrl
-    if keymap.modkeys["ctrl"] then
-      if y > 0 then
-        self.zoom = math.min(3.0, self.zoom + 0.1)
-      else
-        self.zoom = math.max(0.4, self.zoom - 0.1)
-      end
-      core.redraw = true
-      return true
+  if keymap.modkeys["ctrl"] then
+    if y > 0 then
+      self.zoom = math.min(3.0, self.zoom + 0.1)
+    else
+      self.zoom = math.max(0.4, self.zoom - 0.1)
     end
+    core.redraw = true
+    return true
   end
 
   return PptxView.super.on_mouse_wheel(self, y, x)
