@@ -6475,8 +6475,8 @@ end
         if fn then
           local ok, res = pcall(fn)
           if ok and type(res) == "table" and res.status == "success" then
-            local msg = string.format("✂️ Memory Tree Pruned: Freed %.1f MB (database now %.1f MB). Kept %d active threads, compacted %d checkpoints, rewired %d links.",
-              res.freed_mb or 0, res.final_mb or 0, res.threads_kept or 0, res.checkpoints_pruned or 0, res.rewired_links or 0)
+            local msg = string.format("✂️ Memory Tree Pruned: Freed %.1f MB (database now %.1f MB). Kept %d threads, purged %d trivial/evicted threads (%d greetings/short), compacted %d checkpoints, rewired %d links.",
+              res.freed_mb or 0, res.final_mb or 0, res.threads_kept or 0, res.threads_purged or 0, res.trivial_purged or 0, res.checkpoints_pruned or 0, res.rewired_links or 0)
             core.log(msg)
             if self:state() then
               self:_add_session("ai", msg)

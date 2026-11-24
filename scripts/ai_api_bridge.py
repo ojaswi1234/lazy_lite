@@ -1770,8 +1770,43 @@ def prune_memory_tree(db_path: str, max_threads: int = 40, max_milestones_per_th
 
         conn = sqlite3.connect(db_path, timeout=15.0)
         c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS thread_lineage (thread_id TEXT PRIMARY KEY, parent_thread_id TEXT, parent_checkpoint_id TEXT, created_at TEXT)")
 
-        # 2. Macro-Pruning: Rank threads by latest activity checkpoint
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        memory = SqliteSaver(conn)
+
+        TRIVIAL_GREETINGS = {
+            "hi", "hii", "hiii", "hu", "hey", "heyy", "hello", "hola", "yo", "sup",
+            "ok", "okay", "k", "kk", "yes", "yeah", "yep", "no", "nope", "nah",
+            "thanks", "thank you", "ty", "thx", "bye", "cya", "gm", "gn",
+            "test", "testing", "ping", "pong", "cool", "nice", "good", "great", "done",
+            "system_ok", "system ok", "hello world", "hi there",
+        }
+
+        def _norm_prompt(text: str) -> str:
+            return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", (text or "").lower())).strip()
+
+        def _extract_cp_msgs(cp_obj):
+            msgs = cp_obj.get("channel_values", {}).get("messages", [])
+            h_list, a_list = [], []
+            for m in msgs:
+                mt = getattr(m, "type", "")
+                mc = getattr(m, "content", "")
+                if isinstance(mc, list):
+                    mc = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in mc)
+                cs = str(mc or "")
+                if mt == "human":
+                    ch = clean_prompt_text(cs)
+                    if ch:
+                        h_list.append(ch)
+                elif mt == "ai" and cs.strip():
+                    a_list.append(cs.strip())
+            return h_list, a_list
+
+        c.execute("SELECT thread_id, parent_thread_id, parent_checkpoint_id FROM thread_lineage")
+        lineage_map = {row[0]: (row[1], row[2]) for row in c.fetchall()}
+
+        # 2. Macro-Pruning: Rank threads by latest activity checkpoint + Quality/Trivial filter
         c.execute("""
             SELECT thread_id, max(checkpoint_id) as last_cp
             FROM checkpoints
@@ -1782,17 +1817,80 @@ def prune_memory_tree(db_path: str, max_threads: int = 40, max_milestones_per_th
         ranked_threads = c.fetchall()
         total_threads_before = len(ranked_threads)
 
-        active_thread_set = set()
-        threads_to_purge = set()
+        trivial_threads = set()
+        for tid, last_cp in ranked_threads:
+            if tid in pinned_set:
+                continue
+            c.execute("SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? AND checkpoint_id = ?", (tid, last_cp))
+            cp_row = c.fetchone()
+            if not cp_row:
+                trivial_threads.add(tid)
+                continue
+            try:
+                cp_obj = memory.serde.loads_typed((cp_row[0], cp_row[1]))
+            except Exception:
+                continue
+            humans, ais = _extract_cp_msgs(cp_obj)
 
-        for idx, (tid, last_cp) in enumerate(ranked_threads):
-            if tid in pinned_set or idx < max_threads:
+            # For forked threads, evaluate only the new turns added after the fork base checkpoint
+            parent_tid, parent_cpid = lineage_map.get(tid, (None, None))
+            base_h, base_a = 0, 0
+            if parent_tid:
+                if parent_cpid:
+                    c.execute("SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? AND checkpoint_id = ?", (parent_tid, parent_cpid))
+                else:
+                    c.execute("SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1", (parent_tid,))
+                p_row = c.fetchone()
+                if p_row:
+                    try:
+                        p_cp = memory.serde.loads_typed((p_row[0], p_row[1]))
+                        bh, ba = _extract_cp_msgs(p_cp)
+                        base_h, base_a = len(bh), len(ba)
+                    except Exception:
+                        pass
+
+            delta_h = humans[base_h:] if parent_tid else humans
+            delta_a = ais[base_a:] if parent_tid else ais
+
+            if not delta_h or not ais:
+                trivial_threads.add(tid)
+                continue
+
+            norms = [_norm_prompt(h) for h in delta_h]
+            if all((not n or n in TRIVIAL_GREETINGS) for n in norms):
+                trivial_threads.add(tid)
+                continue
+
+            if len(delta_h) == 1:
+                n0 = norms[0]
+                ai_len = sum(len(x) for x in delta_a)
+                ai_low = " ".join(delta_a).lower()
+                is_err = ("model not available" in ai_low or "404 not found" in ai_low) and ai_len < 300
+                if (len(n0) < 16 and ai_len < 220) or (len(n0) < 10 and "how can i help" in ai_low):
+                    trivial_threads.add(tid)
+                elif tid.lower().startswith("test") and (is_err or any(p in n0 for p in ("say hi", "say hello", "reply with only"))):
+                    trivial_threads.add(tid)
+
+        active_thread_set = set()
+        threads_to_purge = set(trivial_threads)
+        kept_rank = 0
+
+        for tid, last_cp in ranked_threads:
+            if tid in threads_to_purge:
+                continue
+            if tid in pinned_set or kept_rank < max_threads:
                 active_thread_set.add(tid)
+                kept_rank += 1
             else:
                 threads_to_purge.add(tid)
 
-        # Purge evicted threads
+        # Purge evicted & trivial threads and keep thread_lineage consistent
         for tid in threads_to_purge:
+            c.execute("SELECT parent_thread_id FROM thread_lineage WHERE thread_id = ?", (tid,))
+            prow = c.fetchone()
+            grandparent = prow[0] if prow else None
+            c.execute("UPDATE thread_lineage SET parent_thread_id = ? WHERE parent_thread_id = ?", (grandparent, tid))
+            c.execute("DELETE FROM thread_lineage WHERE thread_id = ?", (tid,))
             c.execute("DELETE FROM checkpoints WHERE thread_id = ?", (tid,))
             c.execute("DELETE FROM writes WHERE thread_id = ?", (tid,))
 
@@ -1814,9 +1912,6 @@ def prune_memory_tree(db_path: str, max_threads: int = 40, max_milestones_per_th
             HAVING count(*) > 1
         """)
         branching_parents = {(r[0], r[1]) for r in c.fetchall()}
-
-        from langgraph.checkpoint.sqlite import SqliteSaver
-        memory = SqliteSaver(conn)
 
         # Group rows by thread
         thread_rows = {}
@@ -1908,6 +2003,7 @@ def prune_memory_tree(db_path: str, max_threads: int = 40, max_milestones_per_th
             "freed_mb": freed_mb,
             "threads_kept": len(active_thread_set),
             "threads_purged": len(threads_to_purge),
+            "trivial_purged": len(trivial_threads),
             "checkpoints_kept": len(keep_set),
             "checkpoints_pruned": len(prune_set),
             "rewired_links": rewires
