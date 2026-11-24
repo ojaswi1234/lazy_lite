@@ -734,12 +734,60 @@ def normalize_tool_call(name: str, args: dict, available_tools: list = None):
     return target_name, norm_args
 
 def parse_pseudo_tool_calls(text: str, available_tools: list = None):
-    """Extracts raw pseudo-tool tags emitted in message text by open-source models."""
+    """Extracts raw pseudo-tool tags emitted in message text by open-source models,
+    scrubs reasoning tags (<think>, <thought>) and hallucinated pseudo-JS declarations."""
     import uuid
     tool_calls = []
     clean_text = text or ""
 
-    # Format 1: <tool_call ...>...</tool_call>
+    # 1. Strip reasoning blocks <think>...</think> and <thought>...</thought>
+    clean_text = re.sub(r'<think>[\s\S]*?</think>', '', clean_text)
+    clean_text = re.sub(r'<thought>[\s\S]*?</thought>', '', clean_text)
+    clean_text = re.sub(r'</?think>', '', clean_text)
+    clean_text = re.sub(r'</?thought>', '', clean_text)
+
+    # 2. Format: <invoke name="...">...</invoke> (Anthropic XML format)
+    inv_matches = list(re.finditer(r'<invoke(?:\s+name=[\'"]([^\'"]+)[\'"])?>([\s\S]*?)</invoke>', clean_text))
+    for m in reversed(inv_matches):
+        fn_name = m.group(1) or "local_shell"
+        inner = m.group(2).strip()
+        params = {}
+        for pm in re.finditer(r'<parameter(?:=|\s+name=)[\'"]?([a-zA-Z0-9_\-\.]+)[\'"]?\s*>(.*?)</parameter>', inner, re.DOTALL):
+            params[pm.group(1).strip()] = pm.group(2).strip()
+        if not params:
+            try:
+                params = json.loads(inner)
+            except Exception:
+                pass
+        t_name, t_args = normalize_tool_call(fn_name, params or {}, available_tools)
+        tool_calls.append({"id": f"call_{uuid.uuid4().hex[:8]}", "name": t_name, "args": t_args})
+    clean_text = re.sub(r'<invoke(?:\s+name=[\'"]([^\'"]+)[\'"])?>[\s\S]*?</invoke>', '', clean_text)
+    clean_text = re.sub(r'</?invoke>', '', clean_text)
+
+    # 3. Format: Pseudo-JS declarations inside or outside <tool_call>
+    fn_blocks = list(re.finditer(r'(?:<tool_call>\s*)?function\s+([a-zA-Z0-9_\-]+)\s*\([^)]*\)\s*\{([\s\S]*?)\}(?:\s*[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?)?', clean_text))
+    for m in fn_blocks:
+        body = m.group(2)
+        file_candidates = re.findall(r'([a-zA-Z0-9_\-\.\/]+\.(?:ts|js|json|py|md|html|css|yaml|yml|lua|go|rs|cpp|c|h))\b', body)
+        for fc in file_candidates:
+            tool_calls.append({
+                "id": f"call_{uuid.uuid4().hex[:8]}",
+                "name": "read_file",
+                "args": {"filepath": fc}
+            })
+        dir_candidates = re.findall(r'([a-zA-Z0-9_\-\.]+\/[a-zA-Z0-9_\-\.\/]+)', body)
+        for dc in dir_candidates:
+            if not any(dc in fc for fc in file_candidates):
+                clean_dir = dc.rstrip("/\\")
+                tool_calls.append({
+                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                    "name": "local_shell",
+                    "args": {"command": "Get-ChildItem -Path '" + clean_dir + "' -Recurse -Force"}
+                })
+    clean_text = re.sub(r'(?:<tool_call>\s*)?function\s+[a-zA-Z0-9_\-]+\s*\([^)]*\)\s*\{[\s\S]*?\}(?:\s*[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?)?', '', clean_text)
+    clean_text = re.sub(r'^[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?\s*$', '', clean_text, flags=re.MULTILINE)
+
+    # 4. Format 1: <tool_call ...>...</tool_call>
     matches = list(re.finditer(r'<tool_call(?:\s+name=[\'"]([^\'"]+)[\'"])?>(.*?)</tool_call>', clean_text, re.DOTALL))
     for m in reversed(matches):
         attr_name = m.group(1)
@@ -864,7 +912,12 @@ def parse_pseudo_tool_calls(text: str, available_tools: list = None):
         except Exception:
             pass
 
-    return tool_calls, clean_text.strip()
+    # 5. Clean any remaining bare, unclosed, or orphaned XML tags
+    clean_text = re.sub(r'</?(?:tool_call|function|function_call|parameter|invoke|think|thought|arg_key|arg_value|antArtifact)[^>]*>', '', clean_text)
+    clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
+
+    return tool_calls, clean_text
+
 
 class StreamInterceptor:
     """Buffers stream chunks to prevent leaking raw pseudo-tool tags to stdout while real-time streaming."""
@@ -873,18 +926,59 @@ class StreamInterceptor:
         self.buffer = ""
         self.flushed_text = ""
         self.tool_calls = []
-        self.tag_prefixes = ["<tool_call", "<function=", "<function_call", "[TOOL_CALL", "[tool_calls"]
-        self.max_prefix_len = 15
+        self.tag_prefixes = [
+            "<tool_call", "</tool_call",
+            "<function=", "</function",
+            "<function_call", "</function_call",
+            "[TOOL_CALL", "[tool_calls",
+            "<invoke", "</invoke",
+            "<think", "</think",
+            "<thought", "</thought",
+            "<parameter", "</parameter",
+            "<arg_key", "</arg_key",
+            "function "
+        ]
+        self.max_prefix_len = 20
 
     def _parse_candidate_block(self, block: str):
-        # Format 1: <tool_call ...>...</tool_call>
-        m = re.search(r'<tool_call(?:\s+name=[\'"]([^\'"]+)[\'"])?>(.*?)</tool_call>', block, re.DOTALL)
+        # 1. Reasoning blocks: <think>...</think> or <thought>...</thought> -> discard silently
+        m_th = re.match(r'<(?:think|thought)>([\s\S]*?)</(?:think|thought)>\s*', block)
+        if m_th:
+            return 0, m_th.end(), None, None
+
+        # 2. Stray closing reasoning / invoke / tool tags at start of buffer -> discard silently
+        m_stray = re.match(r'</(?:think|thought|invoke|tool_call|function|function_call)>\s*', block)
+        if m_stray:
+            return 0, m_stray.end(), None, None
+
+        # 3. Consecutive bare opening <tool_call> followed by another <tool_call> or <invoke or <think -> discard the first bare tag
+        m_bare_tc = re.match(r'<tool_call(?:\s+name=[\'"][^\'"]*[\'"])?>\s*(?=<tool_call|</invoke|</think|<invoke|<think)', block)
+        if m_bare_tc:
+            return 0, m_bare_tc.end(), None, None
+
+        # 4. Anthropic format: <invoke name="...">...</invoke>
+        m_inv = re.match(r'<invoke(?:\s+name=[\'"]([^\'"]+)[\'"])?>([\s\S]*?)</invoke>\s*', block)
+        if m_inv:
+            fn_name = m_inv.group(1) or "local_shell"
+            inner = m_inv.group(2).strip()
+            params = {}
+            for pm in re.finditer(r'<parameter(?:=|\s+name=)[\'"]?([a-zA-Z0-9_\-\.]+)[\'"]?\s*>(.*?)</parameter>', inner, re.DOTALL):
+                params[pm.group(1).strip()] = pm.group(2).strip()
+            if not params:
+                try:
+                    params = json.loads(inner)
+                except Exception:
+                    pass
+            t_name, t_args = normalize_tool_call(fn_name, params or {}, self.available_tools)
+            return 0, m_inv.end(), t_name, t_args
+
+        # 5. Format 1: <tool_call ...>...</tool_call>
+        m = re.match(r'<tool_call(?:\s+name=[\'"]([^\'"]+)[\'"])?>([\s\S]*?)</tool_call>\s*', block)
         if m:
             attr_name = m.group(1)
             inner = m.group(2).strip()
             if not inner and not attr_name:
-                # Empty <tool_call></tool_call> tag - discard
-                return m.start(), m.end(), None, None
+                return 0, m.end(), None, None
             # Check for nested <function=name>...</function>
             fn_m = re.search(r'<function=([a-zA-Z0-9_\-\.]+)\s*>(.*?)</function>', inner, re.DOTALL)
             if fn_m:
@@ -895,13 +989,13 @@ class StreamInterceptor:
                     params[pm.group(1).strip()] = pm.group(2).strip()
                 if params:
                     t_name, t_args = normalize_tool_call(fn_name, params, self.available_tools)
-                    return m.start(), m.end(), t_name, t_args
+                    return 0, m.end(), t_name, t_args
                 try:
                     data = json.loads(fn_inner)
                     if isinstance(data, dict):
                         t_name, t_args = normalize_tool_call(fn_name, data, self.available_tools)
-                        return m.start(), m.end(), t_name, t_args
-                except:
+                        return 0, m.end(), t_name, t_args
+                except Exception:
                     pass
 
             try:
@@ -910,9 +1004,10 @@ class StreamInterceptor:
                     t_name = data.get("name") or attr_name or "local_shell"
                     t_args = data.get("arguments") or data.get("parameters") or data.get("args") or {k: v for k, v in data.items() if k not in ["name", "tool", "arguments", "parameters", "args"]}
                     t_name, t_args = normalize_tool_call(t_name, t_args, self.available_tools)
-                    return m.start(), m.end(), t_name, t_args
-            except:
+                    return 0, m.end(), t_name, t_args
+            except Exception:
                 pass
+
             if "<arg_key>" in inner:
                 name_match = re.match(r'^([a-zA-Z0-9_\-\.]+)(?:\s|<)', inner)
                 t_name = attr_name or (name_match.group(1) if name_match else "local_shell")
@@ -920,17 +1015,20 @@ class StreamInterceptor:
                 for k, v in re.findall(r'<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>', inner, re.DOTALL):
                     args[k.strip()] = v.strip()
                 t_name, args = normalize_tool_call(t_name, args, self.available_tools)
-                return m.start(), m.end(), t_name, args
-            elif attr_name:
+                return 0, m.end(), t_name, args
+
+            if attr_name:
                 try:
                     args = json.loads(inner)
                     t_name, args = normalize_tool_call(attr_name, args, self.available_tools)
-                    return m.start(), m.end(), t_name, args
-                except:
+                    return 0, m.end(), t_name, args
+                except Exception:
                     pass
+            # If closed <tool_call>...</tool_call> couldn't be parsed, discard it so it never leaks
+            return 0, m.end(), None, None
 
-        # Format 2: <function=name>...</function>
-        m2 = re.search(r'<function=([a-zA-Z0-9_\-\.]+)\s*>(.*?)</function>', block, re.DOTALL)
+        # 6. Format 2: <function=name>...</function>
+        m2 = re.match(r'<function=([a-zA-Z0-9_\-\.]+)\s*>(.*?)</function>\s*', block)
         if m2:
             t_name = m2.group(1).strip()
             inner = m2.group(2).strip()
@@ -939,16 +1037,17 @@ class StreamInterceptor:
                 params[pm.group(1).strip()] = pm.group(2).strip()
             if params:
                 t_name, t_args = normalize_tool_call(t_name, params, self.available_tools)
-                return m2.start(), m2.end(), t_name, t_args
+                return 0, m2.end(), t_name, t_args
             try:
                 t_args = json.loads(inner)
                 t_name, t_args = normalize_tool_call(t_name, t_args, self.available_tools)
-                return m2.start(), m2.end(), t_name, t_args
-            except:
+                return 0, m2.end(), t_name, t_args
+            except Exception:
                 pass
+            return 0, m2.end(), None, None
 
-        # Format 3: <function_call>...</function_call>
-        m3 = re.search(r'<function_call>(.*?)</function_call>', block, re.DOTALL)
+        # 7. Format 3: <function_call>...</function_call>
+        m3 = re.match(r'<function_call>(.*?)</function_call>\s*', block)
         if m3:
             inner = m3.group(1).strip()
             try:
@@ -957,12 +1056,13 @@ class StreamInterceptor:
                     t_name = data.get("name") or "local_shell"
                     t_args = data.get("arguments") or data.get("args") or {}
                     t_name, t_args = normalize_tool_call(t_name, t_args, self.available_tools)
-                    return m3.start(), m3.end(), t_name, t_args
-            except:
+                    return 0, m3.end(), t_name, t_args
+            except Exception:
                 pass
+            return 0, m3.end(), None, None
 
-        # Format 4: [TOOL_CALLS] [...]
-        m4 = re.search(r'\[TOOL_CALLS\]\s*(\[.*?\])', block, re.DOTALL)
+        # 8. Format 4: [TOOL_CALLS] [...]
+        m4 = re.match(r'\[TOOL_CALLS\]\s*(\[.*?\])\s*', block)
         if m4:
             try:
                 calls = json.loads(m4.group(1))
@@ -971,9 +1071,10 @@ class StreamInterceptor:
                     t_name = c.get("name") or "local_shell"
                     t_args = c.get("arguments") or c.get("args") or {}
                     t_name, t_args = normalize_tool_call(t_name, t_args, self.available_tools)
-                    return m4.start(), m4.end(), t_name, t_args
-            except:
+                    return 0, m4.end(), t_name, t_args
+            except Exception:
                 pass
+            return 0, m4.end(), None, None
 
         return None
 
@@ -983,22 +1084,7 @@ class StreamInterceptor:
         out = ""
 
         while self.buffer:
-            res = self._parse_candidate_block(self.buffer)
-            if res:
-                start_idx, end_idx, t_name, t_args = res
-                import uuid
-                if start_idx > 0:
-                    out += self.buffer[:start_idx]
-                self.flushed_text += out
-                if t_name is not None:
-                    self.tool_calls.append({
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "name": t_name,
-                        "args": t_args
-                    })
-                self.buffer = self.buffer[end_idx:]
-                continue
-
+            # First, find earliest tag prefix in buffer
             earliest_idx = -1
             for p in self.tag_prefixes:
                 idx = self.buffer.find(p)
@@ -1006,12 +1092,31 @@ class StreamInterceptor:
                     if earliest_idx == -1 or idx < earliest_idx:
                         earliest_idx = idx
 
-            if earliest_idx != -1:
-                if earliest_idx > 0:
-                    out += self.buffer[:earliest_idx]
-                    self.buffer = self.buffer[earliest_idx:]
-                break
+            if earliest_idx > 0:
+                # Flush everything before the earliest prefix
+                out += self.buffer[:earliest_idx]
+                self.buffer = self.buffer[earliest_idx:]
+                continue
+            elif earliest_idx == 0:
+                # Buffer starts with a tag prefix! Try to parse a candidate block
+                res = self._parse_candidate_block(self.buffer)
+                if res:
+                    _, end_idx, t_name, t_args = res
+                    import uuid
+                    if t_name is not None:
+                        self.tool_calls.append({
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "name": t_name,
+                            "args": t_args
+                        })
+                    self.buffer = self.buffer[end_idx:]
+                    continue
+                else:
+                    # Block is not complete yet, wait for more chunks
+                    break
             else:
+                # No tag prefix found anywhere in buffer
+                # Check trailing tail for partial prefix match
                 tail_len = 0
                 for k in range(min(len(self.buffer), self.max_prefix_len), 0, -1):
                     tail = self.buffer[-k:]
@@ -1039,9 +1144,7 @@ class StreamInterceptor:
         while self.buffer:
             res = self._parse_candidate_block(self.buffer)
             if res:
-                start_idx, end_idx, t_name, t_args = res
-                if start_idx > 0:
-                    out += self.buffer[:start_idx]
+                _, end_idx, t_name, t_args = res
                 if t_name is not None:
                     self.tool_calls.append({
                         "id": f"call_{uuid.uuid4().hex[:8]}",
@@ -1049,49 +1152,36 @@ class StreamInterceptor:
                         "args": t_args
                     })
                 self.buffer = self.buffer[end_idx:]
-            else:
-                # Handle unclosed or trailing <tool_call> tag if arguments are present
-                if "<tool_call" in self.buffer:
-                    m_start = self.buffer.find("<tool_call")
-                    inner = self.buffer[m_start:]
-                    if "<arg_key>" in inner:
-                        if m_start > 0:
-                            out += self.buffer[:m_start]
-                        name_match = re.search(r'<tool_call(?:\s+name=[\'"]([^\'"]+)[\'"])?>\s*([a-zA-Z0-9_\-\.]+)?', inner)
-                        t_name = (name_match.group(1) or name_match.group(2) or "local_shell") if name_match else "local_shell"
-                        args = {}
-                        for k, v in re.findall(r'<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>', inner, re.DOTALL):
-                            args[k.strip()] = v.strip()
-                        if args:
-                            t_name, args = normalize_tool_call(t_name, args, self.available_tools)
-                            self.tool_calls.append({
-                                "id": f"call_{uuid.uuid4().hex[:8]}",
-                                "name": t_name,
-                                "args": args
-                            })
-                        self.buffer = ""
-                        break
-                    elif "<function=" in inner and "<parameter=" in inner:
-                        if m_start > 0:
-                            out += self.buffer[:m_start]
-                        fn_m = re.search(r'<function=([a-zA-Z0-9_\-\.]+)\s*>(.*)', inner, re.DOTALL)
-                        if fn_m:
-                            t_name = fn_m.group(1).strip()
-                            params = {}
-                            for pm in re.finditer(r'<parameter(?:=|\s+name=)[\'"]?([a-zA-Z0-9_\-\.]+)[\'"]?\s*>(.*?)(?:</parameter>|$)', fn_m.group(2), re.DOTALL):
-                                params[pm.group(1).strip()] = pm.group(2).strip()
-                            if params:
-                                t_name, params = normalize_tool_call(t_name, params, self.available_tools)
-                                self.tool_calls.append({
-                                    "id": f"call_{uuid.uuid4().hex[:8]}",
-                                    "name": t_name,
-                                    "args": params
-                                })
-                        self.buffer = ""
-                        break
-                out += self.buffer
-                self.buffer = ""
-                break
+                continue
+
+            # Extract any pseudo JS functions present in the trailing buffer
+            fn_matches = list(re.finditer(r'(?:<tool_call>\s*)?function\s+([a-zA-Z0-9_\-]+)\s*\([^)]*\)\s*\{([\s\S]*?)\}(?:\s*[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?)?', self.buffer))
+            for fn_m in fn_matches:
+                body = fn_m.group(2)
+                for fc in re.findall(r'([a-zA-Z0-9_\-\.\/]+\.(?:ts|js|json|py|md|html|css|yaml|yml|lua|go|rs|cpp|c|h))\b', body):
+                    self.tool_calls.append({
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "name": "read_file",
+                        "args": {"filepath": fc}
+                    })
+                for dc in re.findall(r'([a-zA-Z0-9_\-\.]+\/[a-zA-Z0-9_\-\.\/]+)', body):
+                    if not any(dc in fc for fc in re.findall(r'([a-zA-Z0-9_\-\.\/]+\.(?:ts|js|json|py|md|html|css|yaml|yml|lua|go|rs|cpp|c|h))\b', body)):
+                        clean_dir = dc.rstrip("/\\")
+                        self.tool_calls.append({
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "name": "local_shell",
+                            "args": {"command": "Get-ChildItem -Path '" + clean_dir + "' -Recurse -Force"}
+                        })
+
+            # SCRUB any remaining XML tags, thinking tags, pseudo-functions or call statements
+            cleaned = re.sub(r'</?(?:tool_call|function|function_call|parameter|invoke|think|thought|arg_key|arg_value|antArtifact)[^>]*>', '', self.buffer)
+            cleaned = re.sub(r'(?:<tool_call>\s*)?function\s+[a-zA-Z0-9_\-]+\s*\([^)]*\)\s*\{[\s\S]*?\}(?:\s*[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?)?', '', cleaned)
+            cleaned = re.sub(r'^[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?\s*$', '', cleaned, flags=re.MULTILINE)
+            cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+            out += cleaned
+            self.buffer = ""
+            break
+
         self.flushed_text += out
         return out
 
@@ -1700,7 +1790,7 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
                 return ChatGoogleGenerativeAI(model=m_name, api_key=p_key, temperature=0.2, streaming=True)
             elif p_name == "groq":
                 from langchain_groq import ChatGroq
-                return ChatGroq(model_name=m_name, api_key=p_key, temperature=0.2, streaming=True, max_tokens=950)
+                return ChatGroq(model_name=m_name, api_key=p_key, temperature=0.2, streaming=True, max_tokens=4096)
             elif p_name == "openai":
                 from langchain_openai import ChatOpenAI
                 return ChatOpenAI(model_name=m_name, api_key=p_key, temperature=0.2, streaming=True)
@@ -1825,7 +1915,11 @@ HOW TO ACT:
      - If required input files or targets (e.g. an APK file, binary path, repo name, or search query) are not yet specified, call available discovery tools (e.g. list_adb_devices, resolve_adb_packages, search_issues) or clearly ask the user for the file path/target while stating the exact tools you are ready to execute on it.
    - Global Filesystem Scope & Package Archives (.xapk, .apk, .ipa, .zip):
      - You have global filesystem scope across the user's computer. Files specified by absolute path (e.g. in Downloads, Desktop, or other directories) can be accessed, read, and inspected directly. Never refuse or claim a file is inaccessible because it is outside the workspace.
-     - An .xapk file is a standard ZIP container containing the base .apk and asset packages. To inspect or reverse engineer it, read_file will automatically inspect its inner APKs, or you can unpack it via local_shell (e.g. python -m zipfile -e "<path.xapk>" "<extract_dir>" or tar -xf "<path.xapk>" -C "<extract_dir>"), then immediately invoke REA tools (e.g. inspect_android_package, decode_android_resources, search_android_classes) on the extracted .apk!"""
+     - An .xapk file is a standard ZIP container containing the base .apk and asset packages. To inspect or reverse engineer it, read_file will automatically inspect its inner APKs, or you can unpack it via local_shell (e.g. python -m zipfile -e "<path.xapk>" "<extract_dir>" or tar -xf "<path.xapk>" -C "<extract_dir>"), then immediately invoke REA tools (e.g. inspect_android_package, decode_android_resources, search_android_classes) on the extracted .apk!
+7. AUTONOMOUS TASK EXECUTION & CONTINUATION (Autopilot Active):
+   - When running in Autopilot mode, DO NOT stop after reading files or analyzing issues! DO NOT output pseudo-code functions in chat.
+   - You MUST autonomously proceed to write the fixes using write_file or local_shell, test your changes, and verify them.
+   - Execute all planned steps using real tool calls until the entire task is solved and verified!"""
 
         custom_skill_prompt = ""
         installed_skills_list = []
@@ -2044,7 +2138,7 @@ HOW TO ACT:
             # so the model is guaranteed to produce its final answer without infinite looping
             p_low = prompt.lower()
             is_exploration = any(k in p_low for k in ["explore codebase", "explore project", "analyze project", "codebase overview", "project structure", "understand this project"])
-            max_allowed_turns = 3 if is_exploration else 6
+            max_allowed_turns = 25 if autopilot else (3 if is_exploration else 6)
             
             # Count tool turns only within the current turn (since the latest human message)
             last_human_idx = -1
@@ -2529,7 +2623,7 @@ HOW TO ACT:
                 
                 try:
                     inputs = {"messages": [HumanMessage(content=prompt)]}
-                    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 30}
+                    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 60 if autopilot else 30}
                     await graph.ainvoke(inputs, config=config)
                 except Exception as e:
                     err_str = str(e)

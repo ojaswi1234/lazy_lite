@@ -2071,8 +2071,13 @@ function AGView:_build_agy_usage_text()
   core.redraw = true
 end
 
-function AGView:submit(prompt)
+function AGView:submit(prompt, is_auto_continuation)
   if not prompt or prompt == "" then return end
+  if not is_auto_continuation then
+    self:state().autopilot_turns = 0
+    self:state().stopped_by_user = nil
+    self:state().needs_supervised_approval = nil
+  end
 
   local tool_id = config.ai_sidebar.active_tool or "agy"
   local tool    = AI_TOOLS.get(tool_id)
@@ -2773,10 +2778,19 @@ function AGView:update()
             return ""
           end)
           out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
+          out = out:gsub("<think.-</think>%s*", "")
+          out = out:gsub("<thought.-</thought>%s*", "")
+          out = out:gsub("</?think>", "")
+          out = out:gsub("</?thought>", "")
+          out = out:gsub("<invoke.-</invoke>%s*", "")
+          out = out:gsub("</?invoke>", "")
           out = out:gsub("<tool_call.-</tool_call>%s*", "")
+          out = out:gsub("</?tool_call[^>]*>", "")
           out = out:gsub("<function.-</function>%s*", "")
           out = out:gsub("<function_call.-</function_call>%s*", "")
           out = out:gsub("%[TOOL_CALLS%].-%]%s*", "")
+          out = out:gsub("function%s+[%w_]+%s*%b().-%b{}", "")
+          out = out:gsub("[%w_]+%s*%b()%s*;", "")
           out = out:gsub("%[WARNING%][^\r\n]*\r?\n?", "")
           out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
           out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
@@ -2823,10 +2837,19 @@ function AGView:update()
               return ""
             end)
             out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
+            out = out:gsub("<think.-</think>%s*", "")
+            out = out:gsub("<thought.-</thought>%s*", "")
+            out = out:gsub("</?think>", "")
+            out = out:gsub("</?thought>", "")
+            out = out:gsub("<invoke.-</invoke>%s*", "")
+            out = out:gsub("</?invoke>", "")
             out = out:gsub("<tool_call.-</tool_call>%s*", "")
+            out = out:gsub("</?tool_call[^>]*>", "")
             out = out:gsub("<function.-</function>%s*", "")
             out = out:gsub("<function_call.-</function_call>%s*", "")
             out = out:gsub("%[TOOL_CALLS%].-%]%s*", "")
+            out = out:gsub("function%s+[%w_]+%s*%b().-%b{}", "")
+            out = out:gsub("[%w_]+%s*%b()%s*;", "")
             out = out:gsub("%[WARNING%][^\r\n]*\r?\n?", "")
             out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
             out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
@@ -2847,6 +2870,11 @@ function AGView:update()
           tab.process = nil
           tab.status = (rc == 0) and "idle" or "error"
           tab.progress_status = nil
+          if rc == 0 then
+            tab.pending_completion_check = true
+          else
+            tab.autopilot_turns = 0
+          end
           
           -- Automatically refresh the Chat Memory Tree if it's currently open
           if self.show_history_tree then
@@ -3016,6 +3044,71 @@ function AGView:update()
         tab.sessions[#tab.sessions].blocks = nil -- invalidate cache
         tab.scroll_to_bottom = true
         core.redraw = true
+      end
+
+      -- Check for autonomous task continuation or supervised approval
+      if not is_active_process and not is_typing and tab.status == "idle" and tab.pending_completion_check then
+        tab.pending_completion_check = nil
+
+        if not tab.stopped_by_user and not (tab._err_buf and (tab._err_buf:find("429") or tab._err_buf:find("quota") or tab._err_buf:find("rate_limit"))) then
+          local full_text = (tab._ai_buf or ""):lower()
+          local continuation_triggers = {
+            "let me start by", "i'll analyze", "i will analyze", "next steps:",
+            "now i will", "i will fix", "i'll fix", "let me examine", "next, i will",
+            "i'll continue", "let's examine", "let's check", "i will now check",
+            "i need to examine", "i need to check", "analyzing the", "next step is to",
+            "let me read", "i will now examine", "continue working"
+          }
+          local completion_triggers = {
+            "task complete", "all tasks completed", "successfully resolved",
+            "all done", "audit complete", "fixes applied and verified",
+            "all bugs fixed", "all issues resolved"
+          }
+          local has_continuation = false
+          for _, trig in ipairs(continuation_triggers) do
+            if full_text:find(trig, 1, true) then
+              has_continuation = true
+              break
+            end
+          end
+          local is_completed = false
+          for _, trig in ipairs(completion_triggers) do
+            if full_text:find(trig, 1, true) then
+              is_completed = true
+              break
+            end
+          end
+
+          if has_continuation and not is_completed then
+            if config.ai_sidebar and config.ai_sidebar.autopilot then
+              local turns = (tab.autopilot_turns or 0) + 1
+              if turns <= 10 then
+                tab.autopilot_turns = turns
+                core.log("[Aether Autopilot] Step %d: Autonomously proceeding to next step...", turns)
+                self:submit("Continue with the planned steps. Execute the fixes and verify them.", true)
+              else
+                core.log("[Aether Autopilot] Maximum autonomous turns (10) reached.")
+                tab.autopilot_turns = 0
+              end
+            else
+              -- Supervised mode: prompt user for approval
+              tab.needs_supervised_approval = true
+              if not tab._ai_buf:find("Supervised Mode", 1, true) then
+                tab._ai_buf = tab._ai_buf .. "\n\n> ℹ️ **Supervised Mode**: Review proposed next steps above. Press **Enter** or type feedback to approve & continue."
+                tab._ai_displayed_chars = #tab._ai_buf
+                if tab.sessions[#tab.sessions] and tab.sessions[#tab.sessions].role == "ai" then
+                  tab.sessions[#tab.sessions].text = tab._ai_buf
+                  tab.sessions[#tab.sessions].blocks = nil
+                end
+                core.redraw = true
+              end
+            end
+          else
+            tab.autopilot_turns = 0
+          end
+        else
+          tab.autopilot_turns = 0
+        end
       end
     end
   end
@@ -5510,6 +5603,9 @@ function AGView:on_key_pressed(key, ...)
         pcall(function() graceful_kill(self:state().process) end)
         self:state().process = nil
       end
+      self:state().stopped_by_user = true
+      self:state().autopilot_turns = 0
+      self:state().needs_supervised_approval = nil
       self:state()._ai_buf = (self:state()._ai_buf or "") .. "\n\n*[Stopped by user]*"
       self:state()._ai_displayed_chars = #(self:state()._ai_buf)
       self:state().status = "idle"
@@ -5591,7 +5687,12 @@ function AGView:on_key_pressed(key, ...)
 
   if (key == "return" or key == "enter") and not is_ctrl and not is_shift then
     local q = (self:state().input or ""):match("^%s*(.-)%s*$")
-    if q and #q > 0 then self:submit(q) end
+    if q and #q > 0 then
+      self:submit(q)
+    elseif self:state().needs_supervised_approval then
+      self:state().needs_supervised_approval = nil
+      self:submit("Approved. Proceed with the planned next steps.")
+    end
     self:state().input = ""
     self:state().cursor = 0
     self:state().select_anchor = nil
@@ -7553,6 +7654,9 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         pcall(function() graceful_kill(c.process) end)
         c.process = nil
         c.status = "idle"
+        c.stopped_by_user = true
+        c.autopilot_turns = 0
+        c.needs_supervised_approval = nil
         if c.tmpfile then pcall(os.remove, c.tmpfile); c.tmpfile = nil end
         if c.sessions[#c.sessions] and c.sessions[#c.sessions].role == "ai" then
           c.sessions[#c.sessions].text = (c.sessions[#c.sessions].text or "") .. "\n\n[Stopped by user]"

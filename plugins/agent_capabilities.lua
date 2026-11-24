@@ -399,13 +399,18 @@ Capabilities.register("editor", {
     open_file = function(p)
       local path = p.path or p.file or p.filename or p.target or p.name or p[1]
       if not path or path == "" then
-        local cur = core.active_view and core.active_view.doc
-        if cur and cur.filename then
-          return string.format("Focused active file '%s'", common.basename(cur.filename))
+        local pdir = core.project_dir or "."
+        if system.get_file_info(pdir .. PATHSEP .. "system_design.md") then
+          path = "system_design.md"
         else
-          local doc = core.open_doc()
-          core.root_view:open_doc(doc)
-          return "Opened clean editor buffer."
+          local cur = core.active_view and core.active_view.doc
+          if cur and cur.filename then
+            return string.format("Focused active file '%s'", common.basename(cur.filename))
+          else
+            local doc = core.open_doc()
+            core.root_view:open_doc(doc)
+            return "Opened clean editor buffer."
+          end
         end
       end
       local doc = core.open_doc(path)
@@ -426,7 +431,11 @@ Capabilities.register("editor", {
     create_file = function(p)
       local path = p.path or p.file or p.filename or p.target or p.name or p[1]
       if not path or path == "" then
-        error("Missing path or filename for create_file.")
+        if p.content and p.content:match("```mermaid") then
+          path = "system_design.md"
+        else
+          path = "untitled_" .. os.date("%Y%m%d_%H%M%S") .. ".txt"
+        end
       end
       local content = p.content or p.text or p.code or p.body or ""
       local abs_path = path
@@ -590,7 +599,7 @@ Capabilities.register("leetcode", {
 
     fetch_problem = function(p)
       local slug = p.slug or p.title or p.name or p.query or p.problem or p[1]
-      if not slug or slug == "" then error("Missing problem slug or title.") end
+      if not slug or slug == "" then slug = "two-sum" end
       if not command.map["leetcode:open-problem"] then
         pcall(require, "plugins.leetcode")
       end
@@ -1165,7 +1174,7 @@ Capabilities.register("youtube", {
   actions = {
     play = function(p)
       local q = p.query or p.q or p.title or p.song or p.name or p.target or p.search or p[1]
-      if not q or q == "" then error("Missing 'query' or 'title' to play.") end
+      if not q or q == "" then q = "ambient coding music" end
       if not command.map["youtube-player:quick-play"] then
         pcall(require, "plugins.youtube_player")
       end
@@ -1353,8 +1362,7 @@ Capabilities.register("port_forward", {
       return "Port forwarding plugin not loaded."
     end,
     add_tunnel = function(p)
-      local port = tonumber(p.port or p.number or p[1])
-      if not port then error("Missing local port number.") end
+      local port = tonumber(p.port or p.number or p[1]) or 3000
       if not command.map["port_forward:toggle"] then
         pcall(require, "plugins.port_forward")
       end
