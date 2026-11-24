@@ -6501,15 +6501,26 @@ end
   end
 
   function AGView:_layout_history(data)
-    -- Group conversations into roots and child forked sub-branches
-    local roots = {}
-    local forks = {}
+    -- Semantic group metadata
+    local GROUP_ORDER = { "dev", "debugging", "ui", "architecture", "security", "devops", "research", "general" }
+    local GROUP_META = {
+      dev          = { icon = "🔧", label = "Dev / Code" },
+      debugging    = { icon = "🐛", label = "Debugging" },
+      ui           = { icon = "🎨", label = "UI / UX" },
+      architecture = { icon = "🏗", label = "Architecture" },
+      security     = { icon = "🔐", label = "Security" },
+      devops       = { icon = "⚙", label = "DevOps" },
+      research     = { icon = "🔬", label = "Research" },
+      general      = { icon = "💬", label = "General" },
+    }
+
+    -- Separate forks from root conversations
     local by_thread = {}
+    local forks = {}
+    local roots = {}
 
     for _, conv in ipairs(data) do
-      if conv.thread_id then
-        by_thread[conv.thread_id] = conv
-      end
+      if conv.thread_id then by_thread[conv.thread_id] = conv end
     end
 
     for _, conv in ipairs(data) do
@@ -6521,53 +6532,90 @@ end
       end
     end
 
-    -- Sort roots chronologically (older first, newest last so newest sits under canopy at top)
+    -- Sort roots chronologically (older → lower rows, newest near canopy)
     table.sort(roots, function(a, b)
       return (a.id or "") < (b.id or "")
     end)
 
-    local nodes = {}
-    local node_map = {}
-    local row = 0
-    local root_idx = 0
-
+    -- Bucket roots by semantic group
+    local buckets = {}
+    for _, g in ipairs(GROUP_ORDER) do buckets[g] = {} end
     for _, root in ipairs(roots) do
-      root_idx = root_idx + 1
-      row = row + 1
-      root.row = row
-      root.is_root = true
-      root.is_sub = false
-      -- Alternate Left/Right off the central trunk
-      root.is_left = (root_idx % 2 == 1)
-      node_map[root.thread_id] = root
-      table.insert(nodes, root)
+      local g = (root.group and buckets[root.group]) and root.group or "general"
+      table.insert(buckets[g], root)
+    end
 
-      -- Place child forks directly attached to the parent branch
-      local children = forks[root.thread_id]
-      if children and #children > 0 then
-        table.sort(children, function(a, b)
-          return (a.id or "") < (b.id or "")
-        end)
-        for _, ch in ipairs(children) do
+    local nodes    = {}
+    local node_map = {}
+    local row      = 0
+    local bough_idx = 0
+
+    for _, g in ipairs(GROUP_ORDER) do
+      local grp_roots = buckets[g]
+      if grp_roots and #grp_roots > 0 then
+        bough_idx = bough_idx + 1
+        local bough_is_left = (bough_idx % 2 == 1)
+        local meta = GROUP_META[g] or GROUP_META["general"]
+
+        -- Insert a bough label node (not a conversation card)
+        row = row + 1
+        local bough_node = {
+          is_bough    = true,
+          group       = g,
+          label       = meta.icon .. "  " .. meta.label,
+          row         = row,
+          is_left     = bough_is_left,
+          is_root     = false,
+          is_sub      = false,
+        }
+        table.insert(nodes, bough_node)
+
+        -- Insert each root conversation in this group as children of the bough
+        local conv_idx = 0
+        for _, root in ipairs(grp_roots) do
+          conv_idx = conv_idx + 1
           row = row + 1
-          ch.row = row
-          ch.is_root = false
-          ch.is_sub = true
-          ch.parent_row = root.row
-          ch.parent_thread = root.thread_id
-          -- Forked child stays on the same side as its parent branch
-          ch.is_left = root.is_left
-          node_map[ch.thread_id] = ch
-          table.insert(nodes, ch)
-        end
-      end
+          root.row          = row
+          root.is_root      = true
+          root.is_sub       = false
+          root.is_bough     = false
+          root.is_left      = bough_is_left
+          root.bough_row    = bough_node.row
+          root.bough_group  = g
+          node_map[root.thread_id] = root
+          table.insert(nodes, root)
 
-      -- Spacer row between conversation families for visual breathing room
-      row = row + 1
+          -- Attach forks as sub-branches of this root
+          local children = forks[root.thread_id]
+          if children and #children > 0 then
+            table.sort(children, function(a, b) return (a.id or "") < (b.id or "") end)
+            for _, ch in ipairs(children) do
+              row = row + 1
+              ch.row          = row
+              ch.is_root      = false
+              ch.is_sub       = true
+              ch.is_bough     = false
+              ch.parent_row   = root.row
+              ch.parent_thread = root.thread_id
+              ch.is_left      = bough_is_left
+              ch.bough_row    = bough_node.row
+              ch.bough_group  = g
+              node_map[ch.thread_id] = ch
+              table.insert(nodes, ch)
+            end
+          end
+
+          -- Breathing room between conversations in same bough
+          row = row + 1
+        end
+
+        -- Extra spacer row between bough groups
+        row = row + 1
+      end
     end
 
     self.history_nodes = nodes
-    self.history_map = node_map
+    self.history_map   = node_map
   end
   
   function AGView:draw_history_tree(x, y, w, h)
@@ -6660,14 +6708,79 @@ end
       end
     end
 
-    -- PASS 2: Solid Curved Branches & Organic Sub-Branches
+    -- PASS 2: Boughs + Solid Curved Branches + Organic Sub-Branches
+
+    -- Thick angled bough emanating from the trunk toward the group label
+    local function draw_bough(cy, is_left, label)
+      local dir    = is_left and -1 or 1
+      local blen   = (is_left and LEFT_W or RIGHT_W) * 0.62
+      local base_thick = 28 * SCALE
+      local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
+      local steps  = math.floor(blen)
+
+      for i = 0, steps do
+        local t    = i / steps
+        local bx   = sx + dir * i
+        local y_top = cy + (20 * t - 55 * t * t) * SCALE
+        local thick = math.max(2, math.floor(base_thick * (1 - t^1.5)))
+        renderer.draw_rect(bx, math.floor(y_top), 1, thick, C_TR)
+      end
+
+      -- Leaf cluster at bough tip
+      local tip_x = sx + dir * steps
+      local tip_t  = 1.0
+      local tip_y  = math.floor(cy + (20 * tip_t - 55 * tip_t * tip_t) * SCALE)
+      fill_circle(tip_x, tip_y, 6 * SCALE, C_LEAF_D)
+      fill_circle(tip_x + dir * 4 * SCALE, tip_y - 3 * SCALE, 4 * SCALE, C_LEAF)
+
+      -- Group label at tip
+      local lf = style.font
+      local lw = lf:get_width(label)
+      local lh = lf:get_height()
+      local lx = is_left and (tip_x - lw - 10 * SCALE) or (tip_x + 10 * SCALE)
+      local ly = tip_y - math.floor(lh / 2)
+      renderer.draw_text(lf, label, lx, ly, C_LEAF)
+    end
+
+    -- Conversation branch sprouting from a bough rather than the trunk
+    local function draw_bough_branch(bough_cy, conv_cy, is_left)
+      local dir       = is_left and -1 or 1
+      local blen      = (is_left and LEFT_W or RIGHT_W) * 0.62
+      local base_thick = 18 * SCALE
+      local sx        = is_left and trunk_x or (trunk_x + TRUNK_W)
+
+      -- Bough tip position (t=1 of bough curve)
+      local tip_x  = sx + dir * math.floor(blen)
+      local tip_y  = bough_cy + (20 - 55) * SCALE   -- t=1 → (20*1 - 55*1) = -35, so cy-35*SCALE
+
+      -- Branch from bough tip, curving further outward & toward conv_cy
+      local branch_blen = (is_left and LEFT_W or RIGHT_W) * 0.80
+      local steps   = math.floor(branch_blen)
+      local target_y = conv_cy - 20 * SCALE
+      local dy       = target_y - tip_y
+
+      for i = 0, steps do
+        local t   = i / steps
+        local bx  = tip_x + dir * i
+        local y_top = tip_y + dy * t + (30 * t - 50 * t * t) * SCALE
+        local thick = math.max(1, math.floor(base_thick * (1 - t^2)))
+        renderer.draw_rect(bx, math.floor(y_top), 1, math.max(1, thick), C_TR)
+      end
+
+      local end_x = tip_x + dir * steps
+      local end_y  = math.floor(target_y - 25 * SCALE)
+      fill_circle(end_x, end_y, 4 * SCALE, C_LEAF)
+      fill_circle(end_x + dir * 3 * SCALE, end_y - 2 * SCALE, 3 * SCALE, C_LEAF_D)
+    end
+
+    -- Plain trunk branch (fallback for ungrouped / non-bough convs)
     local function draw_solid_branch(cy, is_left)
       local dir = is_left and -1 or 1
       local blen = (is_left and LEFT_W or RIGHT_W) * 0.90
       local base_thick = 18 * SCALE
       local sx = is_left and trunk_x or (trunk_x + TRUNK_W)
       local steps = math.floor(blen)
-      
+
       for i = 0, steps do
         local t = i / steps
         local bx = sx + dir * i
@@ -6683,16 +6796,16 @@ end
       fill_circle(tip_x + dir * 3 * SCALE, tip_y - 2 * SCALE, 3 * SCALE, C_LEAF_D)
     end
 
-    local function draw_sub_branch(parent_cy, child_cy, is_left)
+    -- Sub-branch (fork) sprouting from midpoint of its parent branch
+    local function draw_sub_branch(parent_cy, child_cy, is_left, parent_has_bough)
       local dir = is_left and -1 or 1
-      local parent_blen = (is_left and LEFT_W or RIGHT_W) * 0.90
-      local parent_sx = is_left and trunk_x or (trunk_x + TRUNK_W)
-      
-      -- Sprout midpoint along parent branch
+      local parent_blen = (is_left and LEFT_W or RIGHT_W) * (parent_has_bough and 0.80 or 0.90)
+      local parent_sx   = is_left and trunk_x or (trunk_x + TRUNK_W)
+
       local sprout_t = 0.40
       local sprout_x = parent_sx + dir * math.floor(parent_blen * sprout_t)
       local sprout_y = parent_cy + (45 * sprout_t - 70 * sprout_t * sprout_t) * SCALE
-      
+
       local sub_blen = (is_left and LEFT_W or RIGHT_W) * 0.50
       local steps = math.max(1, math.floor(sub_blen))
       local target_tip_y = child_cy - 20 * SCALE
@@ -6707,9 +6820,8 @@ end
         renderer.draw_rect(bx, math.floor(y_top), 1, thick, C_TR)
       end
 
-      -- Sprouting tender leaf bud at sub-branch tip
       local tip_x = sprout_x + dir * steps
-      local tip_y = math.floor(target_tip_y - 5 * SCALE)
+      local tip_y  = math.floor(target_tip_y - 5 * SCALE)
       fill_circle(tip_x, tip_y, 3.5 * SCALE, C_LEAF)
       fill_circle(tip_x + dir * 2 * SCALE, tip_y - 2 * SCALE, 2.5 * SCALE, C_LEAF_D)
     end
@@ -6722,10 +6834,18 @@ end
     for _, n in ipairs(self.history_nodes) do
       local cy = cy_of(n.row)
       if cy > y - ROW_H and cy < y + h + ROW_H then
-        if n.is_sub and n.parent_row then
+        if n.is_bough then
+          -- Draw the thick bough limb with group label
+          draw_bough(cy, n.is_left, n.label or "")
+        elseif n.is_sub and n.parent_row then
           local pnode = node_by_row[n.parent_row]
-          local p_cy = pnode and cy_of(pnode.row) or cy
-          draw_sub_branch(p_cy, cy, n.is_left)
+          local p_cy  = pnode and cy_of(pnode.row) or cy
+          draw_sub_branch(p_cy, cy, n.is_left, pnode and pnode.bough_group ~= nil)
+        elseif n.bough_row then
+          -- Root conversation that belongs to a bough
+          local bnode = node_by_row[n.bough_row]
+          local b_cy  = bnode and cy_of(bnode.row) or cy
+          draw_bough_branch(b_cy, cy, n.is_left)
         else
           draw_solid_branch(cy, n.is_left)
         end
@@ -6807,6 +6927,8 @@ end
     end
 
     for _, n in ipairs(self.history_nodes) do
+      -- Bough nodes are labels only — no card text cache needed
+      if n.is_bough then goto continue_cache end
       if n._cache_w ~= w then
         n._cache_w = w
         local is_left = n.is_left
@@ -6830,6 +6952,7 @@ end
         end
         n._topic = clean_topic
       end
+      ::continue_cache::
     end
 
     -- PASS 5: Conversation Cards & Action Buttons
@@ -6839,6 +6962,8 @@ end
     for _, n in ipairs(self.history_nodes) do
       local cy = cy_of(n.row)
       if cy > y - ROW_H and cy < y + h + ROW_H then
+        -- Bough nodes are drawn in PASS 2 (labels on the limb), no card here
+        if n.is_bough then goto continue_cards end
         local is_left = n.is_left
         local is_hov  = (self.hover_hist_node == n.id)
 
@@ -6934,6 +7059,7 @@ end
           topic = n.topic,
           x = rx, y = card_y, w = bw, h = card_h
         })
+        ::continue_cards::
       end
     end
 

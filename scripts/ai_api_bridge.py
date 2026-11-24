@@ -3428,6 +3428,27 @@ def main():
                         if p_row and p_row[0] != tid:
                             parent_thread = p_row[0]
 
+                # Classify conversation into a semantic group via keyword matching
+                def classify_group(topic, first_q):
+                    combined = (topic + " " + first_q).lower()
+                    if any(k in combined for k in ["security", "auth", "permission", "audit", "guardrail", "token", "exploit", "vulnerab", "credential"]):
+                        return "security"
+                    if any(k in combined for k in ["ui", "sidebar", "visual", "layout", "widget", "draw", "render", "style", "css", "design system", "button", "modal"]):
+                        return "ui"
+                    if any(k in combined for k in ["architect", "system design", "design", "plan", "structure", "module", "schema", "database", "api design"]):
+                        return "architecture"
+                    if any(k in combined for k in ["devops", "docker", "deploy", "ci", "cd", "terraform", "kubernetes", "infra", "pipeline", "cloud", "aws", "gcp"]):
+                        return "devops"
+                    if any(k in combined for k in ["research", "analyz", "study", "benchmark", "survey", "compare", "investigate", "explain"]):
+                        return "research"
+                    if any(k in combined for k in ["fix", "bug", "error", "debug", "crash", "traceback", "exception", "issue", "broken", "fail", "patch"]):
+                        return "debugging"
+                    if any(k in combined for k in ["build", "compile", "refactor", "implement", "code", "function", "class", "script", "plugin", "lua", "python", "typescript", "javascript"]):
+                        return "dev"
+                    return "general"
+
+                group = classify_group(topic_title, first_query[:120]) if not parent_thread else None
+
                 conversations.append({
                     "thread_id": tid,
                     "id": last_cp,
@@ -3437,7 +3458,8 @@ def main():
                     "turns": turns,
                     "date": date,
                     "provider": providers[0] if providers else "",
-                    "parent_thread": parent_thread
+                    "parent_thread": parent_thread,
+                    "group": group
                 })
 
             def to_lua_string(s):
@@ -3458,7 +3480,8 @@ def main():
                 prov = to_lua_string(item.get('provider', ''))
                 ptid = to_lua_string(item.get('parent_thread', '')) if item.get('parent_thread') else 'nil'
                 is_fork = "true" if item.get('parent_thread') else "false"
-                lua_lines.append(f'  {{ thread_id = {tid}, id = {iid}, topic = {top}, first_query = {fq}, outcome = {out}, turns = {turns}, date = {dt}, provider = {prov}, parent_thread = {ptid}, is_fork = {is_fork} }},')
+                grp = to_lua_string(item.get('group', '') or 'general')
+                lua_lines.append(f'  {{ thread_id = {tid}, id = {iid}, topic = {top}, first_query = {fq}, outcome = {out}, turns = {turns}, date = {dt}, provider = {prov}, parent_thread = {ptid}, is_fork = {is_fork}, group = {grp} }},')
             lua_lines.append("}")
             print("\n".join(lua_lines))
         except Exception as e:
