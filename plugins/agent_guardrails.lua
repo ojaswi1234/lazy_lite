@@ -10,6 +10,7 @@ local config = require "core.config"
 
 -- Initialize configuration namespace
 config.guardrails = config.guardrails or {}
+config.guardrails.mode = config.guardrails.mode or "supervised" -- "off", "read_only", "supervised", "autopilot"
 config.guardrails.plugin_dev_mode = config.guardrails.plugin_dev_mode or false
 config.guardrails.enabled = (config.guardrails.enabled == nil) and true or config.guardrails.enabled
 config.guardrails.max_snapshots = config.guardrails.max_snapshots or 10
@@ -55,6 +56,12 @@ end
 -- ── Algorithm 1: Canonical Path Boundary Verification ─────────────────────────
 function Guardrails.verify_path(path, intent)
   if not config.guardrails.enabled then return true, "GUARDRAILS_DISABLED" end
+  if config.guardrails.mode == "off" then
+    return false, "GUARDRAIL_MODE_OFF: Agent automation is disabled in AI settings."
+  end
+  if config.guardrails.mode == "read_only" and intent ~= "read" then
+    return false, "GUARDRAIL_MODE_READ_ONLY: Agent write operations are blocked in Read-Only mode."
+  end
   if not path or path == "" then
     Guardrails.log_audit("guardrails", "verify_path", path, "rejected", "EMPTY_PATH")
     return false, "EMPTY_PATH: Path cannot be nil or empty."
@@ -326,6 +333,28 @@ command.add(nil, {
   ["guardrails:toggle-plugin-dev-mode"] = function()
     config.guardrails.plugin_dev_mode = not config.guardrails.plugin_dev_mode
     core.log("[Guardrails]: Plugin Maintenance Mode is now %s.", config.guardrails.plugin_dev_mode and "ENABLED (Sensitive)" or "LOCKED")
+  end,
+
+  ["guardrails:view-audit-log"] = function()
+    local path = Guardrails.audit_file
+    if system.get_file_info(path) then
+      local doc = core.open_doc(path)
+      core.root_view:open_doc(doc)
+      core.log("[Guardrails]: Opened agent audit log.")
+    else
+      core.log("[Guardrails]: No audit log entries recorded yet.")
+    end
+  end,
+
+  ["guardrails:cycle-mode"] = function()
+    local modes = { "supervised", "autopilot", "read_only", "off" }
+    local cur_idx = 1
+    for i, m in ipairs(modes) do
+      if m == config.guardrails.mode then cur_idx = i break end
+    end
+    local next_idx = (cur_idx % #modes) + 1
+    config.guardrails.mode = modes[next_idx]
+    core.log("[Guardrails]: Agent Control Mode is now '%s'.", config.guardrails.mode:upper())
   end
 })
 

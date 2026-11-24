@@ -396,6 +396,41 @@ Capabilities.register("diagnostics", {
   }
 })
 
+-- ── 8. Register "git" Subsystem ───────────────────────────────────────────────
+Capabilities.register("git", {
+  summary = "Git version control operations, diff viewer, commit history timeline",
+  actions = {
+    open_timeline = function(p)
+      if command.map["git-timeline:toggle"] then
+        command.perform("git-timeline:toggle")
+        return "Toggled Git Timeline panel."
+      end
+      return "Git timeline toggle requested."
+    end,
+    open_diff = function(p)
+      if command.map["git-diff:open"] then
+        command.perform("git-diff:open")
+        return "Opened Git Diff view."
+      end
+      return "Git diff view requested."
+    end,
+    status = function(p)
+      local proc = process.start({"git", "status", "-s"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git status.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local out = proc:read_stdout() or ""
+      return #out > 0 and out or "Working tree clean. No changes."
+    end,
+    recent_commits = function(p)
+      local limit = tonumber(p.limit) or 5
+      local proc = process.start({"git", "log", string.format("-n%d", limit), "--oneline"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git log.") end
+      while proc:running() do coroutine.yield(0.05) end
+      return proc:read_stdout() or "No commits found."
+    end
+  }
+})
+
 -- Export on core
 core.capabilities = Capabilities
 
