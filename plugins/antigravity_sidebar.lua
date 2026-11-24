@@ -6263,17 +6263,27 @@ function AGView:on_mouse_moved(mx, my, ...)
       self.hover_prune_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
     end
 
-    self.hover_hist_node = nil
-    if self._hist_node_rects then
-      for _, r in ipairs(self._hist_node_rects) do
+    self.hover_hist_action = nil
+    if self._hist_action_rects then
+      for _, r in ipairs(self._hist_action_rects) do
         if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-          self.hover_hist_node = r.id
+          self.hover_hist_action = r.action .. "_" .. r.thread
           break
         end
       end
     end
 
-    if self.hover_hist_btn or self.hover_prune_btn or self.hover_hist_node then
+    self.hover_hist_node = nil
+    if self._hist_node_rects then
+      for _, r in ipairs(self._hist_node_rects) do
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          self.hover_hist_node = r.thread or r.id
+          break
+        end
+      end
+    end
+
+    if self.hover_hist_btn or self.hover_prune_btn or self.hover_hist_action or self.hover_hist_node then
       system.set_cursor("hand")
     else
       system.set_cursor("arrow")
@@ -6661,8 +6671,8 @@ end
 
     -- Layout Math
     local SCROLL  = self.history_scroll_y or 0
-    local ROW_H   = 125 * SCALE
-    local CANOPY  = 250 * SCALE
+    local ROW_H   = 150 * SCALE
+    local CANOPY  = 240 * SCALE
     local MARGIN  = 20 * SCALE
 
     -- Central Trunk
@@ -6709,121 +6719,96 @@ end
     end
 
     -- PASS 2: Boughs + Solid Curved Branches + Organic Sub-Branches
+    local function draw_curve_stroke(x0, y0, x1, y1, bend, thick0, thick1, color)
+      local dx = x1 - x0
+      local steps = math.max(1, math.abs(math.floor(dx)))
+      local dir = (dx >= 0) and 1 or -1
+      local prev_y = y0
+      for i = 0, steps do
+        local t = i / steps
+        local bx = x0 + dir * i
+        local y_top = y0 + (y1 - y0) * t + bend * (t - t * t)
+        local thick = math.max(1, math.floor(thick0 + (thick1 - thick0) * (t ^ 1.5)))
+        local step_span = math.max(thick, math.ceil(math.abs(y_top - prev_y)) + 2)
+        local draw_y = (y_top < prev_y) and math.floor(y_top) or math.floor(prev_y)
+        renderer.draw_rect(bx, draw_y, 1, step_span, color)
+        prev_y = y_top
+      end
+    end
 
     -- Thick angled bough emanating from the trunk toward the group label
     local function draw_bough(cy, is_left, label)
       local dir    = is_left and -1 or 1
-      local blen   = (is_left and LEFT_W or RIGHT_W) * 0.62
-      local base_thick = 28 * SCALE
+      local side_w = is_left and LEFT_W or RIGHT_W
       local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
-      local steps  = math.floor(blen)
+      local tip_x  = sx + dir * math.floor(side_w * 0.28)
+      local tip_y  = cy - 18 * SCALE
 
-      for i = 0, steps do
-        local t    = i / steps
-        local bx   = sx + dir * i
-        local y_top = cy + (20 * t - 55 * t * t) * SCALE
-        local thick = math.max(2, math.floor(base_thick * (1 - t^1.5)))
-        renderer.draw_rect(bx, math.floor(y_top), 1, thick, C_TR)
-      end
+      draw_curve_stroke(sx, cy, tip_x, tip_y, 16 * SCALE, 26 * SCALE, 10 * SCALE, C_TR)
 
       -- Leaf cluster at bough tip
-      local tip_x = sx + dir * steps
-      local tip_t  = 1.0
-      local tip_y  = math.floor(cy + (20 * tip_t - 55 * tip_t * tip_t) * SCALE)
       fill_circle(tip_x, tip_y, 6 * SCALE, C_LEAF_D)
       fill_circle(tip_x + dir * 4 * SCALE, tip_y - 3 * SCALE, 4 * SCALE, C_LEAF)
 
-      -- Group label at tip
+      -- Group label placed beside tip cleanly inside panel bounds
       local lf = style.font
       local lw = lf:get_width(label)
       local lh = lf:get_height()
-      local lx = is_left and (tip_x - lw - 10 * SCALE) or (tip_x + 10 * SCALE)
+      local lx = is_left and math.max(x + 6 * SCALE, tip_x - lw - 10 * SCALE)
+                          or math.min(x + w - lw - 6 * SCALE, tip_x + 10 * SCALE)
       local ly = tip_y - math.floor(lh / 2)
       renderer.draw_text(lf, label, lx, ly, C_LEAF)
     end
 
+    -- Helper returning start/end anchor points for a conversation branch
+    local function branch_anchors(bough_cy, conv_cy, is_left)
+      local dir    = is_left and -1 or 1
+      local side_w = is_left and LEFT_W or RIGHT_W
+      local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
+      local start_x = bough_cy and (sx + dir * math.floor(side_w * 0.24)) or sx
+      local start_y = bough_cy and (bough_cy - 14 * SCALE) or conv_cy
+      local end_x   = sx + dir * math.floor(side_w * 0.90)
+      local end_y   = conv_cy - 26 * SCALE
+      local bend    = bough_cy and (28 * SCALE) or (45 * SCALE)
+      return start_x, start_y, end_x, end_y, bend
+    end
+
     -- Conversation branch sprouting from a bough rather than the trunk
     local function draw_bough_branch(bough_cy, conv_cy, is_left)
-      local dir       = is_left and -1 or 1
-      local blen      = (is_left and LEFT_W or RIGHT_W) * 0.62
-      local base_thick = 18 * SCALE
-      local sx        = is_left and trunk_x or (trunk_x + TRUNK_W)
-
-      -- Bough tip position (t=1 of bough curve)
-      local tip_x  = sx + dir * math.floor(blen)
-      local tip_y  = bough_cy + (20 - 55) * SCALE   -- t=1 → (20*1 - 55*1) = -35, so cy-35*SCALE
-
-      -- Branch from bough tip, curving further outward & toward conv_cy
-      local branch_blen = (is_left and LEFT_W or RIGHT_W) * 0.80
-      local steps   = math.floor(branch_blen)
-      local target_y = conv_cy - 20 * SCALE
-      local dy       = target_y - tip_y
-
-      for i = 0, steps do
-        local t   = i / steps
-        local bx  = tip_x + dir * i
-        local y_top = tip_y + dy * t + (30 * t - 50 * t * t) * SCALE
-        local thick = math.max(1, math.floor(base_thick * (1 - t^2)))
-        renderer.draw_rect(bx, math.floor(y_top), 1, math.max(1, thick), C_TR)
-      end
-
-      local end_x = tip_x + dir * steps
-      local end_y  = math.floor(target_y - 25 * SCALE)
-      fill_circle(end_x, end_y, 4 * SCALE, C_LEAF)
-      fill_circle(end_x + dir * 3 * SCALE, end_y - 2 * SCALE, 3 * SCALE, C_LEAF_D)
+      local dir = is_left and -1 or 1
+      local x0, y0, x1, y1, bend = branch_anchors(bough_cy, conv_cy, is_left)
+      draw_curve_stroke(x0, y0, x1, y1, bend, 14 * SCALE, 2 * SCALE, C_TR)
+      fill_circle(x1, math.floor(y1), 4 * SCALE, C_LEAF)
+      fill_circle(x1 + dir * 3 * SCALE, math.floor(y1) - 2 * SCALE, 3 * SCALE, C_LEAF_D)
     end
 
     -- Plain trunk branch (fallback for ungrouped / non-bough convs)
     local function draw_solid_branch(cy, is_left)
       local dir = is_left and -1 or 1
-      local blen = (is_left and LEFT_W or RIGHT_W) * 0.90
-      local base_thick = 18 * SCALE
-      local sx = is_left and trunk_x or (trunk_x + TRUNK_W)
-      local steps = math.floor(blen)
-
-      for i = 0, steps do
-        local t = i / steps
-        local bx = sx + dir * i
-        local y_top = cy + (45 * t - 70 * t * t) * SCALE
-        local thick = math.max(1, base_thick * (1 - t^2))
-        local y_bot = y_top + thick
-        renderer.draw_rect(bx, math.floor(y_top), 1, math.max(1, math.floor(y_bot - y_top)), C_TR)
-      end
-
-      local tip_x = sx + dir * steps
-      local tip_y = cy - 25 * SCALE
-      fill_circle(tip_x, tip_y, 4 * SCALE, C_LEAF)
-      fill_circle(tip_x + dir * 3 * SCALE, tip_y - 2 * SCALE, 3 * SCALE, C_LEAF_D)
+      local x0, y0, x1, y1, bend = branch_anchors(nil, cy, is_left)
+      draw_curve_stroke(x0, y0, x1, y1, bend, 18 * SCALE, 2 * SCALE, C_TR)
+      fill_circle(x1, math.floor(y1), 4 * SCALE, C_LEAF)
+      fill_circle(x1 + dir * 3 * SCALE, math.floor(y1) - 2 * SCALE, 3 * SCALE, C_LEAF_D)
     end
 
-    -- Sub-branch (fork) sprouting from midpoint of its parent branch
-    local function draw_sub_branch(parent_cy, child_cy, is_left, parent_has_bough)
+    -- Sub-branch (fork) sprouting from midpoint of its exact parent branch curve
+    local function draw_sub_branch(parent_bough_cy, parent_cy, child_cy, is_left)
       local dir = is_left and -1 or 1
-      local parent_blen = (is_left and LEFT_W or RIGHT_W) * (parent_has_bough and 0.80 or 0.90)
-      local parent_sx   = is_left and trunk_x or (trunk_x + TRUNK_W)
+      local px0, py0, px1, py1, pbend = branch_anchors(parent_bough_cy, parent_cy, is_left)
+      local st = 0.42
+      local sprout_x = px0 + (px1 - px0) * st
+      local sprout_y = py0 + (py1 - py0) * st + pbend * (st - st * st)
 
-      local sprout_t = 0.40
-      local sprout_x = parent_sx + dir * math.floor(parent_blen * sprout_t)
-      local sprout_y = parent_cy + (45 * sprout_t - 70 * sprout_t * sprout_t) * SCALE
+      local side_w = is_left and LEFT_W or RIGHT_W
+      local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
+      local end_x  = sx + dir * math.floor(side_w * 0.88)
+      local end_y  = child_cy - 24 * SCALE
 
-      local sub_blen = (is_left and LEFT_W or RIGHT_W) * 0.50
-      local steps = math.max(1, math.floor(sub_blen))
-      local target_tip_y = child_cy - 20 * SCALE
-      local dy = target_tip_y - sprout_y
+      draw_curve_stroke(sprout_x, sprout_y, end_x, end_y, 20 * SCALE, 8 * SCALE, 2 * SCALE, C_TR)
 
-      for i = 0, steps do
-        local st = i / steps
-        local bx = sprout_x + dir * i
-        local curve_offset = (25 * st - 40 * st * st) * SCALE
-        local y_top = sprout_y + dy * st + curve_offset
-        local thick = math.max(1, math.floor(8 * SCALE * (1 - st^1.3)))
-        renderer.draw_rect(bx, math.floor(y_top), 1, thick, C_TR)
-      end
-
-      local tip_x = sprout_x + dir * steps
-      local tip_y  = math.floor(target_tip_y - 5 * SCALE)
-      fill_circle(tip_x, tip_y, 3.5 * SCALE, C_LEAF)
-      fill_circle(tip_x + dir * 2 * SCALE, tip_y - 2 * SCALE, 2.5 * SCALE, C_LEAF_D)
+      local tip_y = math.floor(end_y)
+      fill_circle(end_x, tip_y, 3.5 * SCALE, C_LEAF)
+      fill_circle(end_x + dir * 2 * SCALE, tip_y - 2 * SCALE, 2.5 * SCALE, C_LEAF_D)
     end
 
     local node_by_row = {}
@@ -6833,14 +6818,18 @@ end
 
     for _, n in ipairs(self.history_nodes) do
       local cy = cy_of(n.row)
-      if cy > y - ROW_H and cy < y + h + ROW_H then
-        if n.is_bough then
-          -- Draw the thick bough limb with group label
+      -- Render visible boughs or branches whose parent bough might be scrolled further down
+      if n.is_bough then
+        if cy > y - ROW_H and cy < y + h + ROW_H * 6 then
           draw_bough(cy, n.is_left, n.label or "")
-        elseif n.is_sub and n.parent_row then
+        end
+      elseif cy > y - ROW_H and cy < y + h + ROW_H then
+        if n.is_sub and n.parent_row then
           local pnode = node_by_row[n.parent_row]
           local p_cy  = pnode and cy_of(pnode.row) or cy
-          draw_sub_branch(p_cy, cy, n.is_left, pnode and pnode.bough_group ~= nil)
+          local pb_node = (pnode and pnode.bough_row) and node_by_row[pnode.bough_row] or nil
+          local pb_cy = pb_node and cy_of(pb_node.row) or nil
+          draw_sub_branch(pb_cy, p_cy, cy, n.is_left)
         elseif n.bough_row then
           -- Root conversation that belongs to a bough
           local bnode = node_by_row[n.bough_row]
@@ -6937,7 +6926,7 @@ end
         n._year = dt ~= "" and dt:sub(1, 4) or "Chat"
         n._date = dt ~= "" and dt:sub(1, 10) or ""
         
-        local tw = math.floor((is_left and LEFT_W or RIGHT_W) * 0.88) - 24 * SCALE
+        local tw = math.floor((is_left and LEFT_W or RIGHT_W) * 0.78) - 24 * SCALE
         local snippet_src = (n.outcome and n.outcome ~= "") and n.outcome or (n.first_query or "No content")
         n._lines = align_wrap(snippet_src, f, tw)
         if #n._lines > 2 then
@@ -6959,22 +6948,44 @@ end
     self._hist_node_rects = {}
     self._hist_action_rects = {}
 
+    local card_tint = { P.bg[1], P.bg[2], P.bg[3], 155 }
+    local card_border_idle = { _COLOR_CACHE_30[1], _COLOR_CACHE_30[2], _COLOR_CACHE_30[3], 170 }
+
     for _, n in ipairs(self.history_nodes) do
       local cy = cy_of(n.row)
       if cy > y - ROW_H and cy < y + h + ROW_H then
         -- Bough nodes are drawn in PASS 2 (labels on the limb), no card here
         if n.is_bough then goto continue_cards end
-        local is_left = n.is_left
-        local is_hov  = (self.hover_hist_node == n.id)
+        local is_left  = n.is_left
+        local node_key = n.thread_id or n.id
+        local is_hov   = (self.hover_hist_node ~= nil and self.hover_hist_node == node_key)
 
-        local bw = math.floor((is_left and LEFT_W or RIGHT_W) * 0.88)
-        local rx = is_left and (trunk_x - bw - 14 * SCALE) or (trunk_x + TRUNK_W + 14 * SCALE)
+        -- Leave room near trunk/bough spine so branches stay clearly visible
+        local side_w = is_left and LEFT_W or RIGHT_W
+        local bw = math.floor(side_w * 0.78)
+        local rx = is_left and (trunk_x - bw - math.floor(side_w * 0.16)) or (trunk_x + TRUNK_W + math.floor(side_w * 0.16))
         if n.is_sub then
           rx = is_left and (rx - 6 * SCALE) or (rx + 6 * SCALE)
           bw = bw - 6 * SCALE
         end
 
-        local card_y = cy - 22 * SCALE
+        -- Position card below the curved branch arch (end_y = cy - 26*SCALE)
+        local card_y = cy - 12 * SCALE
+        local n_lines = n._lines and #n._lines or 0
+        local btn_h = fh + 6 * SCALE
+        local content_h = 6 * SCALE + (fh + 3 * SCALE) + (fh + 3 * SCALE) + n_lines * (fh + 2 * SCALE) + (2 * SCALE + fh + 6 * SCALE)
+        local card_h = content_h + (is_hov and (btn_h + 10 * SCALE) or 6 * SCALE)
+
+        -- 1. Background & Border FIRST (never cover branches or card text!)
+        if is_hov then
+          renderer.draw_rect(rx, card_y, bw, card_h, P.bg_btn or P.bg_dark)
+          draw_rect_outline(rx, card_y, bw, card_h, P.border)
+        else
+          renderer.draw_rect(rx, card_y, bw, card_h, card_tint)
+          draw_rect_outline(rx, card_y, bw, card_h, card_border_idle)
+        end
+
+        -- 2. Card Text SECOND
         local current_y = card_y + 6 * SCALE
 
         -- Header: Date + Provider + [🌱 Sub-Branch] if forked
@@ -7004,15 +7015,8 @@ end
         local turn_txt = "🌿 " .. tostring(n.turns or 1) .. (n.turns == 1 and " turn" or " turns")
         renderer.draw_text(f, turn_txt, rx + 10 * SCALE, current_y + 2 * SCALE, C_TEXT)
 
-        local card_h = (current_y - card_y) + fh + 16 * SCALE
-
-        -- Background & Hover Card
+        -- 3. Action Buttons on Hover THIRD (strictly below turn_txt)
         if is_hov then
-          renderer.draw_rect(rx, card_y, bw, card_h, P.bg_btn or P.bg_dark)
-          draw_rect_outline(rx, card_y, bw, card_h, P.border)
-
-          -- Action Buttons on Hover
-          local btn_h = fh + 6 * SCALE
           local btn_y = card_y + card_h - btn_h - 6 * SCALE
           local resume_txt = "↵ Resume"
           local fork_txt = "🌱 Fork"
@@ -7024,7 +7028,7 @@ end
 
           -- Resume Button
           local is_hov_resume = (self.hover_hist_action == "resume_" .. n.thread_id)
-          renderer.draw_rect(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.bg_accent or (P.bg_dark or P.bg))
+          renderer.draw_rect(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.fg_accent or (P.bg_dark or P.bg))
           draw_rect_outline(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.fg_accent or P.border)
           renderer.draw_text(f, resume_txt, resume_x + 8 * SCALE, btn_y + 3 * SCALE, is_hov_resume and P.bg or P.fg_accent)
 
@@ -7048,9 +7052,6 @@ end
             topic = n.topic,
             x = fork_x, y = btn_y, w = fork_w, h = btn_h
           })
-        else
-          renderer.draw_rect(rx, card_y, bw, card_h, P.bg)
-          draw_rect_outline(rx, card_y, bw, card_h, _COLOR_CACHE_30)
         end
 
         table.insert(self._hist_node_rects, {
