@@ -6908,6 +6908,22 @@ end
     end
 
     -- PASS 2: Boughs, Branches, & Ascending Fork Leaves
+    local function draw_normal_sub_branches(x0, y0, x1, y1, bend, dir, side_w, is_left, seed, count)
+      local presets = {
+        { ft = 0.36 + (seed % 5) * 0.025, reach = 0.28 + (seed % 4) * 0.02, dy = -(13 + (seed % 4)) * SCALE, t0 = 4.5 },
+        { ft = 0.64 + (seed % 4) * 0.020, reach = 0.19 + ((seed + 2) % 3) * 0.02, dy = -(10 + ((seed + 1) % 4)) * SCALE, t0 = 3.2 },
+      }
+      local n_subs = math.min(#presets, count or 2)
+      for si = 1, n_subs do
+        local p       = presets[si]
+        local fx0     = math.floor(x0 + (x1 - x0) * p.ft)
+        local fy0     = math.floor(eval_curve_y(y0, y1, bend, p.ft))
+        local raw_fx1 = fx0 + dir * math.floor(side_w * p.reach)
+        local fx1     = is_left and math.max(x1 + 6 * SCALE, raw_fx1) or math.min(x1 - 6 * SCALE, raw_fx1)
+        local fy1     = fy0 + p.dy
+        draw_curve_stroke(fx0, fy0, fx1, fy1, -5 * SCALE, p.t0 * SCALE, 1 * SCALE, C_TR)
+      end
+    end
 
     local function draw_bough(cy, top_conv_cy, is_left, label, group_name, collapsed)
       local dir    = is_left and -1 or 1
@@ -6916,29 +6932,46 @@ end
       local limb_x = sx + dir * math.floor(side_w * 0.11)
       local base_y = cy - 6 * SCALE
 
-      -- Bough collar smoothly exiting trunk into group spine
-      draw_curve_stroke(sx, cy + 4 * SCALE, limb_x, base_y, -4 * SCALE, 18 * SCALE, 9 * SCALE, C_TR)
-
-      -- Vertical tapered bark spine feeding all branches inside this expanded group
-      if not collapsed and top_conv_cy then
-        local spine_top = math.max(y, top_conv_cy)
-        local spine_bot = math.min(y + tree_h, base_y + 4 * SCALE)
-        if spine_top < spine_bot then
-          local spine_w = math.max(4, math.floor(7 * SCALE))
-          renderer.draw_rect(is_left and (limb_x - spine_w + 2) or (limb_x - 2),
-                             math.floor(spine_top), spine_w, math.ceil(spine_bot - spine_top), C_TR)
+      if collapsed then
+        -- When branch dropdown is collapsed/unselected, render a full normal branch + normal sub-branches
+        local x0   = sx
+        local y0   = cy + 4 * SCALE
+        local x1   = sx + dir * math.floor(side_w * 0.90)
+        local y1   = cy - 12 * SCALE
+        local bend = -10 * SCALE
+        draw_curve_stroke(x0, y0, x1, y1, bend, 13 * SCALE, 2 * SCALE, C_TR)
+        draw_normal_sub_branches(x0, y0, x1, y1, bend, dir, side_w, is_left, #group_name * 37, 2)
+        -- Subtle natural foliage along the folded branch
+        for li, lt in ipairs({ 0.46, 0.70, 0.88 }) do
+          local lbx = math.floor(x0 + (x1 - x0) * lt)
+          local lby = math.floor(eval_curve_y(y0, y1, bend, lt))
+          local lside = (li % 2 == 1) and -1 or 1
+          draw_botanical_leaf(lbx, lby, dir, lside, lt * 0.6, false, C_LEAF_D, C_LEAF)
+        end
+      else
+        -- Expanded bough collar exiting trunk into continuous vertical group spine
+        draw_curve_stroke(sx, cy + 4 * SCALE, limb_x, base_y, -4 * SCALE, 18 * SCALE, 9 * SCALE, C_TR)
+        if top_conv_cy then
+          local spine_top = math.max(y, top_conv_cy)
+          local spine_bot = math.min(y + tree_h, base_y + 4 * SCALE)
+          if spine_top < spine_bot then
+            local spine_w = math.max(4, math.floor(7 * SCALE))
+            renderer.draw_rect(is_left and (limb_x - spine_w + 2) or (limb_x - 2),
+                               math.floor(spine_top), spine_w, math.ceil(spine_bot - spine_top), C_TR)
+          end
         end
       end
 
-      -- Clickable group pill cleanly beside bough base (only when base is visible)
+      -- Clickable group dropdown pill tucked cleanly below the bough/branch
       if cy > y - ROW_H and cy < y + tree_h + ROW_H then
         local lw      = f:get_width(label)
         local pad_x   = 8 * SCALE
         local bw_pill = lw + pad_x * 2
         local bh_pill = fh + 6 * SCALE
-        local lx = is_left and math.max(x + 6 * SCALE, limb_x - bw_pill - 10 * SCALE)
-                            or math.min(x + w - bw_pill - 6 * SCALE, limb_x + 10 * SCALE)
-        local ly = base_y - math.floor(bh_pill / 2)
+        local anchor_x = is_left and (trunk_x - math.floor(side_w * 0.14)) or (trunk_x + TRUNK_W + math.floor(side_w * 0.14))
+        local lx = is_left and math.max(x + 6 * SCALE, anchor_x - bw_pill)
+                            or math.min(x + w - bw_pill - 6 * SCALE, anchor_x)
+        local ly = cy + 12 * SCALE
 
         local is_hov_bough = (self.hover_hist_bough == group_name)
         local pill_bg = is_hov_bough and (P.bg_btn_hl or P.bg_btn) or (P.bg_dark or P.bg)
@@ -6969,20 +7002,12 @@ end
 
       draw_curve_stroke(x0, y0, x1, y1, bend, 9 * SCALE, 2 * SCALE, C_TR)
 
-      -- At most 1 normal, smooth forward-forking woody sub-branch (fixed aesthetic, independent of fork count)
+      -- Normal, smooth forward-forking woody sub-branches (fixed aesthetic, independent of fork count)
       local tid_seed = 0
       for ci = 1, #(n.thread_id or "") do
         tid_seed = (tid_seed * 31 + string.byte(n.thread_id, ci)) % 997
       end
-      if tid_seed % 3 ~= 0 then
-        local ft  = 0.42 + (tid_seed % 5) * 0.03
-        local fx0 = math.floor(x0 + (x1 - x0) * ft)
-        local fy0 = math.floor(eval_curve_y(y0, y1, bend, ft))
-        local raw_fx1 = fx0 + dir * math.floor(side_w * (0.24 + (tid_seed % 4) * 0.02))
-        local fx1 = is_left and math.max(x1 + 6 * SCALE, raw_fx1) or math.min(x1 - 6 * SCALE, raw_fx1)
-        local fy1 = fy0 - (12 + (tid_seed % 4)) * SCALE
-        draw_curve_stroke(fx0, fy0, fx1, fy1, -5 * SCALE, 4 * SCALE, 1 * SCALE, C_TR)
-      end
+      draw_normal_sub_branches(x0, y0, x1, y1, bend, dir, side_w, is_left, tid_seed, 1 + (tid_seed % 2))
 
       -- Draw forked conversations strictly as natural leaves attached along the branch wood:
       -- i = 1 (oldest) near trunk/limb -> i = #leaves (latest) toward outer side
