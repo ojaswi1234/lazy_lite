@@ -6844,23 +6844,7 @@ end
       return y + CANOPY + (max_row - row) * ROW_H - SCROLL
     end
 
-    -- PASS 1: The Trunk & Root Flares
-    local scroll_trunk_top = cy_of(max_row) - 65 * SCALE
-    local scroll_trunk_bot = cy_of(1) + 120 * SCALE
-    local draw_start_y = math.max(y, scroll_trunk_top)
-    local draw_end_y   = math.min(y + tree_h, scroll_trunk_bot)
-
-    if draw_start_y < draw_end_y then
-      renderer.draw_rect(trunk_x, draw_start_y, TRUNK_W, draw_end_y - draw_start_y, C_TR)
-    end
-    if scroll_trunk_bot > y and scroll_trunk_bot < y + tree_h + 50 * SCALE then
-      for ri = 1, 9 do
-        fill_circle(trunk_x - ri * 2 * SCALE, scroll_trunk_bot - ri * 2.5 * SCALE, ri * 2 * SCALE, C_TR)
-        fill_circle(trunk_x + TRUNK_W + ri * 2 * SCALE, scroll_trunk_bot - ri * 2.5 * SCALE, ri * 2 * SCALE, C_TR)
-      end
-    end
-
-    -- PASS 2: Boughs, Branches, & Ascending Fork Leaves
+    -- Curve helpers shared across Roots (PASS 1) and Branches (PASS 2)
     local function draw_curve_stroke(x0, y0, x1, y1, bend, thick0, thick1, color)
       local dx     = x1 - x0
       local steps  = math.max(1, math.abs(math.floor(dx)))
@@ -6881,6 +6865,49 @@ end
     local function eval_curve_y(y0, y1, bend, t)
       return y0 + (y1 - y0) * t + bend * (t - t * t)
     end
+
+    -- PASS 1: The Trunk & Fibrous Spreading Roots
+    local scroll_trunk_top = cy_of(max_row) - 65 * SCALE
+    local root_y           = cy_of(1) + 88 * SCALE
+    local draw_start_y = math.max(y, scroll_trunk_top)
+    local draw_end_y   = math.min(y + tree_h, root_y + 4 * SCALE)
+
+    if draw_start_y < draw_end_y then
+      renderer.draw_rect(trunk_x, draw_start_y, TRUNK_W, draw_end_y - draw_start_y, C_TR)
+    end
+    if root_y > y - 20 * SCALE and root_y < y + tree_h + 60 * SCALE then
+      local C_ROOT_FINE = { math.max(0, C_TR[1] - 12), math.max(0, C_TR[2] - 8), math.max(0, C_TR[3] - 4), 220 }
+      -- Subtle organic trunk-base flare into main fibrous roots (no bulbous circles)
+      local primary_roots = {
+        { sx = trunk_x + 3 * SCALE,           sy = root_y - 8 * SCALE, ex = trunk_x - 86 * SCALE,            ey = root_y + 22 * SCALE, bend = -12 * SCALE, t0 = 9, t1 = 1 },
+        { sx = trunk_x + TRUNK_W - 3 * SCALE, sy = root_y - 7 * SCALE, ex = trunk_x + TRUNK_W + 92 * SCALE,  ey = root_y + 24 * SCALE, bend = -14 * SCALE, t0 = 9, t1 = 1 },
+        { sx = trunk_x + 6 * SCALE,           sy = root_y - 3 * SCALE, ex = trunk_x - 46 * SCALE,            ey = root_y + 42 * SCALE, bend = -8 * SCALE,  t0 = 6, t1 = 1 },
+        { sx = trunk_x + TRUNK_W - 6 * SCALE, sy = root_y - 2 * SCALE, ex = trunk_x + TRUNK_W + 48 * SCALE,  ey = root_y + 44 * SCALE, bend = -9 * SCALE,  t0 = 6, t1 = 1 },
+        { sx = trunk_cx - 3 * SCALE,          sy = root_y,             ex = trunk_cx - 18 * SCALE,           ey = root_y + 50 * SCALE, bend = 6 * SCALE,   t0 = 5, t1 = 1 },
+        { sx = trunk_cx + 3 * SCALE,          sy = root_y,             ex = trunk_cx + 22 * SCALE,           ey = root_y + 48 * SCALE, bend = -6 * SCALE,  t0 = 5, t1 = 1 },
+      }
+      for ri, pr in ipairs(primary_roots) do
+        draw_curve_stroke(pr.sx, pr.sy, pr.ex, pr.ey, pr.bend, pr.t0 * SCALE, pr.t1 * SCALE, C_TR)
+        -- Forking secondary rootlets and fine fibrous hair tendrils
+        local forks = { 0.42, 0.72 }
+        for fi, ft in ipairs(forks) do
+          local rx0 = pr.sx + (pr.ex - pr.sx) * ft
+          local ry0 = eval_curve_y(pr.sy, pr.ey, pr.bend, ft)
+          local dir = (pr.ex >= pr.sx) and 1 or -1
+          local spread = (18 + (ri * 5 + fi * 7) % 14) * SCALE
+          local drop   = (14 + (ri * 3 + fi * 5) % 12) * SCALE
+          local rx1 = rx0 + dir * spread * (fi == 1 and 0.65 or 1.0)
+          local ry1 = ry0 + drop
+          draw_curve_stroke(rx0, ry0, rx1, ry1, -4 * SCALE, math.max(1.5, (4 - fi) * SCALE), 1, C_ROOT_FINE)
+          -- Tiny hair tip
+          local hx1 = rx1 + dir * 9 * SCALE
+          local hy1 = ry1 + (6 + fi * 3) * SCALE
+          draw_curve_stroke(rx1, ry1, hx1, hy1, 3 * SCALE, 1, 1, C_ROOT_FINE)
+        end
+      end
+    end
+
+    -- PASS 2: Boughs, Branches, & Ascending Fork Leaves
 
     local function draw_bough(cy, top_conv_cy, is_left, label, group_name, collapsed)
       local dir    = is_left and -1 or 1
