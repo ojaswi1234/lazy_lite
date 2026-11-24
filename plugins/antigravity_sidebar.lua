@@ -2408,6 +2408,7 @@ function AGView:submit(prompt, is_auto_continuation)
       session_id   = self:state().cid,   -- tool-specific session id (for OpenCode, Devin)
       has_session  = self:state().has_session,
       checkpoint_id = self:state().checkpoint_id,
+      parent_thread = self:state().parent_thread_id,
       project_dir  = project_root,
       extra_files  = nil,
       autopilot    = is_auto,
@@ -6359,12 +6360,24 @@ function AGView:on_mouse_moved(mx, my, ...)
   end
 
   self.hover_hist_node = nil
-  if self.show_history_tree and self._hist_node_rects then
-    for _, r in ipairs(self._hist_node_rects) do
-      if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-        self.hover_hist_node = r.id
-        system.set_cursor("hand")
-        break
+  self.hover_hist_action = nil
+  if self.show_history_tree then
+    if self._hist_action_rects then
+      for _, r in ipairs(self._hist_action_rects) do
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          self.hover_hist_action = r.action .. "_" .. r.thread
+          system.set_cursor("hand")
+          break
+        end
+      end
+    end
+    if self._hist_node_rects then
+      for _, r in ipairs(self._hist_node_rects) do
+        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+          self.hover_hist_node = r.id
+          system.set_cursor("hand")
+          break
+        end
       end
     end
   end
@@ -6375,7 +6388,7 @@ function AGView:on_mouse_moved(mx, my, ...)
 
   -- Only trigger redraw when hover state actually changed (prevents 60fps forced redraws on every mouse move)
   local new_sig = tostring(self.hover_btn) .. tostring(self.hover_send) .. tostring(self.hover_attach)
-                  .. tostring(self.hover_hist_node) .. tostring(self.hover_hist_btn) .. tostring(self.hover_prune_btn)
+                  .. tostring(self.hover_hist_node) .. tostring(self.hover_hist_action) .. tostring(self.hover_hist_btn) .. tostring(self.hover_prune_btn)
                   .. tostring(self.hover_model_btn) .. tostring(self.hover_model_idx)
                   .. tostring(self.hover_copy_idx) .. tostring(self.hover_hitl)
                   .. tostring(self.hover_link_url)
@@ -6488,77 +6501,76 @@ end
   end
 
   function AGView:_layout_history(data)
-    -- Group by thread and track max checkpoint_id per thread for chronological sorting
-    local threads = {}
-    local thread_latest = {}
-    for _, n in ipairs(data) do
-      if not threads[n.thread_id] then
-        threads[n.thread_id] = {}
-        thread_latest[n.thread_id] = n.id or ""
-      end
-      table.insert(threads[n.thread_id], n)
-      if (n.id or "") > (thread_latest[n.thread_id] or "") then
-        thread_latest[n.thread_id] = n.id
+    -- Group conversations into roots and child forked sub-branches
+    local roots = {}
+    local forks = {}
+    local by_thread = {}
+
+    for _, conv in ipairs(data) do
+      if conv.thread_id then
+        by_thread[conv.thread_id] = conv
       end
     end
-    
-    local thread_list = {}
-    for tid, _ in pairs(threads) do
-      table.insert(thread_list, tid)
+
+    for _, conv in ipairs(data) do
+      if conv.parent_thread and by_thread[conv.parent_thread] and conv.parent_thread ~= conv.thread_id then
+        forks[conv.parent_thread] = forks[conv.parent_thread] or {}
+        table.insert(forks[conv.parent_thread], conv)
+      else
+        table.insert(roots, conv)
+      end
     end
-    -- Sort older threads first, newest threads last so newest get highest row (rendered at top under canopy)
-    table.sort(thread_list, function(a, b)
-      return (thread_latest[a] or "") < (thread_latest[b] or "")
+
+    -- Sort roots chronologically (older first, newest last so newest sits under canopy at top)
+    table.sort(roots, function(a, b)
+      return (a.id or "") < (b.id or "")
     end)
-    
+
     local nodes = {}
     local node_map = {}
     local row = 0
-    
-    for _, tid in ipairs(thread_list) do
-      local tnodes = threads[tid]
-      -- Title node for thread
+    local root_idx = 0
+
+    for _, root in ipairs(roots) do
+      root_idx = root_idx + 1
       row = row + 1
-      table.insert(nodes, { is_title = true, title = tid, row = row })
-      
-      -- Layout nodes chronologically
-      local col_ends = {} 
-      
-      for _, n in ipairs(tnodes) do
-        row = row + 1
-        n.row = row
-        node_map[n.id] = n
-        
-        local parent = node_map[n.parent_id]
-        if parent then
-          if not parent.has_child then
-            parent.has_child = true
-            n.col = parent.col
-          else
-            -- branch
-            local c = parent.col + 1
-            while col_ends[c] do c = c + 1 end
-            n.col = c
-          end
-        else
-          n.col = 1
+      root.row = row
+      root.is_root = true
+      root.is_sub = false
+      -- Alternate Left/Right off the central trunk
+      root.is_left = (root_idx % 2 == 1)
+      node_map[root.thread_id] = root
+      table.insert(nodes, root)
+
+      -- Place child forks directly attached to the parent branch
+      local children = forks[root.thread_id]
+      if children and #children > 0 then
+        table.sort(children, function(a, b)
+          return (a.id or "") < (b.id or "")
+        end)
+        for _, ch in ipairs(children) do
+          row = row + 1
+          ch.row = row
+          ch.is_root = false
+          ch.is_sub = true
+          ch.parent_row = root.row
+          ch.parent_thread = root.thread_id
+          -- Forked child stays on the same side as its parent branch
+          ch.is_left = root.is_left
+          node_map[ch.thread_id] = ch
+          table.insert(nodes, ch)
         end
-        col_ends[n.col] = row
-        table.insert(nodes, n)
       end
-      row = row + 1 -- padding
+
+      -- Spacer row between conversation families for visual breathing room
+      row = row + 1
     end
-    
+
     self.history_nodes = nodes
     self.history_map = node_map
   end
   
   function AGView:draw_history_tree(x, y, w, h)
-    local function get_is_left(n)
-      if n.is_title then return (n.row % 2 == 1) end
-      return (n.char_count or 0) < 200
-    end
-
     local P       = get_palette()
     local C_TR    = _COLOR_CACHE_30    -- Trunk dark brown
     local C_LEAF  = _COLOR_CACHE_0  -- Light green leaf
@@ -6589,24 +6601,23 @@ end
       core.pop_clip_rect(); return
     end
 
-    -- -- Primitive Drawing Helpers ----------------------------------
+    -- Primitive Drawing Helpers
     local function fill_circle(cx, cy, r, color)
-        r = math.max(1, math.floor(r))
-        -- Optimize rendering: use larger steps for large radii to prevent O(r) draw_rect calls
-        local step = math.max(1, math.floor(r / 15)) 
-        for dy = -r, r, step do
-            local dx = math.floor(math.sqrt(r*r - dy*dy))
-            renderer.draw_rect(cx - dx, cy + dy, dx * 2, step, color)
-        end
+      r = math.max(1, math.floor(r))
+      local step = math.max(1, math.floor(r / 15)) 
+      for dy = -r, r, step do
+        local dx = math.floor(math.sqrt(math.max(0, r*r - dy*dy)))
+        renderer.draw_rect(cx - dx, cy + dy, dx * 2, step, color)
+      end
     end
 
-    -- -- Layout Math -----------------------------------------------
+    -- Layout Math
     local SCROLL  = self.history_scroll_y or 0
-    local ROW_H   = 120 * SCALE
+    local ROW_H   = 125 * SCALE
     local CANOPY  = 250 * SCALE
     local MARGIN  = 20 * SCALE
 
-    -- Fixed elegant trunk width
+    -- Central Trunk
     local TRUNK_W = 24 * SCALE
     local trunk_cx = x + math.floor(w * 0.50)
     local trunk_x = trunk_cx - math.floor(TRUNK_W / 2)
@@ -6630,8 +6641,7 @@ end
       return y + CANOPY + (max_row - row) * ROW_H - SCROLL
     end
 
-    -- -- PASS 1: The Trunk -----------------------------------------
-    -- The newest chat is right beneath the canopy
+    -- PASS 1: The Trunk
     local scroll_trunk_top = cy_of(max_row) - 80 * SCALE
     local scroll_trunk_bot = cy_of(1) + 150 * SCALE
     
@@ -6639,63 +6649,94 @@ end
     local draw_end_y = math.min(y + h, scroll_trunk_bot)
     
     if draw_start_y < draw_end_y then
-        renderer.draw_rect(trunk_x, draw_start_y, TRUNK_W, draw_end_y - draw_start_y, C_TR)
+      renderer.draw_rect(trunk_x, draw_start_y, TRUNK_W, draw_end_y - draw_start_y, C_TR)
     end
     
     -- Smooth root flares at the bottom
     if scroll_trunk_bot > y and scroll_trunk_bot < y + h + 50*SCALE then
-        for ri = 1, 10 do
-            fill_circle(trunk_x - ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
-            fill_circle(trunk_x + TRUNK_W + ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
-        end
+      for ri = 1, 10 do
+        fill_circle(trunk_x - ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
+        fill_circle(trunk_x + TRUNK_W + ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
+      end
     end
 
-    -- -- PASS 2: Solid Curved Branches -----------------------------
+    -- PASS 2: Solid Curved Branches & Organic Sub-Branches
     local function draw_solid_branch(cy, is_left)
-        local dir = is_left and -1 or 1
-        local blen = (is_left and LEFT_W or RIGHT_W) * 0.90
-        local base_thick = 18 * SCALE  -- thick at base
-        
-        local sx = is_left and trunk_x or (trunk_x + TRUNK_W)
-        local steps = math.floor(blen)
-        
-        for i = 0, steps do
-            local t = i / steps
-            local bx = sx + dir * i
-            
-            -- Top edge swoops down then sweeps up gracefully
-            local y_top = cy + (45 * t - 70 * t * t) * SCALE
-            
-            -- Thickness stays meaty for most of the branch, then tapers elegantly to a 1px point
-            local thick = math.max(1, base_thick * (1 - t^2))
-            local y_bot = y_top + thick
-            
-            -- Draw vertical slice
-            renderer.draw_rect(bx, math.floor(y_top), 1, math.max(1, math.floor(y_bot - y_top)), C_TR)
-        end
+      local dir = is_left and -1 or 1
+      local blen = (is_left and LEFT_W or RIGHT_W) * 0.90
+      local base_thick = 18 * SCALE
+      local sx = is_left and trunk_x or (trunk_x + TRUNK_W)
+      local steps = math.floor(blen)
+      
+      for i = 0, steps do
+        local t = i / steps
+        local bx = sx + dir * i
+        local y_top = cy + (45 * t - 70 * t * t) * SCALE
+        local thick = math.max(1, base_thick * (1 - t^2))
+        local y_bot = y_top + thick
+        renderer.draw_rect(bx, math.floor(y_top), 1, math.max(1, math.floor(y_bot - y_top)), C_TR)
+      end
 
-        -- Decorative leaf buds at branch tip
-        local tip_x = sx + dir * steps
-        local tip_y = cy - 25 * SCALE
-        fill_circle(tip_x, tip_y, 4 * SCALE, C_LEAF)
-        fill_circle(tip_x + dir * 3 * SCALE, tip_y - 2 * SCALE, 3 * SCALE, C_LEAF_D)
+      local tip_x = sx + dir * steps
+      local tip_y = cy - 25 * SCALE
+      fill_circle(tip_x, tip_y, 4 * SCALE, C_LEAF)
+      fill_circle(tip_x + dir * 3 * SCALE, tip_y - 2 * SCALE, 3 * SCALE, C_LEAF_D)
+    end
+
+    local function draw_sub_branch(parent_cy, child_cy, is_left)
+      local dir = is_left and -1 or 1
+      local parent_blen = (is_left and LEFT_W or RIGHT_W) * 0.90
+      local parent_sx = is_left and trunk_x or (trunk_x + TRUNK_W)
+      
+      -- Sprout midpoint along parent branch
+      local sprout_t = 0.40
+      local sprout_x = parent_sx + dir * math.floor(parent_blen * sprout_t)
+      local sprout_y = parent_cy + (45 * sprout_t - 70 * sprout_t * sprout_t) * SCALE
+      
+      local sub_blen = (is_left and LEFT_W or RIGHT_W) * 0.50
+      local steps = math.max(1, math.floor(sub_blen))
+      local target_tip_y = child_cy - 20 * SCALE
+      local dy = target_tip_y - sprout_y
+
+      for i = 0, steps do
+        local st = i / steps
+        local bx = sprout_x + dir * i
+        local curve_offset = (25 * st - 40 * st * st) * SCALE
+        local y_top = sprout_y + dy * st + curve_offset
+        local thick = math.max(1, math.floor(8 * SCALE * (1 - st^1.3)))
+        renderer.draw_rect(bx, math.floor(y_top), 1, thick, C_TR)
+      end
+
+      -- Sprouting tender leaf bud at sub-branch tip
+      local tip_x = sprout_x + dir * steps
+      local tip_y = math.floor(target_tip_y - 5 * SCALE)
+      fill_circle(tip_x, tip_y, 3.5 * SCALE, C_LEAF)
+      fill_circle(tip_x + dir * 2 * SCALE, tip_y - 2 * SCALE, 2.5 * SCALE, C_LEAF_D)
+    end
+
+    local node_by_row = {}
+    for _, n in ipairs(self.history_nodes) do
+      if n.row then node_by_row[n.row] = n end
     end
 
     for _, n in ipairs(self.history_nodes) do
-      if not n.is_title then
-        local cy = cy_of(n.row)
-        if cy > y - ROW_H and cy < y + h + ROW_H then
-          draw_solid_branch(cy, get_is_left(n))
+      local cy = cy_of(n.row)
+      if cy > y - ROW_H and cy < y + h + ROW_H then
+        if n.is_sub and n.parent_row then
+          local pnode = node_by_row[n.parent_row]
+          local p_cy = pnode and cy_of(pnode.row) or cy
+          draw_sub_branch(p_cy, cy, n.is_left)
+        else
+          draw_solid_branch(cy, n.is_left)
         end
       end
     end
 
-    -- -- PASS 3: Cloud Canopy (Vector Style) -----------------------
+    -- PASS 3: Cloud Canopy
     local canopy_cy = scroll_trunk_top - 30 * SCALE
     if canopy_cy > y - 400*SCALE and canopy_cy < y + h + 400*SCALE then
       math.randomseed(42)
       
-      -- Draw structural top branches splitting into the canopy
       for i=1, 6 do
          local bx = trunk_cx
          local by = scroll_trunk_top + 20*SCALE
@@ -6710,8 +6751,6 @@ end
          end
       end
       
-      -- Modern Vector UI Tree Crown (Overlapping solid circles)
-      -- Main crown shapes
       local blobs = {
           {x=0, y=0, r=60},
           {x=-50, y=10, r=50},
@@ -6730,7 +6769,6 @@ end
           fill_circle(trunk_cx + b.x*SCALE, canopy_cy + b.y*SCALE - 5*SCALE, (b.r-4)*SCALE, C_LEAF)
       end
       
-      -- Scatted perimeter leaves (small circles)
       for i=1, 60 do
           local ang = math.random() * math.pi * 2
           local dist = 60*SCALE + math.random() * 60*SCALE
@@ -6741,18 +6779,16 @@ end
           fill_circle(cx, cy, r, c)
       end
       
-      -- Chat Memory Tree Title in the Canopy
       local tf = style.big_font or style.font
       local title_str = "Chat Memory Tree"
       local tw = tf:get_width(title_str)
       local th = tf:get_height()
       local ty = canopy_cy - 10*SCALE - th/2
-      -- Draw shadow/outline for readability
       renderer.draw_text(tf, title_str, trunk_cx - tw/2 + 2, ty + 2, _COLOR_CACHE_9)
       renderer.draw_text(tf, title_str, trunk_cx - tw/2, ty, P.bg)
     end
 
-    -- -- PASS 4: Text Wrap Cache -----------------------------------
+    -- PASS 4: Text Wrap Cache
     local function align_wrap(text, font, max_w)
        local lines = {}
        for line in text:gmatch("([^\r\n]+)") do
@@ -6773,101 +6809,131 @@ end
     for _, n in ipairs(self.history_nodes) do
       if n._cache_w ~= w then
         n._cache_w = w
-        local is_left = get_is_left(n)
+        local is_left = n.is_left
         
         local dt = n.date or ""
         n._year = dt ~= "" and dt:sub(1, 4) or "Chat"
         n._date = dt ~= "" and dt:sub(1, 10) or ""
         
-        local tw = is_left and LEFT_W or RIGHT_W
-        n._lines = align_wrap(n.snippet or "No content", f, tw)
-        if #n._lines > 4 then
-           n._lines = { n._lines[1], n._lines[2], n._lines[3], n._lines[4] .. "..." }
+        local tw = math.floor((is_left and LEFT_W or RIGHT_W) * 0.88) - 24 * SCALE
+        local snippet_src = (n.outcome and n.outcome ~= "") and n.outcome or (n.first_query or "No content")
+        n._lines = align_wrap(snippet_src, f, tw)
+        if #n._lines > 2 then
+           n._lines = { n._lines[1], n._lines[2] .. "..." }
         end
-        local clean_title = n.title or "?"
-        if clean_title == "default_thread" then
-          clean_title = "Main Session"
-        elseif clean_title:match("^thread_%d+_(%d+)") then
-          local sub = clean_title:match("^thread_%d+_(%d+)")
-          clean_title = "Session #" .. sub:sub(-6)
+        local clean_topic = n.topic or "Conversation"
+        if clean_topic == "default_thread" then
+          clean_topic = "Main Session"
+        elseif clean_topic:match("^thread_%d+_(%d+)") then
+          local sub = clean_topic:match("^thread_%d+_(%d+)")
+          clean_topic = "Session #" .. sub:sub(-6)
         end
-        n._title = clean_title
+        n._topic = clean_topic
       end
     end
 
-    -- -- PASS 5: Clean Labels --------------------------------------
+    -- PASS 5: Conversation Cards & Action Buttons
     self._hist_node_rects = {}
-    local year_f = style.font -- A bigger font would be nice, but stick to standard to avoid errors
+    self._hist_action_rects = {}
 
     for _, n in ipairs(self.history_nodes) do
       local cy = cy_of(n.row)
       if cy > y - ROW_H and cy < y + h + ROW_H then
-        local is_left = get_is_left(n)
-        local is_hov  = self.hover_hist_node == n.id
+        local is_left = n.is_left
+        local is_hov  = (self.hover_hist_node == n.id)
 
-        if n.is_title then
-           local tx = is_left and (trunk_x - 10*SCALE - f:get_width(n._title)) or (trunk_x + TRUNK_W + 10*SCALE)
-           renderer.draw_text(f, n._title, tx, cy - math.floor(fh / 2), is_hov and P.fg_accent or C_YEAR)
-        else
-           -- Year sits elegantly ON TOP of the branch base
-           local year_w = year_f:get_width(n._year)
-           local y_x = is_left and (trunk_x - year_w - 10*SCALE) or (trunk_x + TRUNK_W + 10*SCALE)
-           local y_y = cy - fh - 2*SCALE
-           
-           renderer.draw_text(year_f, n._year, y_x, y_y, is_hov and P.fg_accent or C_YEAR)
-           
-           -- Text floats cleanly BELOW the branch
-           local t_y = cy + 14*SCALE
-           
-           local prov_str = ""
-           if n.source == "human" then
-               prov_str = "[User] "
-           elseif n.provider and n.provider ~= "" then
-               prov_str = "[" .. n.provider .. "] "
-           elseif n.source == "ai" then
-               prov_str = "[AI] "
-           end
-           
-           local m_str = prov_str .. n._date
-           
-           local function draw_aligned(text, font, yy, col, bold)
-              local tw = font:get_width(text)
-              -- Push text slightly further out to follow the curve of the branch downwards
-              local tx = is_left and (trunk_x - tw - 15*SCALE) or (trunk_x + TRUNK_W + 15*SCALE)
-              renderer.draw_text(font, text, tx, yy, col)
-              if bold then
-                 renderer.draw_text(font, text, tx + 1, yy, col)
-                 -- Add horizontal offset twice for a crisp bold effect
-                 -- If the text is light, we can even double strike it
-              end
-           end
-           
-           local current_y = t_y
-           draw_aligned(m_str, f, current_y, P.fg_accent or _COLOR_CACHE_24, true) -- Bold & brighter!
-           current_y = current_y + fh + 2*SCALE
-           
-           for _, line in ipairs(n._lines) do
-              draw_aligned(line, f, current_y, is_hov and P.fg or C_TEXT, false)
-              current_y = current_y + fh + 2*SCALE
-           end
-           
-           -- Hitbox & Hover Card Highlight
-           local rx = is_left and (trunk_x - LEFT_W) or (trunk_x + TRUNK_W)
-           local bw = is_left and LEFT_W or RIGHT_W
-           local card_h = (current_y - y_y) + 4 * SCALE
-           local card_y = y_y - 2 * SCALE
-
-           if is_hov then
-             renderer.draw_rect(rx, card_y, bw, card_h, P.bg_btn or P.bg_dark)
-             draw_rect_outline(rx, card_y, bw, card_h, P.border)
-             local rh_text = is_left and "↵ Resume" or "Resume ↵"
-             local rh_w = style.font:get_width(rh_text)
-             local rh_x = is_left and (rx + 8 * SCALE) or (rx + bw - rh_w - 8 * SCALE)
-             renderer.draw_text(style.font, rh_text, rh_x, current_y + 2 * SCALE, P.fg_accent)
-           end
-
-           table.insert(self._hist_node_rects, { id=n.id, thread=n.thread_id, x=rx, y=y_y, w=bw, h=card_h })
+        local bw = math.floor((is_left and LEFT_W or RIGHT_W) * 0.88)
+        local rx = is_left and (trunk_x - bw - 14 * SCALE) or (trunk_x + TRUNK_W + 14 * SCALE)
+        if n.is_sub then
+          rx = is_left and (rx - 6 * SCALE) or (rx + 6 * SCALE)
+          bw = bw - 6 * SCALE
         end
+
+        local card_y = cy - 22 * SCALE
+        local current_y = card_y + 6 * SCALE
+
+        -- Header: Date + Provider + [🌱 Sub-Branch] if forked
+        local prov_str = ""
+        if n.provider and n.provider ~= "" then
+          local p_short = n.provider:match("([^/]+)$") or n.provider
+          prov_str = "[" .. p_short .. "] "
+        end
+        local badge_tag = n.is_sub and "🌱 Sub-Branch  " or ""
+        local header_txt = badge_tag .. prov_str .. (n._date or "")
+        renderer.draw_text(f, header_txt, rx + 10 * SCALE, current_y, n.is_sub and C_LEAF or (is_hov and P.fg_accent or C_YEAR))
+        current_y = current_y + fh + 3 * SCALE
+
+        -- Topic (Bold)
+        local topic_txt = (n.is_sub and "🌱 " or "• ") .. (n._topic or "Conversation")
+        renderer.draw_text(f, topic_txt, rx + 10 * SCALE, current_y, is_hov and P.fg_accent or P.fg)
+        renderer.draw_text(f, topic_txt, rx + 10 * SCALE + 1, current_y, is_hov and P.fg_accent or P.fg)
+        current_y = current_y + fh + 3 * SCALE
+
+        -- Summary / Snippet lines
+        for _, line in ipairs(n._lines or {}) do
+          renderer.draw_text(f, line, rx + 14 * SCALE, current_y, C_TEXT)
+          current_y = current_y + fh + 2 * SCALE
+        end
+
+        -- Stats footer: turns
+        local turn_txt = "🌿 " .. tostring(n.turns or 1) .. (n.turns == 1 and " turn" or " turns")
+        renderer.draw_text(f, turn_txt, rx + 10 * SCALE, current_y + 2 * SCALE, C_TEXT)
+
+        local card_h = (current_y - card_y) + fh + 16 * SCALE
+
+        -- Background & Hover Card
+        if is_hov then
+          renderer.draw_rect(rx, card_y, bw, card_h, P.bg_btn or P.bg_dark)
+          draw_rect_outline(rx, card_y, bw, card_h, P.border)
+
+          -- Action Buttons on Hover
+          local btn_h = fh + 6 * SCALE
+          local btn_y = card_y + card_h - btn_h - 6 * SCALE
+          local resume_txt = "↵ Resume"
+          local fork_txt = "🌱 Fork"
+          local resume_w = f:get_width(resume_txt) + 16 * SCALE
+          local fork_w = f:get_width(fork_txt) + 16 * SCALE
+
+          local resume_x = rx + 10 * SCALE
+          local fork_x = resume_x + resume_w + 10 * SCALE
+
+          -- Resume Button
+          local is_hov_resume = (self.hover_hist_action == "resume_" .. n.thread_id)
+          renderer.draw_rect(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.bg_accent or (P.bg_dark or P.bg))
+          draw_rect_outline(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.fg_accent or P.border)
+          renderer.draw_text(f, resume_txt, resume_x + 8 * SCALE, btn_y + 3 * SCALE, is_hov_resume and P.bg or P.fg_accent)
+
+          -- Fork Button
+          local is_hov_fork = (self.hover_hist_action == "fork_" .. n.thread_id)
+          renderer.draw_rect(fork_x, btn_y, fork_w, btn_h, is_hov_fork and C_LEAF_D or (P.bg_dark or P.bg))
+          draw_rect_outline(fork_x, btn_y, fork_w, btn_h, is_hov_fork and C_LEAF or P.border)
+          renderer.draw_text(f, fork_txt, fork_x + 8 * SCALE, btn_y + 3 * SCALE, is_hov_fork and P.bg or C_LEAF)
+
+          table.insert(self._hist_action_rects, {
+            action = "resume",
+            thread = n.thread_id,
+            id = n.id,
+            topic = n.topic,
+            x = resume_x, y = btn_y, w = resume_w, h = btn_h
+          })
+          table.insert(self._hist_action_rects, {
+            action = "fork",
+            thread = n.thread_id,
+            id = n.id,
+            topic = n.topic,
+            x = fork_x, y = btn_y, w = fork_w, h = btn_h
+          })
+        else
+          renderer.draw_rect(rx, card_y, bw, card_h, P.bg)
+          draw_rect_outline(rx, card_y, bw, card_h, _COLOR_CACHE_30)
+        end
+
+        table.insert(self._hist_node_rects, {
+          id = n.id,
+          thread = n.thread_id,
+          topic = n.topic,
+          x = rx, y = card_y, w = bw, h = card_h
+        })
       end
     end
 
@@ -6954,6 +7020,49 @@ function AGView:_launch_team_builder()
   build_next_agent()
 end
 
+function AGView:_rehydrate_thread_messages(thread_id, checkpoint_id, fork_info)
+  core.add_thread(function()
+    local py_bin = "python"
+    local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
+    local proc = process.start({py_bin, bridge, "--get-thread-messages", thread_id})
+    if proc then
+      local out_tbl = {}
+      while true do
+        local chunk = proc:read_stdout(65536)
+        if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
+        if not proc:running() then break end
+        coroutine.yield(0.05)
+      end
+      while true do
+        local chunk = proc:read_stdout(65536)
+        if not chunk or #chunk == 0 then break end
+        table.insert(out_tbl, chunk)
+      end
+      local out = table.concat(out_tbl)
+      if out and out ~= "" then
+        local env = {}
+        local fn = load(out, "thread_messages", "t", env)
+        if fn then
+          local ok, msgs = pcall(fn)
+          if ok and type(msgs) == "table" and #msgs > 0 then
+            self:state().sessions = {}
+            for _, m in ipairs(msgs) do
+              self:_add_session(m.role or "ai", m.text or "")
+            end
+            if fork_info and fork_info.is_fork then
+              self:_add_session("ai", "🌱 **Forked conversation branch from:** `" .. (fork_info.topic or thread_id) .. "`\nAll prior conversation context loaded into this new sub-branch session. Your next prompt will sprout a new branch path!")
+            else
+              self:_add_session("ai", "⚡ Resumed conversation at checkpoint `" .. tostring(checkpoint_id or ""):sub(1, 16) .. "`.\nYou can continue asking questions from this memory branch.")
+            end
+            self:state().scroll_to_bottom = true
+            core.redraw = true
+          end
+        end
+      end
+    end
+  end)
+end
+
 function AGView:on_mouse_pressed(button, mx, my, clicks)
   AGView.super.on_mouse_pressed(self, button, mx, my, clicks)
   core.set_active_view(self)
@@ -6995,8 +7104,56 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         end
       end
 
-      -- 3. Check History / Milestone Node Cards
-      if self._hist_node_rects then
+      -- 3. Check Action Buttons (Fork or Resume)
+      local handled_action = false
+      if self._hist_action_rects then
+        for _, r in ipairs(self._hist_action_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            handled_action = true
+            if r.action == "fork" then
+              local new_thread = "thread_" .. os.time() .. "_" .. math.random(100000, 999999)
+              core.log("Forking thread " .. r.thread .. " into new sub-branch: " .. new_thread)
+              self.show_history_tree = false
+              self.show_skills_modal = false
+              self.enable_tools = false
+              self.marketplace_skills = nil
+              self:state().cid = new_thread
+              self:state().thread_id = new_thread
+              self:state().parent_thread_id = r.thread
+              self:state().checkpoint_id = r.id
+              self:state().sessions = {}
+              self:state().has_session = true
+              self:state().status = "idle"
+              self:_add_session("ai", "🌱 Sprouting new sub-branch from: `" .. (r.topic or r.thread) .. "`...\nCloning memory lineage...")
+              self:state().scroll_to_bottom = true
+              core.redraw = true
+              self:_rehydrate_thread_messages(r.thread, r.id, { topic = r.topic, is_fork = true })
+              return true
+            elseif r.action == "resume" then
+              core.log("Resuming thread: " .. r.thread)
+              self.show_history_tree = false
+              self.show_skills_modal = false
+              self.enable_tools = false
+              self.marketplace_skills = nil
+              self:state().cid = r.thread
+              self:state().thread_id = r.thread
+              self:state().parent_thread_id = nil
+              self:state().checkpoint_id = r.id
+              self:state().sessions = {}
+              self:state().has_session = true
+              self:state().status = "idle"
+              self:_add_session("ai", "Resuming conversation thread: " .. r.thread .. "...\nLoading past conversation...")
+              self:state().scroll_to_bottom = true
+              core.redraw = true
+              self:_rehydrate_thread_messages(r.thread, r.id, nil)
+              return true
+            end
+          end
+        end
+      end
+
+      -- 4. Check Card Backgrounds (Default to Resume)
+      if not handled_action and self._hist_node_rects then
         for _, r in ipairs(self._hist_node_rects) do
           if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
             core.log("Resuming thread: " .. r.thread)
@@ -7006,6 +7163,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             self.marketplace_skills = nil
             self:state().cid = r.thread
             self:state().thread_id = r.thread
+            self:state().parent_thread_id = nil
             self:state().checkpoint_id = r.id
             self:state().sessions = {}
             self:state().has_session = true
@@ -7013,44 +7171,7 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             self:_add_session("ai", "Resuming conversation thread: " .. r.thread .. "...\nLoading past conversation...")
             self:state().scroll_to_bottom = true
             core.redraw = true
-
-            -- Asynchronously fetch thread messages to rehydrate UI
-            core.add_thread(function()
-              local py_bin = "python"
-              local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
-              local proc = process.start({py_bin, bridge, "--get-thread-messages", r.thread})
-              if proc then
-                local out_tbl = {}
-                while true do
-                  local chunk = proc:read_stdout(65536)
-                  if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
-                  if not proc:running() then break end
-                  coroutine.yield(0.05)
-                end
-                while true do
-                  local chunk = proc:read_stdout(65536)
-                  if not chunk or #chunk == 0 then break end
-                  table.insert(out_tbl, chunk)
-                end
-                local out = table.concat(out_tbl)
-                if out and out ~= "" then
-                  local env = {}
-                  local fn = load(out, "thread_messages", "t", env)
-                  if fn then
-                    local ok, msgs = pcall(fn)
-                    if ok and type(msgs) == "table" and #msgs > 0 then
-                      self:state().sessions = {}
-                      for _, m in ipairs(msgs) do
-                        self:_add_session(m.role or "ai", m.text or "")
-                      end
-                      self:_add_session("ai", "⚡ Resumed conversation at checkpoint `" .. tostring(r.id):sub(1, 16) .. "`.\nYou can continue asking questions from this memory branch.")
-                      self:state().scroll_to_bottom = true
-                      core.redraw = true
-                    end
-                  end
-                end
-              end
-            end)
+            self:_rehydrate_thread_messages(r.thread, r.id, nil)
             return true
           end
         end
@@ -9980,7 +10101,7 @@ function AGView:draw(...)
     local icon_str = "🌳 "
     local title_str = "Memory Tree"
     local node_cnt = (self.history_nodes and #self.history_nodes or 0)
-    local sub_str = string.format("(%d nodes)", node_cnt)
+    local sub_str = string.format("(%d conversations)", node_cnt)
     
     local ty = y + math.floor((header_h - tf:get_height()) / 2)
     renderer.draw_text(tf, icon_str .. title_str, x + pad, ty, P.fg_accent)

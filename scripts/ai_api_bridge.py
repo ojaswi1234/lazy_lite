@@ -1648,6 +1648,7 @@ def clean_prompt_text(text: str) -> str:
     if not isinstance(text, str): return ""
     text = re.sub(r'\[IDE:[^\]]*\]\s*', '', text)
     text = re.sub(r'\[LITE-XL AGENTIC HOST:[\s\S]*?confirm cleanly to the user\.\]\s*', '', text)
+    text = re.sub(r'\[LITE-XL AGENTIC HOST:[\s\S]*?\n\n', '', text)
     text = re.sub(r'\[READ-ONLY MODE:[\s\S]*?\]\s*', '', text)
     text = re.sub(r'\[SYSTEM CONTEXT:[\s\S]*?\]\s*', '', text)
     text = re.sub(r'\[Read this pasted text from file: [^\]]+\]\s*', '', text)
@@ -1914,7 +1915,7 @@ def prune_memory_tree(db_path: str, max_threads: int = 40, max_milestones_per_th
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None, checkpoint_id=None):
+def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None, checkpoint_id=None, parent_thread=None):
     async def _run_agent_async():
         try:
             from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
@@ -2265,6 +2266,47 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
 
         ws_context = f"\nCURRENT WORKSPACE: {workspace}\n" if workspace else "\n"
         db_path = get_db_path()
+        if parent_thread and thread_id:
+            try:
+                import sqlite3
+                conn_lin = sqlite3.connect(db_path, timeout=5.0)
+                c_lin = conn_lin.cursor()
+                c_lin.execute("CREATE TABLE IF NOT EXISTS thread_lineage (thread_id TEXT PRIMARY KEY, parent_thread_id TEXT, parent_checkpoint_id TEXT, created_at TEXT)")
+                c_lin.execute("INSERT OR REPLACE INTO thread_lineage (thread_id, parent_thread_id, parent_checkpoint_id, created_at) VALUES (?, ?, ?, datetime('now'))", (thread_id, parent_thread, checkpoint_id))
+                c_lin.execute("SELECT count(*) FROM checkpoints WHERE thread_id = ?", (thread_id,))
+                c_cnt = c_lin.fetchone()[0]
+                if c_cnt == 0:
+                    # Forking new thread: clone parent checkpoints so agent continues conversational memory
+                    if checkpoint_id:
+                        c_lin.execute("""
+                            INSERT OR IGNORE INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata)
+                            SELECT ?, checkpoint_ns, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata
+                            FROM checkpoints
+                            WHERE thread_id = ? AND checkpoint_id <= ?
+                        """, (thread_id, parent_thread, checkpoint_id))
+                        c_lin.execute("""
+                            INSERT OR IGNORE INTO writes (thread_id, checkpoint_ns, checkpoint_id, task_id, idx, channel, type, value)
+                            SELECT ?, checkpoint_ns, checkpoint_id, task_id, idx, channel, type, value
+                            FROM writes
+                            WHERE thread_id = ? AND checkpoint_id <= ?
+                        """, (thread_id, parent_thread, checkpoint_id))
+                    else:
+                        c_lin.execute("""
+                            INSERT OR IGNORE INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata)
+                            SELECT ?, checkpoint_ns, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata
+                            FROM checkpoints
+                            WHERE thread_id = ?
+                        """, (thread_id, parent_thread))
+                        c_lin.execute("""
+                            INSERT OR IGNORE INTO writes (thread_id, checkpoint_ns, checkpoint_id, task_id, idx, channel, type, value)
+                            SELECT ?, checkpoint_ns, checkpoint_id, task_id, idx, channel, type, value
+                            FROM writes
+                            WHERE thread_id = ?
+                        """, (thread_id, parent_thread))
+                conn_lin.commit()
+                conn_lin.close()
+            except Exception as e:
+                sys.stderr.write(f"[WARN] Error seeding fork thread: {e}\n")
         recent_memory_ctx = build_recent_memory_context(db_path, thread_id, limit=5)
         # Automatic background pruning if database grows beyond 100 MB
         if os.path.exists(db_path) and os.path.getsize(db_path) > 100 * 1024 * 1024:
@@ -3092,6 +3134,7 @@ def main():
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--prompt-file", type=str, help="Read prompt directly from file to bypass command line limits")
     parser.add_argument("--thread-id", type=str, default="default_thread")
+    parser.add_argument("--parent-thread", type=str, help="Parent thread ID if this conversation was forked")
     parser.add_argument("--checkpoint-id", type=str, help="Resume from a specific checkpoint in the thread")
     parser.add_argument("--get-thread-messages", type=str, help="Extract conversation messages for a thread")
     parser.add_argument("--get-history", action="store_true")
@@ -3301,79 +3344,102 @@ def main():
         conn = sqlite3.connect(db_path, timeout=5.0)
         c = conn.cursor()
         try:
+            c.execute("CREATE TABLE IF NOT EXISTS thread_lineage (thread_id TEXT PRIMARY KEY, parent_thread_id TEXT, parent_checkpoint_id TEXT, created_at TEXT)")
+            conn.commit()
+
             from langgraph.checkpoint.sqlite import SqliteSaver
             memory = SqliteSaver(conn)
             
             c.execute("""
-                SELECT thread_id
+                SELECT thread_id, max(checkpoint_id) as last_cp
                 FROM checkpoints
                 WHERE checkpoint_ns = ''
                 GROUP BY thread_id
                 ORDER BY max(checkpoint_id) DESC
-                LIMIT 20
+                LIMIT 35
             """)
-            top_threads = [r[0] for r in c.fetchall()]
+            top_threads = c.fetchall()
             if not top_threads:
                 conn.close()
                 print("return {}")
                 sys.exit(0)
 
-            placeholders = ','.join('?' * len(top_threads))
-            query = f"""
-                SELECT thread_id, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata
-                FROM (
-                    SELECT thread_id, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata,
-                           ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY checkpoint_id DESC) as rn
-                    FROM checkpoints
-                    WHERE thread_id IN ({placeholders}) AND checkpoint_ns = ''
-                )
-                WHERE rn <= 10
-                ORDER BY checkpoint_id ASC
-            """
-            c.execute(query, top_threads)
-            rows = c.fetchall()
-            history = []
-            for thread_id, checkpoint_id, parent_id, type_, checkpoint_blob, metadata_blob in rows:
+            conversations = []
+            for tid, last_cp in top_threads:
+                c.execute("SELECT type, checkpoint, metadata FROM checkpoints WHERE thread_id = ? AND checkpoint_id = ?", (tid, last_cp))
+                r = c.fetchone()
+                if not r: continue
                 try:
-                    cp = memory.serde.loads_typed((type_, checkpoint_blob))
+                    cp = memory.serde.loads_typed((r[0], r[1]))
                 except Exception:
                     continue
-                
                 msgs = cp.get("channel_values", {}).get("messages", [])
                 if not msgs: continue
-                
-                last_msg = msgs[-1]
-                m_type = getattr(last_msg, "type", "")
-                content = getattr(last_msg, "content", "")
-                if m_type == "tool" or (m_type == "ai" and not content):
-                    continue
-                if isinstance(content, list):
-                    content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
-                content_str = str(content)
-                if not content_str: continue
 
-                clean_text = content_str
-                if m_type == "human":
-                    clean_text = clean_prompt_text(clean_text)
-                snippet = (clean_text[:90].replace('\n', ' ') + '...') if len(clean_text) > 90 else clean_text.replace('\n', ' ')
+                human_msgs = []
+                ai_msgs = []
+                providers = []
+                for m in msgs:
+                    mtype = getattr(m, "type", "")
+                    content = getattr(m, "content", "")
+                    if not content: continue
+                    if isinstance(content, list):
+                        content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+                    content_str = str(content)
+                    if mtype == "human":
+                        clean_h = clean_prompt_text(content_str)
+                        if clean_h: human_msgs.append(clean_h)
+                    elif mtype == "ai":
+                        ai_msgs.append(content_str)
+                        if getattr(m, "response_metadata", None):
+                            p_name = m.response_metadata.get("model_name", "")
+                            if p_name and p_name not in providers:
+                                providers.append(p_name)
+
+                if not human_msgs: continue
+
+                first_query = human_msgs[0].strip()
+                topic_title = first_query.split('\n')[0].strip()
+                if topic_title.startswith("/"):
+                    cmd = topic_title.split()[0][1:].replace("-", " ").title()
+                    topic_title = f"{cmd}: {first_query[len(cmd)+2:].strip()[:40]}" if len(first_query) > len(cmd)+2 else cmd
+                if len(topic_title) > 42:
+                    topic_title = topic_title[:40] + "..."
+                if not topic_title:
+                    topic_title = "Conversation"
+
+                last_outcome = ai_msgs[-1].strip().split('\n')[0].strip() if ai_msgs else ""
+                if len(last_outcome) > 90:
+                    last_outcome = last_outcome[:88] + "..."
+
                 date = cp.get("ts", "")[:16].replace("T", " ") if isinstance(cp, dict) else ""
-                provider = ""
-                if getattr(last_msg, "response_metadata", None):
-                    provider = last_msg.response_metadata.get("model_name", "")
-                    if "fp_ollama" in last_msg.response_metadata.get("system_fingerprint", ""):
-                        provider = "Ollama / " + provider
+                turns = len(human_msgs)
 
-                history.append({
-                    "thread_id": thread_id,
-                    "id": checkpoint_id,
-                    "parent_id": parent_id,
-                    "snippet": snippet,
-                    "char_count": len(content_str),
-                    "source": m_type,
-                    "provider": provider,
-                    "date": date
+                # Query lineage
+                c.execute("SELECT parent_thread_id FROM thread_lineage WHERE thread_id = ? LIMIT 1", (tid,))
+                lin_row = c.fetchone()
+                parent_thread = lin_row[0] if (lin_row and lin_row[0]) else None
+                if not parent_thread:
+                    c.execute("SELECT checkpoint_id, parent_checkpoint_id FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id ASC LIMIT 1", (tid,))
+                    first_cp = c.fetchone()
+                    if first_cp and first_cp[1]:
+                        c.execute("SELECT thread_id FROM checkpoints WHERE checkpoint_id = ? LIMIT 1", (first_cp[1],))
+                        p_row = c.fetchone()
+                        if p_row and p_row[0] != tid:
+                            parent_thread = p_row[0]
+
+                conversations.append({
+                    "thread_id": tid,
+                    "id": last_cp,
+                    "topic": topic_title,
+                    "first_query": first_query[:80].replace('\n', ' '),
+                    "outcome": last_outcome.replace('\n', ' '),
+                    "turns": turns,
+                    "date": date,
+                    "provider": providers[0] if providers else "",
+                    "parent_thread": parent_thread
                 })
-            
+
             def to_lua_string(s):
                 if not isinstance(s, str): return 'nil'
                 eq = '='
@@ -3381,16 +3447,18 @@ def main():
                 return f'[{eq}[{s}]{eq}]'
 
             lua_lines = ["return {"]
-            for item in history:
+            for item in conversations:
                 tid = to_lua_string(item['thread_id']) if item['thread_id'] else 'nil'
                 iid = to_lua_string(item['id']) if item['id'] else 'nil'
-                pid = to_lua_string(item['parent_id']) if item['parent_id'] else 'nil'
-                snip = to_lua_string(item['snippet'])
-                cc = item.get('char_count', 0)
-                src = to_lua_string(item['source'])
-                prov = to_lua_string(item['provider'])
+                top = to_lua_string(item['topic'])
+                fq = to_lua_string(item.get('first_query', ''))
+                out = to_lua_string(item.get('outcome', ''))
+                turns = item.get('turns', 1)
                 dt = to_lua_string(item.get('date', ''))
-                lua_lines.append(f'  {{ thread_id = {tid}, id = {iid}, parent_id = {pid}, snippet = {snip}, char_count = {cc}, source = {src}, provider = {prov}, date = {dt} }},')
+                prov = to_lua_string(item.get('provider', ''))
+                ptid = to_lua_string(item.get('parent_thread', '')) if item.get('parent_thread') else 'nil'
+                is_fork = "true" if item.get('parent_thread') else "false"
+                lua_lines.append(f'  {{ thread_id = {tid}, id = {iid}, topic = {top}, first_query = {fq}, outcome = {out}, turns = {turns}, date = {dt}, provider = {prov}, parent_thread = {ptid}, is_fork = {is_fork} }},')
             lua_lines.append("}")
             print("\n".join(lua_lines))
         except Exception as e:
@@ -4666,7 +4734,8 @@ def main():
             active_skill=args.active_skill,
             skill_state=args.skill_state,
             team_config_file=args.team_config,
-            checkpoint_id=args.checkpoint_id
+            checkpoint_id=args.checkpoint_id,
+            parent_thread=args.parent_thread
         )
 
 if __name__ == "__main__":
