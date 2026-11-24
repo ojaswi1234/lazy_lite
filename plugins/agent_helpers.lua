@@ -34,7 +34,7 @@ end
 
 function Choreographer.arrange(opts)
   opts = opts or {}
-  local mode = opts.mode or "side_by_side"
+  local mode = opts.mode or opts.layout or "side_by_side"
   local primary_path = opts.primary
   local secondary_path = opts.secondary
   local ratio = opts.ratio or 0.5
@@ -56,11 +56,13 @@ function Choreographer.arrange(opts)
     -- If secondary path is provided, split right and open secondary in new node
     local dir = opts.direction or "right"
     local new_node = active_node:split(dir)
-    if new_node and secondary_path then
-      local sec_doc = core.open_doc(secondary_path)
-      local sec_view = DocView(sec_doc)
-      new_node:add_view(sec_view)
-      new_node:set_active_view(sec_view)
+    if new_node then
+      local doc_to_open = secondary_path and core.open_doc(secondary_path) or primary_doc
+      if doc_to_open then
+        local sec_view = DocView(doc_to_open)
+        new_node:add_view(sec_view)
+        new_node:set_active_view(sec_view)
+      end
     end
     -- Balance parent divider
     local parent = active_node:get_parent_node(core.root_view.root_node)
@@ -70,11 +72,13 @@ function Choreographer.arrange(opts)
 
   elseif mode == "stacked" then
     local new_node = active_node:split("down")
-    if new_node and secondary_path then
-      local sec_doc = core.open_doc(secondary_path)
-      local sec_view = DocView(sec_doc)
-      new_node:add_view(sec_view)
-      new_node:set_active_view(sec_view)
+    if new_node then
+      local doc_to_open = secondary_path and core.open_doc(secondary_path) or primary_doc
+      if doc_to_open then
+        local sec_view = DocView(doc_to_open)
+        new_node:add_view(sec_view)
+        new_node:set_active_view(sec_view)
+      end
     end
     local parent = active_node:get_parent_node(core.root_view.root_node)
     if parent then parent.divider = ratio end

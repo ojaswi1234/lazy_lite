@@ -2075,8 +2075,19 @@ end, {
     core.redraw = true
   end,
 
-  ["pptx:goto-slide"] = function(view)
-    core.command_view:enter("Go to Slide (1.." .. view.slide_count .. ")", {
+  ["pptx:goto-slide"] = function(view, target_slide)
+    if type(view) == "number" then
+      target_slide = view
+      view = core.active_view
+    end
+    view = view or core.active_view
+    if not view or not view.goto_slide then return end
+    if target_slide then
+      view:goto_slide(tonumber(target_slide))
+      core.redraw = true
+      return
+    end
+    core.command_view:enter("Go to Slide (1.." .. (view.slide_count or 1) .. ")", {
       submit = function(text)
         local num = tonumber(text)
         if num then

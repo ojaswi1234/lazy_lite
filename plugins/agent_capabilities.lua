@@ -14,6 +14,44 @@ local Capabilities = {
   registry = {}
 }
 
+local function find_view_of_type(type_name)
+  local function match_view(v)
+    if not v then return false end
+    if type_name == "pptx" then
+      return v.goto_slide ~= nil or v.slideshow_mode ~= nil or (v.doc and v.doc.filename and v.doc.filename:match("%.pptx$"))
+    elseif type_name == "pdf" then
+      return v.goto_page ~= nil or (v.doc and v.doc.filename and v.doc.filename:match("%.pdf$"))
+    elseif type_name == "youtube" then
+      return v.ensure_backend ~= nil or v.playing_title ~= nil
+    end
+    return false
+  end
+
+  if core.active_view and match_view(core.active_view) then
+    return core.active_view
+  end
+
+  local function scan(node)
+    if not node then return nil end
+    if node.views then
+      for _, v in ipairs(node.views) do
+        if match_view(v) then return v end
+      end
+    end
+    if node.a then
+      local res = scan(node.a)
+      if res then return res end
+    end
+    if node.b then
+      local res = scan(node.b)
+      if res then return res end
+    end
+    return nil
+  end
+
+  return scan(core.root_view.root_node)
+end
+
 function Capabilities.register(subsystem_name, descriptor)
   assert(subsystem_name, "Subsystem name required")
   assert(descriptor and descriptor.actions, "Descriptor with actions required")
@@ -211,7 +249,10 @@ Capabilities.register("leetcode", {
 
     fetch_problem = function(p)
       local slug = assert(p.slug or p.title, "Missing problem slug or title")
-      if command.map["leetcode:fetch"] then
+      if command.map["leetcode:open-problem"] then
+        command.perform("leetcode:open-problem", slug)
+        return string.format("Fetched problem '%s' into LeetCode panel.", slug)
+      elseif command.map["leetcode:fetch"] then
         command.perform("leetcode:fetch", slug)
         return string.format("Fetched problem '%s' into LeetCode panel.", slug)
       end
@@ -219,7 +260,10 @@ Capabilities.register("leetcode", {
     end,
 
     run_test = function(p)
-      if command.map["leetcode:run-code"] then
+      if command.map["leetcode:run"] then
+        command.perform("leetcode:run")
+        return "Executed LeetCode test cases. Inspecting results in panel."
+      elseif command.map["leetcode:run-code"] then
         command.perform("leetcode:run-code")
         return "Executed LeetCode test cases. Inspecting results in panel."
       end
@@ -262,31 +306,73 @@ Capabilities.register("pptx", {
   },
   actions = {
     start_slideshow = function(p)
+      local view = find_view_of_type("pptx")
+      if view and view.start_slideshow then
+        view:start_slideshow()
+        core.redraw = true
+        return "Entered fullscreen slideshow mode."
+      end
       command.perform("pptx:start-slideshow")
       return "Entered fullscreen slideshow mode."
     end,
     exit_slideshow = function(p)
+      local view = find_view_of_type("pptx")
+      if view and view.exit_slideshow then
+        view:exit_slideshow()
+        core.redraw = true
+        return "Exited slideshow mode."
+      end
       command.perform("pptx:exit-slideshow")
       return "Exited slideshow mode."
     end,
     goto_slide = function(p)
       local num = assert(p.slide or p.number, "Missing slide number")
-      command.perform("pptx:goto-slide", tonumber(num))
-      return string.format("Navigated to slide %d.", tonumber(num))
+      local view = find_view_of_type("pptx")
+      if view and view.goto_slide then
+        view:goto_slide(tonumber(num) or 1)
+        core.redraw = true
+        return string.format("Navigated to slide %d.", tonumber(num) or 1)
+      end
+      command.perform("pptx:goto-slide", tonumber(num) or 1)
+      return string.format("Navigated to slide %d.", tonumber(num) or 1)
     end,
     next_slide = function(p)
+      local view = find_view_of_type("pptx")
+      if view and view.next_slide then
+        view:next_slide()
+        core.redraw = true
+        return "Advanced to next slide."
+      end
       command.perform("pptx:next-slide")
       return "Advanced to next slide."
     end,
     prev_slide = function(p)
-      command.perform("pptx:prev-slide")
+      local view = find_view_of_type("pptx")
+      if view and view.previous_slide then
+        view:previous_slide()
+        core.redraw = true
+        return "Moved to previous slide."
+      end
+      command.perform("pptx:previous-slide")
       return "Moved to previous slide."
     end,
     toggle_deck = function(p)
-      command.perform("pptx:toggle-deck")
+      local view = find_view_of_type("pptx")
+      if view then
+        view.show_deck = not view.show_deck
+        core.redraw = true
+        return "Toggled slide deck panel."
+      end
+      command.perform("pptx:toggle-thumbnails")
       return "Toggled slide deck panel."
     end,
     toggle_theme = function(p)
+      local view = find_view_of_type("pptx")
+      if view then
+        view.dark_theme = not view.dark_theme
+        core.redraw = true
+        return "Toggled PPTX color theme."
+      end
       command.perform("pptx:toggle-theme")
       return "Toggled PPTX color theme."
     end
@@ -298,20 +384,48 @@ Capabilities.register("pdf", {
   summary = "Native PDF document viewing, page navigation, search, and zooming",
   actions = {
     goto_page = function(p)
-      local pg = assert(p.page, "Missing page number")
-      command.perform("pdf:goto-page", tonumber(pg))
-      return string.format("Navigated to PDF page %d.", tonumber(pg))
+      local pg = assert(p.page or p.number, "Missing page number")
+      local view = find_view_of_type("pdf")
+      if view and view.goto_page then
+        view:goto_page(tonumber(pg) or 1)
+        core.redraw = true
+        return string.format("Navigated to PDF page %d.", tonumber(pg) or 1)
+      end
+      command.perform("pdf:goto-page", tonumber(pg) or 1)
+      return string.format("Navigated to PDF page %d.", tonumber(pg) or 1)
     end,
     next_page = function(p)
+      local view = find_view_of_type("pdf")
+      if view and view.next_page then
+        view:next_page()
+        core.redraw = true
+        return "Next PDF page."
+      end
       command.perform("pdf:next-page")
       return "Next PDF page."
     end,
     prev_page = function(p)
-      command.perform("pdf:prev-page")
+      local view = find_view_of_type("pdf")
+      if view and view.prev_page then
+        view:prev_page()
+        core.redraw = true
+        return "Previous PDF page."
+      end
+      command.perform("pdf:previous-page")
       return "Previous PDF page."
     end,
     zoom = function(p)
       local dir = p.direction or "in"
+      local view = find_view_of_type("pdf")
+      if view then
+        if dir == "in" and view.zoom_in then
+          view:zoom_in()
+        elseif view.zoom_out then
+          view:zoom_out()
+        end
+        core.redraw = true
+        return "Adjusted PDF zoom."
+      end
       command.perform(dir == "in" and "pdf:zoom-in" or "pdf:zoom-out")
       return "Adjusted PDF zoom."
     end
@@ -330,7 +444,10 @@ Capabilities.register("visualizer", {
       return "Visualizer toggle requested."
     end,
     refresh_architecture = function(p)
-      if command.map["ai_project_visualizer:refresh"] then
+      if command.map["ai_project_visualizer:reanalyze"] then
+        command.perform("ai_project_visualizer:reanalyze")
+        return "Refreshed AI Project Visualizer dependency cache."
+      elseif command.map["ai_project_visualizer:refresh"] then
         command.perform("ai_project_visualizer:refresh")
         return "Refreshed AI Project Visualizer dependency cache."
       end
@@ -351,7 +468,10 @@ Capabilities.register("terminal", {
   summary = "Embedded terminal emulator running in split panes",
   actions = {
     toggle = function(p)
-      if command.map["toggle-terminal:toggle"] then
+      if command.map["terminal:toggle"] then
+        command.perform("terminal:toggle")
+        return "Toggled terminal emulator."
+      elseif command.map["toggle-terminal:toggle"] then
         command.perform("toggle-terminal:toggle")
         return "Toggled terminal emulator."
       end
@@ -408,11 +528,32 @@ Capabilities.register("git", {
       return "Git timeline toggle requested."
     end,
     open_diff = function(p)
-      if command.map["git-diff:open"] then
-        command.perform("git-diff:open")
-        return "Opened Git Diff view."
+      local target_file = p.path or p.file or ""
+      local cmd = {"git", "diff"}
+      if target_file ~= "" then
+        table.insert(cmd, target_file)
       end
-      return "Git diff view requested."
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git diff.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local diff_out = proc:read_stdout() or ""
+      if diff_out == "" then
+        return "Working tree clean. No diff to show."
+      end
+
+      local ok, GitDiffView = pcall(require, "plugins.git_diff_view")
+      if ok and GitDiffView then
+        local tab_name = target_file ~= "" and (target_file:match("[^/\\]+$") or target_file) or "Repository"
+        local view = GitDiffView(diff_out, tab_name .. " (Diff)")
+        local node = core.root_view:get_active_node_default()
+        if node then
+          node:add_view(view)
+          node:set_active_view(view)
+          core.redraw = true
+          return string.format("Opened Git Diff view for %s.", tab_name)
+        end
+      end
+      return string.format("Diff output:\n%s", diff_out:sub(1, 1000))
     end,
     status = function(p)
       local proc = process.start({"git", "status", "-s"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
@@ -504,8 +645,9 @@ Capabilities.register("podman", {
       return "Podman toggle requested."
     end,
     list_containers = function(p)
-      local proc = process.start({"podman", "ps", "-a"}, { stdout = process.REDIRECT_PIPE })
-      if not proc then error("Podman executable not found in PATH.") end
+      local cmd = PLATFORM == "Windows" and {"cmd.exe", "/c", "podman ps -a"} or {"podman", "ps", "-a"}
+      local proc = process.start(cmd, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Podman executable not found.") end
       while proc:running() do coroutine.yield(0.05) end
       local out = proc:read_stdout() or ""
       return #out > 0 and out or "No containers running."
@@ -594,7 +736,7 @@ Capabilities.register("youtube", {
   },
   actions = {
     play = function(p)
-      local q = p.query or p.title or p.song or p.name
+      local q = p.query or p.title or p.song or p.name or p.target
       if not q or q == "" then error("Missing 'query' or 'title' to play.") end
       if command.map["youtube-player:quick-play"] then
         command.perform("youtube-player:quick-play", q)
@@ -603,7 +745,7 @@ Capabilities.register("youtube", {
       return "YouTube player plugin not loaded."
     end,
     search = function(p)
-      local q = p.query or p.title
+      local q = p.query or p.title or p.target
       if not q or q == "" then error("Missing 'query'.") end
       if command.map["youtube-player:search"] then
         command.perform("youtube-player:search", q)
@@ -638,6 +780,68 @@ Capabilities.register("youtube", {
         return "Seeked backward 10s."
       end
       return "Seek backward requested."
+    end
+  }
+})
+
+-- ── 14. Register "web_preview" Subsystem ──────────────────────────────────────
+Capabilities.register("web_preview", {
+  summary = "Local HTTP preview server for web projects with hot reloading",
+  actions_meta = {
+    start = "Starts the local web preview server.",
+    stop = "Stops the local web preview server.",
+    restart = "Restarts the web preview server.",
+    copy_url = "Copies local web preview server URL to clipboard."
+  },
+  actions = {
+    start = function(p)
+      if command.map["web-preview:start"] then
+        command.perform("web-preview:start")
+        return "Started local web preview server."
+      end
+      return "Web preview plugin not loaded."
+    end,
+    stop = function(p)
+      if command.map["web-preview:stop"] then
+        command.perform("web-preview:stop")
+        return "Stopped local web preview server."
+      end
+      return "Web preview plugin not loaded."
+    end,
+    restart = function(p)
+      if command.map["web-preview:restart"] then
+        command.perform("web-preview:restart")
+        return "Restarted local web preview server."
+      end
+      return "Web preview plugin not loaded."
+    end,
+    copy_url = function(p)
+      if command.map["web-preview:copy-url"] then
+        command.perform("web-preview:copy-url")
+        return "Copied web preview URL."
+      end
+      return "Web preview plugin not loaded."
+    end
+  }
+})
+
+-- ── 15. Register "markdown" Subsystem ─────────────────────────────────────────
+Capabilities.register("markdown", {
+  summary = "Native rendered Markdown preview with GitHub-flavored markdown support",
+  actions_meta = {
+    preview = "Opens native rendered preview of the active or specified Markdown document."
+  },
+  actions = {
+    preview = function(p)
+      if p.path or p.file then
+        local doc = core.open_doc(p.path or p.file)
+        core.root_view:open_doc(doc)
+      end
+      if command.map["markdown:open-native-preview"] then
+        command.perform("markdown:open-native-preview")
+        return "Opened native Markdown preview."
+      end
+      return "Markdown preview plugin not loaded."
     end
   }
 })

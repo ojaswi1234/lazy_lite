@@ -37,17 +37,32 @@ function Guardrails.log_audit(subsystem, action, target, status, details)
   pcall(function()
     local fp = io.open(Guardrails.audit_file, "a")
     if fp then
-      local entry = string.format(
-        '{"ts":%d,"time":%.2f,"subsystem":%q,"action":%q,"target":%q,"status":%q,"details":%q}\n',
-        os.time(),
-        system.get_time(),
-        tostring(subsystem or "unknown"),
-        tostring(action or "unknown"),
-        tostring(target or ""),
-        tostring(status or "ok"),
-        tostring(details or ""):gsub('"', '\\"'):gsub("\n", " ")
-      )
-      fp:write(entry)
+      local ok_json, json = pcall(require, "plugins.lsp.json")
+      if ok_json and json and json.encode then
+        local entry_tbl = {
+          ts = os.time(),
+          time = system.get_time(),
+          subsystem = tostring(subsystem or "unknown"),
+          action = tostring(action or "unknown"),
+          target = tostring(target or ""),
+          status = tostring(status or "ok"),
+          details = tostring(details or "")
+        }
+        fp:write(json.encode(entry_tbl) .. "\n")
+      else
+        local clean_details = tostring(details or ""):gsub('"', '\\"'):gsub("\r?\n", " ")
+        local entry = string.format(
+          '{"ts":%d,"time":%.2f,"subsystem":"%s","action":"%s","target":"%s","status":"%s","details":"%s"}\n',
+          os.time(),
+          system.get_time(),
+          tostring(subsystem or "unknown"):gsub('"', '\\"'),
+          tostring(action or "unknown"):gsub('"', '\\"'),
+          tostring(target or ""):gsub('"', '\\"'),
+          tostring(status or "ok"):gsub('"', '\\"'),
+          clean_details
+        )
+        fp:write(entry)
+      end
       fp:close()
     end
   end)
@@ -213,10 +228,15 @@ function Guardrails.atomic_patch(doc, target_signature, replacement_code)
   end
 
   -- 4. Push snapshot to rollback stack
+  local copy_lines = {}
+  for idx, line_str in ipairs(doc.lines) do
+    copy_lines[idx] = line_str
+  end
+
   table.insert(Guardrails.snapshots, {
     doc = doc,
     filename = doc.filename,
-    lines = { table.unpack(doc.lines) },
+    lines = copy_lines,
     timestamp = system.get_time(),
     target = target_signature:sub(1, 60)
   })

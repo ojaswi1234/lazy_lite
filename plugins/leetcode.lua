@@ -1849,7 +1849,30 @@ command.add(nil, {
       core.redraw = true
     end)
   end,
-  ["leetcode:open-problem"] = function()
+  ["leetcode:open-problem"] = function(slug)
+    if slug and type(slug) == "string" and #slug > 0 then
+      if not lc_view or not core.root_view.root_node:get_node_for_view(lc_view) then
+        command.perform("leetcode:toggle")
+      end
+      if lc_view then
+        lc_view.state = "loading"
+        lc_view.loading_msg = "Loading " .. slug
+        core.redraw = true
+        api_call({ cmd = "problem_detail", slug = slug }, function(resp)
+          if not lc_view then return end
+          if resp.ok then
+            lc_view.current = resp.data
+            lc_view.state = "problem"
+            lc_view.scroll_y = 0
+          else
+            lc_view.state = "list"; lc_view.search_focus = true
+            core.log("[LeetCode] " .. (resp.error or "Failed to load problem"))
+          end
+          core.redraw = true
+        end)
+      end
+      return
+    end
     if not lc_view or lc_view.state ~= "list" then return end
     local p = lc_view.problems[lc_view.selected_idx]
     if not p then return end

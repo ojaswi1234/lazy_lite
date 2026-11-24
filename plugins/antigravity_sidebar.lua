@@ -2320,15 +2320,24 @@ function AGView:submit(prompt)
   if core.agent_meta_tools then
     local pulse_line = core.agent_meta_tools.pulse and core.agent_meta_tools.pulse() or ""
     host_guidance = pulse_line .. "\n" ..
-      "[LITE-XL AGENTIC HOST: You have direct control over this Lite XL editor and its plugins! " ..
-      "To actuate Lite XL actions, emit: [LITEXL:subsystem:action:{...}]. " ..
-      "Subsystems: " ..
-      "• youtube: play songs/videos directly -> [LITEXL:youtube:play:{\"query\":\"song name\"}] | " ..
-      "• editor: split views or switch tabs -> [LITEXL:editor:open_split:{\"layout\":\"side_by_side\"}] | " ..
-      "• leetcode: run or fetch DSA problems -> [LITEXL:leetcode:fetch_problem:{\"slug\":\"problem-name\"}] | " ..
-      "• terminal: toggle terminal -> [LITEXL:terminal:toggle] | " ..
-      "• git: open diff view -> [LITEXL:git:open_diff]. " ..
-      "NEVER tell the user to paste an HTML iframe or open a link manually when an editor capability exists! Emit the actuation tag directly.]\n\n"
+      "[LITE-XL AGENTIC HOST: You have direct control over this Lite XL editor and all its plugins!\n" ..
+      "CRITICAL: When the user asks to play music/videos, navigate presentations or PDFs, view git diffs, open terminal, solve LeetCode, preview web/markdown, or manage MongoDB/Podman:\n" ..
+      "NEVER tell the user to manually paste an HTML <iframe>, embed code, markdown cell, or open an external link! You MUST actuate the Lite XL host directly by emitting: [LITEXL:subsystem:action:{...}].\n" ..
+      "Available Actuation Subsystems:\n" ..
+      "• youtube: [LITEXL:youtube:play:{\"query\":\"song or artist name\"}] or [LITEXL:youtube:toggle]\n" ..
+      "• editor: [LITEXL:editor:open_split:{\"layout\":\"side_by_side\"}], [LITEXL:editor:open_file:{\"path\":\"...\"}]\n" ..
+      "• leetcode: [LITEXL:leetcode:fetch_problem:{\"slug\":\"two-sum\"}], [LITEXL:leetcode:run_test], [LITEXL:leetcode:submit]\n" ..
+      "• pptx: [LITEXL:pptx:next_slide], [LITEXL:pptx:prev_slide], [LITEXL:pptx:goto_slide:{\"slide\":2}], [LITEXL:pptx:start_slideshow]\n" ..
+      "• pdf: [LITEXL:pdf:next_page], [LITEXL:pdf:prev_page], [LITEXL:pdf:goto_page:{\"page\":5}], [LITEXL:pdf:zoom:{\"direction\":\"in\"}]\n" ..
+      "• web_preview: [LITEXL:web_preview:start], [LITEXL:web_preview:stop], [LITEXL:web_preview:restart]\n" ..
+      "• markdown: [LITEXL:markdown:preview]\n" ..
+      "• terminal: [LITEXL:terminal:toggle]\n" ..
+      "• git: [LITEXL:git:open_diff], [LITEXL:git:open_timeline]\n" ..
+      "• visualizer: [LITEXL:visualizer:visualize_architecture], [LITEXL:visualizer:visualize_terraform]\n" ..
+      "• mongodb: [LITEXL:mongodb:toggle], [LITEXL:mongodb:start_server], [LITEXL:mongodb:new_scratchpad]\n" ..
+      "• podman: [LITEXL:podman:toggle]\n" ..
+      "• voice: [LITEXL:voice:toggle]\n" ..
+      "Emit the [LITEXL:...] tag directly inside your response text and confirm cleanly to the user.]\n\n"
   end
   full_prompt = host_guidance .. full_prompt
   if fname and tool_id == "agy" then
@@ -2847,7 +2856,12 @@ function AGView:update()
                       local params = {}
                       if raw_p and raw_p:match("%S") then
                         local p_ok, parsed = pcall(json.decode, raw_p)
-                        if p_ok and type(parsed) == "table" then params = parsed end
+                        if p_ok and type(parsed) == "table" then
+                          params = parsed
+                        else
+                          local clean_p = raw_p:gsub('^%s*["\']?', ''):gsub('["\']?%s*$', '')
+                          params = { query = clean_p, title = clean_p, song = clean_p, slug = clean_p, path = clean_p, target = clean_p, slide = clean_p, page = clean_p }
+                        end
                       end
                       local exec_ok, res = core.agent_meta_tools.execute(sub, act, params)
                       local badge_icon = exec_ok and "⚡" or "⚠️"

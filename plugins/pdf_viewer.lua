@@ -1371,9 +1371,20 @@ end, {
   ["pdf:find-previous"] = function(view)
     view:prev_match()
   end,
-  ["pdf:goto-page"] = function(view)
-    core.command_view:enter("Go to Page (1-" .. view.page_count .. ")", {
-      text = tostring(view.page),
+  ["pdf:goto-page"] = function(view, target_page)
+    if type(view) == "number" then
+      target_page = view
+      view = core.active_view
+    end
+    view = view or core.active_view
+    if not view or not view.goto_page then return end
+    if target_page then
+      view:goto_page(tonumber(target_page) or view.page)
+      core.redraw = true
+      return
+    end
+    core.command_view:enter("Go to Page (1-" .. (view.page_count or 1) .. ")", {
+      text = tostring(view.page or 1),
       select_text = true,
       show_suggestions = false,
       typeahead = false,
