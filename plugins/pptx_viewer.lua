@@ -22,6 +22,25 @@ local Doc = require "core.doc"
 local RootView = require "core.rootview"
 local process = require "process"
 
+config.plugins.pptx = common.merge({
+  thumbnail_width = 220,
+  default_mode = "hd",
+}, config.plugins.pptx)
+
+local function truncate_text(font, text, max_w)
+  if not text or text == "" then return "" end
+  if font:get_width(text) <= max_w then return text end
+  local ell = "..."
+  local ell_w = font:get_width(ell)
+  if ell_w >= max_w then return ell end
+  local target_w = max_w - ell_w
+  local len = #text
+  while len > 1 and font:get_width(text:sub(1, len)) > target_w do
+    len = len - 1
+  end
+  return text:sub(1, len) .. ell
+end
+
 -- Cached colors for zero GC pressure
 local _COLOR_BG_DARK       = { 16, 18, 22 }
 local _COLOR_BG_STAGE      = { 22, 25, 30 }
@@ -184,9 +203,12 @@ function PptxView:new(filename)
   self.hud_visible = true
   self.hud_timer = 3.5
 
-  -- Layout Sizing
+  -- Layout Sizing & Customization
   self.toolbar_h = 38 * SCALE
-  self.thumbnail_w = 200 * SCALE
+  local cfg_thumb_w = (config.plugins and config.plugins.pptx and config.plugins.pptx.thumbnail_width) or 220
+  self.thumbnail_w = cfg_thumb_w * SCALE
+  self.resizing_thumbnails = false
+  self.hovered_divider = false
   self.notes_h = 130 * SCALE
   self.thumbnail_scroll = { y = 0, to = { y = 0 } }
 
@@ -196,6 +218,10 @@ function PptxView:new(filename)
   self.hud_buttons = {}
   self.hud_rect = nil
   self.hovered_btn = nil
+  self.hovered_tooltip = nil
+  self.hovered_tooltip_rect = nil
+  self.last_mouse_x = 0
+  self.last_mouse_y = 0
   self.font = style.code_font or style.font
 
   -- Caching & Process Management
@@ -305,6 +331,21 @@ function PptxView:prefetch_next_slide()
   end
 end
 
+function PptxView:scroll_thumbnail_into_view(idx)
+  if not self.show_thumbnails then return end
+  local card_h = 56 * SCALE
+  local card_gap = 6 * SCALE
+  local target_y = (idx - 1) * (card_h + card_gap)
+  local view_h = self.size.y - self.toolbar_h - 40 * SCALE
+  if target_y < self.thumbnail_scroll.y then
+    self.thumbnail_scroll.y = target_y
+    core.redraw = true
+  elseif target_y + card_h > self.thumbnail_scroll.y + view_h then
+    self.thumbnail_scroll.y = math.max(0, target_y + card_h - view_h)
+    core.redraw = true
+  end
+end
+
 function PptxView:goto_slide(slide_idx)
   slide_idx = math.max(1, math.min(self.slide_count, slide_idx))
   if self.slide == slide_idx and self.cache[slide_idx .. "_" .. self.mode] then
@@ -315,6 +356,7 @@ function PptxView:goto_slide(slide_idx)
   self.scroll.to.y = 0
   self.blank_screen = nil
   self:request_slide(slide_idx)
+  self:scroll_thumbnail_into_view(slide_idx)
   core.redraw = true
 end
 
@@ -640,14 +682,24 @@ function PptxView:draw_toolbar()
   renderer.draw_rect(x, y + h - 1, w, 1, border)
 
   self.toolbar_buttons = {}
-  local bx = x + 10 * SCALE
+  local bx = x + 8 * SCALE
   local by = y + 5 * SCALE
   local bh = h - 10 * SCALE
+  local is_compact = w < 880 * SCALE
+  local is_ultra_compact = w < 660 * SCALE
 
-  local function draw_btn(id, label, active, bw, accent)
-    bw = bw or (style.font:get_width(label) + 18 * SCALE)
-    local is_hover = self.hovered_btn == id
+  -- Right-aligned search button width reservation
+  local search_lbl = self.search_query and ("Find: " .. self.search_query) or (is_compact and "🔍" or "🔍 Find")
+  local search_w = style.font:get_width(search_lbl) + 16 * SCALE
+  local max_btn_x = x + w - search_w - 12 * SCALE
 
+  local function draw_btn(id, label, active, bw, accent, tooltip)
+    bw = bw or (style.font:get_width(label) + 14 * SCALE)
+    if bx + bw > max_btn_x then
+      return false
+    end
+
+    local is_hover = (self.hovered_btn == id)
     local btn_bg = accent and (is_hover and _COLOR_ACCENT_HOVER or _COLOR_ACCENT)
                     or (active and _COLOR_ACCENT_BG
                     or (is_hover and (style.background2 or _COLOR_BORDER) or bg))
@@ -659,50 +711,66 @@ function PptxView:draw_toolbar()
     renderer.draw_rect(bx, by, bw, bh, border)
     common.draw_text(style.font, btn_fg, label, "center", bx, by, bw, bh)
 
-    table.insert(self.toolbar_buttons, { id = id, x = bx, y = by, w = bw, h = bh })
-    bx = bx + bw + 6 * SCALE
+    table.insert(self.toolbar_buttons, { id = id, x = bx, y = by, w = bw, h = bh, tooltip = tooltip })
+    bx = bx + bw + 4 * SCALE
+    return true
+  end
+
+  local function add_separator()
+    if bx + 8 * SCALE < max_btn_x then
+      renderer.draw_rect(bx + 2 * SCALE, by + 4 * SCALE, 1, bh - 8 * SCALE, border)
+      bx = bx + 7 * SCALE
+    end
   end
 
   -- 1. Prominent Slideshow Launch Button
-  draw_btn("slideshow_start", "Start Slideshow", false, nil, true)
-  bx = bx + 6 * SCALE
+  local show_lbl = is_compact and "▶" or "▶ Slideshow"
+  draw_btn("slideshow_start", show_lbl, false, nil, true, "Start Fullscreen Slideshow (F5)")
+  add_separator()
 
-  -- 2. Slide Navigation Buttons
-  draw_btn("prev_slide", "Previous", false)
-  local slide_str = string.format("Slide %d of %d", self.slide, self.slide_count)
-  local slide_w = style.font:get_width(slide_str) + 18 * SCALE
-  draw_btn("goto_slide", slide_str, false, slide_w)
-  draw_btn("next_slide", "Next", false)
-  bx = bx + 8 * SCALE
+  -- 2. Slide Navigation Buttons [ ◀ ] [ Slide X of Y ] [ ▶ ]
+  draw_btn("prev_slide", "◀", false, 28 * SCALE, false, "Previous Slide (Left / PgUp)")
+  local slide_str = is_ultra_compact and string.format("%d/%d", self.slide, self.slide_count)
+                     or (is_compact and string.format("%d of %d", self.slide, self.slide_count)
+                     or string.format("Slide %d of %d", self.slide, self.slide_count))
+  local slide_w = style.font:get_width(slide_str) + 16 * SCALE
+  draw_btn("goto_slide", slide_str, false, slide_w, false, "Go to Slide (Ctrl+G)")
+  draw_btn("next_slide", "▶", false, 28 * SCALE, false, "Next Slide (Right / PgDown / Space)")
+  add_separator()
 
-  -- 3. Side & Bottom Panels
-  draw_btn("toggle_thumbnails", "Thumbnails", self.show_thumbnails)
-  draw_btn("toggle_notes", "Speaker Notes", self.show_notes)
-  bx = bx + 8 * SCALE
+  -- 3. Side Panels Toggle Buttons [ ▤ Deck ] [ ✎ Notes ]
+  local deck_lbl = is_compact and "▤" or "▤ Deck"
+  draw_btn("toggle_thumbnails", deck_lbl, self.show_thumbnails, nil, false, "Toggle Slide Deck Explorer (Ctrl+T)")
+  local notes_lbl = is_compact and "✎" or "✎ Notes"
+  draw_btn("toggle_notes", notes_lbl, self.show_notes, nil, false, "Toggle Speaker Notes (N)")
+  add_separator()
 
-  -- 4. Zoom & Fit Controls
-  draw_btn("zoom_out", "Zoom -", false)
+  -- 4. Zoom & Fit Controls [ - ] [ 100% ] [ + ] [ ⛶ ]
+  draw_btn("zoom_out", "-", false, 26 * SCALE, false, "Zoom Out (Ctrl+-)")
   local zoom_str = string.format("%d%%", math.floor(self.zoom * 100))
-  draw_btn("zoom_reset", zoom_str, false, 48 * SCALE)
-  draw_btn("zoom_in", "Zoom +", false)
-  draw_btn("zoom_fit", "Fit Slide", false)
-  bx = bx + 8 * SCALE
+  draw_btn("zoom_reset", zoom_str, false, 42 * SCALE, false, "Reset Zoom to 100% (Ctrl+0)")
+  draw_btn("zoom_in", "+", false, 26 * SCALE, false, "Zoom In (Ctrl++)")
+  draw_btn("zoom_fit", "⛶", false, 28 * SCALE, false, "Fit Slide to Window")
+  add_separator()
 
-  -- 5. Render Modes
-  draw_btn("mode_hd", "HD Typography", self.mode == "hd")
-  draw_btn("mode_browsh", "Browsh", self.mode == "browsh")
-  draw_btn("mode_text", "Text", self.mode == "text")
-  draw_btn("toggle_invert", self.inverted and "Dark Mode" or "Light Mode", self.inverted)
+  -- 5. Render Modes: Segmented [ HD | Browsh | Text ]
+  if not is_ultra_compact then
+    draw_btn("mode_hd", "HD", self.mode == "hd", 32 * SCALE, false, "HD Vector & Native FreeType Typography Mode")
+    draw_btn("mode_browsh", "Browsh", self.mode == "browsh", 52 * SCALE, false, "Browsh Half-Block Monospace Matrix Mode")
+    draw_btn("mode_text", "Text", self.mode == "text", 36 * SCALE, false, "Structured Document Text Reader Mode")
+    add_separator()
+  end
 
-  -- 6. Search Button (Right Aligned)
-  local search_lbl = self.search_query and ("Find: " .. self.search_query) or "Find"
-  local sw = style.font:get_width(search_lbl) + 18 * SCALE
-  local sx = x + w - sw - 12 * SCALE
-  local s_hover = self.hovered_btn == "search"
-  renderer.draw_rect(sx, by, sw, bh, s_hover and (style.background2 or _COLOR_BORDER) or bg)
-  renderer.draw_rect(sx, by, sw, bh, border)
-  common.draw_text(style.font, self.search_query and _COLOR_ACCENT or style.dim, search_lbl, "center", sx, by, sw, bh)
-  table.insert(self.toolbar_buttons, { id = "search", x = sx, y = by, w = sw, h = bh })
+  -- 6. Dark / Light Inversion Toggle [ ◐ ]
+  draw_btn("toggle_invert", "◐", self.inverted, 28 * SCALE, false, self.inverted and "Switch to Authentic Light Slide" or "Invert to Dark Mode (Ctrl+I)")
+
+  -- 7. Search Button (Right Aligned)
+  local sx = x + w - search_w - 8 * SCALE
+  local s_hover = (self.hovered_btn == "search")
+  renderer.draw_rect(sx, by, search_w, bh, s_hover and (style.background2 or _COLOR_BORDER) or bg)
+  renderer.draw_rect(sx, by, search_w, bh, border)
+  common.draw_text(style.font, self.search_query and _COLOR_ACCENT or (s_hover and _COLOR_TEXT or style.dim), search_lbl, "center", sx, by, search_w, bh)
+  table.insert(self.toolbar_buttons, { id = "search", x = sx, y = by, w = search_w, h = bh, tooltip = "Search Presentation (Ctrl+F)" })
 end
 
 function PptxView:draw_thumbnails(x, y, w, h)
@@ -713,11 +781,33 @@ function PptxView:draw_thumbnails(x, y, w, h)
   local header_h = 28 * SCALE
   renderer.draw_rect(x, y, w, header_h, style.background3 or _COLOR_BG_STAGE)
   renderer.draw_rect(x, y + header_h - 1, w, 1, style.divider or _COLOR_BORDER)
-  common.draw_text(style.font, _COLOR_TEXT_DIM, "SLIDE DECK (" .. self.slide_count .. ")", "left", x + 12 * SCALE, y + 4 * SCALE, w, header_h)
+
+  local close_w = 22 * SCALE
+  local close_x = x + w - close_w - 4 * SCALE
+  local title_max_w = math.max(20, w - close_w - 14 * SCALE)
+  local header_title = (w >= 140 * SCALE) and ("SLIDE DECK (" .. self.slide_count .. ")") or ("DECK (" .. self.slide_count .. ")")
+  if w < 100 * SCALE then header_title = tostring(self.slide_count) end
+
+  core.push_clip_rect(x, y, title_max_w, header_h)
+  common.draw_text(style.font, _COLOR_TEXT_DIM, header_title, "left", x + 10 * SCALE, y + 4 * SCALE, title_max_w, header_h)
+  core.pop_clip_rect()
+
+  -- Collapse Button [ ◂ ]
+  local is_close_hover = (self.hovered_btn == "deck_close")
+  renderer.draw_rect(close_x, y + 3 * SCALE, close_w, header_h - 6 * SCALE, is_close_hover and _COLOR_BORDER or (style.background2 or _COLOR_BG_DARK))
+  renderer.draw_rect(close_x, y + 3 * SCALE, close_w, header_h - 6 * SCALE, style.divider or _COLOR_BORDER)
+  common.draw_text(style.font, is_close_hover and _COLOR_TEXT or _COLOR_TEXT_DIM, "◂", "center", close_x, y + 3 * SCALE, close_w, header_h - 6 * SCALE)
+  table.insert(self.thumbnail_buttons, {
+    id = "deck_close",
+    x = close_x,
+    y = y + 3 * SCALE,
+    w = close_w,
+    h = header_h - 6 * SCALE,
+    tooltip = "Collapse Slide Deck (Ctrl+T)"
+  })
 
   core.push_clip_rect(x, y + header_h, w, h - header_h)
 
-  self.thumbnail_buttons = {}
   local card_h = 56 * SCALE
   local card_gap = 6 * SCALE
   local cur_y = y + header_h + 8 * SCALE - self.thumbnail_scroll.y
@@ -738,24 +828,41 @@ function PptxView:draw_thumbnails(x, y, w, h)
     renderer.draw_rect(card_x, cur_y, card_w, card_h, card_bg)
     renderer.draw_rect(card_x, cur_y, card_w, card_h, card_border)
 
-    -- Slide Number Pill
-    local pill_w = 26 * SCALE
-    local pill_h = 18 * SCALE
-    local pill_bg = is_active and _COLOR_ACCENT or _COLOR_BORDER
-    local pill_fg = is_active and _COLOR_WHITE or _COLOR_TEXT_DIM
-    renderer.draw_rect(card_x + 8 * SCALE, cur_y + 8 * SCALE, pill_w, pill_h, pill_bg)
-    common.draw_text(style.font, pill_fg, tostring(idx), "center", card_x + 8 * SCALE, cur_y + 8 * SCALE, pill_w, pill_h)
+    if card_w < 100 * SCALE then
+      -- Compact mode: Big centered slide number
+      local pill_w = card_w - 12 * SCALE
+      local pill_h = 24 * SCALE
+      local pill_bg = is_active and _COLOR_ACCENT or _COLOR_BORDER
+      local pill_fg = is_active and _COLOR_WHITE or _COLOR_TEXT
+      renderer.draw_rect(card_x + 6 * SCALE, cur_y + 16 * SCALE, pill_w, pill_h, pill_bg)
+      common.draw_text(style.font, pill_fg, tostring(idx), "center", card_x + 6 * SCALE, cur_y + 16 * SCALE, pill_w, pill_h)
+      if has_notes then
+        renderer.draw_rect(card_x + card_w - 12 * SCALE, cur_y + 6 * SCALE, 6 * SCALE, 6 * SCALE, _COLOR_WARN)
+      end
+    else
+      -- Full card: Slide Number Pill + Title
+      local pill_w = 26 * SCALE
+      local pill_h = 20 * SCALE
+      local pill_bg = is_active and _COLOR_ACCENT or _COLOR_BORDER
+      local pill_fg = is_active and _COLOR_WHITE or _COLOR_TEXT_DIM
+      renderer.draw_rect(card_x + 8 * SCALE, cur_y + 8 * SCALE, pill_w, pill_h, pill_bg)
+      common.draw_text(style.font, pill_fg, tostring(idx), "center", card_x + 8 * SCALE, cur_y + 8 * SCALE, pill_w, pill_h)
 
-    -- Slide Title
-    local title_fg = is_active and _COLOR_WHITE or _COLOR_TEXT
-    local title_x = card_x + pill_w + 14 * SCALE
-    local title_w = card_w - pill_w - 20 * SCALE
-    common.draw_text(style.font, title_fg, title, "left", title_x, cur_y + 8 * SCALE, title_w, pill_h)
+      local title_fg = is_active and _COLOR_WHITE or _COLOR_TEXT
+      local title_x = card_x + pill_w + 12 * SCALE
+      local title_w = card_w - pill_w - 18 * SCALE
 
-    -- Speaker Notes Indicator
-    if has_notes then
-      local note_str = "Notes"
-      common.draw_text(style.font, _COLOR_WARN, note_str, "left", title_x, cur_y + 30 * SCALE, title_w, 18 * SCALE)
+      -- Truncate title cleanly with ellipsis if wider than title_w
+      local display_title = truncate_text(style.font, title, title_w)
+
+      core.push_clip_rect(title_x, cur_y + 4 * SCALE, title_w, card_h - 8 * SCALE)
+      common.draw_text(style.font, title_fg, display_title, "left", title_x, cur_y + 8 * SCALE, title_w, pill_h)
+
+      -- Speaker Notes Indicator
+      if has_notes then
+        common.draw_text(style.font, _COLOR_WARN, "Notes", "left", title_x, cur_y + 30 * SCALE, title_w, 18 * SCALE)
+      end
+      core.pop_clip_rect()
     end
 
     table.insert(self.thumbnail_buttons, {
@@ -764,7 +871,8 @@ function PptxView:draw_thumbnails(x, y, w, h)
       x = card_x,
       y = cur_y,
       w = card_w,
-      h = card_h
+      h = card_h,
+      tooltip = string.format("Slide %d: %s", idx, title)
     })
 
     cur_y = cur_y + card_h + card_gap
@@ -1311,6 +1419,33 @@ function PptxView:draw()
   -- Sticky Toolbar on top
   self:draw_toolbar()
   self:draw_scrollbar()
+
+  -- Draw Divider Drag Handle Highlight
+  if self.show_thumbnails and not self.slideshow_mode then
+    local div_x = tx + self.thumbnail_w
+    if self.hovered_divider or self.resizing_thumbnails then
+      renderer.draw_rect(div_x - 1, ty + self.toolbar_h, 3 * SCALE, th - self.toolbar_h, _COLOR_ACCENT)
+    end
+  end
+
+  -- Draw Floating Tooltip for hovered button
+  if self.hovered_tooltip and not self.slideshow_mode then
+    local font = style.font
+    local tip = self.hovered_tooltip
+    local tw = font:get_width(tip) + 16 * SCALE
+    local th_tip = font:get_height() + 8 * SCALE
+    local br = self.hovered_tooltip_rect or { x = tx, y = ty + self.toolbar_h, w = 30, h = 20 }
+    local tip_x = math.max(tx + 8 * SCALE, math.min(tx + tw - 8 * SCALE, br.x + (br.w - tw) / 2))
+    local tip_y = br.y + br.h + 6 * SCALE
+    if tip_y + th_tip > ty + th then
+      tip_y = math.max(ty + 4 * SCALE, br.y - th_tip - 6 * SCALE)
+    end
+
+    renderer.draw_rect(tip_x - 2, tip_y - 2, tw + 4, th_tip + 4, _COLOR_SHADOW)
+    renderer.draw_rect(tip_x, tip_y, tw, th_tip, _COLOR_BG_DARK)
+    renderer.draw_rect(tip_x, tip_y, tw, th_tip, _COLOR_BORDER_LIGHT)
+    common.draw_text(font, _COLOR_TEXT, tip, "center", tip_x, tip_y, tw, th_tip)
+  end
 end
 
 -- ============================================================================
@@ -1318,6 +1453,9 @@ end
 -- ============================================================================
 
 function PptxView:on_mouse_moved(px, py, dx, dy)
+  self.last_mouse_x = px
+  self.last_mouse_y = py
+
   if self.slideshow_mode then
     self.hud_visible = true
     self.hud_timer = 3.5
@@ -1339,6 +1477,19 @@ function PptxView:on_mouse_moved(px, py, dx, dy)
     return true
   end
 
+  if self.resizing_thumbnails then
+    local new_w = px - self.position.x
+    local min_w = 70 * SCALE
+    local max_w = math.max(min_w, math.floor(self.size.x * 0.6))
+    self.thumbnail_w = math.max(min_w, math.min(max_w, new_w))
+    if config.plugins and config.plugins.pptx then
+      config.plugins.pptx.thumbnail_width = math.floor(self.thumbnail_w / SCALE)
+    end
+    core.request_cursor("sizeh")
+    core.redraw = true
+    return true
+  end
+
   if self.dragging_canvas then
     local dy_drag = py - self.drag_start_y
     local dx_drag = px - self.drag_start_x
@@ -1352,11 +1503,29 @@ function PptxView:on_mouse_moved(px, py, dx, dy)
 
   local old_hover = self.hovered_btn
   self.hovered_btn = nil
+  self.hovered_tooltip = nil
+  self.hovered_tooltip_rect = nil
+
+  -- Check divider hover
+  self.hovered_divider = false
+  if self.show_thumbnails and not self.slideshow_mode then
+    local div_x = self.position.x + self.thumbnail_w
+    if math.abs(px - div_x) <= 4 * SCALE and py >= self.position.y + self.toolbar_h then
+      self.hovered_divider = true
+      core.request_cursor("sizeh")
+      if old_hover ~= nil then core.redraw = true end
+      return true
+    end
+  end
 
   -- Check toolbar buttons
   for _, btn in ipairs(self.toolbar_buttons) do
     if px >= btn.x and px <= btn.x + btn.w and py >= btn.y and py <= btn.y + btn.h then
       self.hovered_btn = btn.id
+      if btn.tooltip then
+        self.hovered_tooltip = btn.tooltip
+        self.hovered_tooltip_rect = { x = btn.x, y = btn.y, w = btn.w, h = btn.h }
+      end
       break
     end
   end
@@ -1366,12 +1535,18 @@ function PptxView:on_mouse_moved(px, py, dx, dy)
     for _, btn in ipairs(self.thumbnail_buttons) do
       if px >= btn.x and px <= btn.x + btn.w and py >= btn.y and py <= btn.y + btn.h then
         self.hovered_btn = btn.id
+        if btn.tooltip then
+          self.hovered_tooltip = btn.tooltip
+          self.hovered_tooltip_rect = { x = btn.x, y = btn.y, w = btn.w, h = btn.h }
+        end
         break
       end
     end
   end
 
-  if self.hovered_btn then
+  if self.hovered_divider then
+    core.request_cursor("sizeh")
+  elseif self.hovered_btn then
     core.request_cursor("hand")
   else
     core.request_cursor("arrow")
@@ -1455,6 +1630,20 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
     return true
   end
 
+  -- Divider click for resizing slide deck
+  if button == "left" and self.hovered_divider then
+    if clicks == 2 then
+      self.thumbnail_w = (self.thumbnail_w == 220 * SCALE) and (90 * SCALE) or (220 * SCALE)
+      if config.plugins and config.plugins.pptx then
+        config.plugins.pptx.thumbnail_width = math.floor(self.thumbnail_w / SCALE)
+      end
+      core.redraw = true
+      return true
+    end
+    self.resizing_thumbnails = true
+    return true
+  end
+
   -- Toolbar Buttons Click
   if py <= self.position.y + self.toolbar_h then
     for _, btn in ipairs(self.toolbar_buttons) do
@@ -1505,7 +1694,11 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
   if self.show_thumbnails and px <= self.position.x + self.thumbnail_w then
     for _, btn in ipairs(self.thumbnail_buttons) do
       if px >= btn.x and px <= btn.x + btn.w and py >= btn.y and py <= btn.y + btn.h then
-        self:goto_slide(btn.slide)
+        if btn.id == "deck_close" then
+          self:toggle_thumbnails()
+        else
+          self:goto_slide(btn.slide)
+        end
         return true
       end
     end
@@ -1526,6 +1719,11 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
 end
 
 function PptxView:on_mouse_released(button, px, py)
+  if self.resizing_thumbnails then
+    self.resizing_thumbnails = false
+    core.redraw = true
+    return true
+  end
   self.dragging_canvas = false
   return PptxView.super.on_mouse_released(self, button, px, py)
 end
@@ -1537,6 +1735,19 @@ function PptxView:on_mouse_wheel(y, x)
     elseif y > 0 then
       self:previous_slide()
     end
+    return true
+  end
+
+  -- Mouse wheel scroll over Slide Deck thumbnails
+  local px = self.last_mouse_x or 0
+  if self.show_thumbnails and px >= self.position.x and px <= self.position.x + self.thumbnail_w then
+    local card_h = 56 * SCALE
+    local card_gap = 6 * SCALE
+    local total_h = self.slide_count * (card_h + card_gap) + 40 * SCALE
+    local view_h = self.size.y - self.toolbar_h
+    local max_scroll = math.max(0, total_h - view_h)
+    self.thumbnail_scroll.y = math.max(0, math.min(max_scroll, self.thumbnail_scroll.y - y * 60 * SCALE))
+    core.redraw = true
     return true
   end
 
@@ -1812,6 +2023,30 @@ end, {
 
   ["pptx:toggle-thumbnails"] = function(view)
     view:toggle_thumbnails()
+  end,
+
+  ["pptx:widen-deck"] = function(view)
+    view.thumbnail_w = math.min(math.floor(view.size.x * 0.6), view.thumbnail_w + 30 * SCALE)
+    if config.plugins and config.plugins.pptx then
+      config.plugins.pptx.thumbnail_width = math.floor(view.thumbnail_w / SCALE)
+    end
+    core.redraw = true
+  end,
+
+  ["pptx:narrow-deck"] = function(view)
+    view.thumbnail_w = math.max(70 * SCALE, view.thumbnail_w - 30 * SCALE)
+    if config.plugins and config.plugins.pptx then
+      config.plugins.pptx.thumbnail_width = math.floor(view.thumbnail_w / SCALE)
+    end
+    core.redraw = true
+  end,
+
+  ["pptx:reset-deck-width"] = function(view)
+    view.thumbnail_w = 220 * SCALE
+    if config.plugins and config.plugins.pptx then
+      config.plugins.pptx.thumbnail_width = 220
+    end
+    core.redraw = true
   end,
 
   ["pptx:toggle-mode"] = function(view)
