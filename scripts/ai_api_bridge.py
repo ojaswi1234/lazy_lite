@@ -3356,7 +3356,7 @@ def main():
                 WHERE checkpoint_ns = ''
                 GROUP BY thread_id
                 ORDER BY max(checkpoint_id) DESC
-                LIMIT 35
+                LIMIT 60
             """)
             top_threads = c.fetchall()
             if not top_threads:
@@ -3428,26 +3428,35 @@ def main():
                         if p_row and p_row[0] != tid:
                             parent_thread = p_row[0]
 
-                # Classify conversation into a semantic group via keyword matching
-                def classify_group(topic, first_q):
+                # Classify conversation into a semantic group via thread/keyword matching
+                def classify_group(thread_id, topic, first_q, msg_turns):
+                    tid_low = (thread_id or "").lower()
+                    fq_low = (first_q or "").strip().lower()
                     combined = (topic + " " + first_q).lower()
-                    if any(k in combined for k in ["security", "auth", "permission", "audit", "guardrail", "token", "exploit", "vulnerab", "credential"]):
+                    if (
+                        tid_low.startswith("test")
+                        or "test_" in tid_low
+                        or any(k in combined for k in ["reply with only", "say hi in", "say hello in", "system_ok"])
+                        or (msg_turns <= 2 and fq_low in {"hi", "hello", "hey", "yo", "ping"})
+                    ):
+                        return "testing"
+                    if any(k in combined for k in ["security", "auth", "permission", "audit", "guardrail", "token", "exploit", "vulnerab", "credential", "reverse engineer", "apk", "binary"]):
                         return "security"
-                    if any(k in combined for k in ["ui", "sidebar", "visual", "layout", "widget", "draw", "render", "style", "css", "design system", "button", "modal"]):
+                    if any(k in combined for k in ["ui", "sidebar", "visual", "layout", "widget", "draw", "render", "style", "css", "design system", "button", "modal", "tree"]):
                         return "ui"
-                    if any(k in combined for k in ["architect", "system design", "design", "plan", "structure", "module", "schema", "database", "api design"]):
+                    if any(k in combined for k in ["architect", "system design", "design", "plan", "structure", "module", "schema", "database", "api design", "refactor"]):
                         return "architecture"
                     if any(k in combined for k in ["devops", "docker", "deploy", "ci", "cd", "terraform", "kubernetes", "infra", "pipeline", "cloud", "aws", "gcp"]):
                         return "devops"
-                    if any(k in combined for k in ["research", "analyz", "study", "benchmark", "survey", "compare", "investigate", "explain"]):
+                    if any(k in combined for k in ["research", "analyz", "study", "benchmark", "survey", "compare", "investigate", "explain", "what mcp", "mcp tools"]):
                         return "research"
                     if any(k in combined for k in ["fix", "bug", "error", "debug", "crash", "traceback", "exception", "issue", "broken", "fail", "patch"]):
                         return "debugging"
-                    if any(k in combined for k in ["build", "compile", "refactor", "implement", "code", "function", "class", "script", "plugin", "lua", "python", "typescript", "javascript"]):
+                    if any(k in combined for k in ["build", "compile", "implement", "code", "function", "class", "script", "plugin", "lua", "python", "typescript", "javascript", "mcp"]):
                         return "dev"
                     return "general"
 
-                group = classify_group(topic_title, first_query[:120]) if not parent_thread else None
+                group = classify_group(tid, topic_title, first_query[:120], turns) if not parent_thread else None
 
                 conversations.append({
                     "thread_id": tid,

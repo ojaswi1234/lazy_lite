@@ -6263,7 +6263,12 @@ function AGView:on_mouse_moved(mx, my, ...)
       self.hover_prune_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
     end
 
-    self.hover_hist_action = nil
+    self.hover_hist_action    = nil
+    self.hover_hist_bough     = nil
+    self.hover_hist_leaf      = nil
+    self.hover_hist_leaf_rect = nil
+    self.hover_hist_node      = nil
+
     if self._hist_action_rects then
       for _, r in ipairs(self._hist_action_rects) do
         if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
@@ -6273,17 +6278,45 @@ function AGView:on_mouse_moved(mx, my, ...)
       end
     end
 
-    self.hover_hist_node = nil
-    if self._hist_node_rects then
-      for _, r in ipairs(self._hist_node_rects) do
-        if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-          self.hover_hist_node = r.thread or r.id
-          break
+    local in_tree_canvas = (not self._hist_tree_bottom) or (my < self._hist_tree_bottom)
+    if in_tree_canvas then
+      if self._hist_bough_rects then
+        for _, r in ipairs(self._hist_bough_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            self.hover_hist_bough = r.group
+            break
+          end
+        end
+      end
+
+      if not self.hover_hist_bough and self._hist_leaf_rects then
+        for _, r in ipairs(self._hist_leaf_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            self.hover_hist_leaf      = r.thread
+            self.hover_hist_leaf_rect = r
+            if not self.pinned_hist_item then
+              self._hover_inspector_item = r.conv
+            end
+            break
+          end
+        end
+      end
+
+      if not self.hover_hist_bough and not self.hover_hist_leaf and self._hist_node_rects then
+        for _, r in ipairs(self._hist_node_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            self.hover_hist_node = r.thread or r.id
+            if not self.pinned_hist_item then
+              self._hover_inspector_item = r.conv
+            end
+            break
+          end
         end
       end
     end
 
-    if self.hover_hist_btn or self.hover_prune_btn or self.hover_hist_action or self.hover_hist_node then
+    if self.hover_hist_btn or self.hover_prune_btn or self.hover_hist_action
+       or self.hover_hist_bough or self.hover_hist_leaf or self.hover_hist_node then
       system.set_cursor("hand")
     else
       system.set_cursor("arrow")
@@ -6511,9 +6544,16 @@ end
   end
 
   function AGView:_layout_history(data)
-    -- Semantic group metadata
-    local GROUP_ORDER = { "dev", "debugging", "ui", "architecture", "security", "devops", "research", "general" }
+    self._raw_history_data = data
+    if not self.collapsed_boughs then
+      -- Default tests/scratch group folded near the roots so real engineering work stands out
+      self.collapsed_boughs = { testing = true }
+    end
+
+    -- Semantic group order (bottom near roots -> top under sunny canopy)
+    local GROUP_ORDER = { "testing", "general", "research", "devops", "security", "architecture", "ui", "debugging", "dev" }
     local GROUP_META = {
+      testing      = { icon = "🧪", label = "Tests & Scratch" },
       dev          = { icon = "🔧", label = "Dev / Code" },
       debugging    = { icon = "🐛", label = "Debugging" },
       ui           = { icon = "🎨", label = "UI / UX" },
@@ -6524,10 +6564,9 @@ end
       general      = { icon = "💬", label = "General" },
     }
 
-    -- Separate forks from root conversations
-    local by_thread = {}
-    local forks = {}
-    local roots = {}
+    local by_thread    = {}
+    local children_map = {}
+    local roots        = {}
 
     for _, conv in ipairs(data) do
       if conv.thread_id then by_thread[conv.thread_id] = conv end
@@ -6535,17 +6574,67 @@ end
 
     for _, conv in ipairs(data) do
       if conv.parent_thread and by_thread[conv.parent_thread] and conv.parent_thread ~= conv.thread_id then
-        forks[conv.parent_thread] = forks[conv.parent_thread] or {}
-        table.insert(forks[conv.parent_thread], conv)
+        children_map[conv.parent_thread] = children_map[conv.parent_thread] or {}
+        table.insert(children_map[conv.parent_thread], conv)
       else
         table.insert(roots, conv)
       end
     end
 
-    -- Sort roots chronologically (older → lower rows, newest near canopy)
+    -- Helper: recursively collect all descendant forks (handles A->B->C multi-depth forks safely)
+    local function collect_descendants(root_tid, out_list, visited, depth, parent_label)
+      local direct = children_map[root_tid]
+      if not direct then return end
+      for _, ch in ipairs(direct) do
+        if ch.thread_id and not visited[ch.thread_id] then
+          visited[ch.thread_id] = true
+          ch.fork_depth        = depth
+          ch.fork_parent_topic = parent_label
+          table.insert(out_list, ch)
+          collect_descendants(ch.thread_id, out_list, visited, depth + 1, ch.topic or ch.thread_id)
+        end
+      end
+    end
+
+    local function clean_topic_str(t)
+      local clean = t or "Conversation"
+      if clean == "default_thread" then
+        return "Main Session"
+      elseif clean:match("^thread_%d+_(%d+)") then
+        local sub = clean:match("^thread_%d+_(%d+)")
+        return "Session #" .. sub:sub(-6)
+      end
+      return clean
+    end
+
+    -- Sort roots chronologically ascending (older lower -> newest near canopy)
     table.sort(roots, function(a, b)
       return (a.id or "") < (b.id or "")
     end)
+
+    local total_forks = 0
+    local latest_root = nil
+    for _, root in ipairs(roots) do
+      root._topic = clean_topic_str(root.topic)
+      local leaves = {}
+      local visited = { [root.thread_id or ""] = true }
+      collect_descendants(root.thread_id, leaves, visited, 1, root._topic)
+      -- Strictly ascending chronological order: oldest (near trunk) -> latest (outer side)
+      table.sort(leaves, function(a, b)
+        return (a.id or "") < (b.id or "")
+      end)
+      for i, lf in ipairs(leaves) do
+        lf._topic      = clean_topic_str(lf.topic)
+        lf.leaf_index  = i
+        lf.leaf_total  = #leaves
+        lf.is_leaf     = true
+        lf.root_thread = root.thread_id
+        lf.root_topic  = root._topic
+      end
+      root.leaves = leaves
+      total_forks = total_forks + #leaves
+      latest_root = root
+    end
 
     -- Bucket roots by semantic group
     local buckets = {}
@@ -6555,9 +6644,9 @@ end
       table.insert(buckets[g], root)
     end
 
-    local nodes    = {}
-    local node_map = {}
-    local row      = 0
+    local nodes     = {}
+    local node_map  = {}
+    local row       = 0
     local bough_idx = 0
 
     for _, g in ipairs(GROUP_ORDER) do
@@ -6565,126 +6654,191 @@ end
       if grp_roots and #grp_roots > 0 then
         bough_idx = bough_idx + 1
         local bough_is_left = (bough_idx % 2 == 1)
-        local meta = GROUP_META[g] or GROUP_META["general"]
+        local meta          = GROUP_META[g] or GROUP_META["general"]
+        local is_collapsed  = self.collapsed_boughs[g] == true
 
-        -- Insert a bough label node (not a conversation card)
+        local grp_forks = 0
+        for _, r in ipairs(grp_roots) do grp_forks = grp_forks + #(r.leaves or {}) end
+
         row = row + 1
+        local bough_label = string.format("%s %s (%d)%s",
+          meta.icon, meta.label, #grp_roots, is_collapsed and " ▸" or " ▾")
         local bough_node = {
           is_bough    = true,
           group       = g,
-          label       = meta.icon .. "  " .. meta.label,
+          label       = bough_label,
+          collapsed   = is_collapsed,
+          conv_count  = #grp_roots,
+          fork_count  = grp_forks,
           row         = row,
           is_left     = bough_is_left,
-          is_root     = false,
-          is_sub      = false,
         }
         table.insert(nodes, bough_node)
 
-        -- Insert each root conversation in this group as children of the bough
-        local conv_idx = 0
-        for _, root in ipairs(grp_roots) do
-          conv_idx = conv_idx + 1
-          row = row + 1
-          root.row          = row
-          root.is_root      = true
-          root.is_sub       = false
-          root.is_bough     = false
-          root.is_left      = bough_is_left
-          root.bough_row    = bough_node.row
-          root.bough_group  = g
-          node_map[root.thread_id] = root
-          table.insert(nodes, root)
-
-          -- Attach forks as sub-branches of this root
-          local children = forks[root.thread_id]
-          if children and #children > 0 then
-            table.sort(children, function(a, b) return (a.id or "") < (b.id or "") end)
-            for _, ch in ipairs(children) do
-              row = row + 1
-              ch.row          = row
-              ch.is_root      = false
-              ch.is_sub       = true
-              ch.is_bough     = false
-              ch.parent_row   = root.row
-              ch.parent_thread = root.thread_id
-              ch.is_left      = bough_is_left
-              ch.bough_row    = bough_node.row
-              ch.bough_group  = g
-              node_map[ch.thread_id] = ch
-              table.insert(nodes, ch)
+        if not is_collapsed then
+          for _, root in ipairs(grp_roots) do
+            row = row + 1
+            root.row         = row
+            root.is_root     = true
+            root.is_leaf     = false
+            root.is_bough    = false
+            root.is_left     = bough_is_left
+            root.bough_row   = bough_node.row
+            root.bough_group = g
+            node_map[root.thread_id] = root
+            for _, lf in ipairs(root.leaves) do
+              lf.is_left = bough_is_left
+              node_map[lf.thread_id] = lf
             end
+            table.insert(nodes, root)
           end
-
-          -- Breathing room between conversations in same bough
-          row = row + 1
         end
 
-        -- Extra spacer row between bough groups
-        row = row + 1
+        -- Small spacer row between boughs
+        row = row + 0.6
       end
     end
 
-    self.history_nodes = nodes
-    self.history_map   = node_map
+    self.history_nodes       = nodes
+    self.history_map         = node_map
+    self._hist_root_total    = #roots
+    self._hist_fork_total    = total_forks
+    self._default_hist_item  = latest_root
+    self._hist_max_row       = nil
+    self._hist_max_row_n     = nil
   end
-  
+
   function AGView:draw_history_tree(x, y, w, h)
-    local P       = get_palette()
-    local C_TR    = _COLOR_CACHE_30    -- Trunk dark brown
-    local C_LEAF  = _COLOR_CACHE_0  -- Light green leaf
-    local C_LEAF_D= _COLOR_CACHE_31  -- Darker green leaf
-    local C_YEAR  = _COLOR_CACHE_0  -- Year green
-    local C_TEXT  = P.fg_muted
-    local f       = style.font
-    local fh      = f:get_height()
+    local P        = get_palette()
+    local C_TR     = _COLOR_CACHE_30    -- Trunk dark brown
+    local C_LEAF   = _COLOR_CACHE_0     -- Bright green leaf (latest/outer)
+    local C_LEAF_D = _COLOR_CACHE_31    -- Deeper green leaf (older/inner)
+    local C_TEXT   = P.fg_muted
+    local f        = style.font
+    local fh       = f:get_height()
+
+    self._hist_bough_rects  = {}
+    self._hist_leaf_rects   = {}
+    self._hist_node_rects   = {}
+    self._hist_action_rects = {}
 
     renderer.draw_rect(x, y, w, h, P.bg)
-    core.push_clip_rect(x, y, w, h)
 
     if self.history_state == "loading" then
+      core.push_clip_rect(x, y, w, h)
       local txt = "🌱 Growing memory tree..."
       local tw = f:get_width(txt)
       renderer.draw_text(f, txt, x + math.floor((w - tw) / 2), y + math.floor(h / 3), C_LEAF)
       core.pop_clip_rect(); return
     elseif self.history_state == "error" then
-      local txt = "⚠️ Error loading timeline. Try typing /prune."
+      core.push_clip_rect(x, y, w, h)
+      local txt = "⚠️ Error loading timeline. Try clicking ✂ Prune."
       local tw = f:get_width(txt)
       renderer.draw_text(f, txt, x + math.floor((w - tw) / 2), y + math.floor(h / 3), _COLOR_CACHE_26)
       core.pop_clip_rect(); return
     end
     if not self.history_nodes or #self.history_nodes == 0 then
+      core.push_clip_rect(x, y, w, h)
       local txt = "🌿 No conversation branches yet."
       local tw = f:get_width(txt)
       renderer.draw_text(f, txt, x + math.floor((w - tw) / 2), y + math.floor(h / 3), C_TEXT)
       core.pop_clip_rect(); return
     end
 
+    -- Split viewport into Scrollable Botanical Tree Canvas + Fixed Bottom Inspector Bar
+    local INSPECTOR_H = math.min(math.floor(h * 0.36), math.floor(fh * 5 + 44 * SCALE))
+    local tree_h      = math.max(120 * SCALE, h - INSPECTOR_H)
+    self._hist_tree_bottom = y + tree_h
+
+    core.push_clip_rect(x, y, w, tree_h)
+
     -- Primitive Drawing Helpers
     local function fill_circle(cx, cy, r, color)
       r = math.max(1, math.floor(r))
-      local step = math.max(1, math.floor(r / 15)) 
+      local step = math.max(1, math.floor(r / 15))
       for dy = -r, r, step do
-        local dx = math.floor(math.sqrt(math.max(0, r*r - dy*dy)))
+        local dx = math.floor(math.sqrt(math.max(0, r * r - dy * dy)))
         renderer.draw_rect(cx - dx, cy + dy, dx * 2, step, color)
       end
     end
 
+    local function wrap_lines(text, font, max_w)
+      local lines = {}
+      for line in (text or ""):gmatch("([^\r\n]+)") do
+        local cur = ""
+        for word in line:gmatch("%S+") do
+          if font:get_width(cur .. " " .. word) > max_w then
+            if cur ~= "" then table.insert(lines, cur) end
+            cur = word
+          else
+            cur = cur == "" and word or (cur .. " " .. word)
+          end
+        end
+        if cur ~= "" then table.insert(lines, cur) end
+      end
+      return lines
+    end
+
+    -- Organic pointed botanical leaf sprouting from stem endpoint along direction
+    local function draw_botanical_leaf(bx, by, dir, side, age_t, is_active, color_fill, color_vein)
+      local stem_len = 8 * SCALE
+      local ux = dir * 0.72
+      local uy = side * 0.69
+      local sx = bx + ux * stem_len
+      local sy = by + uy * stem_len
+
+      -- Petiole stem connecting leaf cleanly to the branch wood
+      local stem_steps = math.max(2, math.floor(stem_len))
+      for s = 0, stem_steps do
+        local u = s / stem_steps
+        renderer.draw_rect(math.floor(bx + ux * stem_len * u), math.floor(by + uy * stem_len * u), 2, 2, C_TR)
+      end
+
+      -- Leaf blade oriented diagonally outward
+      local leaf_len = (12 + 2 * age_t) * SCALE
+      local max_r    = 4.5 * SCALE
+      local tip_x    = sx + ux * leaf_len
+      local tip_y    = sy + uy * leaf_len
+      local mid_x    = sx + ux * (leaf_len * 0.48)
+      local mid_y    = sy + uy * (leaf_len * 0.48)
+
+      if is_active then
+        fill_circle(math.floor(mid_x), math.floor(mid_y), max_r + 3 * SCALE, P.fg_accent)
+      end
+
+      local slices = 10
+      for k = 1, slices - 1 do
+        local u = k / slices
+        local rad = math.max(1, math.sin(math.pi * u) * max_r)
+        local cx = sx + (tip_x - sx) * u
+        local cy = sy + (tip_y - sy) * u
+        fill_circle(math.floor(cx), math.floor(cy), rad, color_fill)
+      end
+
+      -- Delicate leaf midrib vein
+      for k = 2, slices - 2 do
+        local u = k / slices
+        renderer.draw_rect(math.floor(sx + (tip_x - sx) * u), math.floor(sy + (tip_y - sy) * u), 1, 1, color_vein)
+      end
+
+      return math.floor(mid_x), math.floor(mid_y), math.floor(tip_x), math.floor(tip_y)
+    end
+
     -- Layout Math
     local SCROLL  = self.history_scroll_y or 0
-    local ROW_H   = 150 * SCALE
-    local CANOPY  = 240 * SCALE
-    local MARGIN  = 20 * SCALE
+    local ROW_H   = 82 * SCALE
+    local CANOPY  = 210 * SCALE
+    local MARGIN  = 16 * SCALE
 
     -- Central Trunk
-    local TRUNK_W = 24 * SCALE
+    local TRUNK_W  = 22 * SCALE
     local trunk_cx = x + math.floor(w * 0.50)
-    local trunk_x = trunk_cx - math.floor(TRUNK_W / 2)
-    
-    local LEFT_W  = (trunk_x) - x - MARGIN
-    local RIGHT_W = (x + w) - (trunk_x + TRUNK_W) - MARGIN
+    local trunk_x  = trunk_cx - math.floor(TRUNK_W / 2)
+    local LEFT_W   = (trunk_x) - x - MARGIN
+    local RIGHT_W  = (x + w) - (trunk_x + TRUNK_W) - MARGIN
 
     if not self._hist_max_row or self._hist_max_row_n ~= #self.history_nodes then
-      local m = 0
+      local m = 1
       for _, n in ipairs(self.history_nodes) do
         if n.row and n.row > m then m = n.row end
       end
@@ -6692,123 +6846,137 @@ end
       self._hist_max_row_n = #self.history_nodes
     end
     local max_row = self._hist_max_row
-
-    self.history_max_scroll = math.max(0, max_row * ROW_H + CANOPY - h + 100 * SCALE)
+    self.history_max_scroll = math.max(0, max_row * ROW_H + CANOPY - tree_h + 70 * SCALE)
 
     local function cy_of(row)
       return y + CANOPY + (max_row - row) * ROW_H - SCROLL
     end
 
-    -- PASS 1: The Trunk
-    local scroll_trunk_top = cy_of(max_row) - 80 * SCALE
-    local scroll_trunk_bot = cy_of(1) + 150 * SCALE
-    
+    -- PASS 1: The Trunk & Root Flares
+    local scroll_trunk_top = cy_of(max_row) - 65 * SCALE
+    local scroll_trunk_bot = cy_of(1) + 120 * SCALE
     local draw_start_y = math.max(y, scroll_trunk_top)
-    local draw_end_y = math.min(y + h, scroll_trunk_bot)
-    
+    local draw_end_y   = math.min(y + tree_h, scroll_trunk_bot)
+
     if draw_start_y < draw_end_y then
       renderer.draw_rect(trunk_x, draw_start_y, TRUNK_W, draw_end_y - draw_start_y, C_TR)
     end
-    
-    -- Smooth root flares at the bottom
-    if scroll_trunk_bot > y and scroll_trunk_bot < y + h + 50*SCALE then
-      for ri = 1, 10 do
-        fill_circle(trunk_x - ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
-        fill_circle(trunk_x + TRUNK_W + ri*2*SCALE, scroll_trunk_bot - ri*3*SCALE, ri*2*SCALE, C_TR)
+    if scroll_trunk_bot > y and scroll_trunk_bot < y + tree_h + 50 * SCALE then
+      for ri = 1, 9 do
+        fill_circle(trunk_x - ri * 2 * SCALE, scroll_trunk_bot - ri * 2.5 * SCALE, ri * 2 * SCALE, C_TR)
+        fill_circle(trunk_x + TRUNK_W + ri * 2 * SCALE, scroll_trunk_bot - ri * 2.5 * SCALE, ri * 2 * SCALE, C_TR)
       end
     end
 
-    -- PASS 2: Boughs + Solid Curved Branches + Organic Sub-Branches
+    -- PASS 2: Boughs, Branches, & Ascending Fork Leaves
     local function draw_curve_stroke(x0, y0, x1, y1, bend, thick0, thick1, color)
-      local dx = x1 - x0
-      local steps = math.max(1, math.abs(math.floor(dx)))
-      local dir = (dx >= 0) and 1 or -1
+      local dx     = x1 - x0
+      local steps  = math.max(1, math.abs(math.floor(dx)))
+      local dir    = (dx >= 0) and 1 or -1
       local prev_y = y0
       for i = 0, steps do
-        local t = i / steps
-        local bx = x0 + dir * i
+        local t     = i / steps
+        local bx    = x0 + dir * i
         local y_top = y0 + (y1 - y0) * t + bend * (t - t * t)
         local thick = math.max(1, math.floor(thick0 + (thick1 - thick0) * (t ^ 1.5)))
-        local step_span = math.max(thick, math.ceil(math.abs(y_top - prev_y)) + 2)
+        local span  = math.max(thick, math.ceil(math.abs(y_top - prev_y)) + 2)
         local draw_y = (y_top < prev_y) and math.floor(y_top) or math.floor(prev_y)
-        renderer.draw_rect(bx, draw_y, 1, step_span, color)
+        renderer.draw_rect(bx, draw_y, 1, span, color)
         prev_y = y_top
       end
     end
 
-    -- Thick angled bough emanating from the trunk toward the group label
-    local function draw_bough(cy, is_left, label)
+    local function eval_curve_y(y0, y1, bend, t)
+      return y0 + (y1 - y0) * t + bend * (t - t * t)
+    end
+
+    local function draw_bough(cy, is_left, label, group_name, collapsed)
       local dir    = is_left and -1 or 1
       local side_w = is_left and LEFT_W or RIGHT_W
       local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
-      local tip_x  = sx + dir * math.floor(side_w * 0.28)
-      local tip_y  = cy - 18 * SCALE
+      local tip_x  = sx + dir * math.floor(side_w * 0.24)
+      local tip_y  = cy - 12 * SCALE
 
-      draw_curve_stroke(sx, cy, tip_x, tip_y, 16 * SCALE, 26 * SCALE, 10 * SCALE, C_TR)
+      draw_curve_stroke(sx, cy, tip_x, tip_y, 14 * SCALE, 22 * SCALE, 9 * SCALE, C_TR)
+      fill_circle(tip_x, tip_y, 5 * SCALE, C_LEAF_D)
 
-      -- Leaf cluster at bough tip
-      fill_circle(tip_x, tip_y, 6 * SCALE, C_LEAF_D)
-      fill_circle(tip_x + dir * 4 * SCALE, tip_y - 3 * SCALE, 4 * SCALE, C_LEAF)
+      -- Clickable group pill beside bough tip
+      local lw  = f:get_width(label)
+      local pad_x = 8 * SCALE
+      local bw_pill = lw + pad_x * 2
+      local bh_pill = fh + 6 * SCALE
+      local lx = is_left and math.max(x + 6 * SCALE, tip_x - bw_pill - 6 * SCALE)
+                          or math.min(x + w - bw_pill - 6 * SCALE, tip_x + 6 * SCALE)
+      local ly = tip_y - math.floor(bh_pill / 2)
 
-      -- Group label placed beside tip cleanly inside panel bounds
-      local lf = style.font
-      local lw = lf:get_width(label)
-      local lh = lf:get_height()
-      local lx = is_left and math.max(x + 6 * SCALE, tip_x - lw - 10 * SCALE)
-                          or math.min(x + w - lw - 6 * SCALE, tip_x + 10 * SCALE)
-      local ly = tip_y - math.floor(lh / 2)
-      renderer.draw_text(lf, label, lx, ly, C_LEAF)
+      local is_hov_bough = (self.hover_hist_bough == group_name)
+      local pill_bg = is_hov_bough and (P.bg_btn_hl or P.bg_btn) or (P.bg_dark or P.bg)
+      renderer.draw_rect(lx, ly, bw_pill, bh_pill, pill_bg)
+      draw_rect_outline(lx, ly, bw_pill, bh_pill, is_hov_bough and P.fg_accent or (collapsed and P.border or C_LEAF_D))
+      renderer.draw_text(f, label, lx + pad_x, ly + 3 * SCALE, is_hov_bough and P.fg_accent or C_LEAF)
+
+      table.insert(self._hist_bough_rects, {
+        group = group_name,
+        x = lx, y = ly, w = bw_pill, h = bh_pill
+      })
     end
 
-    -- Helper returning start/end anchor points for a conversation branch
-    local function branch_anchors(bough_cy, conv_cy, is_left)
-      local dir    = is_left and -1 or 1
-      local side_w = is_left and LEFT_W or RIGHT_W
-      local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
-      local start_x = bough_cy and (sx + dir * math.floor(side_w * 0.24)) or sx
-      local start_y = bough_cy and (bough_cy - 14 * SCALE) or conv_cy
-      local end_x   = sx + dir * math.floor(side_w * 0.90)
-      local end_y   = conv_cy - 26 * SCALE
-      local bend    = bough_cy and (28 * SCALE) or (45 * SCALE)
-      return start_x, start_y, end_x, end_y, bend
-    end
+    local function draw_branch_and_leaves(n, bough_cy, conv_cy)
+      local is_left = n.is_left
+      local dir     = is_left and -1 or 1
+      local side_w  = is_left and LEFT_W or RIGHT_W
+      local sx      = is_left and trunk_x or (trunk_x + TRUNK_W)
 
-    -- Conversation branch sprouting from a bough rather than the trunk
-    local function draw_bough_branch(bough_cy, conv_cy, is_left)
-      local dir = is_left and -1 or 1
-      local x0, y0, x1, y1, bend = branch_anchors(bough_cy, conv_cy, is_left)
-      draw_curve_stroke(x0, y0, x1, y1, bend, 14 * SCALE, 2 * SCALE, C_TR)
-      fill_circle(x1, math.floor(y1), 4 * SCALE, C_LEAF)
-      fill_circle(x1 + dir * 3 * SCALE, math.floor(y1) - 2 * SCALE, 3 * SCALE, C_LEAF_D)
-    end
+      local x0   = bough_cy and (sx + dir * math.floor(side_w * 0.18)) or sx
+      local y0   = bough_cy and (bough_cy - 10 * SCALE) or conv_cy
+      local x1   = sx + dir * math.floor(side_w * 0.92)
+      local y1   = conv_cy - 10 * SCALE
+      local bend = bough_cy and (24 * SCALE) or (34 * SCALE)
 
-    -- Plain trunk branch (fallback for ungrouped / non-bough convs)
-    local function draw_solid_branch(cy, is_left)
-      local dir = is_left and -1 or 1
-      local x0, y0, x1, y1, bend = branch_anchors(nil, cy, is_left)
-      draw_curve_stroke(x0, y0, x1, y1, bend, 18 * SCALE, 2 * SCALE, C_TR)
-      fill_circle(x1, math.floor(y1), 4 * SCALE, C_LEAF)
-      fill_circle(x1 + dir * 3 * SCALE, math.floor(y1) - 2 * SCALE, 3 * SCALE, C_LEAF_D)
-    end
+      draw_curve_stroke(x0, y0, x1, y1, bend, 11 * SCALE, 2 * SCALE, C_TR)
 
-    -- Sub-branch (fork) sprouting from midpoint of its exact parent branch curve
-    local function draw_sub_branch(parent_bough_cy, parent_cy, child_cy, is_left)
-      local dir = is_left and -1 or 1
-      local px0, py0, px1, py1, pbend = branch_anchors(parent_bough_cy, parent_cy, is_left)
-      local st = 0.42
-      local sprout_x = px0 + (px1 - px0) * st
-      local sprout_y = py0 + (py1 - py0) * st + pbend * (st - st * st)
+      -- Terminal bud at outer tip
+      local leaves = n.leaves or {}
+      if #leaves == 0 then
+        fill_circle(x1, math.floor(y1), 3.5 * SCALE, C_LEAF)
+      else
+        fill_circle(x1, math.floor(y1), 2.5 * SCALE, C_LEAF_D)
+      end
 
-      local side_w = is_left and LEFT_W or RIGHT_W
-      local sx     = is_left and trunk_x or (trunk_x + TRUNK_W)
-      local end_x  = sx + dir * math.floor(side_w * 0.88)
-      local end_y  = child_cy - 24 * SCALE
+      -- Draw forked conversations strictly as Leaves along the branch:
+      -- i = 1 (oldest) near trunk -> i = #leaves (latest) at outer tip
+      local active_inspect = self.pinned_hist_item or self._hover_inspector_item
+      local active_tid     = active_inspect and active_inspect.thread_id or nil
 
-      draw_curve_stroke(sprout_x, sprout_y, end_x, end_y, 20 * SCALE, 8 * SCALE, 2 * SCALE, C_TR)
+      for i, leaf in ipairs(leaves) do
+        local lt = (#leaves == 1) and 0.64 or (0.22 + ((i - 1) / (#leaves - 1)) * 0.66)
+        local bx = math.floor(x0 + (x1 - x0) * lt)
+        local by = math.floor(eval_curve_y(y0, y1, bend, lt))
+        local side  = (i % 2 == 1) and -1 or 1
+        local age_t = (#leaves == 1) and 1.0 or ((i - 1) / (#leaves - 1))
+        local col_f = (age_t > 0.55) and C_LEAF or C_LEAF_D
+        local col_v = (age_t > 0.55) and P.bg or C_LEAF
+        local is_active = (self.hover_hist_leaf == leaf.thread_id) or (active_tid == leaf.thread_id)
 
-      local tip_y = math.floor(end_y)
-      fill_circle(end_x, tip_y, 3.5 * SCALE, C_LEAF)
-      fill_circle(end_x + dir * 2 * SCALE, tip_y - 2 * SCALE, 2.5 * SCALE, C_LEAF_D)
+        local mid_x, mid_y = draw_botanical_leaf(bx, by, dir, side, age_t, is_active, col_f, col_v)
+
+        local hit_r = 10 * SCALE
+        table.insert(self._hist_leaf_rects, {
+          thread       = leaf.thread_id,
+          id           = leaf.id,
+          topic        = leaf._topic or leaf.topic,
+          parent_topic = n._topic,
+          leaf_idx     = i,
+          leaf_total   = #leaves,
+          conv         = leaf,
+          cx           = mid_x,
+          cy           = mid_y,
+          x            = mid_x - hit_r,
+          y            = mid_y - hit_r,
+          w            = hit_r * 2,
+          h            = hit_r * 2
+        })
+      end
     end
 
     local node_by_row = {}
@@ -6818,259 +6986,236 @@ end
 
     for _, n in ipairs(self.history_nodes) do
       local cy = cy_of(n.row)
-      -- Render visible boughs or branches whose parent bough might be scrolled further down
       if n.is_bough then
-        if cy > y - ROW_H and cy < y + h + ROW_H * 6 then
-          draw_bough(cy, n.is_left, n.label or "")
+        if cy > y - ROW_H and cy < y + tree_h + ROW_H * 8 then
+          draw_bough(cy, n.is_left, n.label or "", n.group, n.collapsed)
         end
-      elseif cy > y - ROW_H and cy < y + h + ROW_H then
-        if n.is_sub and n.parent_row then
-          local pnode = node_by_row[n.parent_row]
-          local p_cy  = pnode and cy_of(pnode.row) or cy
-          local pb_node = (pnode and pnode.bough_row) and node_by_row[pnode.bough_row] or nil
-          local pb_cy = pb_node and cy_of(pb_node.row) or nil
-          draw_sub_branch(pb_cy, p_cy, cy, n.is_left)
-        elseif n.bough_row then
-          -- Root conversation that belongs to a bough
-          local bnode = node_by_row[n.bough_row]
-          local b_cy  = bnode and cy_of(bnode.row) or cy
-          draw_bough_branch(b_cy, cy, n.is_left)
-        else
-          draw_solid_branch(cy, n.is_left)
-        end
+      elseif cy > y - ROW_H and cy < y + tree_h + ROW_H then
+        local bnode = n.bough_row and node_by_row[n.bough_row] or nil
+        local b_cy  = bnode and cy_of(bnode.row) or nil
+        draw_branch_and_leaves(n, b_cy, cy)
       end
     end
 
     -- PASS 3: Cloud Canopy
-    local canopy_cy = scroll_trunk_top - 30 * SCALE
-    if canopy_cy > y - 400*SCALE and canopy_cy < y + h + 400*SCALE then
+    local canopy_cy = scroll_trunk_top - 26 * SCALE
+    if canopy_cy > y - 350 * SCALE and canopy_cy < y + tree_h + 350 * SCALE then
       math.randomseed(42)
-      
-      for i=1, 6 do
-         local bx = trunk_cx
-         local by = scroll_trunk_top + 20*SCALE
-         local dir = (i % 2 == 0) and 1 or -1
-         local sweep = math.random() * 80 * SCALE
-         for j=0, 30 do
-             local t = j/30
-             local cx = bx + dir * t * sweep
-             local cy = by - t * 90 * SCALE
-             local r = math.max(1, (8 - t*7)*SCALE)
-             fill_circle(cx, cy, r, C_TR)
-         end
+      for i = 1, 6 do
+        local bx = trunk_cx
+        local by = scroll_trunk_top + 18 * SCALE
+        local dir = (i % 2 == 0) and 1 or -1
+        local sweep = math.random() * 75 * SCALE
+        for j = 0, 26 do
+          local t = j / 26
+          fill_circle(bx + dir * t * sweep, by - t * 80 * SCALE, math.max(1, (7 - t * 6) * SCALE), C_TR)
+        end
       end
-      
       local blobs = {
-          {x=0, y=0, r=60},
-          {x=-50, y=10, r=50},
-          {x=50, y=10, r=50},
-          {x=-80, y=-20, r=45},
-          {x=80, y=-20, r=45},
-          {x=-30, y=-40, r=55},
-          {x=30, y=-40, r=55},
-          {x=0, y=-70, r=50}
+        {x=0, y=0, r=54}, {x=-45, y=10, r=44}, {x=45, y=10, r=44},
+        {x=-72, y=-18, r=40}, {x=72, y=-18, r=40},
+        {x=-28, y=-36, r=48}, {x=28, y=-36, r=48}, {x=0, y=-62, r=44}
       }
-      
       for _, b in ipairs(blobs) do
-          fill_circle(trunk_cx + b.x*SCALE, canopy_cy + b.y*SCALE, b.r*SCALE, C_LEAF_D)
+        fill_circle(trunk_cx + b.x * SCALE, canopy_cy + b.y * SCALE, b.r * SCALE, C_LEAF_D)
       end
       for _, b in ipairs(blobs) do
-          fill_circle(trunk_cx + b.x*SCALE, canopy_cy + b.y*SCALE - 5*SCALE, (b.r-4)*SCALE, C_LEAF)
+        fill_circle(trunk_cx + b.x * SCALE, canopy_cy + b.y * SCALE - 5 * SCALE, (b.r - 4) * SCALE, C_LEAF)
       end
-      
-      for i=1, 60 do
-          local ang = math.random() * math.pi * 2
-          local dist = 60*SCALE + math.random() * 60*SCALE
-          local cx = trunk_cx + math.cos(ang) * dist
-          local cy = canopy_cy - 20*SCALE + math.sin(ang) * dist * 0.6
-          local r = 8*SCALE + math.random()*12*SCALE
-          local c = (math.random() > 0.5) and C_LEAF or C_LEAF_D
-          fill_circle(cx, cy, r, c)
+      for _ = 1, 50 do
+        local ang  = math.random() * math.pi * 2
+        local dist = 54 * SCALE + math.random() * 54 * SCALE
+        local cx   = trunk_cx + math.cos(ang) * dist
+        local cy   = canopy_cy - 18 * SCALE + math.sin(ang) * dist * 0.6
+        local r    = 7 * SCALE + math.random() * 10 * SCALE
+        fill_circle(cx, cy, r, (math.random() > 0.5) and C_LEAF or C_LEAF_D)
       end
-      
-      local tf = style.big_font or style.font
+      local tf        = style.big_font or style.font
       local title_str = "Chat Memory Tree"
-      local tw = tf:get_width(title_str)
-      local th = tf:get_height()
-      local ty = canopy_cy - 10*SCALE - th/2
-      renderer.draw_text(tf, title_str, trunk_cx - tw/2 + 2, ty + 2, _COLOR_CACHE_9)
-      renderer.draw_text(tf, title_str, trunk_cx - tw/2, ty, P.bg)
+      local tw        = tf:get_width(title_str)
+      local th        = tf:get_height()
+      local ty        = canopy_cy - 10 * SCALE - th / 2
+      renderer.draw_text(tf, title_str, trunk_cx - tw / 2 + 2, ty + 2, _COLOR_CACHE_9)
+      renderer.draw_text(tf, title_str, trunk_cx - tw / 2, ty, P.bg)
     end
 
-    -- PASS 4: Text Wrap Cache
-    local function align_wrap(text, font, max_w)
-       local lines = {}
-       for line in text:gmatch("([^\r\n]+)") do
-          local cur = ""
-          for word in line:gmatch("%S+") do
-             if font:get_width(cur .. " " .. word) > max_w then
-                if cur ~= "" then table.insert(lines, cur) end
-                cur = word
-             else
-                cur = cur == "" and word or (cur .. " " .. word)
-             end
-          end
-          if cur ~= "" then table.insert(lines, cur) end
-       end
-       return lines
-    end
+    -- PASS 4 & 5: Compact 1-Line Branch Topic Pills (NEVER cover branch lines or leaves!)
+    local active_inspect = self.pinned_hist_item or self._hover_inspector_item
+    local active_tid     = active_inspect and active_inspect.thread_id or nil
+    local pill_tint      = { P.bg[1], P.bg[2], P.bg[3], 185 }
 
-    for _, n in ipairs(self.history_nodes) do
-      -- Bough nodes are labels only — no card text cache needed
-      if n.is_bough then goto continue_cache end
-      if n._cache_w ~= w then
-        n._cache_w = w
-        local is_left = n.is_left
-        
-        local dt = n.date or ""
-        n._year = dt ~= "" and dt:sub(1, 4) or "Chat"
-        n._date = dt ~= "" and dt:sub(1, 10) or ""
-        
-        local tw = math.floor((is_left and LEFT_W or RIGHT_W) * 0.78) - 24 * SCALE
-        local snippet_src = (n.outcome and n.outcome ~= "") and n.outcome or (n.first_query or "No content")
-        n._lines = align_wrap(snippet_src, f, tw)
-        if #n._lines > 2 then
-           n._lines = { n._lines[1], n._lines[2] .. "..." }
-        end
-        local clean_topic = n.topic or "Conversation"
-        if clean_topic == "default_thread" then
-          clean_topic = "Main Session"
-        elseif clean_topic:match("^thread_%d+_(%d+)") then
-          local sub = clean_topic:match("^thread_%d+_(%d+)")
-          clean_topic = "Session #" .. sub:sub(-6)
-        end
-        n._topic = clean_topic
+    local function truncate_text(font, txt, max_px)
+      if font:get_width(txt) <= max_px then return txt end
+      local ellipsis = ".."
+      local avail = math.max(10, max_px - font:get_width(ellipsis))
+      local cut = txt
+      while #cut > 1 and font:get_width(cut) > avail do
+        cut = cut:sub(1, #cut - 1)
       end
-      ::continue_cache::
+      return cut .. ellipsis
     end
 
-    -- PASS 5: Conversation Cards & Action Buttons
-    self._hist_node_rects = {}
-    self._hist_action_rects = {}
-
-    local card_tint = { P.bg[1], P.bg[2], P.bg[3], 155 }
-    local card_border_idle = { _COLOR_CACHE_30[1], _COLOR_CACHE_30[2], _COLOR_CACHE_30[3], 170 }
-
     for _, n in ipairs(self.history_nodes) do
+      if n.is_bough then goto continue_pills end
       local cy = cy_of(n.row)
-      if cy > y - ROW_H and cy < y + h + ROW_H then
-        -- Bough nodes are drawn in PASS 2 (labels on the limb), no card here
-        if n.is_bough then goto continue_cards end
-        local is_left  = n.is_left
-        local node_key = n.thread_id or n.id
-        local is_hov   = (self.hover_hist_node ~= nil and self.hover_hist_node == node_key)
+      if cy > y - ROW_H and cy < y + tree_h + ROW_H then
+        local is_left    = n.is_left
+        local side_w     = is_left and LEFT_W or RIGHT_W
+        local pill_w     = math.floor(side_w * 0.80)
+        local pill_x     = is_left and (trunk_x - pill_w - math.floor(side_w * 0.14))
+                                   or (trunk_x + TRUNK_W + math.floor(side_w * 0.14))
+        local pill_y     = cy + 12 * SCALE
+        local pill_h     = fh + 8 * SCALE
 
-        -- Leave room near trunk/bough spine so branches stay clearly visible
-        local side_w = is_left and LEFT_W or RIGHT_W
-        local bw = math.floor(side_w * 0.78)
-        local rx = is_left and (trunk_x - bw - math.floor(side_w * 0.16)) or (trunk_x + TRUNK_W + math.floor(side_w * 0.16))
-        if n.is_sub then
-          rx = is_left and (rx - 6 * SCALE) or (rx + 6 * SCALE)
-          bw = bw - 6 * SCALE
-        end
+        local is_hov     = (self.hover_hist_node ~= nil and self.hover_hist_node == n.thread_id)
+        local is_sel     = (active_tid == n.thread_id)
+        local fork_cnt   = n.leaves and #n.leaves or 0
 
-        -- Position card below the curved branch arch (end_y = cy - 26*SCALE)
-        local card_y = cy - 12 * SCALE
-        local n_lines = n._lines and #n._lines or 0
-        local btn_h = fh + 6 * SCALE
-        local content_h = 6 * SCALE + (fh + 3 * SCALE) + (fh + 3 * SCALE) + n_lines * (fh + 2 * SCALE) + (2 * SCALE + fh + 6 * SCALE)
-        local card_h = content_h + (is_hov and (btn_h + 10 * SCALE) or 6 * SCALE)
-
-        -- 1. Background & Border FIRST (never cover branches or card text!)
-        if is_hov then
-          renderer.draw_rect(rx, card_y, bw, card_h, P.bg_btn or P.bg_dark)
-          draw_rect_outline(rx, card_y, bw, card_h, P.border)
+        -- Pill background + crisp border
+        if is_hov or is_sel then
+          renderer.draw_rect(pill_x, pill_y, pill_w, pill_h, P.bg_btn or P.bg_dark)
+          draw_rect_outline(pill_x, pill_y, pill_w, pill_h, is_sel and P.fg_accent or C_LEAF)
         else
-          renderer.draw_rect(rx, card_y, bw, card_h, card_tint)
-          draw_rect_outline(rx, card_y, bw, card_h, card_border_idle)
+          renderer.draw_rect(pill_x, pill_y, pill_w, pill_h, pill_tint)
+          draw_rect_outline(pill_x, pill_y, pill_w, pill_h, _COLOR_CACHE_30)
         end
 
-        -- 2. Card Text SECOND
-        local current_y = card_y + 6 * SCALE
-
-        -- Header: Date + Provider + [🌱 Sub-Branch] if forked
-        local prov_str = ""
-        if n.provider and n.provider ~= "" then
-          local p_short = n.provider:match("([^/]+)$") or n.provider
-          prov_str = "[" .. p_short .. "] "
-        end
-        local badge_tag = n.is_sub and "🌱 Sub-Branch  " or ""
-        local header_txt = badge_tag .. prov_str .. (n._date or "")
-        renderer.draw_text(f, header_txt, rx + 10 * SCALE, current_y, n.is_sub and C_LEAF or (is_hov and P.fg_accent or C_YEAR))
-        current_y = current_y + fh + 3 * SCALE
-
-        -- Topic (Bold)
-        local topic_txt = (n.is_sub and "🌱 " or "• ") .. (n._topic or "Conversation")
-        renderer.draw_text(f, topic_txt, rx + 10 * SCALE, current_y, is_hov and P.fg_accent or P.fg)
-        renderer.draw_text(f, topic_txt, rx + 10 * SCALE + 1, current_y, is_hov and P.fg_accent or P.fg)
-        current_y = current_y + fh + 3 * SCALE
-
-        -- Summary / Snippet lines
-        for _, line in ipairs(n._lines or {}) do
-          renderer.draw_text(f, line, rx + 14 * SCALE, current_y, C_TEXT)
-          current_y = current_y + fh + 2 * SCALE
+        -- Leaf count badge on right edge of pill when branch has forked leaves
+        local badge_str = fork_cnt > 0 and ("🍃" .. tostring(fork_cnt)) or ""
+        local badge_w   = fork_cnt > 0 and (f:get_width(badge_str) + 8 * SCALE) or 0
+        if fork_cnt > 0 then
+          renderer.draw_text(f, badge_str, pill_x + pill_w - badge_w, pill_y + 4 * SCALE, C_LEAF)
         end
 
-        -- Stats footer: turns
-        local turn_txt = "🌿 " .. tostring(n.turns or 1) .. (n.turns == 1 and " turn" or " turns")
-        renderer.draw_text(f, turn_txt, rx + 10 * SCALE, current_y + 2 * SCALE, C_TEXT)
-
-        -- 3. Action Buttons on Hover THIRD (strictly below turn_txt)
-        if is_hov then
-          local btn_y = card_y + card_h - btn_h - 6 * SCALE
-          local resume_txt = "↵ Resume"
-          local fork_txt = "🌱 Fork"
-          local resume_w = f:get_width(resume_txt) + 16 * SCALE
-          local fork_w = f:get_width(fork_txt) + 16 * SCALE
-
-          local resume_x = rx + 10 * SCALE
-          local fork_x = resume_x + resume_w + 10 * SCALE
-
-          -- Resume Button
-          local is_hov_resume = (self.hover_hist_action == "resume_" .. n.thread_id)
-          renderer.draw_rect(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.fg_accent or (P.bg_dark or P.bg))
-          draw_rect_outline(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.fg_accent or P.border)
-          renderer.draw_text(f, resume_txt, resume_x + 8 * SCALE, btn_y + 3 * SCALE, is_hov_resume and P.bg or P.fg_accent)
-
-          -- Fork Button
-          local is_hov_fork = (self.hover_hist_action == "fork_" .. n.thread_id)
-          renderer.draw_rect(fork_x, btn_y, fork_w, btn_h, is_hov_fork and C_LEAF_D or (P.bg_dark or P.bg))
-          draw_rect_outline(fork_x, btn_y, fork_w, btn_h, is_hov_fork and C_LEAF or P.border)
-          renderer.draw_text(f, fork_txt, fork_x + 8 * SCALE, btn_y + 3 * SCALE, is_hov_fork and P.bg or C_LEAF)
-
-          table.insert(self._hist_action_rects, {
-            action = "resume",
-            thread = n.thread_id,
-            id = n.id,
-            topic = n.topic,
-            x = resume_x, y = btn_y, w = resume_w, h = btn_h
-          })
-          table.insert(self._hist_action_rects, {
-            action = "fork",
-            thread = n.thread_id,
-            id = n.id,
-            topic = n.topic,
-            x = fork_x, y = btn_y, w = fork_w, h = btn_h
-          })
-        end
+        local title_max = math.max(24, pill_w - badge_w - 14 * SCALE)
+        local topic_txt = truncate_text(f, "• " .. (n._topic or "Conversation"), title_max)
+        renderer.draw_text(f, topic_txt, pill_x + 7 * SCALE, pill_y + 4 * SCALE, (is_hov or is_sel) and P.fg_accent or P.fg)
 
         table.insert(self._hist_node_rects, {
-          id = n.id,
+          id     = n.id,
           thread = n.thread_id,
-          topic = n.topic,
-          x = rx, y = card_y, w = bw, h = card_h
+          topic  = n._topic or n.topic,
+          conv   = n,
+          x      = pill_x,
+          y      = pill_y,
+          w      = pill_w,
+          h      = pill_h
         })
-        ::continue_cards::
       end
+      ::continue_pills::
     end
 
-    -- PASS 6: Sleek Scrollbar Indicator
+    -- PASS 5B: Floating Micro-Tooltip when hovering a Leaf (no permanent clutter!)
+    if self.hover_hist_leaf_rect then
+      local lr = self.hover_hist_leaf_rect
+      local dt = lr.conv and lr.conv.date and lr.conv.date:sub(1, 10) or ""
+      local tt_txt = string.format("🌱 %d/%d  %s%s",
+        lr.leaf_idx or 1, lr.leaf_total or 1,
+        truncate_text(f, lr.topic or "Fork", math.floor(w * 0.55)),
+        dt ~= "" and (" · " .. dt) or "")
+      local tt_w = f:get_width(tt_txt) + 14 * SCALE
+      local tt_h = fh + 8 * SCALE
+      local tt_x = math.max(x + 6 * SCALE, math.min(x + w - tt_w - 6 * SCALE, math.floor(lr.cx - tt_w / 2)))
+      local tt_y = lr.cy - tt_h - 14 * SCALE
+      if tt_y < y + 4 * SCALE then tt_y = lr.cy + 14 * SCALE end
+      renderer.draw_rect(tt_x, tt_y, tt_w, tt_h, P.bg_dark or P.bg)
+      draw_rect_outline(tt_x, tt_y, tt_w, tt_h, C_LEAF)
+      renderer.draw_text(f, tt_txt, tt_x + 7 * SCALE, tt_y + 4 * SCALE, P.fg)
+    end
+
+    -- PASS 6: Scrollbar Indicator
     if self.history_max_scroll and self.history_max_scroll > 0 then
-      local sb_w = 4 * SCALE
-      local sb_x = x + w - sb_w - 2 * SCALE
-      local sb_thumb_h = math.max(20 * SCALE, math.floor(h * (h / (h + self.history_max_scroll))))
-      local sb_thumb_y = y + math.floor((SCROLL / self.history_max_scroll) * (h - sb_thumb_h))
+      local sb_w       = 4 * SCALE
+      local sb_x       = x + w - sb_w - 2 * SCALE
+      local sb_thumb_h = math.max(20 * SCALE, math.floor(tree_h * (tree_h / (tree_h + self.history_max_scroll))))
+      local sb_thumb_y = y + math.floor((SCROLL / self.history_max_scroll) * (tree_h - sb_thumb_h))
       renderer.draw_rect(sb_x, sb_thumb_y, sb_w, sb_thumb_h, P.border)
+    end
+
+    core.pop_clip_rect()
+
+    -- PASS 7: Docked Bottom Memory Inspector Bar (Full Width, Always Clear & Clickable)
+    local ins_y = y + tree_h
+    renderer.draw_rect(x, ins_y, w, INSPECTOR_H, P.bg_dark or P.bg)
+    renderer.draw_rect(x, ins_y, w, 1, P.border)
+    core.push_clip_rect(x, ins_y, w, INSPECTOR_H)
+
+    local inspect = self.pinned_hist_item or self._hover_inspector_item or self._default_hist_item
+    if inspect then
+      local pad_x = 12 * SCALE
+      local cur_y = ins_y + 8 * SCALE
+      local inner_w = w - pad_x * 2
+
+      -- Line 1: Kind badge + Provider + Date + Pin marker
+      local kind_badge
+      if inspect.is_leaf then
+        kind_badge = string.format("🌱 Fork %d/%d", inspect.leaf_index or 1, inspect.leaf_total or 1)
+      else
+        local fc = inspect.leaves and #inspect.leaves or 0
+        kind_badge = fc > 0 and string.format("🌳 Branch · %d %s", fc, fc == 1 and "leaf" or "leaves") or "🌳 Branch"
+      end
+      local pin_tag  = (self.pinned_hist_item and self.pinned_hist_item.thread_id == inspect.thread_id) and "📌 " or ""
+      local p_short  = (inspect.provider and inspect.provider ~= "") and ("[" .. (inspect.provider:match("([^/]+)$") or inspect.provider) .. "] ") or ""
+      local dt_str   = inspect.date or ""
+      local meta_txt = pin_tag .. kind_badge .. "  " .. p_short .. dt_str
+      renderer.draw_text(f, truncate_text(f, meta_txt, inner_w), x + pad_x, cur_y, inspect.is_leaf and C_LEAF or P.fg_accent)
+      cur_y = cur_y + fh + 3 * SCALE
+
+      -- Line 2: Bold Topic
+      local title_txt = truncate_text(f, inspect._topic or inspect.topic or "Conversation", inner_w)
+      renderer.draw_text(f, title_txt, x + pad_x, cur_y, P.fg)
+      renderer.draw_text(f, title_txt, x + pad_x + 1, cur_y, P.fg)
+      cur_y = cur_y + fh + 3 * SCALE
+
+      -- Lines 3-4: 2-line Outcome / First Query summary
+      local snip_src = (inspect.outcome and inspect.outcome ~= "") and inspect.outcome or (inspect.first_query or "No summary available")
+      local snip_lines = wrap_lines(snip_src, f, inner_w)
+      for li = 1, math.min(2, #snip_lines) do
+        local line_txt = (li == 2 and #snip_lines > 2) and (truncate_text(f, snip_lines[li], inner_w - 18 * SCALE) .. "...") or snip_lines[li]
+        renderer.draw_text(f, line_txt, x + pad_x, cur_y, C_TEXT)
+        cur_y = cur_y + fh + 2 * SCALE
+      end
+
+      -- Footer: Turns + Action Buttons anchored at bottom
+      local btn_h = fh + 6 * SCALE
+      local btn_y = ins_y + INSPECTOR_H - btn_h - 8 * SCALE
+      local turn_str = "🌿 " .. tostring(inspect.turns or 1) .. (inspect.turns == 1 and " turn" or " turns")
+      renderer.draw_text(f, turn_str, x + pad_x, btn_y + 3 * SCALE, C_TEXT)
+
+      local resume_txt = "↵ Resume"
+      local fork_txt   = "🌱 Fork"
+      local resume_w   = f:get_width(resume_txt) + 16 * SCALE
+      local fork_w     = f:get_width(fork_txt) + 16 * SCALE
+      local fork_x     = x + w - pad_x - fork_w
+      local resume_x   = fork_x - 8 * SCALE - resume_w
+
+      local is_hov_resume = (self.hover_hist_action == "resume_" .. inspect.thread_id)
+      renderer.draw_rect(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.fg_accent or (P.bg_btn or P.bg))
+      draw_rect_outline(resume_x, btn_y, resume_w, btn_h, is_hov_resume and P.fg_accent or P.border)
+      renderer.draw_text(f, resume_txt, resume_x + 8 * SCALE, btn_y + 3 * SCALE, is_hov_resume and P.bg or P.fg_accent)
+
+      local is_hov_fork = (self.hover_hist_action == "fork_" .. inspect.thread_id)
+      renderer.draw_rect(fork_x, btn_y, fork_w, btn_h, is_hov_fork and C_LEAF_D or (P.bg_btn or P.bg))
+      draw_rect_outline(fork_x, btn_y, fork_w, btn_h, is_hov_fork and C_LEAF or P.border)
+      renderer.draw_text(f, fork_txt, fork_x + 8 * SCALE, btn_y + 3 * SCALE, is_hov_fork and P.bg or C_LEAF)
+
+      table.insert(self._hist_action_rects, {
+        action = "resume",
+        thread = inspect.thread_id,
+        id     = inspect.id,
+        topic  = inspect._topic or inspect.topic,
+        x = resume_x, y = btn_y, w = resume_w, h = btn_h
+      })
+      table.insert(self._hist_action_rects, {
+        action = "fork",
+        thread = inspect.thread_id,
+        id     = inspect.id,
+        topic  = inspect._topic or inspect.topic,
+        x = fork_x, y = btn_y, w = fork_w, h = btn_h
+      })
+    else
+      local hint = "🌳 Hover or click any branch or leaf to inspect · Click boughs to fold/unfold"
+      renderer.draw_text(f, hint, x + 12 * SCALE, ins_y + math.floor((INSPECTOR_H - fh) / 2), C_TEXT)
     end
 
     core.pop_clip_rect()
@@ -7210,6 +7355,38 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
 
   -- Full isolation for Chat Memory Tree View (prevents any background click-through)
   if self.show_history_tree then
+    local function open_history_thread(target_thread, checkpoint_id, topic, is_fork)
+      self.show_history_tree = false
+      self.show_skills_modal = false
+      self.enable_tools = false
+      self.marketplace_skills = nil
+      self:state().sessions = {}
+      self:state().has_session = true
+      self:state().status = "idle"
+      self:state().checkpoint_id = checkpoint_id
+
+      if is_fork then
+        local new_thread = "thread_" .. os.time() .. "_" .. math.random(100000, 999999)
+        core.log("Forking thread " .. tostring(target_thread) .. " into new sub-branch: " .. new_thread)
+        self:state().cid = new_thread
+        self:state().thread_id = new_thread
+        self:state().parent_thread_id = target_thread
+        self:_add_session("ai", "🌱 Sprouting new sub-branch from: `" .. tostring(topic or target_thread) .. "`...\nCloning memory lineage...")
+        self:state().scroll_to_bottom = true
+        core.redraw = true
+        self:_rehydrate_thread_messages(target_thread, checkpoint_id, { topic = topic, is_fork = true })
+      else
+        core.log("Resuming thread: " .. tostring(target_thread))
+        self:state().cid = target_thread
+        self:state().thread_id = target_thread
+        self:state().parent_thread_id = nil
+        self:_add_session("ai", "Resuming conversation thread: " .. tostring(target_thread) .. "...\nLoading past conversation...")
+        self:state().scroll_to_bottom = true
+        core.redraw = true
+        self:_rehydrate_thread_messages(target_thread, checkpoint_id, nil)
+      end
+    end
+
     if button == "left" then
       -- 1. Check Header Close Button
       if self._hist_toggle_rect then
@@ -7231,80 +7408,66 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         end
       end
 
-      -- 3. Check Action Buttons (Fork or Resume)
-      local handled_action = false
+      -- 3. Check Bottom Inspector Action Buttons (Fork or Resume)
       if self._hist_action_rects then
         for _, r in ipairs(self._hist_action_rects) do
           if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-            handled_action = true
-            if r.action == "fork" then
-              local new_thread = "thread_" .. os.time() .. "_" .. math.random(100000, 999999)
-              core.log("Forking thread " .. r.thread .. " into new sub-branch: " .. new_thread)
-              self.show_history_tree = false
-              self.show_skills_modal = false
-              self.enable_tools = false
-              self.marketplace_skills = nil
-              self:state().cid = new_thread
-              self:state().thread_id = new_thread
-              self:state().parent_thread_id = r.thread
-              self:state().checkpoint_id = r.id
-              self:state().sessions = {}
-              self:state().has_session = true
-              self:state().status = "idle"
-              self:_add_session("ai", "🌱 Sprouting new sub-branch from: `" .. (r.topic or r.thread) .. "`...\nCloning memory lineage...")
-              self:state().scroll_to_bottom = true
-              core.redraw = true
-              self:_rehydrate_thread_messages(r.thread, r.id, { topic = r.topic, is_fork = true })
-              return true
-            elseif r.action == "resume" then
-              core.log("Resuming thread: " .. r.thread)
-              self.show_history_tree = false
-              self.show_skills_modal = false
-              self.enable_tools = false
-              self.marketplace_skills = nil
-              self:state().cid = r.thread
-              self:state().thread_id = r.thread
-              self:state().parent_thread_id = nil
-              self:state().checkpoint_id = r.id
-              self:state().sessions = {}
-              self:state().has_session = true
-              self:state().status = "idle"
-              self:_add_session("ai", "Resuming conversation thread: " .. r.thread .. "...\nLoading past conversation...")
-              self:state().scroll_to_bottom = true
-              core.redraw = true
-              self:_rehydrate_thread_messages(r.thread, r.id, nil)
-              return true
-            end
-          end
-        end
-      end
-
-      -- 4. Check Card Backgrounds (Default to Resume)
-      if not handled_action and self._hist_node_rects then
-        for _, r in ipairs(self._hist_node_rects) do
-          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
-            core.log("Resuming thread: " .. r.thread)
-            self.show_history_tree = false
-            self.show_skills_modal = false
-            self.enable_tools = false
-            self.marketplace_skills = nil
-            self:state().cid = r.thread
-            self:state().thread_id = r.thread
-            self:state().parent_thread_id = nil
-            self:state().checkpoint_id = r.id
-            self:state().sessions = {}
-            self:state().has_session = true
-            self:state().status = "idle"
-            self:_add_session("ai", "Resuming conversation thread: " .. r.thread .. "...\nLoading past conversation...")
-            self:state().scroll_to_bottom = true
-            core.redraw = true
-            self:_rehydrate_thread_messages(r.thread, r.id, nil)
+            open_history_thread(r.thread, r.id, r.topic, r.action == "fork")
             return true
           end
         end
       end
 
-      -- Consume all other left clicks inside memory tree to prevent click-through to background chat/autopilot controls!
+      -- 4. Check Bough Collapse / Expand Toggles
+      if self._hist_bough_rects and self._raw_history_data then
+        for _, r in ipairs(self._hist_bough_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            self.collapsed_boughs = self.collapsed_boughs or {}
+            self.collapsed_boughs[r.group] = not self.collapsed_boughs[r.group]
+            self:_layout_history(self._raw_history_data)
+            self.history_scroll_y = math.max(0, math.min(self.history_max_scroll or 0, self.history_scroll_y or 0))
+            core.redraw = true
+            return true
+          end
+        end
+      end
+
+      -- 5. Check Fork Leaves (single click pins in Inspector; double-click resumes directly)
+      if self._hist_leaf_rects then
+        for _, r in ipairs(self._hist_leaf_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            if clicks and clicks >= 2 then
+              open_history_thread(r.thread, r.id, r.topic, false)
+            else
+              self.pinned_hist_item = r.conv
+              self._hover_inspector_item = r.conv
+              core.redraw = true
+            end
+            return true
+          end
+        end
+      end
+
+      -- 6. Check Branch Topic Pills (single click pins in Inspector; double-click resumes directly)
+      if self._hist_node_rects then
+        for _, r in ipairs(self._hist_node_rects) do
+          if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+            if clicks and clicks >= 2 then
+              open_history_thread(r.thread, r.id, r.topic, false)
+            else
+              self.pinned_hist_item = r.conv
+              self._hover_inspector_item = r.conv
+              core.redraw = true
+            end
+            return true
+          end
+        end
+      end
+
+      -- 7. Empty tree canvas click clears pin (returns Inspector to live hover)
+      if not self._hist_tree_bottom or my < self._hist_tree_bottom then
+        self.pinned_hist_item = nil
+      end
       core.redraw = true
       return true
     end
@@ -10227,8 +10390,9 @@ function AGView:draw(...)
     -- Header Title
     local icon_str = "🌳 "
     local title_str = "Memory Tree"
-    local node_cnt = (self.history_nodes and #self.history_nodes or 0)
-    local sub_str = string.format("(%d conversations)", node_cnt)
+    local root_cnt = self._hist_root_total or 0
+    local fork_cnt = self._hist_fork_total or 0
+    local sub_str = string.format("(%d branches · %d leaves)", root_cnt, fork_cnt)
     
     local ty = y + math.floor((header_h - tf:get_height()) / 2)
     renderer.draw_text(tf, icon_str .. title_str, x + pad, ty, P.fg_accent)
