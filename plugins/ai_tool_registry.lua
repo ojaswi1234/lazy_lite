@@ -263,6 +263,9 @@ M.REGISTRY = {
       if cfg.session_id then
         a[#a+1] = "--thread-id"; a[#a+1] = cfg.session_id
       end
+      if cfg.checkpoint_id then
+        a[#a+1] = "--checkpoint-id"; a[#a+1] = cfg.checkpoint_id
+      end
       
       if cfg.active_skill then
         a[#a+1] = "--active-skill"; a[#a+1] = cfg.active_skill

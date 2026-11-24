@@ -1633,7 +1633,109 @@ class UniversalToolRanker:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:budget]
 
-def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None):
+def get_db_path() -> str:
+    config_dir = os.path.dirname(os.path.abspath(__file__))
+    p = os.path.join(config_dir, "ai_threads.db")
+    if os.path.exists(p):
+        return p
+    user_home = os.environ.get("USERPROFILE") or os.environ.get("HOME") or ""
+    alt = os.path.join(user_home, ".config", "lite-xl", "scripts", "ai_threads.db")
+    if os.path.exists(alt):
+        return alt
+    return p
+
+def clean_prompt_text(text: str) -> str:
+    if not isinstance(text, str): return ""
+    text = re.sub(r'\[IDE:[^\]]*\]\s*', '', text)
+    text = re.sub(r'\[LITE-XL AGENTIC HOST:[\s\S]*?confirm cleanly to the user\.\]\s*', '', text)
+    text = re.sub(r'\[READ-ONLY MODE:[\s\S]*?\]\s*', '', text)
+    text = re.sub(r'\[SYSTEM CONTEXT:[\s\S]*?\]\s*', '', text)
+    text = re.sub(r'\[Read this pasted text from file: [^\]]+\]\s*', '', text)
+    return text.strip()
+
+def build_recent_memory_context(db_path: str, current_thread_id: Optional[str] = None, limit: int = 5) -> str:
+    """Extracts high-level task summaries and outcomes from recent distinct conversation threads."""
+    if not os.path.exists(db_path):
+        return ""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=5.0)
+        c = conn.cursor()
+        c.execute("""
+            SELECT thread_id, max(checkpoint_id) as last_cp
+            FROM checkpoints 
+            WHERE checkpoint_ns = '' AND (thread_id != ? OR ? IS NULL)
+            GROUP BY thread_id 
+            ORDER BY max(checkpoint_id) DESC 
+            LIMIT ?
+        """, (current_thread_id or "", current_thread_id, limit))
+        rows = c.fetchall()
+        if not rows:
+            conn.close()
+            return ""
+        
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        memory = SqliteSaver(conn)
+        thread_summaries = []
+        for tid, last_cp in rows:
+            c.execute("SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? AND checkpoint_id = ?", (tid, last_cp))
+            cp_row = c.fetchone()
+            if not cp_row: continue
+            try:
+                cp = memory.serde.loads_typed((cp_row[0], cp_row[1]))
+            except Exception:
+                continue
+            
+            msgs = cp.get("channel_values", {}).get("messages", [])
+            human_msgs = []
+            ai_msgs = []
+            for m in msgs:
+                mtype = getattr(m, "type", "")
+                content = getattr(m, "content", "")
+                if mtype == "human" and content:
+                    if isinstance(content, list):
+                        content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+                    clean_h = clean_prompt_text(str(content))
+                    if clean_h: human_msgs.append(clean_h)
+                elif mtype == "ai" and content:
+                    if isinstance(content, list):
+                        content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+                    ai_msgs.append(str(content))
+                    
+            if not human_msgs: continue
+            
+            first_user = human_msgs[0]
+            if len(first_user) > 120: first_user = first_user[:120].replace('\n', ' ') + "..."
+            
+            last_ai = ai_msgs[-1] if ai_msgs else ""
+            if len(last_ai) > 200: last_ai = last_ai[:200].replace('\n', ' ') + "..."
+            
+            ts = cp.get("ts", "")[:16].replace("T", " ")
+            t_title = tid
+            if t_title.startswith("thread_"):
+                parts = t_title.split("_")
+                if len(parts) >= 2:
+                    t_title = f"Session ({parts[1][-6:]})"
+                    
+            thread_summaries.append(
+                f"- [{ts}] {t_title}:\n"
+                f"  User Query: \"{first_user}\"\n"
+                f"  AI Outcome: \"{last_ai}\""
+            )
+        conn.close()
+        
+        if not thread_summaries: return ""
+        return (
+            "\n\n=== RECENT CONVERSATIONS & ACTIVITY MEMORY ===\n"
+            "You have persistent memory across conversations. Below are the key tasks, user requests, and outcomes from recent sessions:\n"
+            + "\n".join(thread_summaries) + "\n"
+            "When the user asks to recall previous discussions, security fixes, diagrams, files edited, or recent work, refer to this memory context directly!\n"
+            "==============================================\n\n"
+        )
+    except Exception:
+        return ""
+
+def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, workspace, thread_id, enable_tools=True, active_skill=None, skill_state=None, team_config_file=None, checkpoint_id=None):
     async def _run_agent_async():
         try:
             from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
@@ -1983,6 +2085,9 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
             messages: Annotated[list, add_messages]
 
         ws_context = f"\nCURRENT WORKSPACE: {workspace}\n" if workspace else "\n"
+        db_path = get_db_path()
+        recent_memory_ctx = build_recent_memory_context(db_path, thread_id, limit=5)
+        ws_context = ws_context + recent_memory_ctx
         
         # Attachments directory setup
         base_dir = os.path.expanduser("~")
@@ -2595,8 +2700,7 @@ HOW TO ACT:
         from contextlib import AsyncExitStack
         pass
 
-        config_dir = os.path.dirname(os.path.abspath(__file__))
-        db_path = os.path.join(config_dir, "ai_threads.db")
+        db_path = get_db_path()
 
         async with AsyncExitStack() as stack:
             mcp_tools = []
@@ -2781,7 +2885,10 @@ HOW TO ACT:
                 
                 try:
                     inputs = {"messages": [HumanMessage(content=prompt)]}
-                    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 60 if autopilot else 30}
+                    config_dict = {"thread_id": thread_id}
+                    if checkpoint_id:
+                        config_dict["checkpoint_id"] = checkpoint_id
+                    config = {"configurable": config_dict, "recursion_limit": 60 if autopilot else 30}
                     await graph.ainvoke(inputs, config=config)
                 except Exception as e:
                     err_str = str(e)
@@ -2801,6 +2908,8 @@ def main():
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--prompt-file", type=str, help="Read prompt directly from file to bypass command line limits")
     parser.add_argument("--thread-id", type=str, default="default_thread")
+    parser.add_argument("--checkpoint-id", type=str, help="Resume from a specific checkpoint in the thread")
+    parser.add_argument("--get-thread-messages", type=str, help="Extract conversation messages for a thread")
     parser.add_argument("--get-history", action="store_true")
     parser.add_argument("--enable-tools", action="store_true")
     parser.add_argument("--disable-tools", action="store_true")
@@ -2921,63 +3030,145 @@ def main():
         args.prompt = re.sub(r'\[Read this pasted text from file: (.*?)\]', replace_pasted_text, args.prompt)
 
     
+    if args.get_thread_messages:
+        db_path = get_db_path()
+        if not os.path.exists(db_path):
+            print("return {}")
+            sys.exit(0)
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=5.0)
+        c = conn.cursor()
+        c.execute("SELECT checkpoint_id FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_id DESC LIMIT 1", (args.get_thread_messages,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            print("return {}")
+            sys.exit(0)
+        last_cp_id = row[0]
+        c.execute("SELECT type, checkpoint FROM checkpoints WHERE thread_id = ? AND checkpoint_id = ?", (args.get_thread_messages, last_cp_id))
+        r = c.fetchone()
+        if not r:
+            conn.close()
+            print("return {}")
+            sys.exit(0)
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        memory = SqliteSaver(conn)
+        try:
+            cp = memory.serde.loads_typed((r[0], r[1]))
+        except Exception:
+            conn.close()
+            print("return {}")
+            sys.exit(0)
+        conn.close()
+
+        def to_lua_string(s):
+            if not isinstance(s, str): return 'nil'
+            eq = '='
+            while f']{eq}]' in s: eq += '='
+            return f'[{eq}[{s}]{eq}]'
+
+        msgs = cp.get("channel_values", {}).get("messages", [])
+        lua_lines = ["return {"]
+        for m in msgs:
+            m_type = getattr(m, "type", "")
+            content = getattr(m, "content", "")
+            if not content: continue
+            if isinstance(content, list):
+                content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+            content_str = str(content)
+            if not content_str: continue
+
+            if m_type == "human":
+                clean_text = clean_prompt_text(content_str)
+                if clean_text:
+                    txt = to_lua_string(clean_text)
+                    lua_lines.append(f'  {{ role = "user", text = {txt} }},')
+            elif m_type == "ai":
+                txt = to_lua_string(content_str)
+                lua_lines.append(f'  {{ role = "ai", text = {txt} }},')
+        lua_lines.append("}")
+        print("\n".join(lua_lines))
+        sys.exit(0)
+
     if args.get_history:
         import sqlite3
-        pass
-        config_dir = os.path.dirname(os.path.abspath(__file__))
-        db_path = os.path.join(config_dir, "ai_threads.db")
+        db_path = get_db_path()
         if not os.path.exists(db_path):
             print("return {}")
             sys.exit(0)
             
-        conn = sqlite3.connect(db_path, timeout=10.0)
+        conn = sqlite3.connect(db_path, timeout=5.0)
         c = conn.cursor()
         try:
             from langgraph.checkpoint.sqlite import SqliteSaver
             memory = SqliteSaver(conn)
-            c.execute("SELECT thread_id, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata FROM checkpoints WHERE checkpoint_ns = '' ORDER BY thread_id, checkpoint_id")
+            
+            c.execute("""
+                SELECT thread_id
+                FROM checkpoints
+                WHERE checkpoint_ns = ''
+                GROUP BY thread_id
+                ORDER BY max(checkpoint_id) DESC
+                LIMIT 20
+            """)
+            top_threads = [r[0] for r in c.fetchall()]
+            if not top_threads:
+                conn.close()
+                print("return {}")
+                sys.exit(0)
+
+            placeholders = ','.join('?' * len(top_threads))
+            query = f"""
+                SELECT thread_id, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata
+                FROM (
+                    SELECT thread_id, checkpoint_id, parent_checkpoint_id, type, checkpoint, metadata,
+                           ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY checkpoint_id DESC) as rn
+                    FROM checkpoints
+                    WHERE thread_id IN ({placeholders}) AND checkpoint_ns = ''
+                )
+                WHERE rn <= 10
+                ORDER BY checkpoint_id ASC
+            """
+            c.execute(query, top_threads)
             rows = c.fetchall()
             history = []
             for thread_id, checkpoint_id, parent_id, type_, checkpoint_blob, metadata_blob in rows:
                 try:
                     cp = memory.serde.loads_typed((type_, checkpoint_blob))
-                    meta = memory.serde.loads_typed((type_, metadata_blob))
-                except Exception as e:
-                    cp, meta = {}, {}
+                except Exception:
+                    continue
                 
-                snippet = "No content"
-                char_count = 0
-                source = meta.get("source", "unknown") if isinstance(meta, dict) else "unknown"
-                provider = ""
+                msgs = cp.get("channel_values", {}).get("messages", [])
+                if not msgs: continue
+                
+                last_msg = msgs[-1]
+                m_type = getattr(last_msg, "type", "")
+                content = getattr(last_msg, "content", "")
+                if m_type == "tool" or (m_type == "ai" and not content):
+                    continue
+                if isinstance(content, list):
+                    content = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+                content_str = str(content)
+                if not content_str: continue
+
+                clean_text = content_str
+                if m_type == "human":
+                    clean_text = clean_prompt_text(clean_text)
+                snippet = (clean_text[:90].replace('\n', ' ') + '...') if len(clean_text) > 90 else clean_text.replace('\n', ' ')
                 date = cp.get("ts", "")[:16].replace("T", " ") if isinstance(cp, dict) else ""
-                
-                try:
-                    msgs = cp.get("channel_values", {}).get("messages", [])
-                    if msgs:
-                        last_msg = msgs[-1]
-                        if hasattr(last_msg, "content"):
-                            content = last_msg.content
-                            if content:
-                                char_count = len(content)
-                                snippet = (content[:100].replace('\n', ' ') + '...') if len(content) > 100 else content.replace('\n', ' ')
-                        
-                        if hasattr(last_msg, "type"):
-                            source = last_msg.type
-                            
-                        if getattr(last_msg, "response_metadata", None):
-                            provider = last_msg.response_metadata.get("model_name", "")
-                            if "fp_ollama" in last_msg.response_metadata.get("system_fingerprint", ""):
-                                provider = "Ollama / " + provider
-                except:
-                    pass
+                provider = ""
+                if getattr(last_msg, "response_metadata", None):
+                    provider = last_msg.response_metadata.get("model_name", "")
+                    if "fp_ollama" in last_msg.response_metadata.get("system_fingerprint", ""):
+                        provider = "Ollama / " + provider
 
                 history.append({
                     "thread_id": thread_id,
                     "id": checkpoint_id,
                     "parent_id": parent_id,
                     "snippet": snippet,
-                    "char_count": char_count,
-                    "source": source,
+                    "char_count": len(content_str),
+                    "source": m_type,
                     "provider": provider,
                     "date": date
                 })
@@ -3003,7 +3194,10 @@ def main():
             print("\n".join(lua_lines))
         except Exception as e:
             print("return { error = " + json.dumps(str(e)) + " }")
+        finally:
+            conn.close()
         sys.exit(0)
+
 
 
     def load_sources_config():
@@ -4270,7 +4464,8 @@ def main():
             enable_tools=enable_t,
             active_skill=args.active_skill,
             skill_state=args.skill_state,
-            team_config_file=args.team_config
+            team_config_file=args.team_config,
+            checkpoint_id=args.checkpoint_id
         )
 
 if __name__ == "__main__":

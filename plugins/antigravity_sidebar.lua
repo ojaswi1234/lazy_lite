@@ -2302,10 +2302,14 @@ function AGView:submit(prompt, is_auto_continuation)
 
   -- Generate a unique thread ID if this is a new conversation
   if not self:state().cid then
-    local count = rawget(_G, "_ag_cid_counter") or 0
-    count = count + 1
-    rawset(_G, "_ag_cid_counter", count)
-    self:state().cid = "thread_" .. tostring(os.time()) .. "_" .. tostring(math.floor(os.clock()*10000)) .. "_" .. tostring(count)
+    if self:state().thread_id then
+      self:state().cid = self:state().thread_id
+    else
+      local count = rawget(_G, "_ag_cid_counter") or 0
+      count = count + 1
+      rawset(_G, "_ag_cid_counter", count)
+      self:state().cid = "thread_" .. tostring(os.time()) .. "_" .. tostring(math.floor(os.clock()*10000)) .. "_" .. tostring(count)
+    end
   end
 
   -- Expand any @pasted_text tokens into absolute file paths
@@ -2396,6 +2400,7 @@ function AGView:submit(prompt, is_auto_continuation)
       model        = self:_active_model(),
       session_id   = self:state().cid,   -- tool-specific session id (for OpenCode, Devin)
       has_session  = self:state().has_session,
+      checkpoint_id = self:state().checkpoint_id,
       project_dir  = project_root,
       extra_files  = nil,
       autopilot    = is_auto,
@@ -6378,24 +6383,40 @@ end
   end
 
   function AGView:_layout_history(data)
-    -- Group by thread
+    -- Group by thread and track max checkpoint_id per thread for chronological sorting
     local threads = {}
+    local thread_latest = {}
     for _, n in ipairs(data) do
-      if not threads[n.thread_id] then threads[n.thread_id] = {} end
+      if not threads[n.thread_id] then
+        threads[n.thread_id] = {}
+        thread_latest[n.thread_id] = n.id or ""
+      end
       table.insert(threads[n.thread_id], n)
+      if (n.id or "") > (thread_latest[n.thread_id] or "") then
+        thread_latest[n.thread_id] = n.id
+      end
     end
+    
+    local thread_list = {}
+    for tid, _ in pairs(threads) do
+      table.insert(thread_list, tid)
+    end
+    -- Sort older threads first, newest threads last so newest get highest row (rendered at top under canopy)
+    table.sort(thread_list, function(a, b)
+      return (thread_latest[a] or "") < (thread_latest[b] or "")
+    end)
     
     local nodes = {}
     local node_map = {}
     local row = 0
     
-    for tid, tnodes in pairs(threads) do
+    for _, tid in ipairs(thread_list) do
+      local tnodes = threads[tid]
       -- Title node for thread
       row = row + 1
       table.insert(nodes, { is_title = true, title = tid, row = row })
       
       -- Layout nodes chronologically
-      -- Reset columns for new thread
       local col_ends = {} 
       
       for _, n in ipairs(tnodes) do
@@ -6708,7 +6729,8 @@ end
            
            -- Hitbox
            local rx = is_left and (trunk_x - LEFT_W) or (trunk_x + TRUNK_W)
-           table.insert(self._hist_node_rects, { id=n.id, thread=n.thread_id, x=rx, y=y_y, w=LEFT_W, h=(current_y - y_y) })
+           local bw = is_left and LEFT_W or RIGHT_W
+           table.insert(self._hist_node_rects, { id=n.id, thread=n.thread_id, x=rx, y=y_y, w=bw, h=(current_y - y_y) })
         end
       end
     end
@@ -7383,12 +7405,53 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
           self.show_skills_modal = false
           self.enable_tools = false
           self.marketplace_skills = nil
+          self:state().cid = r.thread
           self:state().thread_id = r.thread
+          self:state().checkpoint_id = r.id
           self:state().sessions = {}
           self:state().has_session = true
           self:state().status = "idle"
-          self:_add_session("ai", "Resumed conversation thread: " .. r.thread .. "\nAsk a question to continue from this branch.")
+          self:_add_session("ai", "Resuming conversation thread: " .. r.thread .. "...\nLoading past conversation...")
+          self:state().scroll_to_bottom = true
           core.redraw = true
+          
+          -- Asynchronously fetch thread messages to rehydrate UI
+          core.add_thread(function()
+            local py_bin = "python"
+            local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
+            local proc = process.start({py_bin, bridge, "--get-thread-messages", r.thread})
+            if proc then
+              local out_tbl = {}
+              while true do
+                local chunk = proc:read_stdout(65536)
+                if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
+                if not proc:running() then break end
+                coroutine.yield(0.05)
+              end
+              while true do
+                local chunk = proc:read_stdout(65536)
+                if not chunk or #chunk == 0 then break end
+                table.insert(out_tbl, chunk)
+              end
+              local out = table.concat(out_tbl)
+              if out and out ~= "" then
+                local env = {}
+                local fn = load(out, "thread_messages", "t", env)
+                if fn then
+                  local ok, msgs = pcall(fn)
+                  if ok and type(msgs) == "table" and #msgs > 0 then
+                    self:state().sessions = {}
+                    for _, m in ipairs(msgs) do
+                      self:_add_session(m.role or "ai", m.text or "")
+                    end
+                    self:_add_session("ai", "⚡ Resumed conversation at checkpoint `" .. tostring(r.id):sub(1, 16) .. "`.\nYou can continue asking questions from this memory branch.")
+                    self:state().scroll_to_bottom = true
+                    core.redraw = true
+                  end
+                end
+              end
+            end
+          end)
           break
         end
       end
