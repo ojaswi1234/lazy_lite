@@ -6935,6 +6935,27 @@ end
 
       draw_curve_stroke(x0, y0, x1, y1, bend, 11 * SCALE, 2 * SCALE, C_TR)
 
+      -- Deterministic decorative woody sub-twigs (shape/length/count independent of fork count)
+      local tid_seed = 0
+      for ci = 1, #(n.thread_id or "") do
+        tid_seed = (tid_seed * 31 + string.byte(n.thread_id, ci)) % 997
+      end
+      local twig_specs = {
+        { t = 0.36 + (tid_seed % 7) * 0.015, reach = 0.22 + (tid_seed % 5) * 0.02, dy = -(16 + (tid_seed % 6)) * SCALE },
+        { t = 0.65 + (tid_seed % 5) * 0.015, reach = 0.17 + ((tid_seed + 3) % 4) * 0.02, dy = -(13 + ((tid_seed + 2) % 5)) * SCALE },
+      }
+      local twig_cnt = (tid_seed % 3 == 0) and 1 or 2
+      for ti = 1, twig_cnt do
+        local sp  = twig_specs[ti]
+        local tx0 = math.floor(x0 + (x1 - x0) * sp.t)
+        local ty0 = math.floor(eval_curve_y(y0, y1, bend, sp.t))
+        local tx1 = math.min(x1 + dir * 4 * SCALE, tx0 + dir * math.floor(side_w * sp.reach))
+        if is_left then tx1 = math.max(x1, tx0 + dir * math.floor(side_w * sp.reach)) end
+        local ty1 = ty0 + sp.dy
+        draw_curve_stroke(tx0, ty0, tx1, ty1, 8 * SCALE, 4.5 * SCALE, 1.5 * SCALE, C_TR)
+        fill_circle(tx1, math.floor(ty1), 2 * SCALE, C_LEAF_D)
+      end
+
       -- Terminal bud at outer tip
       local leaves = n.leaves or {}
       if #leaves == 0 then
