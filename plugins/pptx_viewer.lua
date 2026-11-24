@@ -82,20 +82,37 @@ end
 -- ============================================================================
 local _FONT_CACHE = {}
 
+-- Quantize to discrete point sizes to prevent FreeType glyph cache texture atlas exhaustion
+local QUANTIZED_SIZES = { 11, 13, 15, 18, 22, 26, 32, 40, 52, 68 }
+
+local function quantize_size(raw_size)
+  local best = QUANTIZED_SIZES[1]
+  local min_diff = math.abs(raw_size - best)
+  for i = 2, #QUANTIZED_SIZES do
+    local diff = math.abs(raw_size - QUANTIZED_SIZES[i])
+    if diff < min_diff then
+      min_diff = diff
+      best = QUANTIZED_SIZES[i]
+    end
+  end
+  return best
+end
+
 local function get_slide_font(size_pt, is_bold, scale_factor)
-  local px_size = math.max(11, math.min(160, math.floor((size_pt or 18) * scale_factor * 1.333)))
+  local raw_px = (size_pt or 18) * (scale_factor or 1.0) * 1.333
+  local px_size = quantize_size(raw_px)
   local cache_key = px_size .. "_" .. (is_bold and "b" or "r")
 
   if not _FONT_CACHE[cache_key] then
     local candidates = {}
     if is_bold then
-      table.insert(candidates, "C:/Windows/Fonts/calibrib.ttf")
-      table.insert(candidates, "C:/Windows/Fonts/segoeuib.ttf")
       table.insert(candidates, "C:/Windows/Fonts/arialbd.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/segoeuib.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/calibrib.ttf")
     else
-      table.insert(candidates, "C:/Windows/Fonts/calibri.ttf")
-      table.insert(candidates, "C:/Windows/Fonts/segoeui.ttf")
       table.insert(candidates, "C:/Windows/Fonts/arial.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/segoeui.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/calibri.ttf")
     end
     table.insert(candidates, DATADIR .. "/fonts/FiraSans-Regular.ttf")
 
@@ -109,6 +126,12 @@ local function get_slide_font(size_pt, is_bold, scale_factor)
         end
       end
     end
+
+    if not loaded_font and style.font then
+      local ok, f = pcall(function() return style.font:copy(px_size) end)
+      if ok and f then loaded_font = f end
+    end
+
     _FONT_CACHE[cache_key] = loaded_font or style.font
   end
 
@@ -171,7 +194,9 @@ function PptxView:new(filename)
   self.toolbar_buttons = {}
   self.thumbnail_buttons = {}
   self.hud_buttons = {}
+  self.hud_rect = nil
   self.hovered_btn = nil
+  self.font = style.code_font or style.font
 
   -- Caching & Process Management
   self.cache = {}
@@ -861,12 +886,14 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
     if iy + ih >= view_top and iy <= view_bot then
       local spans = img.spans or {}
       for _, sp in ipairs(spans) do
-        local px = ix + sp[1] * scale_x
-        local py = iy + sp[2] * scale_y
-        local pw_sp = math.max(1, math.ceil(sp[3] * scale_x))
-        local ph_sp = math.max(1, math.ceil(sp[4] * scale_y))
+        local px1 = math.floor(ix + sp[1] * scale_x)
+        local px2 = math.ceil(ix + (sp[1] + sp[3]) * scale_x)
+        local py1 = math.floor(iy + sp[2] * scale_y)
+        local py2 = math.ceil(iy + (sp[2] + (sp[4] or 1)) * scale_y)
+        local pw_sp = math.max(1, px2 - px1)
+        local ph_sp = math.max(1, py2 - py1)
         local col = invert_color({ sp[5], sp[6], sp[7] }, self.inverted)
-        renderer.draw_rect(px, py, pw_sp, ph_sp, col)
+        renderer.draw_rect(px1, py1, pw_sp, ph_sp, col)
       end
     end
   end
@@ -982,47 +1009,61 @@ end
 -- ============================================================================
 
 function PptxView:draw_slideshow_hud(tx, ty, tw, th)
-  if not self.hud_visible then return end
+  if not self.hud_visible then
+    self.hud_rect = nil
+    return
+  end
 
-  local hud_w = 560 * SCALE
+  local btn_defs = {
+    { id = "hud_first", label = "First", active = false },
+    { id = "hud_prev", label = "Previous", active = false },
+    { id = "hud_indicator", label = string.format("Slide %d of %d", self.slide, self.slide_count), active = false, extra_pad = 22 },
+    { id = "hud_next", label = "Next", active = false },
+    { id = "hud_last", label = "Last", active = false },
+    { id = "hud_notes", label = "Notes", active = self.show_slideshow_notes },
+    { id = "hud_blank", label = "Blank", active = (self.blank_screen ~= nil) },
+    { id = "hud_exit", label = "Exit", active = false, accent = true },
+  }
+
+  local font = style.font
+  local spacing = 6 * SCALE
+  local pad_x = 10 * SCALE
+  local total_btn_w = 0
+
+  for _, b in ipairs(btn_defs) do
+    b.w = font:get_width(b.label) + (b.extra_pad or 16) * SCALE
+    total_btn_w = total_btn_w + b.w
+  end
+
+  local hud_w = total_btn_w + (#btn_defs - 1) * spacing + pad_x * 2
   local hud_h = 44 * SCALE
   local hud_x = tx + (tw - hud_w) / 2
   local hud_y = ty + th - hud_h - 24 * SCALE
+
+  self.hud_rect = { x = hud_x, y = hud_y, w = hud_w, h = hud_h }
 
   -- Frosted Floating Capsule
   renderer.draw_rect(hud_x, hud_y, hud_w, hud_h, _COLOR_BG_HUD)
   renderer.draw_rect(hud_x, hud_y, hud_w, hud_h, _COLOR_BORDER_LIGHT)
 
-  local bx = hud_x + 8 * SCALE
+  local bx = hud_x + pad_x
   local by = hud_y + 6 * SCALE
   local bh = hud_h - 12 * SCALE
 
-  local function draw_hud_btn(id, label, active, bw, accent)
-    bw = bw or (style.font:get_width(label) + 16 * SCALE)
-    local is_hover = self.hovered_btn == id
-    local btn_bg = accent and (is_hover and _COLOR_ACCENT_HOVER or _COLOR_ACCENT)
-                    or (active and _COLOR_ACCENT
+  for _, b in ipairs(btn_defs) do
+    local is_hover = (self.hovered_btn == b.id)
+    local btn_bg = b.accent and (is_hover and _COLOR_ACCENT_HOVER or _COLOR_ACCENT)
+                    or (b.active and _COLOR_ACCENT
                     or (is_hover and _COLOR_BORDER or _COLOR_CARD_BG))
-    local btn_fg = (accent or active or is_hover) and _COLOR_WHITE or _COLOR_TEXT
+    local btn_fg = (b.accent or b.active or is_hover) and _COLOR_WHITE or _COLOR_TEXT
 
-    renderer.draw_rect(bx, by, bw, bh, btn_bg)
-    renderer.draw_rect(bx, by, bw, bh, _COLOR_BORDER)
-    common.draw_text(style.font, btn_fg, label, "center", bx, by, bw, bh)
+    renderer.draw_rect(bx, by, b.w, bh, btn_bg)
+    renderer.draw_rect(bx, by, b.w, bh, _COLOR_BORDER)
+    common.draw_text(font, btn_fg, b.label, "center", bx, by, b.w, bh)
 
-    table.insert(self.hud_buttons, { id = id, x = bx, y = by, w = bw, h = bh })
-    bx = bx + bw + 6 * SCALE
+    table.insert(self.hud_buttons, { id = b.id, x = bx, y = by, w = b.w, h = bh })
+    bx = bx + b.w + spacing
   end
-
-  draw_hud_btn("hud_first", "First", false)
-  draw_hud_btn("hud_prev", "Previous", false)
-  local slide_str = string.format("Slide %d of %d", self.slide, self.slide_count)
-  local slide_w = style.font:get_width(slide_str) + 18 * SCALE
-  draw_hud_btn("hud_indicator", slide_str, false, slide_w)
-  draw_hud_btn("hud_next", "Next", false)
-  draw_hud_btn("hud_last", "Last", false)
-  draw_hud_btn("hud_notes", "Notes", self.show_slideshow_notes)
-  draw_hud_btn("hud_blank", "Blank", self.blank_screen ~= nil)
-  draw_hud_btn("hud_exit", "Exit", false, nil, true)
 end
 
 function PptxView:draw_slideshow_side_nav(tx, ty, tw, th)
@@ -1233,10 +1274,16 @@ function PptxView:on_mouse_moved(px, py, dx, dy)
 
     self.hovered_btn = nil
     for _, btn in ipairs(self.hud_buttons) do
-      if px >= btn.x and px <= btn.x + btn.w and py >= btn.y and py <= btn.y + btn.h then
+      if px >= btn.x - 2 and px <= btn.x + btn.w + 2 and py >= btn.y - 2 and py <= btn.y + btn.h + 2 then
         self.hovered_btn = btn.id
         break
       end
+    end
+
+    if self.hovered_btn then
+      core.request_cursor("hand")
+    else
+      core.request_cursor("arrow")
     end
     return true
   end
@@ -1273,6 +1320,12 @@ function PptxView:on_mouse_moved(px, py, dx, dy)
     end
   end
 
+  if self.hovered_btn then
+    core.request_cursor("hand")
+  else
+    core.request_cursor("arrow")
+  end
+
   if old_hover ~= self.hovered_btn then
     core.redraw = true
   end
@@ -1281,18 +1334,37 @@ end
 
 function PptxView:on_mouse_pressed(button, px, py, clicks)
   if self.slideshow_mode then
-    -- Check HUD & on-screen buttons
+    -- 1. Check if click is inside floating HUD capsule
+    if self.hud_visible and self.hud_rect then
+      local hr = self.hud_rect
+      if px >= hr.x - 4 and px <= hr.x + hr.w + 4 and py >= hr.y - 4 and py <= hr.y + hr.h + 4 then
+        for _, btn in ipairs(self.hud_buttons) do
+          if px >= btn.x - 3 and px <= btn.x + btn.w + 3 and py >= btn.y - 3 and py <= btn.y + btn.h + 3 then
+            if btn.id == "hud_first" then self:goto_slide(1)
+            elseif btn.id == "hud_prev" then self:previous_slide()
+            elseif btn.id == "hud_indicator" then command.perform("pptx:goto-slide")
+            elseif btn.id == "hud_next" then self:next_slide()
+            elseif btn.id == "hud_last" then self:goto_slide(self.slide_count)
+            elseif btn.id == "hud_notes" then self:toggle_notes()
+            elseif btn.id == "hud_blank" then self:toggle_blank_screen("black")
+            elseif btn.id == "hud_exit" then self:exit_slideshow()
+            end
+            return true
+          end
+        end
+        -- Clicked inside HUD capsule boundary (e.g. padding/gap): ALWAYS consume!
+        -- Never fall through to slide advance!
+        return true
+      end
+    end
+
+    -- 2. Check on-screen side arrows (< and >) and notes overlay close button
     if self.hud_visible then
       for _, btn in ipairs(self.hud_buttons) do
-        if px >= btn.x and px <= btn.x + btn.w and py >= btn.y and py <= btn.y + btn.h then
-          if btn.id == "hud_first" then self:goto_slide(1)
-          elseif btn.id == "hud_prev" or btn.id == "side_prev" then self:previous_slide()
-          elseif btn.id == "hud_next" or btn.id == "side_next" then self:next_slide()
-          elseif btn.id == "hud_last" then self:goto_slide(self.slide_count)
-          elseif btn.id == "hud_indicator" then command.perform("pptx:goto-slide")
-          elseif btn.id == "hud_notes" then self:toggle_notes()
-          elseif btn.id == "hud_blank" then self:toggle_blank_screen("black")
-          elseif btn.id == "hud_exit" then self:exit_slideshow()
+        if (btn.id == "side_prev" or btn.id == "side_next" or btn.id == "notes_close") and
+           px >= btn.x and px <= btn.x + btn.w and py >= btn.y and py <= btn.y + btn.h then
+          if btn.id == "side_prev" then self:previous_slide()
+          elseif btn.id == "side_next" then self:next_slide()
           elseif btn.id == "notes_close" then
             self.show_slideshow_notes = false
             core.redraw = true
@@ -1302,7 +1374,7 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
       end
     end
 
-    -- If notes overlay is shown and click is inside its body, consume click
+    -- 3. If notes overlay is shown and click is inside its body, consume click
     if self.show_slideshow_notes then
       local tw, th = system.get_window_size()
       local card_w = math.min(tw - 60 * SCALE, 740 * SCALE)
@@ -1314,14 +1386,14 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
       end
     end
 
-    -- If blank screen, click resumes
+    -- 4. If blank screen, click resumes
     if self.blank_screen then
       self.blank_screen = nil
       core.redraw = true
       return true
     end
 
-    -- Left click advances slide, Right click goes back
+    -- 5. Left click advances slide, Right click goes back
     if button == "left" then
       self:next_slide()
       return true
