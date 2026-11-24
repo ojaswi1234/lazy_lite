@@ -823,10 +823,10 @@ function YTView:on_text_input(text)
   end
 end
 
-command.add(YTView, {
-  ["youtube-player:backspace"] = function(self)
-    if self.active_input and #self.search_query > 0 then
-      -- simple utf8 backspace
+function YTView:on_key_pressed(key)
+  if not self.active_input then return false end
+  if key == "backspace" then
+    if #self.search_query > 0 then
       local text = self.search_query
       local len = #text
       while len > 0 and text:byte(len) >= 0x80 and text:byte(len) < 0xc0 do
@@ -834,27 +834,31 @@ command.add(YTView, {
       end
       self.search_query = text:sub(1, math.max(0, len - 1))
       core.redraw = true
+      return true
     end
-  end,
-  
-  ["youtube-player:search"] = function(self)
-    if self.active_input then
-      self:ensure_backend()
-      self.status_msg = "Searching..."
-      self.results = {}
-      self.current_page = 1
-      self.total_pages = 1
-      self:send({cmd = "search", query = self.search_query, page = 1, search_type = self.search_type})
-      self.active_input = false
-      core.redraw = true
-    end
+  elseif key == "return" or key == "enter" then
+    self:ensure_backend()
+    self.status_msg = "Searching..."
+    self.results = {}
+    self.current_page = 1
+    self.total_pages = 1
+    self:send({cmd = "search", query = self.search_query, page = 1, search_type = self.search_type})
+    self.active_input = false
+    core.redraw = true
+    return true
+  elseif key == "escape" then
+    self.active_input = false
+    core.redraw = true
+    return true
   end
-})
+  return false
+end
 
-keymap.add {
-  ["backspace"] = "youtube-player:backspace",
-  ["return"] = "youtube-player:search",
-}
+-- Ensure legacy accidental global bindings for return/backspace are completely removed
+if keymap and keymap.unbind then
+  pcall(keymap.unbind, "youtube-player:search")
+  pcall(keymap.unbind, "youtube-player:backspace")
+end
 
 local yt_view_instance = nil
 
@@ -975,9 +979,20 @@ command.add(nil, {
         end
       end
     end
-    if yt_view_instance and query and #query > 0 then
-      yt_view_instance:ensure_backend()
-      yt_view_instance:send({cmd = "search", query = query, page = 1, search_type = "video"})
+    if query and type(query) == "string" and #query > 0 then
+      if yt_view_instance then
+        yt_view_instance:ensure_backend()
+        yt_view_instance:send({cmd = "search", query = query, page = 1, search_type = "video"})
+      end
+    else
+      core.command_view:enter("Search YouTube", {
+        submit = function(text)
+          if yt_view_instance and text and #text > 0 then
+            yt_view_instance:ensure_backend()
+            yt_view_instance:send({cmd = "search", query = text, page = 1, search_type = "video"})
+          end
+        end
+      })
     end
   end
 })
