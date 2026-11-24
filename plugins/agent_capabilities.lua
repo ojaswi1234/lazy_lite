@@ -967,8 +967,7 @@ Capabilities.register("git", {
       while proc:running() do coroutine.yield(0.05) end
       local err_out = proc:read_stderr() or ""
       if proc:returncode() ~= 0 and #err_out > 0 then
-        error(err_out:match("^[^
-]+") or "Failed to stage files.")
+        error(err_out:match("^[^\r\n]+") or "Failed to stage files.")
       end
 
       -- Trigger treeview git status update
@@ -1068,8 +1067,7 @@ Capabilities.register("git", {
       if not proc then error("Failed to execute git pull.") end
       while proc:running() do coroutine.yield(0.05) end
       local out = (proc:read_stdout() or "") .. (proc:read_stderr() or "")
-      return (proc:returncode() == 0) and ("Pulled changes:
-" .. out:sub(1, 300)) or error(out)
+      return (proc:returncode() == 0) and ("Pulled changes:\n" .. out:sub(1, 300)) or error(out)
     end,
     status = function(p)
       local proc = process.start({"git", "status", "-s"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
@@ -1113,8 +1111,7 @@ Capabilities.register("git", {
           return string.format("Opened Git Diff view for %s.", tab_name)
         end
       end
-      return string.format("Diff output:
-%s", diff_out:sub(1, 1000))
+      return string.format("Diff output:\n%s", diff_out:sub(1, 1000))
     end,
     open_timeline = function(p)
       if not command.map["git-timeline:toggle"] then
