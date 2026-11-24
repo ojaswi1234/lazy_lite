@@ -96,14 +96,17 @@ function MetaTools.execute(subsystem, action, params)
     end
 
     -- If target file is provided, check path boundary
-    if params.path or params.file then
-      local target_path = params.path or params.file
+    local target_path = params.path or params.file or params.filename or params.filepath or params.target or params.name
+    if target_path and target_path ~= "" then
       local ok, perm = core.guardrails.verify_path(target_path, action)
       if not ok then return false, perm end
     end
   end
 
   -- 2. Dispatch to capability registry
+  if not core.capabilities then
+    pcall(require, "plugins.agent_capabilities")
+  end
   if not core.capabilities then
     return false, "CAPABILITIES_UNAVAILABLE: Host capability registry is not loaded."
   end
@@ -119,6 +122,9 @@ end
 
 -- ── 3. JIT Capability Inspector (`litexl_discover`) ───────────────────────────
 function MetaTools.discover(subsystem)
+  if not core.capabilities then
+    pcall(require, "plugins.agent_capabilities")
+  end
   if not core.capabilities then return "Capabilities not available." end
   if not subsystem or subsystem == "" or subsystem == "all" then
     local subs = core.capabilities.list()

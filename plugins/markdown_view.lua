@@ -527,6 +527,33 @@ command.add("core.docview", {
   end
 })
 
+command.add(nil, {
+  ["markdown:preview"] = function()
+    local doc = nil
+    if core.active_view and core.active_view.doc then
+      doc = core.active_view.doc
+    else
+      local node = core.root_view:get_active_node_default()
+      if node and node.views then
+        for _, v in ipairs(node.views) do
+          if v.doc and v.doc.filename and v.doc.filename:match("%.md$") then
+            doc = v.doc
+            break
+          end
+        end
+      end
+    end
+    if doc then
+      local view = MarkdownView(doc)
+      local node = core.root_view:get_active_node_default()
+      if node.locked then node = core.root_view:get_primary_node() end
+      node:split("right", view)
+      core.set_active_view(view)
+      core.redraw = true
+    end
+  end
+})
+
 keymap.add { ["ctrl+shift+m"] = "markdown:open-native-preview" }
 
 return MarkdownView

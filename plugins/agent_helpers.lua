@@ -35,8 +35,8 @@ end
 function Choreographer.arrange(opts)
   opts = opts or {}
   local mode = opts.mode or opts.layout or "side_by_side"
-  local primary_path = opts.primary
-  local secondary_path = opts.secondary
+  local primary_path = opts.primary or opts.path or opts.file or opts.filename or opts.target or opts.name
+  local secondary_path = opts.secondary or opts.target or opts.file2 or opts.doc2
   local ratio = opts.ratio or 0.5
 
   -- 1. Resolve primary view / doc

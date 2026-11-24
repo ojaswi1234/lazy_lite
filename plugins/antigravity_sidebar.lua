@@ -2321,19 +2321,19 @@ function AGView:submit(prompt)
     local pulse_line = core.agent_meta_tools.pulse and core.agent_meta_tools.pulse() or ""
     host_guidance = pulse_line .. "\n" ..
       "[LITE-XL AGENTIC HOST: You have direct control over this Lite XL editor and all its plugins!\n" ..
-      "CRITICAL: When the user asks to play music/videos, navigate presentations or PDFs, view git diffs, open terminal, solve LeetCode, preview web/markdown, or manage MongoDB/Podman:\n" ..
-      "NEVER tell the user to manually paste an HTML <iframe>, embed code, markdown cell, or open an external link! You MUST actuate the Lite XL host directly by emitting: [LITEXL:subsystem:action:{...}].\n" ..
+      "CRITICAL: When the user asks to play music/videos, navigate presentations or PDFs, view git diffs, open terminal, solve LeetCode, preview web/markdown, manage MongoDB/Podman, or create/arrange project files:\n" ..
+      "NEVER tell the user to manually run bash echo/cat to create files, paste an HTML <iframe>, embed code, markdown cell, or open an external link! You MUST actuate the Lite XL host directly by emitting: [LITEXL:subsystem:action:{...}].\n" ..
       "Available Actuation Subsystems:\n" ..
       "• youtube: [LITEXL:youtube:play:{\"query\":\"song or artist name\"}] or [LITEXL:youtube:toggle]\n" ..
-      "• editor: [LITEXL:editor:open_split:{\"layout\":\"side_by_side\"}], [LITEXL:editor:open_file:{\"path\":\"...\"}]\n" ..
+      "• editor: [LITEXL:editor:create_file:{\"path\":\"filename\",\"content\":\"file content\"}], [LITEXL:editor:open_file:{\"path\":\"...\"}], [LITEXL:editor:open_split:{\"layout\":\"side_by_side\"}]\n" ..
+      "• markdown: [LITEXL:markdown:preview:{\"path\":\"file.md\"}] or [LITEXL:markdown:preview]\n" ..
+      "• visualizer: [LITEXL:visualizer:visualize_architecture], [LITEXL:visualizer:visualize_terraform]\n" ..
       "• leetcode: [LITEXL:leetcode:fetch_problem:{\"slug\":\"two-sum\"}], [LITEXL:leetcode:run_test], [LITEXL:leetcode:submit]\n" ..
       "• pptx: [LITEXL:pptx:next_slide], [LITEXL:pptx:prev_slide], [LITEXL:pptx:goto_slide:{\"slide\":2}], [LITEXL:pptx:start_slideshow]\n" ..
       "• pdf: [LITEXL:pdf:next_page], [LITEXL:pdf:prev_page], [LITEXL:pdf:goto_page:{\"page\":5}], [LITEXL:pdf:zoom:{\"direction\":\"in\"}]\n" ..
       "• web_preview: [LITEXL:web_preview:start], [LITEXL:web_preview:stop], [LITEXL:web_preview:restart]\n" ..
-      "• markdown: [LITEXL:markdown:preview]\n" ..
       "• terminal: [LITEXL:terminal:toggle]\n" ..
       "• git: [LITEXL:git:open_diff], [LITEXL:git:open_timeline]\n" ..
-      "• visualizer: [LITEXL:visualizer:visualize_architecture], [LITEXL:visualizer:visualize_terraform]\n" ..
       "• mongodb: [LITEXL:mongodb:toggle], [LITEXL:mongodb:start_server], [LITEXL:mongodb:new_scratchpad]\n" ..
       "• podman: [LITEXL:podman:toggle]\n" ..
       "• voice: [LITEXL:voice:toggle]\n" ..
@@ -2854,6 +2854,9 @@ function AGView:update()
           end
           if tab._ai_buf then
             -- Execute any in-band Lite XL action tags emitted by the AI
+            if not core.agent_meta_tools then
+              pcall(require, "plugins.agent_meta_tools")
+            end
             if core.agent_meta_tools and core.agent_meta_tools.execute then
               local ok_json, json = pcall(require, "plugins.lsp.json")
               if ok_json and json and json.decode then
@@ -2863,7 +2866,7 @@ function AGView:update()
                   tag_body = tag_body:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%]%s*$", "")
 
                   -- Case 1: Pure JSON object [LITEXL:{"subsystem":"...","action":"..."}]
-                  if tag_body:match("^{") then
+                  if tag_body:match("^%s*{") then
                     local parse_ok, act = pcall(json.decode, tag_body)
                     if not parse_ok and not tag_body:match("}%s*$") then
                       parse_ok, act = pcall(json.decode, tag_body .. "}")
@@ -2875,23 +2878,35 @@ function AGView:update()
                     end
                   else
                     -- Case 2: Colon delimited [LITEXL:subsystem:action:params_json] or [LITEXL:subsystem:action]
-                    local sub, act, raw_p = tag_body:match("^([%w_%-]+):([%w_%-]+):?(.*)$")
+                    local sub, act, raw_p = tag_body:match("^([%w_%-]+):([%w_%-]+):?([%s%S]*)$")
                     if sub and act then
                       local params = {}
                       if raw_p and raw_p:match("%S") then
                         raw_p = raw_p:gsub("%]%s*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
                         local p_ok, parsed = pcall(json.decode, raw_p)
-                        if not p_ok and raw_p:match("^{") and not raw_p:match("}%s*$") then
+                        if not p_ok and raw_p:match("^%s*{") and not raw_p:match("}%s*$") then
                           p_ok, parsed = pcall(json.decode, raw_p .. "}")
                         end
                         if p_ok and type(parsed) == "table" then
                           params = parsed
                         else
+                          -- Robust parameter extraction if JSON decode failed or format is loose
                           local clean_p = raw_p:gsub('^%s*["\'%{]*', ''):gsub('["\'%}]*%s*$', '')
                           local q_val = raw_p:match('["\']?query["\']?%s*:%s*["\']([^"\']+)["\']') or
-                                        raw_p:match('["\']?query["\']?%s*:%s*([^%s,"\'%}]+)')
+                                        raw_p:match('["\']?query["\']?%s*:%s*([^%s,"\'%}]+)') or
+                                        raw_p:match('["\']?path["\']?%s*:%s*["\']([^"\']+)["\']') or
+                                        raw_p:match('["\']?title["\']?%s*:%s*["\']([^"\']+)["\']') or
+                                        raw_p:match('["\']?slug["\']?%s*:%s*["\']([^"\']+)["\']')
                           if q_val then clean_p = q_val end
-                          params = { query = clean_p, title = clean_p, song = clean_p, slug = clean_p, path = clean_p, target = clean_p, slide = clean_p, page = clean_p }
+                          params = {
+                            query = clean_p, title = clean_p, song = clean_p, slug = clean_p,
+                            path = clean_p, file = clean_p, filename = clean_p, target = clean_p,
+                            slide = clean_p, page = clean_p
+                          }
+                          -- Also extract any additional key-value pairs
+                          for k, v in raw_p:gmatch('["\']?([%w_%-]+)["\']?%s*:%s*["\']([^"\']+)["\']') do
+                            params[k] = v
+                          end
                         end
                       end
                       local exec_ok, res = core.agent_meta_tools.execute(sub, act, params)
@@ -2902,13 +2917,17 @@ function AGView:update()
                   return ""
                 end
 
-                -- Match both closed tags [LITEXL:...:...] and unclosed tags [LITEXL:...
-                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:(.-)%]", parse_and_exec)
+                -- Match closed tags [LITEXL:...:...] including multiline JSON
+                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([%s%S]-)%]", parse_and_exec)
+                -- Match unclosed tags at the end of buffer [LITEXL:...
                 if tab._ai_buf:find("%[LITEXL:") then
                   tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([^\r\n]+)", parse_and_exec)
                 end
               end
             end
+            -- Clean empty markdown fences surrounding action badges
+            tab._ai_buf = tab._ai_buf:gsub("```%a*\r?\n%s*(\n?>%s+[⚡⚠️]%s+%*%*Lite XL Action%*%*:[^\r\n]+)\r?\n%s*```", "%1")
+            tab._ai_buf = tab._ai_buf:gsub("```%a*\r?\n%s*```", "")
             tab._ai_buf = tab._ai_buf:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
             tab._ai_buf = tab._ai_buf:gsub("\r?\n%s*%]%s*\r?\n", "\n")
             tab._ai_buf = tab._ai_buf:gsub("^%s*%]%s*\r?\n", "")

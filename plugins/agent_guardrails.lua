@@ -74,7 +74,8 @@ function Guardrails.verify_path(path, intent)
   if config.guardrails.mode == "off" then
     return false, "GUARDRAIL_MODE_OFF: Agent automation is disabled in AI settings."
   end
-  if config.guardrails.mode == "read_only" and intent ~= "read" then
+  local is_read_only_intent = (intent == "read" or intent == "open_file" or intent == "switch_tab" or intent == "preview" or intent == "get_scope" or intent == "status")
+  if config.guardrails.mode == "read_only" and not is_read_only_intent then
     return false, "GUARDRAIL_MODE_READ_ONLY: Agent write operations are blocked in Read-Only mode."
   end
   if not path or path == "" then
@@ -82,7 +83,12 @@ function Guardrails.verify_path(path, intent)
     return false, "EMPTY_PATH: Path cannot be nil or empty."
   end
 
-  local abs_path = system.absolute_path(path) or path
+  local abs_path = path
+  if not path:match("^[A-Za-z]:[/\\]") and not path:match("^[/\\]") then
+    local pdir = core.project_dir or (core.project_directories and core.project_directories[1] and core.project_directories[1].name) or "."
+    abs_path = pdir .. PATHSEP .. path
+  end
+  abs_path = system.absolute_path(abs_path) or abs_path
   local norm_path = common.normalize_path(abs_path)
   local norm_datadir = common.normalize_path(DATADIR)
   local norm_userdir = common.normalize_path(USERDIR)
