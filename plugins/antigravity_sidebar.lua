@@ -6531,14 +6531,20 @@ end
     core.push_clip_rect(x, y, w, h)
 
     if self.history_state == "loading" then
-      renderer.draw_text(f, "Growing tree...", x + 20, y + 20, C_LEAF)
+      local txt = "🌱 Growing memory tree..."
+      local tw = f:get_width(txt)
+      renderer.draw_text(f, txt, x + math.floor((w - tw) / 2), y + math.floor(h / 3), C_LEAF)
       core.pop_clip_rect(); return
     elseif self.history_state == "error" then
-      renderer.draw_text(f, "Error loading timeline.", x + 20, y + 20, _COLOR_CACHE_26)
+      local txt = "⚠️ Error loading timeline. Try typing /prune."
+      local tw = f:get_width(txt)
+      renderer.draw_text(f, txt, x + math.floor((w - tw) / 2), y + math.floor(h / 3), _COLOR_CACHE_26)
       core.pop_clip_rect(); return
     end
     if not self.history_nodes or #self.history_nodes == 0 then
-      renderer.draw_text(f, "No history yet.", x + 20, y + 20, C_TEXT)
+      local txt = "🌿 No conversation branches yet."
+      local tw = f:get_width(txt)
+      renderer.draw_text(f, txt, x + math.floor((w - tw) / 2), y + math.floor(h / 3), C_TEXT)
       core.pop_clip_rect(); return
     end
 
@@ -6626,6 +6632,12 @@ end
             -- Draw vertical slice
             renderer.draw_rect(bx, math.floor(y_top), 1, math.max(1, math.floor(y_bot - y_top)), C_TR)
         end
+
+        -- Decorative leaf buds at branch tip
+        local tip_x = sx + dir * steps
+        local tip_y = cy - 25 * SCALE
+        fill_circle(tip_x, tip_y, 4 * SCALE, C_LEAF)
+        fill_circle(tip_x + dir * 3 * SCALE, tip_y - 2 * SCALE, 3 * SCALE, C_LEAF_D)
     end
 
     for _, n in ipairs(self.history_nodes) do
@@ -6731,7 +6743,14 @@ end
         if #n._lines > 4 then
            n._lines = { n._lines[1], n._lines[2], n._lines[3], n._lines[4] .. "..." }
         end
-        n._title = n.title == "default_thread" and "main" or (n.title or "?")
+        local clean_title = n.title or "?"
+        if clean_title == "default_thread" then
+          clean_title = "Main Session"
+        elseif clean_title:match("^thread_%d+_(%d+)") then
+          local sub = clean_title:match("^thread_%d+_(%d+)")
+          clean_title = "Session #" .. sub:sub(-6)
+        end
+        n._title = clean_title
       end
     end
 
@@ -6791,12 +6810,33 @@ end
               current_y = current_y + fh + 2*SCALE
            end
            
-           -- Hitbox
+           -- Hitbox & Hover Card Highlight
            local rx = is_left and (trunk_x - LEFT_W) or (trunk_x + TRUNK_W)
            local bw = is_left and LEFT_W or RIGHT_W
-           table.insert(self._hist_node_rects, { id=n.id, thread=n.thread_id, x=rx, y=y_y, w=bw, h=(current_y - y_y) })
+           local card_h = (current_y - y_y) + 4 * SCALE
+           local card_y = y_y - 2 * SCALE
+
+           if is_hov then
+             renderer.draw_rect(rx, card_y, bw, card_h, P.bg_btn or P.bg_dark)
+             draw_rect_outline(rx, card_y, bw, card_h, P.border)
+             local rh_text = is_left and "↵ Resume" or "Resume ↵"
+             local rh_w = style.font:get_width(rh_text)
+             local rh_x = is_left and (rx + 8 * SCALE) or (rx + bw - rh_w - 8 * SCALE)
+             renderer.draw_text(style.font, rh_text, rh_x, current_y + 2 * SCALE, P.fg_accent)
+           end
+
+           table.insert(self._hist_node_rects, { id=n.id, thread=n.thread_id, x=rx, y=y_y, w=bw, h=card_h })
         end
       end
+    end
+
+    -- PASS 6: Sleek Scrollbar Indicator
+    if self.history_max_scroll and self.history_max_scroll > 0 then
+      local sb_w = 4 * SCALE
+      local sb_x = x + w - sb_w - 2 * SCALE
+      local sb_thumb_h = math.max(20 * SCALE, math.floor(h * (h / (h + self.history_max_scroll))))
+      local sb_thumb_y = y + math.floor((SCROLL / self.history_max_scroll) * (h - sb_thumb_h))
+      renderer.draw_rect(sb_x, sb_thumb_y, sb_w, sb_thumb_h, P.border)
     end
 
     core.pop_clip_rect()
@@ -9848,30 +9888,56 @@ function AGView:draw(...)
     local x, y = self.position.x, self.position.y
     local w, h = self.size.x, self.size.y
     local pad = 10 * SCALE
-    
-    -- Draw tree
-    self:draw_history_tree(x, y, w, h)
-    
-    -- Draw toggle button on top
     local P = get_palette()
-    local h_btn_w = 32 * SCALE
-    local h_btn_x = x + w - pad - h_btn_w
-    local h_btn_y = y + 103 * SCALE
-    self._hist_toggle_rect = { x = h_btn_x, y = h_btn_y, w = h_btn_w, h = 30 * SCALE }
-    
-    -- Draw prune button right beside toggle button
-    local p_btn_w = 32 * SCALE
-    local p_btn_x = h_btn_x - p_btn_w - 6 * SCALE
-    self._hist_prune_rect = { x = p_btn_x, y = h_btn_y, w = p_btn_w, h = 30 * SCALE }
-    local is_p_hov = self.hover_prune_btn
-    renderer.draw_rect(p_btn_x, h_btn_y, p_btn_w, 30 * SCALE, is_p_hov and P.fg_accent or (self.history_pruning and _COLOR_CACHE_31 or P.bg_dark))
-    renderer.draw_text(style.font, self.history_pruning and "..." or "✂", p_btn_x + 9 * SCALE, h_btn_y + 6 * SCALE, is_p_hov and P.bg or P.fg_accent)
+    local sf = style.font
+    local tf = style.big_font or style.font
 
-    -- We need mx, my to check hover. But draw doesn't get mx, my directly. 
-    -- We can just use self.hover_hist_btn which is updated by on_mouse_moved.
+    -- Fixed Modern Header Bar on top
+    local header_h = 42 * SCALE
+    
+    -- Draw tree within clipped body beneath fixed header
+    self:draw_history_tree(x, y + header_h, w, h - header_h)
+    
+    -- Draw Fixed Header Bar
+    renderer.draw_rect(x, y, w, header_h, P.bg_dark)
+    renderer.draw_rect(x, y + header_h - 1, w, 1, P.border)
+    
+    -- Header Title
+    local icon_str = "🌳 "
+    local title_str = "Memory Tree"
+    local node_cnt = (self.history_nodes and #self.history_nodes or 0)
+    local sub_str = string.format("(%d nodes)", node_cnt)
+    
+    local ty = y + math.floor((header_h - tf:get_height()) / 2)
+    renderer.draw_text(tf, icon_str .. title_str, x + pad, ty, P.fg_accent)
+    local title_w = tf:get_width(icon_str .. title_str)
+    renderer.draw_text(sf, sub_str, x + pad + title_w + 6 * SCALE, y + math.floor((header_h - sf:get_height()) / 2), P.fg_muted)
+
+    -- Action Buttons on the Right
+    local btn_h = 26 * SCALE
+    local btn_y = y + math.floor((header_h - btn_h) / 2)
+    local h_btn_w = 30 * SCALE
+    local h_btn_x = x + w - pad - h_btn_w
+
+    local p_text = self.history_pruning and "Pruning..." or "✂ Prune"
+    local p_btn_w = sf:get_width(p_text) + 14 * SCALE
+    local p_btn_x = h_btn_x - p_btn_w - 6 * SCALE
+
+    -- Prune Button
+    self._hist_prune_rect = { x = p_btn_x, y = btn_y, w = p_btn_w, h = btn_h }
+    local is_p_hov = self.hover_prune_btn
+    renderer.draw_rect(p_btn_x, btn_y, p_btn_w, btn_h, is_p_hov and P.fg_accent or P.bg_btn)
+    draw_rect_outline(p_btn_x, btn_y, p_btn_w, btn_h, P.border)
+    renderer.draw_text(sf, p_text, p_btn_x + 7 * SCALE, btn_y + math.floor((btn_h - sf:get_height()) / 2), is_p_hov and P.bg or P.fg)
+
+    -- Close / Back Button
+    self._hist_toggle_rect = { x = h_btn_x, y = btn_y, w = h_btn_w, h = btn_h }
     local is_hov = self.hover_hist_btn
-    renderer.draw_rect(h_btn_x, h_btn_y, h_btn_w, 30 * SCALE, P.fg_accent)
-    renderer.draw_text(style.icon_font, "g", h_btn_x + 8 * SCALE, h_btn_y + 6 * SCALE, P.bg)
+    renderer.draw_rect(h_btn_x, btn_y, h_btn_w, btn_h, is_hov and P.fg_accent or P.bg_btn)
+    draw_rect_outline(h_btn_x, btn_y, h_btn_w, btn_h, P.border)
+    local close_icon = "g"
+    local c_icon_w = style.icon_font:get_width(close_icon)
+    renderer.draw_text(style.icon_font, close_icon, h_btn_x + math.floor((h_btn_w - c_icon_w) / 2), btn_y + math.floor((btn_h - style.icon_font:get_height()) / 2), is_hov and P.bg or P.fg)
     return
   end
   
