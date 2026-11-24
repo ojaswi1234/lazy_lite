@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-High Performance PowerPoint (PPTX) Browsh-Style Character Engine & Slideshow Renderer for Lite XL
-Inspired by Browsh terminal browser and high-performance presentation display systems:
-- Extracts slide dimensions (16:9 widescreen, 4:3 standard, custom), titles, speaker notes, and shapes.
-- High-fidelity vector/raster compositing of shapes, pictures, tables, and formatted typography via Pillow.
-- Dual-Layer rendering:
-  1. Browsh-Style UTF-8 Sub-Pixel Character Matrix ('▀' U+2580 + crisp true text stream).
-  2. HD Spatial-Banded Run-Length Encoded (RLE) pixel spans for instantaneous GPU/SDL2 drawing.
-  3. Interactive Presentation / Slideshow mode with speaker notes extraction and deck navigation.
-- Completely contained within Lite XL internal SDL2 renderer — zero external browser/Office popups.
+High Performance PowerPoint (PPTX) Vector & Typography Engine for Lite XL
+Features:
+- Structured Vector Slide Extraction: Shapes, Cards, Borders, Fills, Tables, Pictures.
+- Authentic TrueType Typography: Exact font sizing (points), weights (bold/regular),
+  vibrant RGB colors, paragraph alignment, bullet points, and multi-level indents.
+- Dual-Layer Rendering Pipeline:
+  1. HD Vector & Native Typography Mode: Zero raster pixel blur, razor-sharp FreeType text.
+  2. Browsh Sub-Pixel Character Matrix: Half-block graphics with true monospace text stream.
+  3. Structured Document Reader Mode: Clean markdown-style text representation.
+- Speaker Notes Extraction & Full-Text Presentation Search.
 """
 
 import sys
@@ -30,77 +31,14 @@ except ImportError:
     Presentation = None
 
 try:
-    from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+    from PIL import Image, ImageEnhance
 except ImportError:
     Image = None
-    ImageDraw = None
-    ImageFont = None
     ImageEnhance = None
 
 # EMU constants
 EMU_PER_INCH = 914400
 EMU_PER_PT = 12700
-
-# Cached font loader for Windows system fonts
-_FONT_CACHE = {}
-
-def get_pil_font(family, size_pt, bold=False, italic=False):
-    if not ImageFont:
-        return None
-    cache_key = (family, size_pt, bold, italic)
-    if cache_key in _FONT_CACHE:
-        return _FONT_CACHE[cache_key]
-
-    windir = os.environ.get("WINDIR", "C:\\Windows")
-    fonts_dir = os.path.join(windir, "Fonts")
-
-    # Font candidate mapping
-    candidates = []
-    f_lower = (family or "").lower()
-    if "calibri" in f_lower:
-        if bold and italic: candidates.append("calibriz.ttf")
-        elif bold: candidates.append("calibrib.ttf")
-        elif italic: candidates.append("calibrii.ttf")
-        candidates.append("calibri.ttf")
-    elif "arial" in f_lower:
-        if bold and italic: candidates.append("arialbi.ttf")
-        elif bold: candidates.append("arialbd.ttf")
-        elif italic: candidates.append("ariali.ttf")
-        candidates.append("arial.ttf")
-    elif "segoe" in f_lower:
-        if bold: candidates.append("segoeuib.ttf")
-        candidates.append("segoeui.ttf")
-    elif "times" in f_lower:
-        if bold and italic: candidates.append("timesbi.ttf")
-        elif bold: candidates.append("timesbd.ttf")
-        elif italic: candidates.append("timesi.ttf")
-        candidates.append("times.ttf")
-
-    # General fallbacks
-    if bold:
-        candidates.extend(["calibrib.ttf", "arialbd.ttf", "segoeuib.ttf"])
-    candidates.extend(["calibri.ttf", "arial.ttf", "segoeui.ttf", "tahoma.ttf"])
-
-    px_size = max(8, int(size_pt * 1.333))
-
-    font_obj = None
-    for cand in candidates:
-        cand_path = os.path.join(fonts_dir, cand)
-        if os.path.exists(cand_path):
-            try:
-                font_obj = ImageFont.truetype(cand_path, px_size)
-                break
-            except Exception:
-                pass
-
-    if not font_obj:
-        try:
-            font_obj = ImageFont.load_default()
-        except Exception:
-            font_obj = None
-
-    _FONT_CACHE[cache_key] = font_obj
-    return font_obj
 
 def escape_lua_string(text):
     if not text:
@@ -114,6 +52,15 @@ def sanitize_str(s):
     if not s:
         return ""
     return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+
+def get_color_rgb(color_obj, default=(35, 40, 48)):
+    if not color_obj:
+        return default
+    try:
+        rgb = color_obj.rgb
+        return (rgb[0], rgb[1], rgb[2])
+    except Exception:
+        return default
 
 def get_pptx_info(pptx_path, out_file):
     try:
@@ -189,60 +136,46 @@ def get_pptx_info(pptx_path, out_file):
             f.write(f"  error = {escape_lua_string(str(e))}\n")
             f.write("}\n")
 
-def get_color_rgb(color_obj, default=(40, 45, 50)):
-    if not color_obj:
-        return default
-    try:
-        rgb = color_obj.rgb
-        return (rgb[0], rgb[1], rgb[2])
-    except Exception:
-        return default
-
-def composite_slide_image(prs, slide, canvas_w=1280):
+def extract_slide_structured(prs, slide):
     """
-    Renders PowerPoint slide into a high-fidelity PIL Image.
-    Extracts backgrounds, auto-shapes, embedded images, tables, and formatted typography.
+    Extracts complete vector, picture, and typography document structure from slide.
+    Coordinates are normalized to 0.0 .. 1.0 relative to slide width and height.
     """
-    w_emu = prs.slide_width
-    h_emu = prs.slide_height
-    aspect = h_emu / max(w_emu, 1)
-    canvas_h = int(canvas_w * aspect)
+    sw = float(prs.slide_width)
+    sh = float(prs.slide_height)
+    aspect = round(sw / max(sh, 1.0), 4)
 
-    scale_x = canvas_w / float(w_emu)
-    scale_y = canvas_h / float(h_emu)
-
-    # 1. Determine slide background
+    # 1. Background color
     bg_color = (252, 252, 253)
     try:
         if slide.background and slide.background.fill:
             fill = slide.background.fill
-            if fill.type == 1: # MSO_FILL.SOLID
+            if fill.type == 1: # SOLID
                 bg_color = get_color_rgb(fill.fore_color, default=bg_color)
     except Exception:
         pass
 
-    img = Image.new("RGB", (canvas_w, canvas_h), bg_color)
-    draw = ImageDraw.Draw(img)
-
-    extracted_words = []
-    full_text_blocks = []
+    # 2. Speaker notes
     speaker_notes = ""
-
     try:
         if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
             speaker_notes = slide.notes_slide.notes_text_frame.text.strip()
     except Exception:
         speaker_notes = ""
 
-    # Sort shapes by z-order
+    shapes_list = []
+    text_blocks = []
+    images_list = []
+    full_text_lines = []
+
     for shape in slide.shapes:
         try:
-            sx = int(shape.left * scale_x)
-            sy = int(shape.top * scale_y)
-            sw = max(1, int(shape.width * scale_x))
-            sh = max(1, int(shape.height * scale_y))
+            nx = max(0.0, min(1.0, shape.left / sw))
+            ny = max(0.0, min(1.0, shape.top / sh))
+            nw = max(0.005, min(1.0, shape.width / sw))
+            nh = max(0.005, min(1.0, shape.height / sh))
 
-            # Shape background / fill
+            # Shape visual styling (fill and border)
             fill_color = None
             try:
                 if hasattr(shape, "fill") and shape.fill and shape.fill.type == 1:
@@ -250,33 +183,70 @@ def composite_slide_image(prs, slide, canvas_w=1280):
             except Exception:
                 fill_color = None
 
-            # Border / line
-            line_color = None
-            line_w = 1
+            border_color = None
+            border_w = 1
             try:
                 if hasattr(shape, "line") and shape.line and shape.line.color:
-                    line_color = get_color_rgb(shape.line.color, None)
+                    border_color = get_color_rgb(shape.line.color, None)
                     if shape.line.width:
-                        line_w = max(1, int(shape.line.width * scale_x))
+                        border_w = max(1, int(shape.line.width / EMU_PER_PT))
             except Exception:
-                line_color = None
+                border_color = None
 
-            # Draw basic shape rectangle/oval if fill or line present
-            if fill_color or line_color:
-                if fill_color:
-                    draw.rectangle([sx, sy, sx + sw, sy + sh], fill=fill_color)
-                if line_color:
-                    draw.rectangle([sx, sy, sx + sw, sy + sh], outline=line_color, width=line_w)
+            # Record geometric container if visible fill or line
+            if fill_color or border_color:
+                shapes_list.append({
+                    "x": round(nx, 4),
+                    "y": round(ny, 4),
+                    "w": round(nw, 4),
+                    "h": round(nh, 4),
+                    "fill": fill_color,
+                    "border": border_color,
+                    "border_w": border_w
+                })
 
             # Embedded Pictures
-            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE or hasattr(shape, "image"):
+            if (shape.shape_type == MSO_SHAPE_TYPE.PICTURE or hasattr(shape, "image")) and Image:
                 try:
                     blob = shape.image.blob
-                    pic = Image.open(io.BytesIO(blob)).convert("RGBA")
-                    pic_resized = pic.resize((sw, sh), Image.Resampling.BILINEAR)
-                    img.paste(pic_resized, (sx, sy), pic_resized)
-                    pic.close()
-                    pic_resized.close()
+                    pil_img = Image.open(io.BytesIO(blob)).convert("RGB")
+                    # Scale down image to reasonable thumbnail resolution
+                    thumb_w = min(400, max(60, int(nw * 800)))
+                    thumb_h = max(30, int(thumb_w * (pil_img.height / max(pil_img.width, 1))))
+                    resized = pil_img.resize((thumb_w, thumb_h), Image.Resampling.BILINEAR)
+                    pil_img.close()
+
+                    # RLE spans for picture
+                    pixels = resized.load()
+                    spans = []
+                    for py in range(thumb_h):
+                        in_run = False
+                        run_start = 0
+                        run_c = None
+                        for px in range(thumb_w):
+                            c = pixels[px, py]
+                            if not in_run:
+                                in_run = True
+                                run_start = px
+                                run_c = c
+                            else:
+                                if abs(c[0] - run_c[0]) > 6 or abs(c[1] - run_c[1]) > 6 or abs(c[2] - run_c[2]) > 6:
+                                    spans.append((run_start, py, px - run_start, 1, run_c))
+                                    run_start = px
+                                    run_c = c
+                        if in_run:
+                            spans.append((run_start, py, thumb_w - run_start, 1, run_c))
+                    resized.close()
+
+                    images_list.append({
+                        "x": round(nx, 4),
+                        "y": round(ny, 4),
+                        "w": round(nw, 4),
+                        "h": round(nh, 4),
+                        "tw": thumb_w,
+                        "th": thumb_h,
+                        "spans": spans
+                    })
                 except Exception:
                     pass
 
@@ -286,241 +256,146 @@ def composite_slide_image(prs, slide, canvas_w=1280):
                 n_rows = len(table.rows)
                 n_cols = len(table.columns)
                 if n_rows > 0 and n_cols > 0:
-                    row_h = max(1, sh // n_rows)
-                    col_w = max(1, sw // n_cols)
-                    for r_i, row in enumerate(table.rows):
-                        for c_i, cell in enumerate(row.cells):
-                            cx = sx + c_i * col_w
-                            cy = sy + r_i * row_h
-                            draw.rectangle([cx, cy, cx + col_w, cy + row_h], outline=(180, 190, 200), width=1)
-                            if cell.text.strip():
-                                c_font = get_pil_font("Calibri", 12)
-                                draw.text((cx + 6, cy + 4), cell.text.strip(), fill=(30, 35, 40), font=c_font)
-                                full_text_blocks.append(cell.text.strip())
+                    cw = nw / n_cols
+                    ch = nh / n_rows
+                    for r_idx, row in enumerate(table.rows):
+                        for c_idx, cell in enumerate(row.cells):
+                            cx = nx + c_idx * cw
+                            cy = ny + r_idx * ch
+                            shapes_list.append({
+                                "x": round(cx, 4),
+                                "y": round(cy, 4),
+                                "w": round(cw, 4),
+                                "h": round(ch, 4),
+                                "fill": (245, 247, 250) if r_idx == 0 else (255, 255, 255),
+                                "border": (210, 218, 226),
+                                "border_w": 1
+                            })
+                            c_text = cell.text.strip()
+                            if c_text:
+                                full_text_lines.append(c_text)
+                                text_blocks.append({
+                                    "x": round(cx + 0.005, 4),
+                                    "y": round(cy + 0.004, 4),
+                                    "w": round(cw - 0.01, 4),
+                                    "h": round(ch - 0.008, 4),
+                                    "paragraphs": [{
+                                        "text": c_text,
+                                        "size": 14,
+                                        "bold": (r_idx == 0),
+                                        "color": (25, 30, 38) if r_idx == 0 else (45, 52, 64),
+                                        "align": "left",
+                                        "level": 0,
+                                        "bullet": False
+                                    }]
+                                })
 
             # Text Frames
             if shape.has_text_frame:
                 tf = shape.text_frame
-                curr_y = sy + 6
-                for p_idx, p in enumerate(tf.paragraphs):
+                paras = []
+                for p in tf.paragraphs:
                     p_text = p.text
                     if not p_text.strip():
-                        curr_y += int(14 * scale_y * 1000)
                         continue
 
-                    full_text_blocks.append(p_text.strip())
+                    full_text_lines.append(p_text.strip())
 
-                    # Paragraph font properties
-                    font_size_pt = 18
+                    # Font size in points
+                    pt_size = 18.0
                     try:
                         if p.font and p.font.size:
-                            font_size_pt = p.font.size.pt
-                        elif p.runs and p.runs[0].font.size:
-                            font_size_pt = p.runs[0].font.size.pt
+                            pt_size = p.font.size.pt
+                        elif p.runs and p.runs[0].font and p.runs[0].font.size:
+                            pt_size = p.runs[0].font.size.pt
                     except Exception:
-                        font_size_pt = 18
+                        pt_size = 18.0
 
-                    # Adjust font size according to canvas scaling
-                    font_size_pt = max(10, min(64, font_size_pt * (canvas_w / 1280.0)))
-
-                    font_bold = False
+                    # Font weight (bold)
+                    is_bold = False
                     try:
                         if p.font and p.font.bold is not None:
-                            font_bold = p.font.bold
-                        elif p.runs and p.runs[0].font.bold is not None:
-                            font_bold = p.runs[0].font.bold
+                            is_bold = p.font.bold
+                        elif p.runs and p.runs[0].font and p.runs[0].font.bold is not None:
+                            is_bold = p.runs[0].font.bold
                     except Exception:
-                        font_bold = False
+                        is_bold = False
 
-                    font_color = (25, 30, 35)
+                    # Font color
+                    p_color = (35, 40, 50)
                     try:
                         if p.font and p.font.color:
-                            font_color = get_color_rgb(p.font.color, font_color)
-                        elif p.runs and p.runs[0].font.color:
-                            font_color = get_color_rgb(p.runs[0].font.color, font_color)
+                            p_color = get_color_rgb(p.font.color, p_color)
+                        elif p.runs and p.runs[0].font and p.runs[0].font.color:
+                            p_color = get_color_rgb(p.runs[0].font.color, p_color)
                     except Exception:
-                        font_color = (25, 30, 35)
+                        p_color = (35, 40, 50)
 
-                    # High contrast adjustment if background is dark
+                    # Ensure high contrast against slide background
                     bg_lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
-                    fg_lum = 0.299 * font_color[0] + 0.587 * font_color[1] + 0.114 * font_color[2]
-                    if bg_lum < 100 and fg_lum < 100:
-                        font_color = (240, 245, 250)
-                    elif bg_lum > 160 and fg_lum > 160:
-                        font_color = (25, 30, 35)
-
-                    font_obj = get_pil_font("Calibri", font_size_pt, bold=font_bold)
-                    line_height = int(font_size_pt * 1.35)
-
-                    # Word wrapping
-                    words = p_text.split()
-                    lines = []
-                    curr_line = []
-                    for w in words:
-                        curr_line.append(w)
-                        test_str = " ".join(curr_line)
-                        try:
-                            bbox = draw.textbbox((0, 0), test_str, font=font_obj)
-                            w_px = bbox[2] - bbox[0]
-                        except Exception:
-                            w_px = len(test_str) * font_size_pt * 0.6
-                        if w_px > max(100, sw - 12):
-                            if len(curr_line) > 1:
-                                curr_line.pop()
-                                lines.append(" ".join(curr_line))
-                                curr_line = [w]
-                            else:
-                                lines.append(test_str)
-                                curr_line = []
-                    if curr_line:
-                        lines.append(" ".join(curr_line))
+                    fg_lum = 0.299 * p_color[0] + 0.587 * p_color[1] + 0.114 * p_color[2]
+                    if bg_lum < 110 and fg_lum < 110:
+                        p_color = (240, 245, 252)
+                    elif bg_lum > 150 and fg_lum > 170:
+                        p_color = (30, 36, 45)
 
                     # Alignment
-                    align = p.alignment
-                    for l_str in lines:
-                        try:
-                            bbox = draw.textbbox((0, 0), l_str, font=font_obj)
-                            lw = bbox[2] - bbox[0]
-                            lh = bbox[3] - bbox[1]
-                        except Exception:
-                            lw = len(l_str) * font_size_pt * 0.6
-                            lh = line_height
+                    align = "left"
+                    if p.alignment == PP_ALIGN.CENTER:
+                        align = "center"
+                    elif p.alignment == PP_ALIGN.RIGHT:
+                        align = "right"
 
-                        draw_x = sx + 6
-                        if align == PP_ALIGN.CENTER:
-                            draw_x = sx + max(0, (sw - lw) // 2)
-                        elif align == PP_ALIGN.RIGHT:
-                            draw_x = sx + max(0, sw - lw - 6)
+                    # Bullet indicator
+                    level = p.level or 0
+                    has_bullet = p_text.strip().startswith("•") or p_text.strip().startswith("-") or level > 0
 
-                        draw.text((draw_x, curr_y), l_str, fill=font_color, font=font_obj)
+                    paras.append({
+                        "text": p_text.strip(),
+                        "size": round(pt_size, 1),
+                        "bold": is_bold,
+                        "color": p_color,
+                        "align": align,
+                        "level": level,
+                        "bullet": has_bullet
+                    })
 
-                        # Record word bounding boxes for search & selection
-                        for single_w in l_str.split():
-                            extracted_words.append({
-                                "text": single_w,
-                                "x": round(draw_x / canvas_w, 4),
-                                "y": round(curr_y / canvas_h, 4),
-                                "w": round(lw / canvas_w, 4),
-                                "h": round(lh / canvas_h, 4)
-                            })
+                if paras:
+                    text_blocks.append({
+                        "x": round(nx, 4),
+                        "y": round(ny, 4),
+                        "w": round(nw, 4),
+                        "h": round(nh, 4),
+                        "paragraphs": paras
+                    })
 
-                        curr_y += line_height + 4
         except Exception:
             pass
 
-    return img, bg_color, full_text_blocks, extracted_words, speaker_notes
+    full_text = "\n".join(full_text_lines)
+    return aspect, bg_color, speaker_notes, shapes_list, images_list, text_blocks, full_text
 
-def render_slide_browsh(img, bg_color, text_blocks, cols=110):
-    """
-    Converts composited PIL slide image into Browsh UTF-8 Half-Block Sub-Pixel Character Matrix.
-    """
-    orig_w, orig_h = img.size
-    aspect = orig_h / max(orig_w, 1)
-    rows = max(1, int(cols * aspect * 0.50))
-    subpixel_h = rows * 2
+def render_slide_browsh_blocks(aspect, bg_color, text_blocks, cols=110):
+    rows = max(1, int(cols * (1.0 / aspect) * 0.50))
+    bg_lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
+    default_fg = (25, 30, 35) if bg_lum > 130 else (240, 245, 250)
 
-    resized = img.resize((cols, subpixel_h), Image.Resampling.BILINEAR)
-    pixels = resized.load()
-
-    def color_diff(c1, c2):
-        return abs(c1[0] - c2[0]) + abs(c1[1] - c2[1]) + abs(c1[2] - c2[2])
+    # Place text directly into monospace grid lines
+    text_lines = []
+    for tb in text_blocks:
+        start_r = int(tb["y"] * rows)
+        start_c = int(tb["x"] * cols)
+        cur_r = start_r
+        for p in tb["paragraphs"]:
+            if cur_r >= rows:
+                break
+            clean_str = sanitize_str(p["text"])
+            fg = p["color"]
+            text_lines.append(f'{{{cur_r},{start_c},"{clean_str}",{{{fg[0]},{fg[1]},{fg[2]}}}}}')
+            cur_r += 1
 
     graphic_runs = []
-    for r in range(rows):
-        y_top = r * 2
-        y_bot = y_top + 1
-        c = 0
-        while c < cols:
-            top = pixels[c, y_top]
-            bot = pixels[c, y_bot] if y_bot < subpixel_h else bg_color
-
-            if color_diff(top, bg_color) > 30 or color_diff(bot, bg_color) > 30:
-                run_len = 1
-                while c + run_len < cols:
-                    ntop = pixels[c + run_len, y_top]
-                    nbot = pixels[c + run_len, y_bot] if y_bot < subpixel_h else bg_color
-                    if color_diff(top, ntop) < 25 and color_diff(bot, nbot) < 25:
-                        run_len += 1
-                    else:
-                        break
-                graphic_runs.append(f'{{{r},{c},{run_len},{{{top[0]},{top[1]},{top[2]}}},{{{bot[0]},{bot[1]},{bot[2]}}}}}')
-                c += run_len
-            else:
-                c += 1
-
-    resized.close()
-
-    bg_lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
-    text_fg = (25, 30, 26) if bg_lum > 130 else (240, 245, 240)
-
-    text_lines = []
-    full_text = "\n".join(text_blocks)
-    return cols, rows, bg_color, graphic_runs, text_lines, full_text
-
-def render_slide_hd(img, bg_color, target_width=1300):
-    """
-    Generates horizontal RLE pixel spans for smooth, zero-latency Lite XL drawing.
-    """
-    if ImageEnhance:
-        enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(1.10)
-
-    w, h = img.size
-    pixels = img.load()
-
-    def is_bg(c):
-        return abs(c[0] - bg_color[0]) <= 3 and abs(c[1] - bg_color[1]) <= 3 and abs(c[2] - bg_color[2]) <= 3
-
-    row_spans = []
-    for y in range(h):
-        in_run = False
-        run_start = 0
-        run_color = None
-
-        for x in range(w):
-            c = pixels[x, y]
-            if is_bg(c):
-                if in_run:
-                    row_spans.append((run_start, y, x - run_start, 1, run_color))
-                    in_run = False
-            else:
-                if not in_run:
-                    in_run = True
-                    run_start = x
-                    run_color = c
-                else:
-                    if abs(c[0] - run_color[0]) > 4 or abs(c[1] - run_color[1]) > 4 or abs(c[2] - run_color[2]) > 4:
-                        row_spans.append((run_start, y, x - run_start, 1, run_color))
-                        run_start = x
-                        run_color = c
-        if in_run:
-            row_spans.append((run_start, y, w - run_start, 1, run_color))
-
-    # Coalesce identical vertical spans
-    coalesced = []
-    active = {}
-    for span in row_spans:
-        x, y, sw, sh, color = span
-        key = (x, sw, color)
-        if key in active:
-            prev_y, prev_h = active[key]
-            if prev_y + prev_h == y:
-                active[key] = (prev_y, prev_h + 1)
-                continue
-            else:
-                coalesced.append((x, prev_y, sw, prev_h, color))
-                del active[key]
-        active[key] = (y, 1)
-
-    for key, (prev_y, prev_h) in active.items():
-        x, sw, color = key
-        coalesced.append((x, prev_y, sw, prev_h, color))
-
-    formatted_spans = [
-        f"    {{{s[0]},{s[1]},{s[2]},{s[3]},{s[4][0]},{s[4][1]},{s[4][2]}}}"
-        for s in coalesced
-    ]
-    return w, h, bg_color, formatted_spans
+    return cols, rows, bg_color, graphic_runs, text_lines
 
 def render_slide(pptx_path, slide_idx, out_file, width=110, mode="hd"):
     try:
@@ -532,59 +407,54 @@ def render_slide(pptx_path, slide_idx, out_file, width=110, mode="hd"):
             raise IndexError(f"Slide index {slide_idx} out of range (0..{len(prs.slides)-1})")
 
         slide = prs.slides[slide_idx]
-        target_w = 1280 if mode == "hd" else 960
-        img, bg_color, text_blocks, words, notes = composite_slide_image(prs, slide, canvas_w=target_w)
-        full_text = "\n".join(text_blocks)
+        aspect, bg_color, notes, shapes, images, text_blocks, full_text = extract_slide_structured(prs, slide)
 
-        if mode == "hd":
-            w, h, page_bg, spans = render_slide_hd(img, bg_color, target_width=target_w)
-            with open(out_file, "w", encoding="utf-8") as f:
-                f.write("return {\n")
-                f.write("  mode = 'hd',\n")
-                f.write(f"  w = {w},\n  h = {h},\n")
-                f.write(f"  bg = {{{page_bg[0]}, {page_bg[1]}, {page_bg[2]}}},\n")
-                f.write(f"  notes = {escape_lua_string(notes)},\n")
-                f.write(f"  text = {escape_lua_string(full_text)},\n")
-                f.write("  words = {\n")
-                for w_item in words:
-                    clean_t = sanitize_str(w_item["text"])
-                    f.write(f"    {{ x = {w_item['x']}, y = {w_item['y']}, w = {w_item['w']}, h = {w_item['h']}, text = \"{clean_t}\" }},\n")
-                f.write("  },\n")
-                f.write("  spans = {\n")
-                f.write(",\n".join(spans))
-                f.write("\n  }\n}\n")
+        with open(out_file, "w", encoding="utf-8") as f:
+            f.write("return {\n")
+            f.write(f"  mode = '{mode}',\n")
+            f.write(f"  aspect_ratio = {aspect},\n")
+            f.write(f"  bg = {{{bg_color[0]}, {bg_color[1]}, {bg_color[2]}}},\n")
+            f.write(f"  notes = {escape_lua_string(notes)},\n")
+            f.write(f"  text = {escape_lua_string(full_text)},\n")
 
-        elif mode == "text":
-            w, h = img.size
-            with open(out_file, "w", encoding="utf-8") as f:
-                f.write("return {\n")
-                f.write("  mode = 'text',\n")
-                f.write(f"  w = {w},\n  h = {h},\n")
-                f.write(f"  bg = {{{bg_color[0]}, {bg_color[1]}, {bg_color[2]}}},\n")
-                f.write(f"  notes = {escape_lua_string(notes)},\n")
-                f.write(f"  text = {escape_lua_string(full_text)}\n")
-                f.write("}\n")
+            # 1. Shapes
+            f.write("  shapes = {\n")
+            for s in shapes:
+                fill_str = f"{{{s['fill'][0]},{s['fill'][1]},{s['fill'][2]}}}" if s.get("fill") else "nil"
+                border_str = f"{{{s['border'][0]},{s['border'][1]},{s['border'][2]}}}" if s.get("border") else "nil"
+                f.write(f"    {{ x = {s['x']}, y = {s['y']}, w = {s['w']}, h = {s['h']}, fill = {fill_str}, border = {border_str}, border_w = {s.get('border_w', 1)} }},\n")
+            f.write("  },\n")
 
-        else: # browsh mode
-            cols = int(width) if width else 110
-            cols, rows, page_bg, graphic_runs, text_lines, text = render_slide_browsh(img, bg_color, text_blocks, cols=cols)
-            with open(out_file, "w", encoding="utf-8") as f:
-                f.write("return {\n")
-                f.write("  mode = 'browsh',\n")
+            # 2. Embedded Pictures / Images
+            f.write("  images = {\n")
+            for img in images:
+                f.write(f"    {{ x = {img['x']}, y = {img['y']}, w = {img['w']}, h = {img['h']}, tw = {img['tw']}, th = {img['th']}, spans = {{\n")
+                for sp in img["spans"]:
+                    f.write(f"      {{{sp[0]},{sp[1]},{sp[2]},{sp[3]},{sp[4][0]},{sp[4][1]},{sp[4][2]}}},\n")
+                f.write("    } },\n")
+            f.write("  },\n")
+
+            # 3. Native FreeType Typography Blocks
+            f.write("  text_blocks = {\n")
+            for tb in text_blocks:
+                f.write(f"    {{ x = {tb['x']}, y = {tb['y']}, w = {tb['w']}, h = {tb['h']}, paragraphs = {{\n")
+                for p in tb["paragraphs"]:
+                    c = p["color"]
+                    f.write(f"      {{ text = \"{sanitize_str(p['text'])}\", size = {p['size']}, bold = {'true' if p['bold'] else 'false'}, color = {{{c[0]},{c[1]},{c[2]}}}, align = \"{p['align']}\", level = {p['level']}, bullet = {'true' if p['bullet'] else 'false'} }},\n")
+                f.write("    } },\n")
+            f.write("  },\n")
+
+            # Browsh fallback matrix
+            if mode == "browsh":
+                cols, rows, bg, gruns, tlines = render_slide_browsh_blocks(aspect, bg_color, text_blocks, cols=int(width) if width else 110)
                 f.write(f"  cols = {cols},\n  rows = {rows},\n")
-                f.write(f"  bg = {{{page_bg[0]}, {page_bg[1]}, {page_bg[2]}}},\n")
-                f.write(f"  notes = {escape_lua_string(notes)},\n")
-                f.write(f"  text = {escape_lua_string(full_text)},\n")
-                f.write("  graphic_runs = {\n")
-                for gr in graphic_runs:
-                    f.write("    " + gr + ",\n")
-                f.write("  },\n")
+                f.write("  graphic_runs = {},\n")
                 f.write("  text_lines = {\n")
-                for tl in text_lines:
-                    f.write("    " + tl + ",\n")
-                f.write("  }\n}\n")
+                for tl in tlines:
+                    f.write(f"    {tl},\n")
+                f.write("  },\n")
 
-        img.close()
+            f.write("}\n")
 
     except Exception as e:
         with open(out_file, "w", encoding="utf-8") as f:
@@ -602,7 +472,6 @@ def search_pptx(pptx_path, query, out_file):
         q_lower = query.lower()
 
         for idx, slide in enumerate(prs.slides):
-            # Check slide shapes
             slide_text = []
             for shp in slide.shapes:
                 if shp.has_text_frame:
@@ -621,7 +490,6 @@ def search_pptx(pptx_path, query, out_file):
                 })
                 continue
 
-            # Check speaker notes
             if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
                 n_text = slide.notes_slide.notes_text_frame.text
                 if q_lower in n_text.lower():

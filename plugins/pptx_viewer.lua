@@ -1,12 +1,13 @@
 -- mod-version:3
--- High Performance PowerPoint (PPTX) Browsh-Style Character Engine & Slideshow Viewer for Lite XL
+-- High Performance PowerPoint (PPTX) Vector & Native Typography Viewer for Lite XL
 -- Features:
--- 1. Browsh-Style Dual-Layer Sub-Pixel Character Matrix ('▀' U+2580 + True Text Stream)
--- 2. HD Vector / Raster Run-Length-Encoded GPU/SDL2 Span Acceleration with Spatial Banding
--- 3. Interactive Slideshow / Presentation Mode with On-Screen Navigation Buttons & Controls
--- 4. Slide Deck Explorer Thumbnail Strip for Instant Jump Navigation
--- 5. Blank Screen Blackboard / Whiteboard Mode with Dedicated UI Buttons
--- 6. Complete internal containment - strictly inside Lite XL (zero external browser or Office popups)
+-- 1. Native FreeType Typography: TrueType kerning, authentic weights (Calibri Bold/Regular),
+--    high contrast vibrant colors, word-wrapping, and multi-level bullet hierarchy. Zero raster blur or gibberish.
+-- 2. Clean Vector Canvas: Precision cards, containers, borders, fills, and embedded pictures.
+-- 3. Interactive Slideshow / Presentation Mode with On-Screen Navigation Buttons & Controls.
+-- 4. Slide Deck Explorer Thumbnail Strip for Instant Jump Navigation.
+-- 5. Blank Screen Blackboard / Whiteboard Mode with Dedicated UI Buttons.
+-- 6. Complete internal containment - strictly inside Lite XL (zero external browser or Office popups).
 
 local core = require "core"
 local system = require "system"
@@ -22,7 +23,7 @@ local process = require "process"
 
 -- Cached colors for zero GC pressure
 local _COLOR_BG_DARK       = { 16, 18, 22 }
-local _COLOR_BG_STAGE      = { 24, 27, 33 }
+local _COLOR_BG_STAGE      = { 22, 25, 30 }
 local _COLOR_BG_HUD        = { 20, 24, 30, 235 }
 local _COLOR_BORDER        = { 45, 52, 64 }
 local _COLOR_BORDER_LIGHT  = { 65, 75, 92 }
@@ -76,6 +77,44 @@ local function clean_temp_path(name)
 end
 
 -- ============================================================================
+-- DYNAMIC TRUE-TYPE FONT CACHING FOR CRISP NATIVE TYPOGRAPHY
+-- ============================================================================
+local _FONT_CACHE = {}
+
+local function get_slide_font(size_pt, is_bold, scale_factor)
+  local px_size = math.max(11, math.min(140, math.floor((size_pt or 18) * scale_factor * 1.333)))
+  local cache_key = px_size .. "_" .. (is_bold and "b" or "r")
+
+  if not _FONT_CACHE[cache_key] then
+    local candidates = {}
+    if is_bold then
+      table.insert(candidates, "C:/Windows/Fonts/calibrib.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/segoeuib.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/arialbd.ttf")
+    else
+      table.insert(candidates, "C:/Windows/Fonts/calibri.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/segoeui.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/arial.ttf")
+    end
+    table.insert(candidates, DATADIR .. "/fonts/FiraSans-Regular.ttf")
+
+    local loaded_font = nil
+    for _, font_path in ipairs(candidates) do
+      if system.get_file_info(font_path) then
+        local ok, f = pcall(renderer.font.load, font_path, px_size)
+        if ok and f then
+          loaded_font = f
+          break
+        end
+      end
+    end
+    _FONT_CACHE[cache_key] = loaded_font or style.font
+  end
+
+  return _FONT_CACHE[cache_key] or style.font
+end
+
+-- ============================================================================
 -- PPTX VIEW COMPONENT
 -- ============================================================================
 local PptxView = View:extend()
@@ -100,17 +139,17 @@ function PptxView:new(filename)
   self.slide = 1
   self.slide_count = 1
   self.slides_meta = {}
-  self.aspect_ratio = 1.7778 -- 16:9 standard default
+  self.aspect_ratio = 1.7778
   self.presentation_title = self.basename
 
   -- Modes & Display Controls
   self.zoom = 1.0
-  self.mode = "hd" -- Default: "hd" (RLE Spans), options: "browsh", "text"
+  self.mode = "hd" -- "hd" (Vector & Native FreeType Typography), "browsh", "text"
   self.inverted = false
   self.show_thumbnails = true
   self.show_notes = false
   self.slideshow_mode = false
-  self.blank_screen = nil -- nil, "black", "white"
+  self.blank_screen = nil
   self.show_slideshow_notes = false
 
   -- HUD auto-hide state for slideshow mode
@@ -205,15 +244,7 @@ function PptxView:request_slide(slide_idx, mode)
   self.active_proc_file = out_file
   self.active_proc_type = "slide"
 
-  local target_w = 1280
-  if mode == "browsh" then
-    target_w = 110
-  elseif mode == "hd" then
-    local avail_w = math.max(640, self.size.x - (self.show_thumbnails and self.thumbnail_w or 0) - 40 * SCALE)
-    target_w = math.max(1280, math.min(1920, math.floor(avail_w * math.max(1.2, self.zoom * 1.2))))
-  end
-
-  local cmd = { "python", PYTHON_ENGINE, "render", self.abs_filename, tostring(slide_idx - 1), out_file, tostring(target_w), mode }
+  local cmd = { "python", PYTHON_ENGINE, "render", self.abs_filename, tostring(slide_idx - 1), out_file, "110", mode }
   self.active_proc = process.start(cmd)
   if not self.active_proc then
     self.loading = false
@@ -231,7 +262,7 @@ function PptxView:prefetch_next_slide()
       self.active_proc_file = out_file
       self.active_proc_type = "prefetch"
       self.active_slide_loading = key
-      local cmd = { "python", PYTHON_ENGINE, "render", self.abs_filename, tostring(next_slide - 1), out_file, "1280", self.mode }
+      local cmd = { "python", PYTHON_ENGINE, "render", self.abs_filename, tostring(next_slide - 1), out_file, "110", self.mode }
       self.active_proc = process.start(cmd)
     end
   end
@@ -419,30 +450,6 @@ function PptxView:update()
                 self.error_msg = data.error
               end
             else
-              -- Spatial banding for HD spans acceleration
-              if data.mode == "hd" and data.spans then
-                local band_size = 64
-                data.bands = {}
-                data.band_size = band_size
-                for _, span in ipairs(data.spans) do
-                  local y = span[2]
-                  local sh = span[4]
-                  local start_b = math.floor(y / band_size)
-                  local end_b = math.floor((y + sh - 1) / band_size)
-                  span.color = { span[5], span[6], span[7] }
-                  span.inv_color = invert_color(span.color, true)
-                  span.frame_id = 0
-                  for b_idx = start_b, end_b do
-                    local band = data.bands[b_idx]
-                    if not band then
-                      band = {}
-                      data.bands[b_idx] = band
-                    end
-                    table.insert(band, span)
-                  end
-                end
-              end
-
               local cache_key = requested_slide or (self.slide .. "_" .. (data.mode or self.mode))
               self.cache[cache_key] = data
               if proc_type == "slide" then
@@ -499,28 +506,25 @@ end
 -- ============================================================================
 
 function PptxView:get_slide_dimensions(slide_data, avail_w, avail_h)
-  local aspect = self.aspect_ratio or 1.7778
+  local aspect = (slide_data and slide_data.aspect_ratio) or self.aspect_ratio or 1.7778
 
   if self.slideshow_mode then
-    local sw = avail_w
+    local pad = 36 * SCALE
+    local sw = avail_w - pad * 2
     local sh = sw / aspect
-    if sh > avail_h then
-      sh = avail_h
+    if sh > avail_h - pad * 2 then
+      sh = avail_h - pad * 2
       sw = sh * aspect
     end
-    local scale_x = slide_data and (sw / (slide_data.w or 1280)) or 1.0
-    local scale_y = slide_data and (sh / (slide_data.h or 720)) or 1.0
-    return sw, sh, scale_x, scale_y
+    return sw, sh, 1.0, 1.0
   end
 
   if self.mode == "hd" then
-    local base_w = math.max(500, math.min(avail_w - 40 * SCALE, 1100 * SCALE))
+    local base_w = math.max(640, math.min(avail_w - 60 * SCALE, 1200 * SCALE))
     local base_h = base_w / aspect
     local sw = base_w * self.zoom
     local sh = base_h * self.zoom
-    local scale_x = sw / (slide_data and slide_data.w or 1280)
-    local scale_y = sh / (slide_data and slide_data.h or 720)
-    return sw, sh, scale_x, scale_y
+    return sw, sh, 1.0, 1.0
 
   elseif self.mode == "browsh" then
     local char_w = math.max(6, self.font:get_width(" ")) * self.zoom
@@ -623,7 +627,7 @@ function PptxView:draw_toolbar()
   bx = bx + 8 * SCALE
 
   -- 5. Render Modes
-  draw_btn("mode_hd", "HD Spans", self.mode == "hd")
+  draw_btn("mode_hd", "HD Typography", self.mode == "hd")
   draw_btn("mode_browsh", "Browsh", self.mode == "browsh")
   draw_btn("mode_text", "Text", self.mode == "text")
   draw_btn("toggle_invert", self.inverted and "Dark Mode" or "Light Mode", self.inverted)
@@ -786,59 +790,142 @@ function PptxView:draw_browsh_slide(page_data, cx, cy, pw, ph)
   end
 end
 
-function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph, scale_x, scale_y)
+-- ============================================================================
+-- HIGH FIDELITY VECTOR & NATIVE FREETYPE TYPOGRAPHY SLIDE RENDERING
+-- ============================================================================
+
+function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
   local raw_bg = page_data.bg or _COLOR_WHITE
   local page_bg = invert_color(raw_bg, self.inverted)
 
   -- Stage Drop Shadow & Presentation Card Border
-  renderer.draw_rect(cx - 6 * SCALE, cy - 6 * SCALE, pw + 12 * SCALE, ph + 12 * SCALE, _COLOR_SHADOW)
+  renderer.draw_rect(cx - 8 * SCALE, cy - 8 * SCALE, pw + 16 * SCALE, ph + 16 * SCALE, _COLOR_SHADOW)
   renderer.draw_rect(cx - 1, cy - 1, pw + 2, ph + 2, style.divider or _COLOR_BORDER)
   renderer.draw_rect(cx, cy, pw, ph, page_bg)
 
   local view_top = self.position.y + (self.slideshow_mode and 0 or self.toolbar_h)
   local view_bot = self.position.y + self.size.y
 
-  -- Spatial-Banded 2D Span Rendering
-  if page_data.bands then
-    page_data.frame_id = (page_data.frame_id or 0) + 1
-    local frame_id = page_data.frame_id
-    local band_size = page_data.band_size or 64
-    local local_top = math.max(0, (view_top - cy) / scale_y)
-    local local_bot = math.min(page_data.h or 9999, (view_bot - cy) / scale_y)
-    local min_band = math.max(0, math.floor(local_top / band_size))
-    local max_band = math.max(min_band, math.floor(local_bot / band_size))
-    local inv = self.inverted
+  -- 1. Draw Vector Shapes (Cards, Banners, Background Containers, Dividers)
+  local shapes = page_data.shapes or {}
+  for _, s in ipairs(shapes) do
+    local sx = cx + s.x * pw
+    local sy = cy + s.y * ph
+    local sw = s.w * pw
+    local sh = s.h * ph
 
-    for b_idx = min_band, max_band do
-      local band = page_data.bands[b_idx]
-      if band then
-        for _, span in ipairs(band) do
-          if span.frame_id ~= frame_id then
-            span.frame_id = frame_id
-            local sx = cx + span[1] * scale_x
-            local sy = cy + span[2] * scale_y
-            local sw = math.max(1, math.ceil(span[3] * scale_x))
-            local sh = math.max(1, math.ceil(span[4] * scale_y))
-
-            if sy + sh >= view_top and sy <= view_bot then
-              local col = inv and span.inv_color or span.color
-              renderer.draw_rect(sx, sy, sw, sh, col)
-            end
-          end
-        end
+    if sy + sh >= view_top and sy <= view_bot then
+      if s.fill then
+        local fill_col = invert_color(s.fill, self.inverted)
+        renderer.draw_rect(sx, sy, sw, sh, fill_col)
+      end
+      if s.border then
+        local border_col = invert_color(s.border, self.inverted)
+        local bw = math.max(1, math.floor((s.border_w or 1) * SCALE))
+        renderer.draw_rect(sx, sy, sw, bw, border_col)
+        renderer.draw_rect(sx, sy + sh - bw, sw, bw, border_col)
+        renderer.draw_rect(sx, sy, bw, sh, border_col)
+        renderer.draw_rect(sx + sw - bw, sy, bw, sh, border_col)
       end
     end
-  else
-    local spans = page_data.spans or {}
-    for _, span in ipairs(spans) do
-      local sx = cx + span[1] * scale_x
-      local sy = cy + span[2] * scale_y
-      local sw = math.max(1, math.ceil(span[3] * scale_x))
-      local sh = math.max(1, math.ceil(span[4] * scale_y))
+  end
 
-      if sy + sh >= view_top and sy <= view_bot then
-        local col = invert_color({ span[5], span[6], span[7] }, self.inverted)
-        renderer.draw_rect(sx, sy, sw, sh, col)
+  -- 2. Draw Embedded Pictures / Diagrams
+  local images = page_data.images or {}
+  for _, img in ipairs(images) do
+    local ix = cx + img.x * pw
+    local iy = cy + img.y * ph
+    local iw = img.w * pw
+    local ih = img.h * ph
+    local scale_x = iw / math.max(1, img.tw)
+    local scale_y = ih / math.max(1, img.th)
+
+    if iy + ih >= view_top and iy <= view_bot then
+      local spans = img.spans or {}
+      for _, sp in ipairs(spans) do
+        local px = ix + sp[1] * scale_x
+        local py = iy + sp[2] * scale_y
+        local pw_sp = math.max(1, math.ceil(sp[3] * scale_x))
+        local ph_sp = math.max(1, math.ceil(sp[4] * scale_y))
+        local col = invert_color({ sp[5], sp[6], sp[7] }, self.inverted)
+        renderer.draw_rect(px, py, pw_sp, ph_sp, col)
+      end
+    end
+  end
+
+  -- 3. Native Razor-Sharp FreeType Typography
+  local scale_factor = pw / 1100.0
+  local text_blocks = page_data.text_blocks or {}
+
+  for _, tb in ipairs(text_blocks) do
+    local bx = cx + tb.x * pw
+    local by = cy + tb.y * ph
+    local bw = math.max(80, tb.w * pw)
+    local cur_y = by
+
+    local paras = tb.paragraphs or {}
+    for _, p in ipairs(paras) do
+      local p_text = p.text or ""
+      if p_text == "" then
+        cur_y = cur_y + 14 * scale_factor
+      else
+        local font = get_slide_font(p.size or 18, p.bold, scale_factor)
+        local raw_fg = p.color or _COLOR_TEXT
+        local fg = invert_color(raw_fg, self.inverted)
+
+        -- High-contrast luminance enforcement
+        local bg_lum = 0.299 * page_bg[1] + 0.587 * page_bg[2] + 0.114 * page_bg[3]
+        local fg_lum = 0.299 * fg[1] + 0.587 * fg[2] + 0.114 * fg[3]
+        if bg_lum < 110 and fg_lum < 110 then
+          fg = _COLOR_WHITE
+        elseif bg_lum > 160 and fg_lum > 170 then
+          fg = { 30, 36, 45 }
+        end
+
+        local indent = (p.level or 0) * 26 * scale_factor
+        local text_x = bx + indent
+        local max_line_w = math.max(60, bw - indent)
+
+        -- Word Wrapping
+        local words = {}
+        for w_word in p_text:gmatch("%S+") do
+          table.insert(words, w_word)
+        end
+
+        local lines = {}
+        local cur_line = {}
+        for _, w_word in ipairs(words) do
+          table.insert(cur_line, w_word)
+          local test_str = table.concat(cur_line, " ")
+          if font:get_width(test_str) > max_line_w and #cur_line > 1 then
+            table.remove(cur_line)
+            table.insert(lines, table.concat(cur_line, " "))
+            cur_line = { w_word }
+          end
+        end
+        if #cur_line > 0 then
+          table.insert(lines, table.concat(cur_line, " "))
+        end
+
+        local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.22))
+
+        for _, line_str in ipairs(lines) do
+          if cur_y + lh >= view_top and cur_y <= view_bot then
+            local draw_x = text_x
+            if p.align == "center" then
+              draw_x = bx + math.max(0, (bw - font:get_width(line_str)) / 2)
+            elseif p.align == "right" then
+              draw_x = bx + math.max(0, bw - font:get_width(line_str))
+            end
+
+            renderer.draw_text(font, line_str, draw_x, cur_y, fg)
+          end
+          cur_y = cur_y + lh
+        end
+
+        -- Inter-paragraph breathing margin
+        local para_gap = math.max(4, math.floor((p.size or 18) * scale_factor * 0.35))
+        cur_y = cur_y + para_gap
       end
     end
   end
@@ -1037,14 +1124,14 @@ function PptxView:draw()
     elseif self.error_msg then
       common.draw_text(style.font, _COLOR_ERROR, "Error: " .. self.error_msg, "center", tx, ty + th / 2 - 20, tw, 20)
     elseif page_data then
-      local pw, ph, scale_x, scale_y = self:get_slide_dimensions(page_data, tw, th)
+      local pw, ph = self:get_slide_dimensions(page_data, tw, th)
       local cx = tx + (tw - pw) / 2
       local cy = ty + (th - ph) / 2
 
       if self.mode == "browsh" then
         self:draw_browsh_slide(page_data, cx, cy, pw, ph)
       elseif self.mode == "hd" then
-        self:draw_hd_slide(page_data, cx, cy, pw, ph, scale_x, scale_y)
+        self:draw_hd_slide(page_data, cx, cy, pw, ph)
       elseif self.mode == "text" then
         self:draw_text_slide(page_data, cx, cy, pw, ph)
       end
@@ -1093,13 +1180,13 @@ function PptxView:draw()
   elseif self.error_msg then
     common.draw_text(style.font, _COLOR_ERROR, "Error: " .. self.error_msg, "center", stage_x, ty + stage_h / 2, stage_w, 20)
   elseif page_data then
-    local pw, ph, scale_x, scale_y = self:get_slide_dimensions(page_data, stage_w, stage_h)
+    local pw, ph = self:get_slide_dimensions(page_data, stage_w, stage_h)
     local cx = math.max(stage_x + 20 * SCALE, stage_x + (stage_w - pw) / 2 - self.scroll.x)
 
     if self.mode == "browsh" then
       self:draw_browsh_slide(page_data, cx, content_y, pw, ph)
     elseif self.mode == "hd" then
-      self:draw_hd_slide(page_data, cx, content_y, pw, ph, scale_x, scale_y)
+      self:draw_hd_slide(page_data, cx, content_y, pw, ph)
     elseif self.mode == "text" then
       self:draw_text_slide(page_data, cx, content_y, pw, ph)
     end
