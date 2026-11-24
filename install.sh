@@ -265,17 +265,17 @@ if ! command -v agy &> /dev/null && [ "$INSTALL_AGY" = true ]; then
     fi
 fi
 
-# 3. Core AI Dependencies (LangGraph, MCP, LangChain, Graphify, Requests, etc.)
+# 3. Core AI, Memory Tree & Voice Dependencies (LangGraph, SQLite Checkpoint, MCP, etc.)
 if command -v python3 &> /dev/null; then
-    echo "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..."
-    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --break-system-packages --quiet 2>/dev/null || \
-    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --user --quiet 2>/dev/null || \
-    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>/dev/null || true
+    echo "Installing Core AI, Memory Tree & Voice Dependencies (LangGraph, SQLite Checkpoint, MCP, etc.)..."
+    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph langgraph-checkpoint-sqlite groq openai anthropic mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --break-system-packages --quiet 2>/dev/null || \
+    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph langgraph-checkpoint-sqlite groq openai anthropic mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --user --quiet 2>/dev/null || \
+    python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph langgraph-checkpoint-sqlite groq openai anthropic mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>/dev/null || true
     
-    echo "Installing PDF Engine Dependencies..."
-    python3 -m pip install pypdfium2 pypdf Pillow --break-system-packages --quiet 2>/dev/null || \
-    python3 -m pip install pypdfium2 pypdf Pillow --user --quiet 2>/dev/null || \
-    python3 -m pip install pypdfium2 pypdf Pillow --quiet 2>/dev/null || true
+    echo "Installing PDF, UI Splash & Audio Dependencies..."
+    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice --break-system-packages --quiet 2>/dev/null || \
+    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice --user --quiet 2>/dev/null || \
+    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice --quiet 2>/dev/null || true
 fi
 
 # 3.5. LeetCode & Assessment Suite Dependencies
@@ -355,6 +355,7 @@ fi
 # Copy bundled fonts
 if [ -d "$SRC_DIR/fonts" ]; then
     cp -f "$SRC_DIR"/fonts/*.ttf "$CONFIG_DIR/fonts/" 2>/dev/null || true
+    cp -f "$SRC_DIR"/fonts/*.otf "$CONFIG_DIR/fonts/" 2>/dev/null || true
 fi
 
 # Copy scripts

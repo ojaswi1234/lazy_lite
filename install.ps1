@@ -206,15 +206,28 @@ $wingetAvailable = [bool](Get-Command "winget" -ErrorAction SilentlyContinue)
 
 # Real Python Runtime Check (Avoids Windows Store Alias)
 $realPython = $false
-try {
-    $pyTest = & python -c "import sys; print(sys.version_info[0])" 2>$null
-    if ($pyTest -match "3") { $realPython = $true }
-} catch {}
+$pyExe = "python"
+$pyPreArgs = @()
+foreach ($cand in @(
+    @{ exe = "python";  pre = @() },
+    @{ exe = "python3"; pre = @() },
+    @{ exe = "py";      pre = @("-3") }
+)) {
+    try {
+        $pyTest = & $cand.exe @($cand.pre + @("-c", "import sys; print(sys.version_info[0])")) 2>$null
+        if ($pyTest -match "3") {
+            $realPython = $true
+            $pyExe = $cand.exe
+            $pyPreArgs = $cand.pre
+            break
+        }
+    } catch {}
+}
 
 if ($setupLeetcode) {
     if ($realPython) {
         Write-Host "Installing required Python dependencies for LeetCode API & ML engine..."
-        try { & python -m pip install requests --quiet 2>$null } catch {}
+        try { & $pyExe @($pyPreArgs + @("-m", "pip", "install", "requests", "--quiet")) 2>$null } catch {}
     }
 }
 
@@ -256,14 +269,14 @@ if ($setupMongo) {
     }
 
     if ($realPython) {
-        try { & python -m pip install pymongo --quiet 2>$null } catch {}
+        try { & $pyExe @($pyPreArgs + @("-m", "pip", "install", "pymongo", "--quiet")) 2>$null } catch {}
     }
 }
 
 if ($realPython) {
-    Write-Host "Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)..." -ForegroundColor Cyan
-    try { & python -m pip install requests pypdfium2 pypdf Pillow --quiet 2>$null } catch {}
-    try { & python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>$null } catch {}
+    Write-Host "Installing Core AI, Memory Tree & Voice Dependencies (LangGraph, SQLite Checkpoint, MCP, etc.)..." -ForegroundColor Cyan
+    try { & $pyExe @($pyPreArgs + @("-m", "pip", "install", "requests", "pypdfium2", "pypdf", "Pillow", "pyfiglet", "numpy", "sounddevice", "--quiet")) 2>$null } catch {}
+    try { & $pyExe @($pyPreArgs + @("-m", "pip", "install", "langchain-core", "langchain-google-genai", "langchain-groq", "langchain-openai", "langchain-anthropic", "langgraph", "langgraph-checkpoint-sqlite", "groq", "openai", "anthropic", "mcp", "langchain-mcp-adapters", "graphifyy", "duckduckgo-search", "psutil", "google-genai", "--quiet")) 2>$null } catch {}
 }
 
 Animate-Progress "Installing Lite-XL Mossy Configuration & Plugins..."
@@ -364,10 +377,7 @@ if (Get-Command "wsl" -ErrorAction SilentlyContinue) {
     if (Test-Path -LiteralPath "$srcDir\lite-xl-wsl\lite-xl-wsl-wrapper") {
         Write-Host "Installing WSL interop wrapper..." -ForegroundColor Cyan
         try {
-            $wslPath = ($srcDir -replace '\', '/') -replace '^([A-Za-z]):', '/mnt/$1'
-            $wslPath = $wslPath.ToLower().Insert(5, $wslPath[5].ToString().ToLower()).Remove(6, 1) # basic c: -> /mnt/c conversion hack, or just use wsl to read the literal path
-            # Actually, much safer to just pipe the file contents into wsl
-            cat -Raw "$srcDir\lite-xl-wsl\lite-xl-wsl-wrapper" | wsl -u root bash -c "cat > /usr/local/bin/lite-xl && chmod +x /usr/local/bin/lite-xl"
+            Get-Content -LiteralPath "$srcDir\lite-xl-wsl\lite-xl-wsl-wrapper" -Raw | wsl -u root bash -c "cat > /usr/local/bin/lite-xl && chmod +x /usr/local/bin/lite-xl"
             Write-Host "[+] WSL wrapper for lite-xl installed successfully." -ForegroundColor Green
         } catch {
             Write-Host "[-] Could not automatically install WSL wrapper. You may need to run install.sh from inside WSL." -ForegroundColor Yellow

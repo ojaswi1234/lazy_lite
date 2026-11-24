@@ -149,9 +149,9 @@ if %errorlevel% equ 0 (
     if /i "!SETUP_MONGO!"=="y" (
         python -m pip install pymongo --quiet >nul 2>nul
     )
-    echo Installing Core AI Dependencies (LangGraph, MCP, Graphify, etc.)...
-    python -m pip install requests pypdfium2 pypdf Pillow --quiet >nul 2>nul
-    python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet >nul 2>nul
+    echo Installing Core AI, Memory Tree & Voice Dependencies (LangGraph, SQLite Checkpoint, MCP, etc.)...
+    python -m pip install requests pypdfium2 pypdf Pillow pyfiglet numpy sounddevice --quiet >nul 2>nul
+    python -m pip install langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph langgraph-checkpoint-sqlite groq openai anthropic mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet >nul 2>nul
 )
 
 if /i "!SETUP_MONGO!"=="y" (

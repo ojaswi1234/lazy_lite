@@ -36,6 +36,12 @@ jobs:
           test -d "$HOME/.config/lite-xl/scripts"
           test -f "$HOME/.config/lite-xl/init.lua"
           test -f "$HOME/.config/lite-xl/plugins/lsp_setup.lua"
+          test -f "$HOME/.config/lite-xl/plugins/antigravity_sidebar.lua"
+          test -f "$HOME/.config/lite-xl/plugins/agent_capabilities.lua"
+          test -f "$HOME/.config/lite-xl/plugins/ai_tool_registry.lua"
+          python3 -m py_compile "$HOME/.config/lite-xl/scripts/ai_api_bridge.py"
+          python3 -c "from langgraph.checkpoint.sqlite import SqliteSaver; print('SqliteSaver OK')"
+          python3 "$HOME/.config/lite-xl/scripts/ai_api_bridge.py" --get-history | grep -q "return {}"
           echo "Linux setup verification passed!"
 
   test-macos:
@@ -84,4 +90,11 @@ jobs:
           if (-not (Test-Path "$cfg\plugins") -or -not (Test-Path "$cfg\init.lua")) {
             throw "Installation check failed!"
           }
+          foreach ($f in @("plugins\antigravity_sidebar.lua", "plugins\agent_capabilities.lua", "plugins\ai_tool_registry.lua", "scripts\ai_api_bridge.py")) {
+            if (-not (Test-Path "$cfg\$f")) { throw "Missing expected file: $f" }
+          }
+          python -m py_compile "$cfg\scripts\ai_api_bridge.py"
+          python -c "from langgraph.checkpoint.sqlite import SqliteSaver; print('SqliteSaver OK')"
+          $hist = python "$cfg\scripts\ai_api_bridge.py" --get-history
+          if ($hist -notmatch "return \{\}") { throw "Unexpected --get-history output: $hist" }
           Write-Host "Windows setup verification passed!"
