@@ -924,41 +924,185 @@ Capabilities.register("diagnostics", {
 
 -- ── 8. Register "git" Subsystem ───────────────────────────────────────────────
 Capabilities.register("git", {
-  summary = "Git version control operations, diff viewer, commit history timeline",
+  summary = "Git version control operations, stage, commit, push, diff viewer, history timeline",
   actions_meta = {
-    open_timeline = "Opens interactive Git commit visual timeline.",
-    open_diff = "Opens side-by-side or unified Git Diff view for working changes.",
-    status = "Returns git status -s summary of working tree changes.",
-    recent_commits = "Returns list of recent git commits."
+    stage = "Stages modified/untracked files for commit (params: files: string|array or 'all').",
+    add = "Alias for stage.",
+    unstage = "Unstages files from the index (params: files: string|array or 'all').",
+    commit = "Creates a new git commit with staged changes (params: message: string, files?: array).",
+    push = "Pushes committed changes to remote repository (params: remote?: string, branch?: string).",
+    pull = "Pulls latest changes from remote repository (params: remote?: string, branch?: string).",
+    status = "Returns git status -s summary of working tree changes and updates file tree status.",
+    diff = "Returns raw diff of working tree or staged changes (params: path?: string, staged?: boolean).",
+    open_diff = "Opens side-by-side or unified Git Diff view in editor for working changes.",
+    open_timeline = "Opens interactive Git commit visual timeline panel.",
+    recent_commits = "Returns list of recent git commits (params: limit?: number).",
+    branch = "Returns current git branch or switches/creates branch (params: name?: string, create?: boolean)."
   },
   actions = {
-    open_timeline = function(p)
-      if not command.map["git-timeline:toggle"] then
-        pcall(require, "plugins.git_timeline")
+    stage = function(p)
+      local targets = p.files or p.path or p.file or p.target or p[1]
+      local cmd = {"git", "add"}
+      local count = 0
+      if not targets or targets == "all" or targets == "." or targets == "" then
+        table.insert(cmd, "-A")
+        count = "all"
+      elseif type(targets) == "table" then
+        for _, f in ipairs(targets) do
+          if type(f) == "string" and f ~= "" then
+            table.insert(cmd, f)
+            count = count + 1
+          end
+        end
+      elseif type(targets) == "string" then
+        for f in targets:gmatch("%S+") do
+          table.insert(cmd, f)
+          count = count + 1
+        end
       end
-      if command.map["git-timeline:toggle"] then
-        command.perform("git-timeline:toggle")
-        return "Toggled Git Timeline panel."
+      if #cmd == 2 then table.insert(cmd, "-A") count = "all" end
+
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git add.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local err_out = proc:read_stderr() or ""
+      if proc:returncode() ~= 0 and #err_out > 0 then
+        error(err_out:match("^[^
+]+") or "Failed to stage files.")
       end
-      return "Git timeline toggle requested."
+
+      -- Trigger treeview git status update
+      core.redraw = true
+      if core.git_ghost_status_version then
+        core.git_ghost_status_version = core.git_ghost_status_version + 1
+      end
+      return (count == "all") and "Staged all changes." or string.format("Staged %d file(s).", count)
     end,
-    open_diff = function(p)
+    add = function(p)
+      return Capabilities.actions.git.stage(p)
+    end,
+    unstage = function(p)
+      local targets = p.files or p.path or p.file or p.target or p[1]
+      local cmd = {"git", "restore", "--staged"}
+      if not targets or targets == "all" or targets == "." or targets == "" then
+        table.insert(cmd, ".")
+      elseif type(targets) == "table" then
+        for _, f in ipairs(targets) do table.insert(cmd, f) end
+      elseif type(targets) == "string" then
+        for f in targets:gmatch("%S+") do table.insert(cmd, f) end
+      end
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git restore --staged.") end
+      while proc:running() do coroutine.yield(0.05) end
+      core.redraw = true
+      return "Unstaged changes."
+    end,
+    commit = function(p)
+      local msg = p.message or p.msg or p.m or p.text or p.title or p[1] or ""
+      if not msg or msg == "" then
+        error("Missing commit message parameter 'message'.")
+      end
+      if p.files then
+        local stage_cmd = {"git", "add"}
+        if type(p.files) == "table" then
+          for _, f in ipairs(p.files) do table.insert(stage_cmd, f) end
+        elseif type(p.files) == "string" then
+          for f in p.files:gmatch("%S+") do table.insert(stage_cmd, f) end
+        end
+        if #stage_cmd > 2 then
+          local sp = process.start(stage_cmd, { cwd = core.project_dir })
+          if sp then while sp:running() do coroutine.yield(0.05) end end
+        end
+      end
+
+      local cmd = {"git", "commit", "-m", msg}
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git commit.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local stdout = proc:read_stdout() or ""
+      local stderr = proc:read_stderr() or ""
+      local rc = proc:returncode()
+
+      if rc ~= 0 then
+        if stdout:find("nothing to commit") or stderr:find("nothing to commit") then
+          return "Working tree clean. Nothing to commit."
+        end
+        error(stderr ~= "" and stderr or stdout)
+      end
+
+      local hash = "HEAD"
+      local hproc = process.start({"git", "rev-parse", "--short", "HEAD"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
+      if hproc then
+        while hproc:running() do coroutine.yield(0.02) end
+        local h = (hproc:read_stdout() or ""):match("^%s*(%x+)")
+        if h then hash = h end
+      end
+
+      if command.map["git-timeline:refresh"] then
+        pcall(command.perform, "git-timeline:refresh")
+      end
+      core.redraw = true
+      return string.format("Committed [%s]: %s", hash, msg)
+    end,
+    push = function(p)
+      local remote = p.remote or "origin"
+      local branch = p.branch or ""
+      local cmd = {"git", "push", remote}
+      if branch ~= "" then table.insert(cmd, branch) end
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git push.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local stdout = proc:read_stdout() or ""
+      local stderr = proc:read_stderr() or ""
+      local rc = proc:returncode()
+      if rc ~= 0 then error(stderr ~= "" and stderr or stdout) end
+      local target_desc = (branch ~= "") and (remote .. "/" .. branch) or remote
+      return string.format("Pushed changes to %s successfully.", target_desc)
+    end,
+    pull = function(p)
+      local remote = p.remote or "origin"
+      local branch = p.branch or ""
+      local cmd = {"git", "pull", remote}
+      if branch ~= "" then table.insert(cmd, branch) end
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git pull.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local out = (proc:read_stdout() or "") .. (proc:read_stderr() or "")
+      return (proc:returncode() == 0) and ("Pulled changes:
+" .. out:sub(1, 300)) or error(out)
+    end,
+    status = function(p)
+      local proc = process.start({"git", "status", "-s"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git status.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local out = proc:read_stdout() or ""
+      return #out > 0 and out or "Working tree clean. No changes."
+    end,
+    diff = function(p)
       local target_file = p.path or p.file or p.filename or p.target or p[1] or ""
       local cmd = {"git", "diff"}
-      if target_file ~= "" then
-        table.insert(cmd, target_file)
-      end
+      if p.staged or p.cached then table.insert(cmd, "--cached") end
+      if target_file ~= "" then table.insert(cmd, target_file) end
       local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
       if not proc then error("Failed to execute git diff.") end
       while proc:running() do coroutine.yield(0.05) end
       local diff_out = proc:read_stdout() or ""
-      if diff_out == "" then
-        return "Working tree clean. No diff to show."
-      end
+      return (diff_out ~= "") and diff_out or "No diff to show."
+    end,
+    open_diff = function(p)
+      local target_file = p.path or p.file or p.filename or p.target or p[1] or ""
+      local cmd = {"git", "diff"}
+      if p.staged or p.cached then table.insert(cmd, "--cached") end
+      if target_file ~= "" then table.insert(cmd, target_file) end
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
+      if not proc then error("Failed to execute git diff.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local diff_out = proc:read_stdout() or ""
+      if diff_out == "" then return "Working tree clean. No diff to show." end
 
       local ok, GitDiffView = pcall(require, "plugins.git_diff_view")
       if ok and GitDiffView then
-        local tab_name = target_file ~= "" and (target_file:match("[^/\\]+$") or target_file) or "Repository"
+        local tab_name = target_file ~= "" and (target_file:match("[^/\]+$") or target_file) or "Repository"
         local view = GitDiffView(diff_out, tab_name .. " (Diff)")
         local node = core.root_view:get_active_node_default()
         if node then
@@ -969,14 +1113,18 @@ Capabilities.register("git", {
           return string.format("Opened Git Diff view for %s.", tab_name)
         end
       end
-      return string.format("Diff output:\n%s", diff_out:sub(1, 1000))
+      return string.format("Diff output:
+%s", diff_out:sub(1, 1000))
     end,
-    status = function(p)
-      local proc = process.start({"git", "status", "-s"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
-      if not proc then error("Failed to execute git status.") end
-      while proc:running() do coroutine.yield(0.05) end
-      local out = proc:read_stdout() or ""
-      return #out > 0 and out or "Working tree clean. No changes."
+    open_timeline = function(p)
+      if not command.map["git-timeline:toggle"] then
+        pcall(require, "plugins.git_timeline")
+      end
+      if command.map["git-timeline:toggle"] then
+        command.perform("git-timeline:toggle")
+        return "Toggled Git Timeline panel."
+      end
+      return "Git timeline toggle requested."
     end,
     recent_commits = function(p)
       local limit = tonumber(p.limit or p.count or p.number) or 5
@@ -984,6 +1132,24 @@ Capabilities.register("git", {
       if not proc then error("Failed to execute git log.") end
       while proc:running() do coroutine.yield(0.05) end
       return proc:read_stdout() or "No commits found."
+    end,
+    branch = function(p)
+      local name = p.name or p.branch or p[1]
+      if not name or name == "" then
+        local proc = process.start({"git", "branch", "--show-current"}, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE })
+        if not proc then error("Failed to get current branch.") end
+        while proc:running() do coroutine.yield(0.05) end
+        local b = (proc:read_stdout() or ""):match("^%s*(%S+)")
+        return b and string.format("Current branch: %s", b) or "Detached HEAD or no branch."
+      end
+      local cmd = p.create and {"git", "checkout", "-b", name} or {"git", "checkout", name}
+      local proc = process.start(cmd, { cwd = core.project_dir, stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Failed to switch branch.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local rc = proc:returncode()
+      local err_out = proc:read_stderr() or proc:read_stdout() or ""
+      if rc ~= 0 then error(err_out) end
+      return string.format("Switched to branch '%s'.", name)
     end
   }
 })

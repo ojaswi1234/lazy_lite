@@ -2338,7 +2338,8 @@ function AGView:submit(prompt, is_auto_continuation)
       "• pdf: [LITEXL:pdf:next_page], [LITEXL:pdf:prev_page], [LITEXL:pdf:goto_page:{\"page\":5}], [LITEXL:pdf:zoom:{\"direction\":\"in\"}]\n" ..
       "• web_preview: [LITEXL:web_preview:start], [LITEXL:web_preview:stop], [LITEXL:web_preview:restart]\n" ..
       "• terminal: [LITEXL:terminal:toggle]\n" ..
-      "• git: [LITEXL:git:open_diff], [LITEXL:git:open_timeline]\n" ..
+      "• git: [LITEXL:git:stage:{\"files\":[\"path1\",\"path2\"]}], [LITEXL:git:commit:{\"message\":\"...\"}], [LITEXL:git:push:{}], [LITEXL:git:open_diff], [LITEXL:git:open_timeline], [LITEXL:git:status]\n" ..
+      "When staging, committing, or pushing code: ALWAYS use git capabilities [LITEXL:git:stage], [LITEXL:git:commit], [LITEXL:git:push], or [LITEXL:git:open_diff]. NEVER dump raw shell scripts or hallucinated wrapper functions in chat.\n" ..
       "• mongodb: [LITEXL:mongodb:toggle], [LITEXL:mongodb:start_server], [LITEXL:mongodb:new_scratchpad]\n" ..
       "• podman: [LITEXL:podman:toggle]\n" ..
       "• voice: [LITEXL:voice:toggle]\n" ..
@@ -2741,6 +2742,15 @@ function AGView:update()
     end
   end
 
+-- ── Sanitize AI stdout stream (strips internal tags, tool markers & hallucinated scripts) ──
+local function sanitize_ai_output(out, tab)
+  if not out or #out == 0 then return "" end
+
+          out = sanitize_ai_output(out, tab)
+
+  return out
+end
+
   -- ── Drain chat processes (ALL TABS) ───────────────────────────
   for i, tab in ipairs(self.chats) do
     local is_active_process = tab.process ~= nil
@@ -2756,46 +2766,7 @@ function AGView:update()
         while true do
           local out = tab.process:read_stdout(65536)
           if not out or #out == 0 then break end
-          out = out:gsub("%[STATUS:([^\r\n]*%])\r?\n?", function(st_block)
-            local st = st_block:match("^(.-)%]%s*$") or st_block:gsub("%]%s*$", "")
-            tab.progress_status = st
-            return ""
-          end)
-          out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
-          out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
-          out = out:gsub("Using tool:[^\n]*\r?\n?", "")
-          out = out:gsub("%[MCP%]%s*([^\r\n]*)\r?\n?", function(mcp_msg)
-            if mcp_msg and #mcp_msg > 0 then
-              tab.progress_status = mcp_msg
-            end
-            return ""
-          end)
-          out = out:gsub("%[MCP NOTICE%][^\r\n]*\r?\n?", "")
-          out = out:gsub("%[INFO%]%s*([^\r\n]*)\r?\n?", function(info_msg)
-            if info_msg and #info_msg > 0 then
-              tab.progress_status = info_msg
-            end
-            return ""
-          end)
-          out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
-          out = out:gsub("<think.-</think>%s*", "")
-          out = out:gsub("<thought.-</thought>%s*", "")
-          out = out:gsub("</?think>", "")
-          out = out:gsub("</?thought>", "")
-          out = out:gsub("<invoke.-</invoke>%s*", "")
-          out = out:gsub("</?invoke>", "")
-          out = out:gsub("<tool_call.-</tool_call>%s*", "")
-          out = out:gsub("</?tool_call[^>]*>", "")
-          out = out:gsub("<function.-</function>%s*", "")
-          out = out:gsub("<function_call.-</function_call>%s*", "")
-          out = out:gsub("%[TOOL_CALLS%].-%]%s*", "")
-          out = out:gsub("function%s+[%w_]+%s*%b().-%b{}", "")
-          out = out:gsub("[%w_]+%s*%b()%s*;", "")
-          out = out:gsub("%[WARNING%][^\r\n]*\r?\n?", "")
-          out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
-          out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
-          out = out:gsub("^%s*%]%s*\r?\n", "")
-          out = out:gsub("\n\n\n+", "\n\n")
+          out = sanitize_ai_output(out, tab)
           if not tab._ai_buf or tab._ai_buf == "" then
             out = out:gsub("^\r?\n+", "")
           end
