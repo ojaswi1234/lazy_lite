@@ -431,6 +431,114 @@ Capabilities.register("git", {
   }
 })
 
+-- ── 9. Register "mongodb" Subsystem ───────────────────────────────────────────
+Capabilities.register("mongodb", {
+  summary = "MongoDB database explorer, collection browser, document editor, and query scratchpad",
+  actions_meta = {
+    toggle = "Toggles MongoDB Explorer sidebar view.",
+    refresh = "Refreshes active MongoDB connections, databases, and collections.",
+    start_server = "Starts local MongoDB server daemon.",
+    stop_server = "Stops local MongoDB server daemon.",
+    new_scratchpad = "Opens a new MongoDB playground/scratchpad buffer.",
+    execute_scratchpad = "Executes active MongoDB scratchpad query against connected database."
+  },
+  actions = {
+    toggle = function(p)
+      if command.map["mongodb_explorer:toggle"] then
+        command.perform("mongodb_explorer:toggle")
+        return "Toggled MongoDB Explorer."
+      end
+      return "MongoDB toggle requested."
+    end,
+    refresh = function(p)
+      if command.map["mongodb_explorer:refresh"] then
+        command.perform("mongodb_explorer:refresh")
+        return "Refreshed MongoDB Explorer."
+      end
+      return "MongoDB refresh requested."
+    end,
+    start_server = function(p)
+      if command.map["mongodb_explorer:start-server"] then
+        command.perform("mongodb_explorer:start-server")
+        return "Started MongoDB server."
+      end
+      return "MongoDB server start requested."
+    end,
+    stop_server = function(p)
+      if command.map["mongodb_explorer:stop-server"] then
+        command.perform("mongodb_explorer:stop-server")
+        return "Stopped MongoDB server."
+      end
+      return "MongoDB server stop requested."
+    end,
+    new_scratchpad = function(p)
+      if command.map["mongodb_explorer:new-scratchpad"] then
+        command.perform("mongodb_explorer:new-scratchpad")
+        return "Opened new MongoDB scratchpad."
+      end
+      return "MongoDB new scratchpad requested."
+    end,
+    execute_scratchpad = function(p)
+      if command.map["mongodb_explorer:execute-scratchpad"] then
+        command.perform("mongodb_explorer:execute-scratchpad")
+        return "Executed MongoDB scratchpad query."
+      end
+      return "MongoDB scratchpad execution requested."
+    end
+  }
+})
+
+-- ── 10. Register "podman" Subsystem ───────────────────────────────────────────
+Capabilities.register("podman", {
+  summary = "Podman container engine, pods, images, and Kubernetes local orchestrator",
+  actions_meta = {
+    toggle = "Toggles Podman Manager sidebar view.",
+    list_containers = "Queries podman ps -a to list active and stopped containers."
+  },
+  actions = {
+    toggle = function(p)
+      if command.map["podman:toggle"] then
+        command.perform("podman:toggle")
+        return "Toggled Podman Manager."
+      end
+      return "Podman toggle requested."
+    end,
+    list_containers = function(p)
+      local proc = process.start({"podman", "ps", "-a"}, { stdout = process.REDIRECT_PIPE })
+      if not proc then error("Podman executable not found in PATH.") end
+      while proc:running() do coroutine.yield(0.05) end
+      local out = proc:read_stdout() or ""
+      return #out > 0 and out or "No containers running."
+    end
+  }
+})
+
+-- ── 11. Register "crewai" Subsystem ───────────────────────────────────────────
+Capabilities.register("crewai", {
+  summary = "CrewAI multi-agent background crew (Investigator, Systems Engineer, Safety Auditor)",
+  actions_meta = {
+    run_crew = "Launches autonomous 3-agent background crew to solve, triage, or choreograph tasks.",
+    pulse = "Fetches Lite XL ambient awareness pulse signature."
+  },
+  actions = {
+    run_crew = function(p)
+      local task_desc = p.task or "Triage current editor state and report findings"
+      local script = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "crewai_litexl_bridge.py"
+      local proc = process.start({"python", script, "--task", task_desc}, { stdout = process.REDIRECT_PIPE, stderr = process.REDIRECT_PIPE })
+      if not proc then error("Failed to launch crewai_litexl_bridge.py") end
+      while proc:running() do coroutine.yield(0.05) end
+      local out = proc:read_stdout() or ""
+      return #out > 0 and out or "Crew completed execution."
+    end,
+    pulse = function(p)
+      if core.agent_meta_tools then
+        return core.agent_meta_tools.pulse()
+      end
+      return "[IDE: active]"
+    end
+  }
+})
+
 -- Export on core
 core.capabilities = Capabilities
 

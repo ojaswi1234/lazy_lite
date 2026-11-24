@@ -2725,12 +2725,28 @@ function AGView:update()
             if core.agent_meta_tools and core.agent_meta_tools.execute then
               local ok_json, json = pcall(require, "plugins.lsp.json")
               if ok_json and json and json.decode then
-                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:(%b{})%]", function(raw_json)
-                  local parse_ok, act = pcall(json.decode, raw_json)
-                  if parse_ok and act and act.subsystem and act.action then
-                    local exec_ok, res = core.agent_meta_tools.execute(act.subsystem, act.action, act.params or {})
-                    local badge_icon = exec_ok and "⚡" or "⚠️"
-                    return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, act.subsystem, act.action, tostring(res))
+                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:(.-)%]", function(tag_body)
+                  -- Case 1: Pure JSON object [LITEXL:{"subsystem":"...","action":"..."}]
+                  if tag_body:match("^%s*{") then
+                    local parse_ok, act = pcall(json.decode, tag_body)
+                    if parse_ok and act and act.subsystem and act.action then
+                      local exec_ok, res = core.agent_meta_tools.execute(act.subsystem, act.action, act.params or {})
+                      local badge_icon = exec_ok and "⚡" or "⚠️"
+                      return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, act.subsystem, act.action, tostring(res))
+                    end
+                  else
+                    -- Case 2: Colon delimited [LITEXL:subsystem:action:params_json] or [LITEXL:subsystem:action]
+                    local sub, act, raw_p = tag_body:match("^([%w_%-]+):([%w_%-]+):?(.*)$")
+                    if sub and act then
+                      local params = {}
+                      if raw_p and raw_p:match("%S") then
+                        local p_ok, parsed = pcall(json.decode, raw_p)
+                        if p_ok and type(parsed) == "table" then params = parsed end
+                      end
+                      local exec_ok, res = core.agent_meta_tools.execute(sub, act, params)
+                      local badge_icon = exec_ok and "⚡" or "⚠️"
+                      return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, sub, act, tostring(res))
+                    end
                   end
                   return ""
                 end)
