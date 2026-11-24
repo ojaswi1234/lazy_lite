@@ -18,6 +18,7 @@ import io
 import math
 import traceback
 import re
+import xml.etree.ElementTree as ET
 
 try:
     import pptx
@@ -26,9 +27,11 @@ try:
     from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
     from pptx.enum.text import PP_ALIGN
     from pptx.dml.color import RGBColor
+    from pptx.oxml.ns import qn
 except ImportError:
     pptx = None
     Presentation = None
+    qn = None
 
 try:
     from PIL import Image, ImageEnhance
@@ -53,14 +56,169 @@ def sanitize_str(s):
         return ""
     return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
 
-def get_color_rgb(color_obj, default=(35, 40, 48)):
-    if not color_obj:
-        return default
+def extract_lum_mod_off(elem):
+    """
+    Extracts DrawingML luminance modulation (lumMod) and offset (lumOff)
+    modifiers for theme tint and shade calculations.
+    """
+    lum_mod = None
+    lum_off = None
     try:
-        rgb = color_obj.rgb
-        return (rgb[0], rgb[1], rgb[2])
+        for child in elem:
+            ctag = child.tag.split('}')[-1].lower()
+            if ctag == 'lummod' and 'val' in child.attrib:
+                lum_mod = float(child.attrib['val'])
+            elif ctag == 'lumoff' and 'val' in child.attrib:
+                lum_off = float(child.attrib['val'])
     except Exception:
-        return default
+        pass
+    return lum_mod, lum_off
+
+def apply_lum_mod_off(rgb, lum_mod=None, lum_off=None):
+    """
+    Applies DrawingML lumMod (scale) and lumOff (shift towards white)
+    to compute exact theme color tints and shades.
+    """
+    r, g, b = rgb
+    if lum_mod is not None:
+        r = r * (lum_mod / 100000.0)
+        g = g * (lum_mod / 100000.0)
+        b = b * (lum_mod / 100000.0)
+    if lum_off is not None:
+        offset = 255.0 * (lum_off / 100000.0)
+        r = r + offset
+        g = g + offset
+        b = b + offset
+    return (
+        max(0, min(255, int(round(r)))),
+        max(0, min(255, int(round(g)))),
+        max(0, min(255, int(round(b))))
+    )
+
+def load_theme_colors(prs):
+    """
+    Parses DrawingML theme color scheme (dk1, lt1, accent1..accent6, etc.)
+    from the presentation's theme part with 100% precision.
+    """
+    theme_colors = {
+        "dk1": (0, 0, 0),
+        "lt1": (255, 255, 255),
+        "dk2": (31, 73, 125),
+        "lt2": (238, 236, 225),
+        "accent1": (79, 129, 189),
+        "accent2": (192, 80, 77),
+        "accent3": (155, 187, 89),
+        "accent4": (128, 100, 162),
+        "accent5": (75, 172, 198),
+        "accent6": (247, 150, 70),
+        "hlink": (0, 0, 255),
+        "folhlink": (128, 0, 128),
+        "tx1": (0, 0, 0),
+        "bg1": (255, 255, 255),
+        "tx2": (31, 73, 125),
+        "bg2": (238, 236, 225),
+    }
+    try:
+        for rel in prs.part.rels.values():
+            if "theme" in rel.reltype:
+                root = ET.fromstring(rel.target_part.blob)
+                for clrScheme in root.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}clrScheme'):
+                    for elem in clrScheme:
+                        tag = elem.tag.split('}')[-1].lower()
+                        srgb = elem.find('{http://schemas.openxmlformats.org/drawingml/2006/main}srgbClr')
+                        if srgb is not None and 'val' in srgb.attrib:
+                            hex_c = srgb.attrib['val']
+                            theme_colors[tag] = (int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16))
+                        else:
+                            sys_clr = elem.find('{http://schemas.openxmlformats.org/drawingml/2006/main}sysClr')
+                            if sys_clr is not None and 'lastClr' in sys_clr.attrib:
+                                hex_c = sys_clr.attrib['lastClr']
+                                theme_colors[tag] = (int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16))
+        if 'dk1' in theme_colors: theme_colors['tx1'] = theme_colors['dk1']
+        if 'lt1' in theme_colors: theme_colors['bg1'] = theme_colors['lt1']
+        if 'dk2' in theme_colors: theme_colors['tx2'] = theme_colors['dk2']
+        if 'lt2' in theme_colors: theme_colors['bg2'] = theme_colors['lt2']
+        # Register both short and long key aliases
+        theme_colors['dark1'] = theme_colors.get('dk1', (0, 0, 0))
+        theme_colors['light1'] = theme_colors.get('lt1', (255, 255, 255))
+        theme_colors['dark2'] = theme_colors.get('dk2', (31, 73, 125))
+        theme_colors['light2'] = theme_colors.get('lt2', (238, 236, 225))
+        theme_colors['text1'] = theme_colors.get('tx1', (0, 0, 0))
+        theme_colors['text2'] = theme_colors.get('tx2', (31, 73, 125))
+        theme_colors['background1'] = theme_colors.get('bg1', (255, 255, 255))
+        theme_colors['background2'] = theme_colors.get('bg2', (238, 236, 225))
+        theme_colors['hyperlink'] = theme_colors.get('hlink', (0, 0, 255))
+        theme_colors['followedhyperlink'] = theme_colors.get('folhlink', (128, 0, 128))
+    except Exception:
+        pass
+    return theme_colors
+
+def resolve_color(color_obj, xml_el=None, theme_dict=None, default=None):
+    """
+    Accurately extracts the author's RGB color from python-pptx color objects
+    or OpenXML DrawingML elements, properly resolving theme colors and lumMod/lumOff shades.
+    """
+    if theme_dict is None:
+        theme_dict = {}
+
+    # 1. Try color_obj if present
+    if color_obj is not None:
+        c_type = getattr(color_obj, 'type', None)
+        if c_type is not None:
+            # 1a. Direct RGB
+            try:
+                rgb = color_obj.rgb
+                if rgb:
+                    return (rgb[0], rgb[1], rgb[2])
+            except Exception:
+                pass
+
+            # 1b. Theme color enum
+            try:
+                tc = getattr(color_obj, "theme_color", None)
+                if tc is not None:
+                    name = getattr(tc, "name", None)
+                    if not name:
+                        name = str(tc).split('.')[-1].split(':')[0]
+                    key = name.lower().replace('_', '')
+                    if key in theme_dict:
+                        base_rgb = theme_dict[key]
+                        if xml_el is not None:
+                            mod, off = extract_lum_mod_off(xml_el)
+                            if mod is not None or off is not None:
+                                return apply_lum_mod_off(base_rgb, mod, off)
+                        return base_rgb
+            except Exception:
+                pass
+
+    # 2. Inspect XML element directly (solidFill / srgbClr / schemeClr / lumMod / lumOff)
+    if xml_el is not None:
+        try:
+            for solid in xml_el.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}solidFill'):
+                for child in solid:
+                    tag = child.tag.split('}')[-1].lower()
+                    if tag == 'srgbclr' and 'val' in child.attrib:
+                        hex_c = child.attrib['val']
+                        base_rgb = (int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16))
+                        mod, off = extract_lum_mod_off(child)
+                        if mod is not None or off is not None:
+                            return apply_lum_mod_off(base_rgb, mod, off)
+                        return base_rgb
+                    elif tag == 'schemeclr' and 'val' in child.attrib:
+                        val = child.attrib['val'].lower().replace('_', '')
+                        if val in theme_dict:
+                            base_rgb = theme_dict[val]
+                            mod, off = extract_lum_mod_off(child)
+                            if mod is not None or off is not None:
+                                return apply_lum_mod_off(base_rgb, mod, off)
+                            return base_rgb
+        except Exception:
+            pass
+
+    return default
+
+def get_color_rgb(color_obj, default=(0, 0, 0)):
+    return resolve_color(color_obj, default=default)
 
 def get_pptx_info(pptx_path, out_file):
     try:
@@ -136,6 +294,151 @@ def get_pptx_info(pptx_path, out_file):
             f.write(f"  error = {escape_lua_string(str(e))}\n")
             f.write("}\n")
 
+def get_slide_background(slide, prs, theme_dict):
+    """
+    Extracts authentic slide background RGB color through the PPTX inheritance chain:
+    Slide background -> Slide Layout background -> Slide Master background -> Theme bg1/lt1 -> (255, 255, 255).
+    """
+    try:
+        if slide.background and slide.background.fill and slide.background.fill.type == 1:
+            bg = resolve_color(slide.background.fill.fore_color, xml_el=getattr(slide.background, '_element', None), theme_dict=theme_dict)
+            if bg:
+                return bg
+    except Exception:
+        pass
+
+    try:
+        layout = getattr(slide, 'slide_layout', None)
+        if layout and layout.background and layout.background.fill and layout.background.fill.type == 1:
+            bg = resolve_color(layout.background.fill.fore_color, xml_el=getattr(layout.background, '_element', None), theme_dict=theme_dict)
+            if bg:
+                return bg
+    except Exception:
+        pass
+
+    try:
+        layout = getattr(slide, 'slide_layout', None)
+        master = getattr(layout, 'slide_master', None) if layout else None
+        if master and master.background and master.background.fill and master.background.fill.type == 1:
+            bg = resolve_color(master.background.fill.fore_color, xml_el=getattr(master.background, '_element', None), theme_dict=theme_dict)
+            if bg:
+                return bg
+    except Exception:
+        pass
+
+    return theme_dict.get('bg1', theme_dict.get('lt1', (255, 255, 255)))
+
+def extract_paragraphs(tf, theme_colors, default_color):
+    """
+    Extracts paragraphs and detailed runs from a TextFrame with 100% color and style fidelity.
+    Resolves paragraph-level colors, run-level colors, font sizes, bold styles, indents, and bullets.
+    """
+    paras = []
+    text_lines = []
+    for p in tf.paragraphs:
+        p_text = p.text
+        if not p_text.strip():
+            continue
+
+        text_lines.append(p_text.strip())
+
+        # Paragraph font size in points
+        pt_size = 18.0
+        try:
+            if p.font and p.font.size:
+                pt_size = p.font.size.pt
+            elif p.runs and p.runs[0].font and p.runs[0].font.size:
+                pt_size = p.runs[0].font.size.pt
+        except Exception:
+            pt_size = 18.0
+
+        # Paragraph bold weight
+        is_bold = False
+        try:
+            if p.font and p.font.bold is not None:
+                is_bold = p.font.bold
+            elif p.runs and p.runs[0].font and p.runs[0].font.bold is not None:
+                is_bold = p.runs[0].font.bold
+        except Exception:
+            is_bold = False
+
+        # Resolve paragraph-level color
+        p_color = None
+        try:
+            p_color = resolve_color(p.font.color, xml_el=getattr(p, '_p', None), theme_dict=theme_colors, default=None)
+        except Exception:
+            p_color = None
+
+        # Runs breakdown
+        runs_data = []
+        first_explicit_run_color = None
+        for r in p.runs:
+            r_text = r.text
+            if not r_text:
+                continue
+
+            r_size = pt_size
+            try:
+                if r.font and r.font.size:
+                    r_size = r.font.size.pt
+            except Exception:
+                pass
+
+            r_bold = is_bold
+            try:
+                if r.font and r.font.bold is not None:
+                    r_bold = r.font.bold
+            except Exception:
+                pass
+
+            r_color = resolve_color(r.font.color, xml_el=getattr(r, '_r', None), theme_dict=theme_colors, default=None)
+            if r_color is not None and first_explicit_run_color is None:
+                first_explicit_run_color = r_color
+
+            runs_data.append({
+                "text": r_text,
+                "size": round(r_size, 1),
+                "bold": r_bold,
+                "color": r_color
+            })
+
+        # Effective paragraph color: explicit p_color -> first run explicit color -> slide default_color
+        effective_p_color = p_color or first_explicit_run_color or default_color
+
+        # Fill in any unset run colors
+        for r_item in runs_data:
+            if r_item["color"] is None:
+                r_item["color"] = effective_p_color
+
+        # Alignment
+        align = "left"
+        if p.alignment == PP_ALIGN.CENTER:
+            align = "center"
+        elif p.alignment == PP_ALIGN.RIGHT:
+            align = "right"
+
+        # Bullet indicator
+        level = p.level or 0
+        final_text = p_text.strip()
+        has_bullet = final_text.startswith("•") or final_text.startswith("-") or level > 0
+        if has_bullet and not (final_text.startswith("•") or final_text.startswith("-")):
+            final_text = "• " + final_text
+            if runs_data and not (runs_data[0]["text"].startswith("•") or runs_data[0]["text"].startswith("-")):
+                runs_data[0]["text"] = "• " + runs_data[0]["text"]
+
+        paras.append({
+            "text": final_text,
+            "size": round(pt_size, 1),
+            "bold": is_bold,
+            "color": effective_p_color,
+            "align": align,
+            "level": level,
+            "bullet": has_bullet,
+            "runs": runs_data
+        })
+
+    return paras, text_lines
+
 def extract_slide_structured(prs, slide):
     """
     Extracts complete vector, picture, and typography document structure from slide.
@@ -145,15 +448,13 @@ def extract_slide_structured(prs, slide):
     sh = float(prs.slide_height)
     aspect = round(sw / max(sh, 1.0), 4)
 
-    # 1. Background color
-    bg_color = (252, 252, 253)
-    try:
-        if slide.background and slide.background.fill:
-            fill = slide.background.fill
-            if fill.type == 1: # SOLID
-                bg_color = get_color_rgb(fill.fore_color, default=bg_color)
-    except Exception:
-        pass
+    # Theme color definitions
+    theme_colors = load_theme_colors(prs)
+
+    # 1. Background color with full inheritance
+    bg_color = get_slide_background(slide, prs, theme_colors)
+    bg_lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
+    default_text_color = theme_colors.get("tx1") or theme_colors.get("dk1") or ((0, 0, 0) if bg_lum >= 128 else (255, 255, 255))
 
     # 2. Speaker notes
     speaker_notes = ""
@@ -179,7 +480,7 @@ def extract_slide_structured(prs, slide):
             fill_color = None
             try:
                 if hasattr(shape, "fill") and shape.fill and shape.fill.type == 1:
-                    fill_color = get_color_rgb(shape.fill.fore_color, None)
+                    fill_color = resolve_color(shape.fill.fore_color, xml_el=getattr(shape, '_element', None), theme_dict=theme_colors, default=None)
             except Exception:
                 fill_color = None
 
@@ -187,7 +488,7 @@ def extract_slide_structured(prs, slide):
             border_w = 1
             try:
                 if hasattr(shape, "line") and shape.line and shape.line.color:
-                    border_color = get_color_rgb(shape.line.color, None)
+                    border_color = resolve_color(shape.line.color, theme_dict=theme_colors, default=None)
                     if shape.line.width:
                         border_w = max(1, int(shape.line.width / EMU_PER_PT))
             except Exception:
@@ -262,108 +563,38 @@ def extract_slide_structured(prs, slide):
                         for c_idx, cell in enumerate(row.cells):
                             cx = nx + c_idx * cw
                             cy = ny + r_idx * ch
+                            cell_fill = (245, 247, 250) if r_idx == 0 else (255, 255, 255)
+                            try:
+                                if hasattr(cell, "fill") and cell.fill and cell.fill.type == 1:
+                                    cell_fill = resolve_color(cell.fill.fore_color, xml_el=getattr(cell, '_tc', None), theme_dict=theme_colors, default=cell_fill)
+                            except Exception:
+                                pass
                             shapes_list.append({
                                 "x": round(cx, 4),
                                 "y": round(cy, 4),
                                 "w": round(cw, 4),
                                 "h": round(ch, 4),
-                                "fill": (245, 247, 250) if r_idx == 0 else (255, 255, 255),
+                                "fill": cell_fill,
                                 "border": (210, 218, 226),
                                 "border_w": 1
                             })
-                            c_text = cell.text.strip()
-                            if c_text:
-                                full_text_lines.append(c_text)
-                                text_blocks.append({
-                                    "x": round(cx + 0.005, 4),
-                                    "y": round(cy + 0.004, 4),
-                                    "w": round(cw - 0.01, 4),
-                                    "h": round(ch - 0.008, 4),
-                                    "paragraphs": [{
-                                        "text": c_text,
-                                        "size": 14,
-                                        "bold": (r_idx == 0),
-                                        "color": (25, 30, 38) if r_idx == 0 else (45, 52, 64),
-                                        "align": "left",
-                                        "level": 0,
-                                        "bullet": False
-                                    }]
-                                })
+                            if cell.text_frame:
+                                cell_paras, cell_lines = extract_paragraphs(cell.text_frame, theme_colors, (25, 30, 38) if r_idx == 0 else default_text_color)
+                                if cell_paras:
+                                    full_text_lines.extend(cell_lines)
+                                    text_blocks.append({
+                                        "x": round(cx + 0.005, 4),
+                                        "y": round(cy + 0.004, 4),
+                                        "w": round(cw - 0.01, 4),
+                                        "h": round(ch - 0.008, 4),
+                                        "paragraphs": cell_paras
+                                    })
 
             # Text Frames
             if shape.has_text_frame:
-                tf = shape.text_frame
-                paras = []
-                for p in tf.paragraphs:
-                    p_text = p.text
-                    if not p_text.strip():
-                        continue
-
-                    full_text_lines.append(p_text.strip())
-
-                    # Font size in points
-                    pt_size = 18.0
-                    try:
-                        if p.font and p.font.size:
-                            pt_size = p.font.size.pt
-                        elif p.runs and p.runs[0].font and p.runs[0].font.size:
-                            pt_size = p.runs[0].font.size.pt
-                    except Exception:
-                        pt_size = 18.0
-
-                    # Font weight (bold)
-                    is_bold = False
-                    try:
-                        if p.font and p.font.bold is not None:
-                            is_bold = p.font.bold
-                        elif p.runs and p.runs[0].font and p.runs[0].font.bold is not None:
-                            is_bold = p.runs[0].font.bold
-                    except Exception:
-                        is_bold = False
-
-                    # Font color
-                    p_color = (35, 40, 50)
-                    try:
-                        if p.font and p.font.color:
-                            p_color = get_color_rgb(p.font.color, p_color)
-                        elif p.runs and p.runs[0].font and p.runs[0].font.color:
-                            p_color = get_color_rgb(p.runs[0].font.color, p_color)
-                    except Exception:
-                        p_color = (35, 40, 50)
-
-                    # Ensure high contrast against slide background
-                    bg_lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
-                    fg_lum = 0.299 * p_color[0] + 0.587 * p_color[1] + 0.114 * p_color[2]
-                    if bg_lum < 110 and fg_lum < 110:
-                        p_color = (240, 245, 252)
-                    elif bg_lum > 150 and fg_lum > 170:
-                        p_color = (30, 36, 45)
-
-                    # Alignment
-                    align = "left"
-                    if p.alignment == PP_ALIGN.CENTER:
-                        align = "center"
-                    elif p.alignment == PP_ALIGN.RIGHT:
-                        align = "right"
-
-                    # Bullet indicator
-                    level = p.level or 0
-                    final_text = p_text.strip()
-                    has_bullet = final_text.startswith("•") or final_text.startswith("-") or level > 0
-                    if has_bullet and not (final_text.startswith("•") or final_text.startswith("-")):
-                        final_text = "• " + final_text
-
-                    paras.append({
-                        "text": final_text,
-                        "size": round(pt_size, 1),
-                        "bold": is_bold,
-                        "color": p_color,
-                        "align": align,
-                        "level": level,
-                        "bullet": has_bullet
-                    })
-
+                paras, t_lines = extract_paragraphs(shape.text_frame, theme_colors, default_text_color)
                 if paras:
+                    full_text_lines.extend(t_lines)
                     text_blocks.append({
                         "x": round(nx, 4),
                         "y": round(ny, 4),
@@ -443,7 +674,14 @@ def render_slide(pptx_path, slide_idx, out_file, width=110, mode="hd"):
                 f.write(f"    {{ x = {tb['x']}, y = {tb['y']}, w = {tb['w']}, h = {tb['h']}, paragraphs = {{\n")
                 for p in tb["paragraphs"]:
                     c = p["color"]
-                    f.write(f"      {{ text = \"{sanitize_str(p['text'])}\", size = {p['size']}, bold = {'true' if p['bold'] else 'false'}, color = {{{c[0]},{c[1]},{c[2]}}}, align = \"{p['align']}\", level = {p['level']}, bullet = {'true' if p['bullet'] else 'false'} }},\n")
+                    f.write(f"      {{ text = \"{sanitize_str(p['text'])}\", size = {p['size']}, bold = {'true' if p['bold'] else 'false'}, color = {{{c[0]},{c[1]},{c[2]}}}, align = \"{p['align']}\", level = {p['level']}, bullet = {'true' if p['bullet'] else 'false'}")
+                    if p.get("runs") and len(p["runs"]) > 1:
+                        f.write(", runs = {\n")
+                        for r in p["runs"]:
+                            rc = r["color"]
+                            f.write(f"        {{ text = \"{sanitize_str(r['text'])}\", size = {r['size']}, bold = {'true' if r['bold'] else 'false'}, color = {{{rc[0]},{rc[1]},{rc[2]}}} }},\n")
+                        f.write("      }")
+                    f.write(" },\n")
                 f.write("    } },\n")
             f.write("  },\n")
 

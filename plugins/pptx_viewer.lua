@@ -915,57 +915,108 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         cur_y = cur_y + 14 * scale_factor
       else
         local font = get_slide_font(p.size or 18, p.bold, scale_factor)
-        local raw_fg = p.color or _COLOR_TEXT
-        local fg = invert_color(raw_fg, self.inverted)
-
-        -- High-contrast luminance enforcement
         local bg_lum = 0.299 * page_bg[1] + 0.587 * page_bg[2] + 0.114 * page_bg[3]
-        local fg_lum = 0.299 * fg[1] + 0.587 * fg[2] + 0.114 * fg[3]
-        if bg_lum < 110 and fg_lum < 110 then
-          fg = _COLOR_WHITE
-        elseif bg_lum > 160 and fg_lum > 170 then
-          fg = { 30, 36, 45 }
-        end
+        local raw_fg = p.color or (bg_lum > 128 and { 20, 24, 30 } or { 245, 245, 248 })
+        local fg = invert_color(raw_fg, self.inverted)
 
         local indent = (p.level or 0) * 26 * scale_factor
         local text_x = bx + indent
         local max_line_w = math.max(60, bw - indent)
 
-        -- Word Wrapping
-        local words = {}
-        for w_word in p_text:gmatch("%S+") do
-          table.insert(words, w_word)
-        end
-
-        local lines = {}
-        local cur_line = {}
-        for _, w_word in ipairs(words) do
-          table.insert(cur_line, w_word)
-          local test_str = table.concat(cur_line, " ")
-          if font:get_width(test_str) > max_line_w and #cur_line > 1 then
-            table.remove(cur_line)
-            table.insert(lines, table.concat(cur_line, " "))
-            cur_line = { w_word }
-          end
-        end
-        if #cur_line > 0 then
-          table.insert(lines, table.concat(cur_line, " "))
-        end
-
-        local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.22))
-
-        for _, line_str in ipairs(lines) do
-          if cur_y + lh >= view_top and cur_y <= view_bot then
-            local draw_x = text_x
-            if p.align == "center" then
-              draw_x = bx + math.max(0, (bw - font:get_width(line_str)) / 2)
-            elseif p.align == "right" then
-              draw_x = bx + math.max(0, bw - font:get_width(line_str))
+        -- Multi-run rich typography check
+        local runs = p.runs
+        if runs and #runs > 1 then
+          local tokens = {}
+          for _, r in ipairs(runs) do
+            local r_text = r.text or ""
+            local r_font = get_slide_font(r.size or p.size or 18, r.bold, scale_factor)
+            local r_fg = invert_color(r.color or raw_fg, self.inverted)
+            for word, space in r_text:gmatch("(%S+)(%s*)") do
+              table.insert(tokens, {
+                text = word,
+                space = (space ~= ""),
+                font = r_font,
+                color = r_fg,
+                w = r_font:get_width(word)
+              })
             end
-
-            renderer.draw_text(font, line_str, draw_x, cur_y, fg)
           end
-          cur_y = cur_y + lh
+
+          local space_w = font:get_width(" ")
+          local lines = {}
+          local cur_line = {}
+          local cur_line_w = 0
+
+          for _, tok in ipairs(tokens) do
+            local add_w = (#cur_line > 0 and space_w or 0) + tok.w
+            if cur_line_w + add_w > max_line_w and #cur_line > 0 then
+              table.insert(lines, { items = cur_line, w = cur_line_w })
+              cur_line = { tok }
+              cur_line_w = tok.w
+            else
+              table.insert(cur_line, tok)
+              cur_line_w = cur_line_w + add_w
+            end
+          end
+          if #cur_line > 0 then
+            table.insert(lines, { items = cur_line, w = cur_line_w })
+          end
+
+          local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.22))
+          for _, line_info in ipairs(lines) do
+            if cur_y + lh >= view_top and cur_y <= view_bot then
+              local draw_x = text_x
+              if p.align == "center" then
+                draw_x = bx + math.max(0, (bw - line_info.w) / 2)
+              elseif p.align == "right" then
+                draw_x = bx + math.max(0, bw - line_info.w)
+              end
+
+              local cur_x = draw_x
+              for _, tok in ipairs(line_info.items) do
+                renderer.draw_text(tok.font, tok.text, cur_x, cur_y, tok.color)
+                cur_x = cur_x + tok.w + (tok.space and space_w or 0)
+              end
+            end
+            cur_y = cur_y + lh
+          end
+        else
+          -- Word Wrapping for uniform single-run paragraph
+          local words = {}
+          for w_word in p_text:gmatch("%S+") do
+            table.insert(words, w_word)
+          end
+
+          local lines = {}
+          local cur_line = {}
+          for _, w_word in ipairs(words) do
+            table.insert(cur_line, w_word)
+            local test_str = table.concat(cur_line, " ")
+            if font:get_width(test_str) > max_line_w and #cur_line > 1 then
+              table.remove(cur_line)
+              table.insert(lines, table.concat(cur_line, " "))
+              cur_line = { w_word }
+            end
+          end
+          if #cur_line > 0 then
+            table.insert(lines, table.concat(cur_line, " "))
+          end
+
+          local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.22))
+
+          for _, line_str in ipairs(lines) do
+            if cur_y + lh >= view_top and cur_y <= view_bot then
+              local draw_x = text_x
+              if p.align == "center" then
+                draw_x = bx + math.max(0, (bw - font:get_width(line_str)) / 2)
+              elseif p.align == "right" then
+                draw_x = bx + math.max(0, bw - font:get_width(line_str))
+              end
+
+              renderer.draw_text(font, line_str, draw_x, cur_y, fg)
+            end
+            cur_y = cur_y + lh
+          end
         end
 
         -- Inter-paragraph breathing margin
