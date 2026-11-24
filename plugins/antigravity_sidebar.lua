@@ -2504,6 +2504,103 @@ keymap.add({
   ["ctrl+delete"] = "antigravity:delete-conversation",
   })
 
+-- ── Voice Typing & Auto-Submit Engine (Gemini Live / Groq Whisper) ─────────────
+function AGView:start_voice()
+  if self.voice_active then return end
+  local script = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "voice_typing_bridge.py"
+  if not system.get_file_info(script) then
+    core.error("Voice typing bridge script not found: %s", script)
+    return
+  end
+
+  local proc = process.start({"python", script}, {
+    stdout = process.REDIRECT_PIPE,
+    stdin  = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_PIPE
+  })
+  if not proc then
+    core.error("Failed to start voice typing process.")
+    return
+  end
+
+  self.voice_proc = proc
+  self.voice_active = true
+  self.voice_level = 0
+  core.log("[Voice] 🎙️ Real-time voice typing active (Speak normally, auto-submits on silence)")
+  core.redraw = true
+
+  core.add_thread(function()
+    local ok_json, json = pcall(require, "plugins.lsp.json")
+    local line_acc = ""
+    while self.voice_active and self.voice_proc and self.voice_proc:running() do
+      local chunk = self.voice_proc:read_stdout()
+      if chunk and #chunk > 0 then
+        line_acc = line_acc .. chunk
+        while line_acc:find("\n") do
+          local line, rest = line_acc:match("^(.-)\r?\n(.*)$")
+          line_acc = rest or ""
+          if line and #line > 3 then
+            local p_ok, evt = pcall(json and json.decode or function() return nil end, line)
+            if p_ok and evt and evt.event then
+              if evt.event == "level" then
+                self.voice_level = evt.rms or 0
+              elseif evt.event == "status" then
+                if evt.state == "speaking" then
+                  core.redraw = true
+                end
+              elseif evt.event == "interim" and evt.text and #evt.text > 0 then
+                self:state().input = evt.text
+                self:state().cursor = #(self:state().input)
+                core.redraw = true
+              elseif evt.event == "final" and evt.text and #evt.text > 0 then
+                self:state().input = evt.text
+                self:state().cursor = #(self:state().input)
+                core.redraw = true
+                if evt.auto_submit then
+                  local q = (self:state().input or ""):match("^%s*(.-)%s*$")
+                  if q and #q > 0 then
+                    self:submit(q)
+                    self:state().input = ""
+                    self:state().cursor = 0
+                    self:state().history = { { input = "", cursor = 0 } }
+                    self:state().history_idx = 1
+                    core.redraw = true
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+      coroutine.yield(0.04)
+    end
+    if self.voice_active then
+      self:stop_voice()
+    end
+  end)
+end
+
+function AGView:stop_voice()
+  if not self.voice_active and not self.voice_proc then return end
+  self.voice_active = false
+  self.voice_level = 0
+  if self.voice_proc then
+    pcall(function() self.voice_proc:write("STOP\n") end)
+    pcall(function() self.voice_proc:kill() end)
+    self.voice_proc = nil
+  end
+  core.log("[Voice] Voice typing deactivated.")
+  core.redraw = true
+end
+
+function AGView:toggle_voice()
+  if self.voice_active then
+    self:stop_voice()
+  else
+    self:start_voice()
+  end
+end
+
 function AGView:update()
   AGView.super.update(self)
   self.tick = (self.tick + 1) % 120
@@ -3688,8 +3785,8 @@ function AGView:draw()
   local text_y_start = inp_y + c_pad
 
   if #raw_input == 0 then
-    local placeholder = "Ask anything..."
-    renderer.draw_text(font, placeholder, inp_x + c_pad, text_y_start, P.fg_muted)
+    local placeholder = self.voice_active and "🎙️ Listening... (Speak normally, auto-submits on silence)" or "Ask anything..."
+    renderer.draw_text(font, placeholder, inp_x + c_pad, text_y_start, self.voice_active and { common.color "#E06C75" } or P.fg_muted)
     if core.active_view == self and math.floor(self.tick / 30) % 2 == 0 then
       renderer.draw_rect(inp_x + c_pad, text_y_start, 2 * SCALE, font:get_height(), P.fg_accent)
     end
@@ -3779,17 +3876,23 @@ function AGView:draw()
   local send_w = 28 * SCALE
   local send_h = 24 * SCALE
   local send_x = inp_x + inp_w - c_pad - send_w
-  
+
+  -- Voice Typing Button (Next to Send button)
+  local is_voice = (self.voice_active == true)
+  local voice_lbl = is_voice and "🔴 Live" or "🎙️"
+  local voice_w = is_voice and (small_font:get_width(voice_lbl) + 16 * SCALE) or (26 * SCALE)
+  local voice_x = send_x - 4 * SCALE - voice_w
+
   -- Read-Only Toggle (Right aligned)
   local ro_lbl = config.ai_sidebar.read_only and "🔒 RO" or "RO"
   local ro_w = small_font:get_width(ro_lbl) + 16 * SCALE
-  local ro_x = send_x - 4 * SCALE - ro_w
-  
+  local ro_x = voice_x - 4 * SCALE - ro_w
+
   -- Autopilot Toggle (Right aligned)
   local auto_lbl = config.ai_sidebar.autopilot and "⚡ Auto" or "Auto"
   local auto_w = small_font:get_width(auto_lbl) + 16 * SCALE
   local auto_x = ro_x - 4 * SCALE - auto_w
-  
+
   local mh = 20 * SCALE
   local my = act_y + math.floor((action_row_h - mh) / 2)
 
@@ -3836,6 +3939,23 @@ function AGView:draw()
   draw_rect_outline(ro_x, my, ro_w, mh, config.ai_sidebar.read_only and { common.color "#FABD2F" } or P.border)
   renderer.draw_text(small_font, ro_lbl, ro_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ro_fg)
   self._ro_rect = { x = ro_x, y = my, w = ro_w, h = mh }
+
+  -- Draw Voice Typing Button
+  local vy = act_y + math.floor((action_row_h - mh) / 2)
+  if is_voice then
+    local v_pulse = (math.sin(self.tick / 8) + 1) / 2
+    local v_alpha = math.floor(40 + 80 * v_pulse)
+    renderer.draw_rect(voice_x - 2 * SCALE, vy - 2 * SCALE, voice_w + 4 * SCALE, mh + 4 * SCALE, { 235, 60, 60, v_alpha })
+    renderer.draw_rect(voice_x, vy, voice_w, mh, { 210, 45, 45, 230 })
+    renderer.draw_text(small_font, voice_lbl, voice_x + 8 * SCALE, vy + math.floor((mh - small_font:get_height()) / 2), { 255, 255, 255 })
+  else
+    local v_bg = self.hover_voice_btn and P.bg_btn_hl or _COLOR_CACHE_22
+    renderer.draw_rect(voice_x, vy, voice_w, mh, v_bg)
+    draw_rect_outline(voice_x, vy, voice_w, mh, P.border)
+    local v_tw = style.font:get_width(voice_lbl)
+    renderer.draw_text(style.font, voice_lbl, voice_x + math.floor((voice_w - v_tw) / 2), vy + math.floor((mh - style.font:get_height()) / 2), self.hover_voice_btn and P.fg_accent or P.fg_muted)
+  end
+  self._voice_rect = { x = voice_x, y = vy, w = voice_w, h = mh }
 
   -- Send/Stop Button (Right aligned)
   local send_w = 28 * SCALE
@@ -5301,6 +5421,10 @@ function AGView:on_key_pressed(key, ...)
   end
 
   if key == "escape" then
+    if self.voice_active then
+      self:stop_voice()
+      return true
+    end
     if self:state().process or self:state().status == "running" then
       if self:state().process then
         pcall(function() graceful_kill(self:state().process) end)
@@ -5957,6 +6081,7 @@ function AGView:on_mouse_moved(mx, my, ...)
   self.hover_model_idx = nil
   self.hover_auto_btn = false
   self.hover_ro_btn = false
+  self.hover_voice_btn = false
 
   if self._auto_rect then
     local r = self._auto_rect
@@ -5965,6 +6090,11 @@ function AGView:on_mouse_moved(mx, my, ...)
   if self._ro_rect then
     local r = self._ro_rect
     self.hover_ro_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+  end
+  if self._voice_rect then
+    local r = self._voice_rect
+    self.hover_voice_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+    if self.hover_voice_btn then system.set_cursor("hand") end
   end
 
   self.hover_hitl = nil
@@ -7241,6 +7371,15 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
     end
   end
 
+  if self._voice_rect then
+    local r = self._voice_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      self:toggle_voice()
+      core.redraw = true
+      return true
+    end
+  end
+
   if self._hitl_rects and self:state().status == "running" then
     for _, r in ipairs(self._hitl_rects) do
       if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
@@ -7805,6 +7944,17 @@ command.add(nil, {
   ["aether:auth"] = function() command.perform "antigravity:auth" end,
   ["aether:terminal"] = function() command.perform "antigravity:auth" end,
   ["antigravity:open-terminal"] = function() command.perform "antigravity:auth" end,
+  ["aether:toggle-voice-typing"] = function()
+    if not instance then
+      command.perform "antigravity:toggle"
+    end
+    if instance then
+      instance:toggle_voice()
+    end
+  end,
+  ["antigravity:toggle-voice-typing"] = function()
+    command.perform "aether:toggle-voice-typing"
+  end,
 
   ["antigravity:toggle"] = function()
     if not instance then
@@ -8085,6 +8235,7 @@ command.add(
 local keymap = require "core.keymap"
 keymap.add {
   ["ctrl+shift+a"] = "antigravity:toggle",
+  ["alt+v"]        = "aether:toggle-voice-typing",
   ["return"]       = "antigravity:return",
   ["enter"]        = "antigravity:return",
   ["shift+return"] = "antigravity:newline",

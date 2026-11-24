@@ -539,6 +539,48 @@ Capabilities.register("crewai", {
   }
 })
 
+-- ── 12. Register "voice" Subsystem ───────────────────────────────────────────
+Capabilities.register("voice", {
+  summary = "Real-time voice-to-text typing and conversational audio engine",
+  actions_meta = {
+    toggle = "Toggles real-time voice typing and microphone capture.",
+    start = "Activates microphone and begins real-time speech transcription.",
+    stop = "Deactivates microphone and stops voice typing.",
+    status = "Returns whether voice typing is currently active."
+  },
+  actions = {
+    toggle = function(p)
+      if command.map["aether:toggle-voice-typing"] then
+        command.perform("aether:toggle-voice-typing")
+        return "Toggled voice typing."
+      end
+      return "Voice toggle requested."
+    end,
+    start = function(p)
+      local inst = rawget(_G, "_ag_instance")
+      if inst and inst.start_voice then
+        inst:start_voice()
+        return "Voice typing started."
+      end
+      command.perform("aether:toggle-voice-typing")
+      return "Voice typing started."
+    end,
+    stop = function(p)
+      local inst = rawget(_G, "_ag_instance")
+      if inst and inst.stop_voice then
+        inst:stop_voice()
+        return "Voice typing stopped."
+      end
+      return "Voice typing stopped."
+    end,
+    status = function(p)
+      local inst = rawget(_G, "_ag_instance")
+      local active = inst and inst.voice_active or false
+      return active and "Voice typing is ACTIVE (listening)" or "Voice typing is INACTIVE"
+    end
+  }
+})
+
 -- Export on core
 core.capabilities = Capabilities
 
