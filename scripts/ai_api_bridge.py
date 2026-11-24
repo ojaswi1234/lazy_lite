@@ -1440,6 +1440,68 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
         class WebSearchInput(BaseModel):
             query: str = Field(..., description="The search query terms to look up on the web.")
 
+        class LiteXLPulseInput(BaseModel):
+            dummy: Optional[str] = Field(default=None, description="Optional empty parameter.")
+
+        class LiteXLDoInput(BaseModel):
+            subsystem: str = Field(..., description="Target Lite XL subsystem: 'editor', 'leetcode', 'pptx', 'pdf', 'mongodb', 'podman', 'visualizer', 'terminal', or 'diagnostics'.")
+            action: str = Field(..., description="Action to execute (e.g. 'open_split', 'patch_buffer', 'predict_company_oa', 'run_test', 'start_slideshow', 'goto_slide', 'get_triage').")
+            params: Optional[Dict[str, Any]] = Field(default=None, description="Parameters object (e.g. {'path': 'main.lua', 'mode': 'side_by_side'}, {'company': 'Google'}, {'target_signature': '...', 'replacement_code': '...'}).")
+
+        class LiteXLDiscoverInput(BaseModel):
+            subsystem: Optional[str] = Field(default=None, description="Subsystem to inspect, or 'all' to list all subsystems.")
+
+        def send_litexl_mailbox(method, subsystem=None, action=None, params=None, timeout=6.0):
+            user_dir = os.path.expanduser("~\\.config\\lite-xl")
+            if not os.path.exists(user_dir):
+                user_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            mailbox_dir = os.path.join(user_dir, "tempfiles")
+            os.makedirs(mailbox_dir, exist_ok=True)
+            mailbox_req = os.path.join(mailbox_dir, "agent_mailbox.jsonl")
+            req_id = str(uuid.uuid4())[:8]
+            req_payload = {
+                "id": req_id,
+                "method": method,
+                "subsystem": subsystem,
+                "action": action,
+                "params": params or {}
+            }
+            try:
+                with open(mailbox_req, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(req_payload) + "\n")
+            except Exception as e:
+                return f"Mailbox write error: {str(e)}"
+
+            resp_file = os.path.join(mailbox_dir, f"agent_resp_{req_id}.json")
+            start = time.time()
+            while time.time() - start < timeout:
+                if os.path.exists(resp_file):
+                    try:
+                        with open(resp_file, "r", encoding="utf-8") as rf:
+                            data = json.load(rf)
+                        try: os.remove(resp_file)
+                        except: pass
+                        return str(data.get("result", ""))
+                    except:
+                        pass
+                time.sleep(0.04)
+            return "TIMEOUT: Lite XL did not respond within timeout (is Lite XL running?)."
+
+        @tool(args_schema=LiteXLPulseInput)
+        def litexl_pulse(dummy: Optional[str] = None) -> str:
+            """Fetches the 20-token ambient pulse of Lite XL: active file, line:col, selection, open tabs count, splits, and active subsystem."""
+            return send_litexl_mailbox("pulse")
+
+        @tool(args_schema=LiteXLDoInput)
+        def litexl_do(subsystem: str, action: str, params: Optional[Dict[str, Any]] = None) -> str:
+            """Universal actuator for Lite XL. Controls editor splits, buffer patches, LeetCode (testing, OA prediction), PPTX slideshows, MongoDB, Podman, and diagnostics."""
+            return send_litexl_mailbox("do", subsystem=subsystem, action=action, params=params)
+
+        @tool(args_schema=LiteXLDiscoverInput)
+        def litexl_discover(subsystem: Optional[str] = None) -> str:
+            """Inspects available Lite XL subsystems and their actions on-demand."""
+            return send_litexl_mailbox("discover", subsystem=subsystem)
+
         @tool(args_schema=LocalShellInput)
         def local_shell(command: str) -> str:
             """Executes a local shell command in the workspace directory."""
@@ -1624,7 +1686,7 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
             except Exception as e:
                 return f"Web search error: {str(e)}"
                 
-        core_tools = [read_file, web_search] if read_only else [local_shell, read_file, write_file, web_search]
+        core_tools = [read_file, web_search, litexl_pulse, litexl_do, litexl_discover] if read_only else [local_shell, read_file, write_file, web_search, litexl_pulse, litexl_do, litexl_discover]
         tools = list(core_tools)
         mcp_tools = []
 

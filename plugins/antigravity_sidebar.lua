@@ -2315,8 +2315,15 @@ function AGView:submit(prompt)
   if av and av.doc then fname = av.doc.filename end
 
   local full_prompt = expanded_prompt
+  -- Prepend ambient micro-awareness pulse from agent_meta_tools
+  if core.agent_meta_tools and core.agent_meta_tools.pulse then
+    local pulse_line = core.agent_meta_tools.pulse()
+    if pulse_line and #pulse_line > 0 then
+      full_prompt = pulse_line .. "\n\n" .. full_prompt
+    end
+  end
   if fname and tool_id == "agy" then
-    full_prompt = string.format("Regarding the active file %s: %s", fname, expanded_prompt)
+    full_prompt = string.format("Regarding the active file %s: %s", fname, full_prompt)
   end
   if config.ai_sidebar and config.ai_sidebar.read_only then
     full_prompt = "[READ-ONLY MODE: You are currently operating in strict read-only mode. You are STRICTLY FORBIDDEN from editing, modifying, creating, or deleting any files on disk, and you must NOT run mutating commands. Provide explanations, analysis, or proposed code snippets in chat only, WITHOUT touching or modifying the user's workspace files.]\n\n" .. full_prompt
@@ -2714,6 +2721,21 @@ function AGView:update()
               self:fetch_history()
           end
           if tab._ai_buf then
+            -- Execute any in-band Lite XL action tags emitted by the AI
+            if core.agent_meta_tools and core.agent_meta_tools.execute then
+              local ok_json, json = pcall(require, "plugins.lsp.json")
+              if ok_json and json and json.decode then
+                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:(%b{})%]", function(raw_json)
+                  local parse_ok, act = pcall(json.decode, raw_json)
+                  if parse_ok and act and act.subsystem and act.action then
+                    local exec_ok, res = core.agent_meta_tools.execute(act.subsystem, act.action, act.params or {})
+                    local badge_icon = exec_ok and "⚡" or "⚠️"
+                    return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, act.subsystem, act.action, tostring(res))
+                  end
+                  return ""
+                end)
+              end
+            end
             tab._ai_buf = tab._ai_buf:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
             tab._ai_buf = tab._ai_buf:gsub("\r?\n%s*%]%s*\r?\n", "\n")
             tab._ai_buf = tab._ai_buf:gsub("^%s*%]%s*\r?\n", "")
@@ -3513,6 +3535,27 @@ function AGView:draw()
     status_draw_x,
     row1_y + math.floor((fh1 - fh2) / 2),
     scol)
+
+  -- ── ROW 1 Guardrail Status Badge ─────────────────────────────────────
+  local g_status = "🛡️ Safe"
+  local g_col = P.fg_muted
+  if core.guardrails then
+    if core.guardrails.circuit_tripped then
+      g_status = "⚠️ Tripped"
+      g_col = P.dot_err
+    elseif config.guardrails and config.guardrails.plugin_dev_mode then
+      g_status = "🛡️ Dev"
+      g_col = P.fg_accent
+    end
+  end
+  local g_w = sf:get_width(g_status)
+  local g_x = status_draw_x - g_w - 10 * SCALE
+  if g_x > seg_x + 100 * SCALE then
+    renderer.draw_text(sf, g_status, g_x, row1_y + math.floor((fh1 - fh2) / 2), g_col)
+    self._guardrail_badge_rect = { x = g_x - 4 * SCALE, y = row1_y, w = g_w + 8 * SCALE, h = fh1 }
+  else
+    self._guardrail_badge_rect = nil
+  end
 
   -- Model label moved to input area
   cur_y = cur_y + hdr_h
@@ -6449,6 +6492,20 @@ end
 function AGView:on_mouse_pressed(button, mx, my, clicks)
   AGView.super.on_mouse_pressed(self, button, mx, my, clicks)
   core.set_active_view(self)
+
+  -- Guardrail badge click toggle
+  if self._guardrail_badge_rect and button == "left" then
+    local r = self._guardrail_badge_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      if core.guardrails and core.guardrails.circuit_tripped then
+        core.guardrails.reset_circuit_breaker()
+      else
+        command.perform("guardrails:toggle-plugin-dev-mode")
+      end
+      core.redraw = true
+      return true
+    end
+  end
 
   -- 1. Full isolation for API Management View (prevent any background click-through)
   if self.show_api_view then
