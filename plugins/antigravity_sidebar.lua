@@ -2653,6 +2653,52 @@ function AGView:toggle_voice()
   end
 end
 
+-- ── Sanitize AI stdout stream (strips internal tags, tool markers & hallucinated scripts) ──
+local function sanitize_ai_output(out, tab)
+  if not out or #out == 0 then return "" end
+  out = out:gsub("%[STATUS:([^\r\n]*%])\r?\n?", function(st_block)
+    local st = st_block:match("^(.-)%]%s*$") or st_block:gsub("%]%s*$", "")
+    if tab then tab.progress_status = st end
+    return ""
+  end)
+  out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
+  out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
+  out = out:gsub("Using tool:[^\n]*\r?\n?", "")
+  out = out:gsub("%[MCP%]%s*([^\r\n]*)\r?\n?", function(mcp_msg)
+    if tab and mcp_msg and #mcp_msg > 0 then
+      tab.progress_status = mcp_msg
+    end
+    return ""
+  end)
+  out = out:gsub("%[MCP NOTICE%][^\r\n]*\r?\n?", "")
+  out = out:gsub("%[INFO%]%s*([^\r\n]*)\r?\n?", function(info_msg)
+    if tab and info_msg and #info_msg > 0 then
+      tab.progress_status = info_msg
+    end
+    return ""
+  end)
+  out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
+  out = out:gsub("<think.-</think>%s*", "")
+  out = out:gsub("<thought.-</thought>%s*", "")
+  out = out:gsub("</?think>", "")
+  out = out:gsub("</?thought>", "")
+  out = out:gsub("<invoke.-</invoke>%s*", "")
+  out = out:gsub("</?invoke>", "")
+  out = out:gsub("<tool_call.-</tool_call>%s*", "")
+  out = out:gsub("</?tool_call[^>]*>", "")
+  out = out:gsub("<function.-</function>%s*", "")
+  out = out:gsub("<function_call.-</function_call>%s*", "")
+  out = out:gsub("%[TOOL_CALLS%].-%]%s*", "")
+  out = out:gsub("function%s+[%w_]+%s*%b().-%b{}", "")
+  out = out:gsub("[%w_]+%s*%b()%s*;", "")
+  out = out:gsub("%[WARNING%][^\r\n]*\r?\n?", "")
+  out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
+  out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
+  out = out:gsub("^%s*%]%s*\r?\n", "")
+  out = out:gsub("\n\n\n+", "\n\n")
+  return out
+end
+
 function AGView:update()
   AGView.super.update(self)
   self.tick = (self.tick + 1) % 120
@@ -2755,15 +2801,6 @@ function AGView:update()
     end
   end
 
--- ── Sanitize AI stdout stream (strips internal tags, tool markers & hallucinated scripts) ──
-local function sanitize_ai_output(out, tab)
-  if not out or #out == 0 then return "" end
-
-          out = sanitize_ai_output(out, tab)
-
-  return out
-end
-
   -- ── Drain chat processes (ALL TABS) ───────────────────────────
   for i, tab in ipairs(self.chats) do
     local is_active_process = tab.process ~= nil
@@ -2799,46 +2836,7 @@ end
           while true do
             local out = tab.process:read_stdout(65536)
             if not out or #out == 0 then break end
-            out = out:gsub("%[STATUS:([^\r\n]*%])\r?\n?", function(st_block)
-              local st = st_block:match("^(.-)%]%s*$") or st_block:gsub("%]%s*$", "")
-              tab.progress_status = st
-              return ""
-            end)
-            out = out:gsub("[\r\n]*%-%-%- Finished %-%-%-[\r\n]*", "")
-            out = out:gsub("%[AGENT%]%s*Using tool:[^\n]*\r?\n?", "")
-            out = out:gsub("Using tool:[^\n]*\r?\n?", "")
-            out = out:gsub("%[MCP%]%s*([^\r\n]*)\r?\n?", function(mcp_msg)
-              if mcp_msg and #mcp_msg > 0 then
-                tab.progress_status = mcp_msg
-              end
-              return ""
-            end)
-            out = out:gsub("%[MCP NOTICE%][^\r\n]*\r?\n?", "")
-            out = out:gsub("%[INFO%]%s*([^\r\n]*)\r?\n?", function(info_msg)
-              if info_msg and #info_msg > 0 then
-                tab.progress_status = info_msg
-              end
-              return ""
-            end)
-            out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
-            out = out:gsub("<think.-</think>%s*", "")
-            out = out:gsub("<thought.-</thought>%s*", "")
-            out = out:gsub("</?think>", "")
-            out = out:gsub("</?thought>", "")
-            out = out:gsub("<invoke.-</invoke>%s*", "")
-            out = out:gsub("</?invoke>", "")
-            out = out:gsub("<tool_call.-</tool_call>%s*", "")
-            out = out:gsub("</?tool_call[^>]*>", "")
-            out = out:gsub("<function.-</function>%s*", "")
-            out = out:gsub("<function_call.-</function_call>%s*", "")
-            out = out:gsub("%[TOOL_CALLS%].-%]%s*", "")
-            out = out:gsub("function%s+[%w_]+%s*%b().-%b{}", "")
-            out = out:gsub("[%w_]+%s*%b()%s*;", "")
-            out = out:gsub("%[WARNING%][^\r\n]*\r?\n?", "")
-            out = out:gsub("%[DIAGNOSTIC%][^\r\n]*\r?\n?", "")
-            out = out:gsub("\r?\n%s*%]%s*\r?\n", "\n")
-            out = out:gsub("^%s*%]%s*\r?\n", "")
-            out = out:gsub("\n\n\n+", "\n\n")
+            out = sanitize_ai_output(out, tab)
             if not tab._ai_buf or tab._ai_buf == "" then
               out = out:gsub("^\r?\n+", "")
             end
