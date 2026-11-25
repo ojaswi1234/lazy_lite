@@ -55,6 +55,9 @@ function YTView:new()
     self.max_scroll_y = 0
   self.status_msg = "Ready"
   self.active_input = false
+  self.cursor_pos = 1
+  self.sel_all = false
+  self._search_scroll_x = 0
   self.playing_title = ""
   self.models = { { provider = "loading", name = "Fetching models..." } }
   self.selected_model_idx = 1
@@ -388,11 +391,44 @@ function YTView:draw()
   local search_w = w - type_w - pad
   self.search_box_rect = {search_x, y, search_w, search_h}
   renderer.draw_rect(search_x, y, search_w, search_h, is_hovered(self.search_box_rect) and style.background3 or style.background2)
+  if self.active_input then
+    local bcol = style.accent or style.caret or style.text
+    renderer.draw_rect(search_x, y + search_h - 1, search_w, 1, bcol)
+  end
   local search_icon = "\xef\x80\x82" -- fa-search
   renderer.draw_text(style.icon_font, search_icon, search_x + pad, y + pad, self.active_input and style.text or style.dim)
-  local disp_q = self.search_query
-  if self.active_input and os.time() % 2 == 0 then disp_q = disp_q .. "|" end
-  renderer.draw_text(font, (disp_q == "" and not self.active_input and "Search YouTube..." or disp_q), search_x + pad*2 + style.icon_font:get_width(search_icon), y + pad, self.active_input and style.text or style.dim)
+
+  local inner_x = search_x + pad * 2 + style.icon_font:get_width(search_icon)
+  local inner_w = math.max(20, (search_x + search_w - pad) - inner_x)
+  local q = self.search_query or ""
+  self.cursor_pos = math.max(1, math.min(#q + 1, self.cursor_pos or (#q + 1)))
+
+  local before_cursor = q:sub(1, self.cursor_pos - 1)
+  local caret_px = font:get_width(before_cursor)
+  local scroll_x = self._search_scroll_x or 0
+  if caret_px - scroll_x > inner_w - 4 then
+    scroll_x = caret_px - (inner_w - 4)
+  elseif caret_px - scroll_x < 0 then
+    scroll_x = caret_px
+  end
+  if font:get_width(q) <= inner_w - 4 then
+    scroll_x = 0
+  end
+  self._search_scroll_x = math.max(0, scroll_x)
+  self._search_text_x = inner_x
+
+  core.push_clip_rect(inner_x, y, inner_w, search_h)
+  local text_x = inner_x - self._search_scroll_x
+  if self.active_input and self.sel_all and #q > 0 then
+    local sel_w = math.min(inner_w, font:get_width(q))
+    renderer.draw_rect(text_x, y + pad, sel_w, th, style.selection or style.background3)
+  end
+  local show_placeholder = (q == "" and not self.active_input)
+  renderer.draw_text(font, show_placeholder and "Search YouTube..." or q, text_x, y + pad, self.active_input and style.text or style.dim)
+  if self.active_input and math.floor(system.get_time() * 2) % 2 == 0 then
+    renderer.draw_rect(text_x + caret_px, y + pad, 2, th, style.caret or style.accent or style.text)
+  end
+  core.pop_clip_rect()
   y = y + search_h + pad
 
   -- ==========================================
@@ -642,10 +678,42 @@ function YTView:on_mouse_pressed(button, x, y, clicks)
   
   if self.search_box_rect and in_rect(table.unpack(self.search_box_rect)) then
     self.active_input = true
+    core.set_active_view(self)
+    local q = self.search_query or ""
+    if clicks and clicks >= 2 and #q > 0 then
+      self.sel_all = true
+      self.cursor_pos = #q + 1
+    else
+      self.sel_all = false
+      local tx = (self._search_text_x or self.search_box_rect[1]) - (self._search_scroll_x or 0)
+      local rel_x = x - tx
+      local best_pos = #q + 1
+      if rel_x <= 0 then
+        best_pos = 1
+      else
+        local i = 1
+        local prev_w = 0
+        while i <= #q do
+          local nxt = i + 1
+          while nxt <= #q and q:byte(nxt) >= 0x80 and q:byte(nxt) < 0xc0 do
+            nxt = nxt + 1
+          end
+          local cur_w = style.font:get_width(q:sub(1, nxt - 1))
+          if rel_x < (prev_w + cur_w) * 0.5 then
+            best_pos = i
+            break
+          end
+          prev_w = cur_w
+          i = nxt
+        end
+      end
+      self.cursor_pos = best_pos
+    end
     core.redraw = true
-    return
+    return true
   else
     self.active_input = false
+    self.sel_all = false
     core.redraw = true
   end
   
@@ -816,42 +884,177 @@ function YTView:on_mouse_pressed(button, x, y, clicks)
   end
 end
 
+local function utf8_prev_pos(str, pos)
+  if pos <= 1 then return 1 end
+  local i = pos - 1
+  while i > 1 and str:byte(i) >= 0x80 and str:byte(i) < 0xc0 do
+    i = i - 1
+  end
+  return i
+end
+
+local function utf8_next_pos(str, pos)
+  local len = #str
+  if pos > len then return len + 1 end
+  local i = pos + 1
+  while i <= len and str:byte(i) >= 0x80 and str:byte(i) < 0xc0 do
+    i = i + 1
+  end
+  return i
+end
+
+function YTView:insert_search_text(text)
+  if not text or text == "" then return end
+  text = tostring(text):gsub("[\r\n]+", " ")
+  if self.sel_all then
+    self.search_query = ""
+    self.cursor_pos = 1
+    self.sel_all = false
+  end
+  local q = self.search_query or ""
+  local pos = math.max(1, math.min(#q + 1, self.cursor_pos or (#q + 1)))
+  self.search_query = q:sub(1, pos - 1) .. text .. q:sub(pos)
+  self.cursor_pos = pos + #text
+  core.redraw = true
+end
+
+function YTView:submit_search()
+  self:ensure_backend()
+  self.status_msg = "Searching..."
+  self.results = {}
+  self.current_page = 1
+  self.total_pages = 1
+  self:send({cmd = "search", query = self.search_query or "", page = 1, search_type = self.search_type})
+  self.active_input = false
+  self.sel_all = false
+  core.redraw = true
+end
+
 function YTView:on_text_input(text)
   if self.active_input then
-    self.search_query = self.search_query .. text
-    core.redraw = true
+    self:insert_search_text(text)
+    return true
   end
 end
 
-function YTView:on_key_pressed(key)
+function YTView:handle_search_key(key)
   if not self.active_input then return false end
-  if key == "backspace" then
-    if #self.search_query > 0 then
-      local text = self.search_query
-      local len = #text
-      while len > 0 and text:byte(len) >= 0x80 and text:byte(len) < 0xc0 do
-        len = len - 1
-      end
-      self.search_query = text:sub(1, math.max(0, len - 1))
-      core.redraw = true
-      return true
+  local q = self.search_query or ""
+  local pos = math.max(1, math.min(#q + 1, self.cursor_pos or (#q + 1)))
+
+  if key == "backspace" or key == "shift+backspace" then
+    if self.sel_all then
+      self.search_query = ""
+      self.cursor_pos = 1
+      self.sel_all = false
+    elseif pos > 1 then
+      local prev = utf8_prev_pos(q, pos)
+      self.search_query = q:sub(1, prev - 1) .. q:sub(pos)
+      self.cursor_pos = prev
     end
-  elseif key == "return" or key == "enter" then
-    self:ensure_backend()
-    self.status_msg = "Searching..."
-    self.results = {}
-    self.current_page = 1
-    self.total_pages = 1
-    self:send({cmd = "search", query = self.search_query, page = 1, search_type = self.search_type})
-    self.active_input = false
     core.redraw = true
     return true
+  elseif key == "ctrl+backspace" then
+    if self.sel_all then
+      self.search_query = ""
+      self.cursor_pos = 1
+      self.sel_all = false
+    elseif pos > 1 then
+      local p = pos
+      while p > 1 and q:sub(p - 1, p - 1):match("%s") do p = p - 1 end
+      while p > 1 and not q:sub(p - 1, p - 1):match("%s") do p = p - 1 end
+      self.search_query = q:sub(1, p - 1) .. q:sub(pos)
+      self.cursor_pos = p
+    end
+    core.redraw = true
+    return true
+  elseif key == "delete" then
+    if self.sel_all then
+      self.search_query = ""
+      self.cursor_pos = 1
+      self.sel_all = false
+    elseif pos <= #q then
+      local nxt = utf8_next_pos(q, pos)
+      self.search_query = q:sub(1, pos - 1) .. q:sub(nxt)
+    end
+    core.redraw = true
+    return true
+  elseif key == "left" then
+    self.sel_all = false
+    self.cursor_pos = utf8_prev_pos(q, pos)
+    core.redraw = true
+    return true
+  elseif key == "right" then
+    self.sel_all = false
+    self.cursor_pos = utf8_next_pos(q, pos)
+    core.redraw = true
+    return true
+  elseif key == "ctrl+left" then
+    self.sel_all = false
+    local p = pos
+    while p > 1 and q:sub(p - 1, p - 1):match("%s") do p = p - 1 end
+    while p > 1 and not q:sub(p - 1, p - 1):match("%s") do p = p - 1 end
+    self.cursor_pos = p
+    core.redraw = true
+    return true
+  elseif key == "ctrl+right" then
+    self.sel_all = false
+    local p = pos
+    while p <= #q and not q:sub(p, p):match("%s") do p = p + 1 end
+    while p <= #q and q:sub(p, p):match("%s") do p = p + 1 end
+    self.cursor_pos = p
+    core.redraw = true
+    return true
+  elseif key == "home" then
+    self.sel_all = false
+    self.cursor_pos = 1
+    core.redraw = true
+    return true
+  elseif key == "end" then
+    self.sel_all = false
+    self.cursor_pos = #q + 1
+    core.redraw = true
+    return true
+  elseif key == "ctrl+a" then
+    self.sel_all = (#q > 0)
+    self.cursor_pos = #q + 1
+    core.redraw = true
+    return true
+  elseif key == "ctrl+c" then
+    if #q > 0 then system.set_clipboard(q) end
+    return true
+  elseif key == "ctrl+x" then
+    if #q > 0 then
+      system.set_clipboard(q)
+      self.search_query = ""
+      self.cursor_pos = 1
+      self.sel_all = false
+      core.redraw = true
+    end
+    return true
+  elseif key == "ctrl+v" then
+    local clip = system.get_clipboard()
+    if clip and #clip > 0 then
+      self:insert_search_text(clip)
+    end
+    return true
+  elseif key == "return" or key == "keypad enter" or key == "enter" then
+    self:submit_search()
+    return true
   elseif key == "escape" then
-    self.active_input = false
+    if self.sel_all then
+      self.sel_all = false
+    else
+      self.active_input = false
+    end
     core.redraw = true
     return true
   end
   return false
+end
+
+function YTView:on_key_pressed(key)
+  return self:handle_search_key(key)
 end
 
 -- Ensure legacy accidental global bindings for return/backspace are completely removed
@@ -861,6 +1064,39 @@ if keymap and keymap.unbind then
 end
 
 local yt_view_instance = nil
+
+local function is_yt_search_active()
+  local v = core.active_view
+  return v ~= nil
+     and (v == yt_view_instance or v.name == "YouTube Player")
+     and v.active_input == true
+end
+
+local function get_active_yt_view()
+  local v = core.active_view
+  if v and (v == yt_view_instance or v.name == "YouTube Player") then
+    return v
+  end
+  return yt_view_instance
+end
+
+command.add(is_yt_search_active, {
+  ["youtube-player:input-backspace"]      = function() local v = get_active_yt_view(); return v and v:handle_search_key("backspace") or false end,
+  ["youtube-player:input-ctrl-backspace"] = function() local v = get_active_yt_view(); return v and v:handle_search_key("ctrl+backspace") or false end,
+  ["youtube-player:input-delete"]         = function() local v = get_active_yt_view(); return v and v:handle_search_key("delete") or false end,
+  ["youtube-player:input-left"]           = function() local v = get_active_yt_view(); return v and v:handle_search_key("left") or false end,
+  ["youtube-player:input-right"]          = function() local v = get_active_yt_view(); return v and v:handle_search_key("right") or false end,
+  ["youtube-player:input-ctrl-left"]      = function() local v = get_active_yt_view(); return v and v:handle_search_key("ctrl+left") or false end,
+  ["youtube-player:input-ctrl-right"]     = function() local v = get_active_yt_view(); return v and v:handle_search_key("ctrl+right") or false end,
+  ["youtube-player:input-home"]           = function() local v = get_active_yt_view(); return v and v:handle_search_key("home") or false end,
+  ["youtube-player:input-end"]            = function() local v = get_active_yt_view(); return v and v:handle_search_key("end") or false end,
+  ["youtube-player:input-select-all"]     = function() local v = get_active_yt_view(); return v and v:handle_search_key("ctrl+a") or false end,
+  ["youtube-player:input-copy"]           = function() local v = get_active_yt_view(); return v and v:handle_search_key("ctrl+c") or false end,
+  ["youtube-player:input-cut"]            = function() local v = get_active_yt_view(); return v and v:handle_search_key("ctrl+x") or false end,
+  ["youtube-player:input-paste"]          = function() local v = get_active_yt_view(); return v and v:handle_search_key("ctrl+v") or false end,
+  ["youtube-player:input-submit"]         = function() local v = get_active_yt_view(); return v and v:handle_search_key("return") or false end,
+  ["youtube-player:input-escape"]         = function() local v = get_active_yt_view(); return v and v:handle_search_key("escape") or false end,
+})
 
 command.add(nil, {
   ["youtube-player:toggle"] = function()
@@ -998,9 +1234,28 @@ command.add(nil, {
 })
 
 keymap.add {
-  ["alt+q"] = "youtube-player:play-pause",
-  ["alt+right"] = "youtube-player:seek-forward",
-  ["alt+left"] = "youtube-player:seek-backward",
+  ["alt+q"]          = "youtube-player:play-pause",
+  ["alt+right"]      = "youtube-player:seek-forward",
+  ["alt+left"]       = "youtube-player:seek-backward",
+  ["backspace"]      = "youtube-player:input-backspace",
+  ["shift+backspace"]= "youtube-player:input-backspace",
+  ["ctrl+backspace"] = "youtube-player:input-ctrl-backspace",
+  ["delete"]         = "youtube-player:input-delete",
+  ["left"]           = "youtube-player:input-left",
+  ["right"]          = "youtube-player:input-right",
+  ["ctrl+left"]      = "youtube-player:input-ctrl-left",
+  ["ctrl+right"]     = "youtube-player:input-ctrl-right",
+  ["home"]           = "youtube-player:input-home",
+  ["end"]            = "youtube-player:input-end",
+  ["ctrl+a"]         = "youtube-player:input-select-all",
+  ["ctrl+c"]         = "youtube-player:input-copy",
+  ["ctrl+x"]         = "youtube-player:input-cut",
+  ["ctrl+v"]         = "youtube-player:input-paste",
+  ["cmd+v"]          = "youtube-player:input-paste",
+  ["shift+insert"]   = "youtube-player:input-paste",
+  ["return"]         = "youtube-player:input-submit",
+  ["keypad enter"]   = "youtube-player:input-submit",
+  ["escape"]         = "youtube-player:input-escape",
 }
 
 -- Status Bar Integration (Mini Player)
