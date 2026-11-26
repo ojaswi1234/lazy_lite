@@ -157,20 +157,23 @@ def extract_snap_features(
     power = (spec.real * spec.real + spec.imag * spec.imag) / max(1, n_sp)
     freqs = np.fft.rfftfreq(n_sp, d=1.0 / sr)
 
-    # Subtract pre-onset ambient spectrum (-120 ms .. -25 ms) if no caller bg given
+    # Subtract pre-onset ambient spectrum using 2-half min-statistics so a recent 1st snap
+    # in a fast double-snap pair (100-140 ms ago) never contaminates the 2nd snap's floor.
     if bg_spectrum is not None and bg_spectrum.shape == power.shape:
         amb_pow = bg_spectrum
     else:
-        amb_a = max(0, c - int(round(sr * 0.120)))
-        amb_b = max(amb_a + 16, c - int(round(sr * 0.025)))
-        amb_slice = seg[amb_a:amb_b]
-        # Compute average power scaled to `n_sp`
-        n_amb = amb_slice.size
-        amb_w = np.hanning(n_amb).astype(np.float32)
-        amb_sp = np.fft.rfft((amb_slice - np.mean(amb_slice)) * amb_w)
-        amb_pow_full = (amb_sp.real * amb_sp.real + amb_sp.imag * amb_sp.imag) / max(1, n_amb)
-        amb_freqs = np.fft.rfftfreq(n_amb, d=1.0 / sr)
-        amb_pow = np.interp(freqs, amb_freqs, amb_pow_full)
+        def _win_pow(t0_sec, t1_sec):
+            wa = max(0, c - int(round(sr * t0_sec)))
+            wb = max(wa + 16, c - int(round(sr * t1_sec)))
+            sl = seg[wa:wb]
+            nw = sl.size
+            hw = np.hanning(nw).astype(np.float32)
+            sp = np.fft.rfft((sl - np.mean(sl)) * hw)
+            pw = (sp.real * sp.real + sp.imag * sp.imag) / max(1, nw)
+            fr = np.fft.rfftfreq(nw, d=1.0 / sr)
+            return np.interp(freqs, fr, pw)
+
+        amb_pow = np.minimum(_win_pow(0.135, 0.080), _win_pow(0.075, 0.025))
 
     clean_pow = np.maximum(0.0, power - 1.10 * amb_pow)
     tot_mask = (freqs >= 60.0) & (freqs <= min(16000.0, sr * 0.48))

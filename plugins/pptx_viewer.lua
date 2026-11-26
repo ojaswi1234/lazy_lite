@@ -26,7 +26,7 @@ config.plugins.pptx = common.merge({
   thumbnail_width = 220,
   default_mode = "hd",
   snap_sensitivity = "normal",   -- "low", "normal", "high" (far-field presenter)
-  snap_double_window_ms = 400,   -- max gap (ms) between 2 fast snaps for previous slide
+  snap_double_window_ms = 580,   -- max gap (ms) between 2 fast snaps for previous slide
 }, config.plugins.pptx)
 
 local function truncate_text(font, text, max_w)
@@ -552,7 +552,7 @@ function PptxView:start_snap_detector()
 
   local cfg = (config.plugins and config.plugins.pptx) or {}
   local sens = tostring(cfg.snap_sensitivity or "normal")
-  local dbl_ms = tostring(cfg.snap_double_window_ms or 400)
+  local dbl_ms = tostring(cfg.snap_double_window_ms or 580)
 
   local proc = process.start({
     "python", "-u", SNAP_BRIDGE,

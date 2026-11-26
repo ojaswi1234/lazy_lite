@@ -194,10 +194,10 @@ class SnapDetectorEngine:
         self,
         sample_rate=48000,
         sensitivity="normal",
-        double_window_sec=0.40,
+        double_window_sec=0.58,
         min_double_gap_sec=0.10,
-        cooldown_single_sec=0.28,
-        cooldown_double_sec=0.48,
+        cooldown_single_sec=0.22,
+        cooldown_double_sec=0.45,
         emit_fn=None,
         model_path=DEFAULT_MODEL_PATH,
         profile_path=DEFAULT_PROFILE_PATH,
@@ -476,9 +476,6 @@ class SnapDetectorEngine:
         self._push_pcm_hop(frame[: self.hop_len])
         feat = self._compute_frame_features(frame)
 
-        # Always keep single-snap timeout alive cleanly
-        self._check_pending_timeout()
-
         # Warmup phase: gather initial room noise floor & MAD
         if self.frame_idx <= self.warmup_frames:
             self.ring_snap_rms.append(feat["snap_rms"])
@@ -490,7 +487,8 @@ class SnapDetectorEngine:
             self.prev_low_pow.append(feat["low_pow"])
             return
 
-        # 1. If capturing +80 ms post-onset candidate window, wait until ready
+        # 1. If capturing +80 ms post-onset candidate window, wait until candidate completes
+        #    BEFORE checking pending_snap timeout (fixes race where 2nd snap gets split into two 1x 'next')
         if self.candidate is not None:
             c = self.candidate
             c["age"] += 1
@@ -501,6 +499,9 @@ class SnapDetectorEngine:
             self.prev_snap_rms.append(feat["snap_rms"])
             self.prev_low_pow.append(feat["low_pow"])
             return
+
+        # 2. Emit 1x 'next' only when no candidate is in-flight and double-snap window expired
+        self._check_pending_timeout()
 
         # Update rolling voice activity context
         self._update_speech_context()
@@ -745,7 +746,7 @@ def run_calibrate(profile_path=DEFAULT_PROFILE_PATH):
     return 0
 
 
-def run_live(sensitivity="normal", double_window_ms=400, monitor=False):
+def run_live(sensitivity="normal", double_window_ms=580, monitor=False):
     """Stream microphone audio via sounddevice and emit ML-validated snap JSON events."""
     if np is None or sd is None:
         missing = "numpy" if np is None else "sounddevice"
@@ -826,7 +827,7 @@ def run_live(sensitivity="normal", double_window_ms=400, monitor=False):
 def main():
     parser = argparse.ArgumentParser(description="ML-powered finger snap microphone slide detector")
     parser.add_argument("--sensitivity", default="normal", choices=["low", "normal", "high"])
-    parser.add_argument("--double-window-ms", type=int, default=400)
+    parser.add_argument("--double-window-ms", type=int, default=580)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--monitor", action="store_true", help="Print live candidate ML scores to stdout")
     parser.add_argument("--calibrate", action="store_true", help="Record 3 personal snaps to calibrate room profile")
