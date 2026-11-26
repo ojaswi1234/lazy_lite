@@ -25,6 +25,8 @@ local process = require "process"
 config.plugins.pptx = common.merge({
   thumbnail_width = 220,
   default_mode = "hd",
+  snap_sensitivity = "normal",   -- "low", "normal", "high" (far-field presenter)
+  snap_double_window_ms = 400,   -- max gap (ms) between 2 fast snaps for previous slide
 }, config.plugins.pptx)
 
 local function truncate_text(font, text, max_w)
@@ -62,6 +64,7 @@ local _COLOR_CARD_BG       = { 28, 32, 40 }
 local _COLOR_CARD_ACTIVE   = { 35, 45, 60 }
 
 local PYTHON_ENGINE = USERDIR .. PATHSEP .. "plugins/pptx_engine.py"
+local SNAP_BRIDGE   = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "snap_detector_bridge.py"
 local HALF_BLOCK = "▀"
 
 local CACHE_DIR = USERDIR .. PATHSEP .. "tempfiles/pptx_cache"
@@ -195,6 +198,15 @@ function PptxView:new(filename)
   self.blank_screen = nil
   self.show_slideshow_notes = false
 
+  -- Acoustic Snap Control State (Fullscreen Slideshow only)
+  self.snap_active = false
+  self.snap_ready = false
+  self.snap_proc = nil
+  self.snap_session_id = 0
+  self.snap_status_msg = nil
+  self.snap_flash_text = nil
+  self.snap_flash_timer = 0
+
   -- Previous window state for restoring after fullscreen
   self.prev_window_mode = nil
   self.prev_title_visible = nil
@@ -255,6 +267,7 @@ function PptxView:get_filename()
 end
 
 function PptxView:destroy()
+  self:stop_snap_detector(true)
   if self.slideshow_mode then
     self:exit_slideshow()
   end
@@ -430,6 +443,7 @@ function PptxView:start_slideshow()
 end
 
 function PptxView:exit_slideshow()
+  self:stop_snap_detector(true)
   if self.slideshow_mode then
     self.slideshow_mode = false
     self.blank_screen = nil
@@ -454,6 +468,153 @@ function PptxView:toggle_slideshow()
     self:exit_slideshow()
   else
     self:start_slideshow()
+  end
+end
+
+function PptxView:_handle_snap_event(evt)
+  if not self.slideshow_mode or not self.snap_active or not evt then return end
+  if evt.event == "calibrating" then
+    self.snap_ready = false
+    self.snap_status_msg = "SNAP MIC: Calibrating..."
+    core.redraw = true
+  elseif evt.event == "ready" then
+    self.snap_ready = true
+    self.snap_status_msg = "SNAP MIC ON (1x Next | 2x Prev)"
+    core.log("[Snap] Microphone snap control ready (1 snap = Next, 2 fast snaps = Prev).")
+    core.redraw = true
+  elseif evt.event == "snap" then
+    if evt.action == "next" then
+      self.snap_flash_text = "[1x SNAP] Next Slide"
+      self.snap_flash_timer = 1.2
+      self:next_slide()
+    elseif evt.action == "prev" then
+      self.snap_flash_text = "[2x SNAP] Previous Slide"
+      self.snap_flash_timer = 1.2
+      self:previous_slide()
+    end
+    core.redraw = true
+  elseif evt.event == "error" then
+    local msg = evt.message or "Snap microphone error"
+    core.error("[Snap] %s", msg)
+    self:stop_snap_detector(true)
+  end
+end
+
+function PptxView:start_snap_detector()
+  if self.snap_active then return end
+  if not self.slideshow_mode then
+    core.log("[Snap] Snap control is only active in Fullscreen Slideshow mode.")
+    return
+  end
+  if not system.get_file_info(SNAP_BRIDGE) then
+    core.error("[Snap] Detector script not found: %s", SNAP_BRIDGE)
+    return
+  end
+
+  local cfg = (config.plugins and config.plugins.pptx) or {}
+  local sens = tostring(cfg.snap_sensitivity or "normal")
+  local dbl_ms = tostring(cfg.snap_double_window_ms or 400)
+
+  local proc = process.start({
+    "python", "-u", SNAP_BRIDGE,
+    "--sensitivity", sens,
+    "--double-window-ms", dbl_ms,
+  }, {
+    stdout = process.REDIRECT_PIPE,
+    stdin  = process.REDIRECT_PIPE,
+    stderr = process.REDIRECT_PIPE,
+  })
+  if not proc then
+    core.error("[Snap] Failed to start Python snap detector process.")
+    return
+  end
+
+  self.snap_session_id = (self.snap_session_id or 0) + 1
+  local session_id = self.snap_session_id
+  self.snap_proc = proc
+  self.snap_active = true
+  self.snap_ready = false
+  self.snap_status_msg = "SNAP MIC: Starting..."
+  self.snap_flash_text = nil
+  self.snap_flash_timer = 0
+  core.redraw = true
+
+  core.add_thread(function()
+    local ok_json, json = pcall(require, "plugins.lsp.json")
+    local line_acc = ""
+    while self.snap_active and self.snap_session_id == session_id and self.snap_proc == proc and proc:running() do
+      local chunk = proc:read_stdout(4096)
+      if chunk and #chunk > 0 then
+        line_acc = line_acc .. chunk
+        while line_acc:find("\n") do
+          local line, rest = line_acc:match("^(.-)\r?\n(.*)$")
+          line_acc = rest or ""
+          if line and #line > 3 then
+            local evt = nil
+            if ok_json and json and json.decode then
+              local p_ok, decoded = pcall(json.decode, line)
+              if p_ok and type(decoded) == "table" then
+                evt = decoded
+              end
+            end
+            if not evt then
+              local ev_name = line:match('"event"%s*:%s*"([^"]+)"')
+              if ev_name then
+                evt = {
+                  event = ev_name,
+                  action = line:match('"action"%s*:%s*"([^"]+)"'),
+                  message = line:match('"message"%s*:%s*"([^"]+)"'),
+                }
+              end
+            end
+            if evt then
+              self:_handle_snap_event(evt)
+            end
+          end
+        end
+      end
+      coroutine.yield(0.04)
+    end
+    -- Drain final stderr if Python exited unexpectedly while still active
+    if self.snap_active and self.snap_session_id == session_id then
+      local err_out = proc:read_stderr(4096)
+      if err_out and #err_out > 0 then
+        core.error("[Snap] %s", err_out:match("^%s*(.-)%s*$"))
+      end
+      self:stop_snap_detector(true)
+    end
+  end)
+end
+
+function PptxView:stop_snap_detector(silent)
+  if not self.snap_active and not self.snap_proc then return end
+  self.snap_session_id = (self.snap_session_id or 0) + 1
+  self.snap_active = false
+  self.snap_ready = false
+  self.snap_status_msg = nil
+  self.snap_flash_text = nil
+  self.snap_flash_timer = 0
+  if self.snap_proc then
+    local p = self.snap_proc
+    self.snap_proc = nil
+    pcall(function() p:write("STOP\n") end)
+    pcall(function() p:kill() end)
+  end
+  if not silent then
+    core.log("[Snap] Microphone snap control deactivated.")
+  end
+  core.redraw = true
+end
+
+function PptxView:toggle_snap_control()
+  if not self.slideshow_mode then
+    core.log("[Snap] Enter Fullscreen Slideshow (F5) first to enable snap navigation.")
+    return
+  end
+  if self.snap_active then
+    self:stop_snap_detector(false)
+  else
+    self:start_snap_detector()
   end
 end
 
@@ -500,6 +661,16 @@ function PptxView:update()
       end
     else
       self.hud_timer = 3.5
+    end
+  end
+
+  -- Fade out temporary snap confirmation flash badge
+  if self.snap_flash_timer and self.snap_flash_timer > 0 then
+    self.snap_flash_timer = self.snap_flash_timer - 0.05
+    if self.snap_flash_timer <= 0 then
+      self.snap_flash_timer = 0
+      self.snap_flash_text = nil
+      core.redraw = true
     end
   end
 
@@ -1181,6 +1352,7 @@ function PptxView:draw_slideshow_hud(tx, ty, tw, th)
     { id = "hud_last", label = "Last", active = false },
     { id = "hud_notes", label = "Notes", active = self.show_slideshow_notes },
     { id = "hud_blank", label = "Blank", active = (self.blank_screen ~= nil) },
+    { id = "hud_snap", label = self.snap_active and "Snap: ON" or "Snap", active = self.snap_active },
     { id = "hud_exit", label = "Exit", active = false, accent = true },
   }
 
@@ -1298,6 +1470,30 @@ function PptxView:draw_slideshow_notes_overlay(tx, ty, tw, th)
   core.pop_clip_rect()
 end
 
+-- Floating Snap Control Status / Flash Pill in Fullscreen Mode
+function PptxView:draw_slideshow_snap_badge(tx, ty, tw, th)
+  if not self.snap_active then return end
+  local label = (self.snap_flash_timer and self.snap_flash_timer > 0 and self.snap_flash_text)
+                or self.snap_status_msg
+                or "SNAP MIC ON"
+  local font = style.font
+  local pad_x = 12 * SCALE
+  local pad_y = 6 * SCALE
+  local bw = font:get_width(label) + pad_x * 2
+  local bh = font:get_height() + pad_y * 2
+  local bx = tx + tw - bw - 18 * SCALE
+  local by = ty + 16 * SCALE
+
+  local is_flash = (self.snap_flash_timer and self.snap_flash_timer > 0 and self.snap_flash_text ~= nil)
+  local bg = is_flash and _COLOR_ACCENT or _COLOR_BG_HUD
+  local border = is_flash and _COLOR_WHITE or (self.snap_ready and _COLOR_ACCENT or _COLOR_WARN)
+  local fg = is_flash and _COLOR_WHITE or _COLOR_TEXT
+
+  renderer.draw_rect(bx, by, bw, bh, bg)
+  renderer.draw_rect(bx, by, bw, 2, border)
+  common.draw_text(font, fg, label, "center", bx, by, bw, bh)
+end
+
 -- Dedicated Fullscreen Presentation Renderer
 function PptxView:draw_fullscreen(tx, ty, tw, th)
   self.hud_buttons = {}
@@ -1309,10 +1505,12 @@ function PptxView:draw_fullscreen(tx, ty, tw, th)
   if self.blank_screen == "black" then
     renderer.draw_rect(tx, ty, tw, th, _COLOR_BLACK)
     self:draw_slideshow_hud(tx, ty, tw, th)
+    self:draw_slideshow_snap_badge(tx, ty, tw, th)
     return
   elseif self.blank_screen == "white" then
     renderer.draw_rect(tx, ty, tw, th, _COLOR_WHITE)
     self:draw_slideshow_hud(tx, ty, tw, th)
+    self:draw_slideshow_snap_badge(tx, ty, tw, th)
     return
   end
 
@@ -1348,6 +1546,7 @@ function PptxView:draw_fullscreen(tx, ty, tw, th)
   self:draw_slideshow_notes_overlay(tx, ty, tw, th)
   self:draw_slideshow_side_nav(tx, ty, tw, th)
   self:draw_slideshow_hud(tx, ty, tw, th)
+  self:draw_slideshow_snap_badge(tx, ty, tw, th)
 end
 
 -- ============================================================================
@@ -1573,6 +1772,7 @@ function PptxView:on_mouse_pressed(button, px, py, clicks)
             elseif btn.id == "hud_last" then self:goto_slide(self.slide_count)
             elseif btn.id == "hud_notes" then self:toggle_notes()
             elseif btn.id == "hud_blank" then self:toggle_blank_screen("black")
+            elseif btn.id == "hud_snap" then self:toggle_snap_control()
             elseif btn.id == "hud_exit" then self:exit_slideshow()
             end
             return true
@@ -1980,6 +2180,10 @@ end, {
   ["pptx:exit-slideshow"] = function(view)
     view:exit_slideshow()
   end,
+
+  ["pptx:toggle-snap-control"] = function(view)
+    view:toggle_snap_control()
+  end,
 })
 
 command.add(function()
@@ -2183,6 +2387,7 @@ keymap.add {
   ["b"]              = "pptx:toggle-blank-screen",
   ["w"]              = "pptx:toggle-white-screen",
   ["n"]              = "pptx:toggle-notes",
+  ["m"]              = "pptx:toggle-snap-control",
   ["ctrl+t"]         = "pptx:toggle-thumbnails",
   ["ctrl+m"]         = "pptx:toggle-mode",
   ["ctrl+="]         = "pptx:zoom-in",
