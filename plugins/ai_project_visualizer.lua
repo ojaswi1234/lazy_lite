@@ -1708,8 +1708,8 @@ local function call_provider(provider, model, api_key, prompt, is_json)
     local body, err = curl_post(url, json_encode(req), { ["Content-Type"] = "application/json" })
     if not body then return nil, err end
     local parsed = json_decode(body)
-    if not parsed then return nil, "Invalid JSON from Gemini: " .. body:sub(1, 120) end
-    if parsed.error then return nil, (parsed.error.message or "Gemini API error") end
+    if type(parsed) ~= "table" then return nil, "Invalid JSON from Gemini: " .. body:sub(1, 120) end
+    if parsed.error then return nil, (type(parsed.error) == "table" and parsed.error.message or tostring(parsed.error) or "Gemini API error") end
     if parsed.candidates and parsed.candidates[1] and parsed.candidates[1].content and parsed.candidates[1].content.parts then
       return parsed.candidates[1].content.parts[1].text, nil
     end
@@ -1752,7 +1752,7 @@ local function call_provider(provider, model, api_key, prompt, is_json)
     local body, err = curl_post(endpoint, json_encode(req), headers)
     if not body then return nil, err end
     local parsed = json_decode(body)
-    if not parsed then return nil, "Invalid JSON from " .. pinfo.name .. ": " .. body:sub(1, 120) end
+    if type(parsed) ~= "table" then return nil, "Invalid JSON from " .. pinfo.name .. ": " .. body:sub(1, 120) end
     if parsed.error then
       if type(parsed.error) == "table" and parsed.error.failed_generation then
         local failed = parsed.error.failed_generation
@@ -1785,8 +1785,8 @@ local function call_provider(provider, model, api_key, prompt, is_json)
     local body, err = curl_post(pinfo.endpoint, json_encode(req), headers)
     if not body then return nil, err end
     local parsed = json_decode(body)
-    if not parsed then return nil, "Invalid JSON from Anthropic" end
-    if parsed.error then return nil, (parsed.error.message or "Anthropic error") end
+    if type(parsed) ~= "table" then return nil, "Invalid JSON from Anthropic: " .. body:sub(1, 120) end
+    if parsed.error then return nil, (type(parsed.error) == "table" and parsed.error.message or tostring(parsed.error) or "Anthropic error") end
     if parsed.content and parsed.content[1] and parsed.content[1].text then
       return parsed.content[1].text, nil
     end
@@ -2073,12 +2073,12 @@ Output ONLY the raw valid JSON. Do not wrap in markdown or add commentary.]]
   end
 
   local parsed = json_decode(clean_text)
-  if not parsed and text then
+  if type(parsed) ~= "table" and text then
     local s = text:find('{')
     if s then parsed = json_decode(text:sub(s)) end
   end
 
-  if not parsed or not parsed.diagrams then
+  if type(parsed) ~= "table" or type(parsed.diagrams) ~= "table" then
     on_error("Could not parse diagram structure from " .. pname .. " response.")
     return
   end
