@@ -998,6 +998,8 @@ def _extract_rPr_props(rPr_el, theme_colors, theme_fonts):
             pass
     if "b" in rPr_el.attrib:
         out["bold"] = rPr_el.attrib["b"] in ("1", "true", "True")
+    if "i" in rPr_el.attrib:
+        out["italic"] = rPr_el.attrib["i"] in ("1", "true", "True")
     col = resolve_color(None, xml_el=rPr_el, theme_dict=theme_colors, default=None)
     if col is not None:
         out["color"] = col
@@ -1007,6 +1009,27 @@ def _extract_rPr_props(rPr_el, theme_colors, theme_fonts):
         if fam:
             out["font"] = fam
     return out
+
+
+def _extract_para_spacing_pt(pPr, tag_name, pt_size):
+    if pPr is None:
+        return None
+    el = pPr.find(f"{{{A_NS}}}{tag_name}")
+    if el is None:
+        return None
+    pts = el.find(f"{{{A_NS}}}spcPts")
+    if pts is not None and "val" in pts.attrib:
+        try:
+            return round(float(pts.attrib["val"]) / 100.0, 1)
+        except Exception:
+            pass
+    pct = el.find(f"{{{A_NS}}}spcPct")
+    if pct is not None and "val" in pct.attrib:
+        try:
+            return round(pt_size * (float(pct.attrib["val"]) / 100000.0), 1)
+        except Exception:
+            pass
+    return None
 
 
 def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
@@ -1036,7 +1059,7 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
         pPr = p._p.find(f"{{{A_NS}}}pPr")
 
         # Build inheritance chain for paragraph-level defaults (lowest priority -> highest)
-        inherited = {"size": 18.0, "bold": False, "color": None, "font": default_ph_family}
+        inherited = {"size": 18.0, "bold": False, "italic": False, "color": None, "font": default_ph_family}
         m_lvl_pPr = _master_txStyle_for_ph(slide, ph_type, level)
         if m_lvl_pPr is not None:
             inherited.update({k: v for k, v in _extract_rPr_props(m_lvl_pPr.find(f"{{{A_NS}}}defRPr"), theme_colors, theme_fonts).items() if v is not None})
@@ -1049,6 +1072,7 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
 
         pt_size = inherited["size"]
         is_bold = inherited["bold"]
+        is_italic = inherited["italic"]
         p_color = inherited["color"]
         p_font = inherited["font"]
 
@@ -1066,6 +1090,13 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
                 is_bold = p.runs[0].font.bold
         except Exception:
             pass
+        try:
+            if p.font and p.font.italic is not None:
+                is_italic = p.font.italic
+            elif p.runs and p.runs[0].font and p.runs[0].font.italic is not None:
+                is_italic = p.runs[0].font.italic
+        except Exception:
+            pass
 
         runs_data = []
         first_explicit_run_color = None
@@ -1077,6 +1108,7 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
             rp = _extract_rPr_props(rPr, theme_colors, theme_fonts)
             r_size = rp.get("size", pt_size)
             r_bold = rp.get("bold", is_bold)
+            r_italic = rp.get("italic", is_italic)
             r_font = rp.get("font", p_font)
             r_color = rp.get("color") or resolve_color(r.font.color, xml_el=rPr, theme_dict=theme_colors, default=None)
             if r_color is not None and first_explicit_run_color is None:
@@ -1085,6 +1117,7 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
                 "text": r_text,
                 "size": round(r_size, 1),
                 "bold": bool(r_bold),
+                "italic": bool(r_italic),
                 "color": r_color,
                 "font": r_font,
             })
@@ -1108,7 +1141,6 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
             elif al == "r":
                 align = "right"
 
-        # Accurate bullet detection: honor explicit <a:buNone/>
         bu_none = pPr is not None and pPr.find(f"{{{A_NS}}}buNone") is not None
         bu_explicit = pPr is not None and (
             pPr.find(f"{{{A_NS}}}buChar") is not None or pPr.find(f"{{{A_NS}}}buAutoNum") is not None
@@ -1121,15 +1153,21 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
             if runs_data:
                 runs_data[0]["text"] = "• " + runs_data[0]["text"]
 
+        spc_bef = _extract_para_spacing_pt(pPr, "spcBef", pt_size) or 0.0
+        spc_aft = _extract_para_spacing_pt(pPr, "spcAft", pt_size)
+
         paras.append({
             "text": final_text,
             "size": round(pt_size, 1),
             "bold": bool(is_bold),
+            "italic": bool(is_italic),
             "color": effective_p_color,
             "align": align,
             "level": level,
             "bullet": has_bullet,
             "font": p_font,
+            "space_before": spc_bef,
+            "space_after": spc_aft,
             "runs": runs_data,
         })
 
@@ -1284,42 +1322,115 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
             except Exception:
                 pass
 
-        # Tables
+        # Tables (true col widths, true row heights, direct <a:tcPr> fill/borders, merged cells)
         if getattr(shape, "has_table", False):
             table = shape.table
             n_rows = len(table.rows)
             n_cols = len(table.columns)
             if n_rows > 0 and n_cols > 0:
-                cw = nw / n_cols
-                ch = nh / n_rows
+                raw_cw = [max(0.0, float(c.width or 0)) for c in table.columns]
+                sum_cw = sum(raw_cw)
+                if sum_cw > 0:
+                    col_ws = [w / sw for w in raw_cw]
+                else:
+                    col_ws = [nw / n_cols] * n_cols
+
+                raw_rh = [max(0.0, float(r.height or 0)) for r in table.rows]
+                if all(h > 0 for h in raw_rh):
+                    row_hs = [h / sh for h in raw_rh]
+                else:
+                    # Fallback when OOXML leaves <a:tr h="0"/> unset
+                    eff_tbl_h = max(nh, n_rows * 24.0 * EMU_PER_PT / sh)
+                    row_hs = [eff_tbl_h / n_rows] * n_rows
+
+                col_xs = [nx]
+                for cw_i in col_ws[:-1]:
+                    col_xs.append(col_xs[-1] + cw_i)
+                row_ys = [ny]
+                for rh_i in row_hs[:-1]:
+                    row_ys.append(row_ys[-1] + rh_i)
+
                 eff_bg = bg_tracker[0] if bg_tracker else (255, 255, 255)
                 bg_lum = 0.299 * eff_bg[0] + 0.587 * eff_bg[1] + 0.114 * eff_bg[2]
                 tbl_default_fg = (25, 30, 38) if bg_lum >= 128 else (240, 244, 248)
+
                 for r_idx, row in enumerate(table.rows):
                     for c_idx, cell in enumerate(row.cells):
-                        cx = nx + c_idx * cw
-                        cy = ny + r_idx * ch
-                        cell_fill = (245, 247, 250) if r_idx == 0 else (255, 255, 255)
-                        try:
-                            if hasattr(cell, "fill") and cell.fill and cell.fill.type == 1:
-                                cell_fill = resolve_color(cell.fill.fore_color, xml_el=getattr(cell, "_tc", None), theme_dict=theme_colors, default=cell_fill)
-                        except Exception:
-                            pass
+                        if getattr(cell, "is_spanned", False):
+                            continue
+                        span_w = max(1, int(getattr(cell, "span_width", 1) or 1))
+                        span_h = max(1, int(getattr(cell, "span_height", 1) or 1))
+                        cx = col_xs[c_idx]
+                        cy = row_ys[r_idx]
+                        cw_c = sum(col_ws[c_idx : min(n_cols, c_idx + span_w)])
+                        ch_c = sum(row_hs[r_idx : min(n_rows, r_idx + span_h)])
+
+                        default_band = theme_colors.get("accent1", (245, 247, 250)) if r_idx == 0 else ((255, 255, 255) if bg_lum >= 128 else (28, 36, 48))
+                        cell_fill = default_band
+                        cell_border = (210, 218, 226)
+                        cell_border_w = 1
+                        cell_anchor = "t"
+                        mar_l, mar_r, mar_t, mar_b = 0.004, 0.004, 0.002, 0.002
+
+                        tcPr = cell._tc.find(f"{{{A_NS}}}tcPr")
+                        if tcPr is not None:
+                            cell_anchor = tcPr.attrib.get("anchor", "t")
+                            if tcPr.find(f"{{{A_NS}}}noFill") is not None:
+                                cell_fill = None
+                            else:
+                                sf = tcPr.find(f"{{{A_NS}}}solidFill")
+                                if sf is not None:
+                                    c_col = _resolve_fill_element(sf, theme_colors)
+                                    if c_col is not None:
+                                        cell_fill = c_col
+                                else:
+                                    gf = tcPr.find(f"{{{A_NS}}}gradFill")
+                                    if gf is not None:
+                                        g_col = _resolve_grad_first_color(gf, theme_colors)
+                                        if g_col is not None:
+                                            cell_fill = g_col
+                            for ln_tag in ("lnB", "lnT", "lnL", "lnR"):
+                                ln_el = tcPr.find(f"{{{A_NS}}}{ln_tag}")
+                                if ln_el is not None:
+                                    if ln_el.find(f"{{{A_NS}}}noFill") is not None:
+                                        cell_border = None
+                                    else:
+                                        b_col = _resolve_fill_element(ln_el.find(f"{{{A_NS}}}solidFill"), theme_colors)
+                                        if b_col is not None:
+                                            cell_border = b_col
+                                            if "w" in ln_el.attrib:
+                                                try:
+                                                    cell_border_w = max(1, int(round(float(ln_el.attrib["w"]) / EMU_PER_PT)))
+                                                except Exception:
+                                                    pass
+                                            break
+                            try:
+                                if "marL" in tcPr.attrib: mar_l = float(tcPr.attrib["marL"]) / sw
+                                if "marR" in tcPr.attrib: mar_r = float(tcPr.attrib["marR"]) / sw
+                                if "marT" in tcPr.attrib: mar_t = float(tcPr.attrib["marT"]) / sh
+                                if "marB" in tcPr.attrib: mar_b = float(tcPr.attrib["marB"]) / sh
+                            except Exception:
+                                pass
+
                         layers.append({
                             "kind": "shape",
-                            "x": round(cx, 4), "y": round(cy, 4), "w": round(cw, 4), "h": round(ch, 4),
-                            "fill": cell_fill, "border": (210, 218, 226), "border_w": 1,
+                            "x": round(cx, 4), "y": round(cy, 4), "w": round(cw_c, 4), "h": round(ch_c, 4),
+                            "fill": cell_fill, "border": cell_border, "border_w": cell_border_w,
                         })
                         if cell.text_frame:
+                            c_bg = cell_fill or eff_bg
+                            c_lum = 0.299 * c_bg[0] + 0.587 * c_bg[1] + 0.114 * c_bg[2]
+                            c_def_fg = (245, 245, 248) if c_lum < 128 else tbl_default_fg
                             c_shape_proxy = type("_CellShape", (), {"text_frame": cell.text_frame, "_element": cell._tc})()
-                            cell_paras, cell_lines = extract_paragraphs(c_shape_proxy, slide, theme_colors, theme_fonts, (25, 30, 38) if r_idx == 0 else tbl_default_fg)
+                            cell_paras, cell_lines = extract_paragraphs(c_shape_proxy, slide, theme_colors, theme_fonts, c_def_fg)
                             if cell_paras:
                                 full_text_lines.extend(cell_lines)
                                 text_blocks.append({
-                                    "x": round(cx + 0.004, 4), "y": round(cy + 0.004, 4),
-                                    "w": round(max(0.01, cw - 0.008), 4), "h": round(max(0.01, ch - 0.008), 4),
-                                    "anchor": "ctr",
-                                    "ins_l": 0.0, "ins_t": 0.0, "ins_r": 0.0, "ins_b": 0.0,
+                                    "x": round(cx, 4), "y": round(cy, 4),
+                                    "w": round(cw_c, 4), "h": round(ch_c, 4),
+                                    "anchor": cell_anchor,
+                                    "ins_l": round(mar_l, 4), "ins_t": round(mar_t, 4),
+                                    "ins_r": round(mar_r, 4), "ins_b": round(mar_b, 4),
                                     "paragraphs": cell_paras,
                                 })
 
@@ -1550,16 +1661,19 @@ def render_slide(pptx_path, slide_idx, out_file, width=110, mode="hd"):
                 )
                 for p in tb["paragraphs"]:
                     c = p["color"]
+                    spc_b = p.get("space_before", 0.0) or 0.0
+                    spc_a = p.get("space_after")
+                    spc_a_str = f"{spc_a}" if spc_a is not None else "nil"
                     f.write(
                         f"      {{ text = \"{sanitize_str(p['text'])}\", size = {p['size']}, bold = {'true' if p['bold'] else 'false'}, "
-                        f"color = {{{c[0]},{c[1]},{c[2]}}}, align = \"{p['align']}\", level = {p['level']}, "
-                        f"bullet = {'true' if p['bullet'] else 'false'}, font = \"{p.get('font', 'sans')}\""
+                        f"italic = {'true' if p.get('italic') else 'false'}, color = {{{c[0]},{c[1]},{c[2]}}}, align = \"{p['align']}\", level = {p['level']}, "
+                        f"bullet = {'true' if p['bullet'] else 'false'}, font = \"{p.get('font', 'sans')}\", spc_b = {spc_b}, spc_a = {spc_a_str}"
                     )
                     if p.get("runs") and len(p["runs"]) > 1:
                         f.write(", runs = {\n")
                         for r in p["runs"]:
                             rc = r["color"]
-                            f.write(f"        {{ text = \"{sanitize_str(r['text'])}\", size = {r['size']}, bold = {'true' if r['bold'] else 'false'}, color = {{{rc[0]},{rc[1]},{rc[2]}}}, font = \"{r.get('font', 'sans')}\" }},\n")
+                            f.write(f"        {{ text = \"{sanitize_str(r['text'])}\", size = {r['size']}, bold = {'true' if r['bold'] else 'false'}, italic = {'true' if r.get('italic') else 'false'}, color = {{{rc[0]},{rc[1]},{rc[2]}}}, font = \"{r.get('font', 'sans')}\" }},\n")
                         f.write("      }")
                     f.write(" },\n")
                 f.write("    } },\n")

@@ -120,17 +120,25 @@ local function quantize_size(raw_size)
   return best
 end
 
-local function get_slide_font(size_pt, is_bold, scale_factor, font_family)
+local function get_slide_font(size_pt, is_bold, scale_factor, font_family, is_italic)
   -- Convert points using exact slide width scale (1 pt = pw / slide_width_pt)
   local raw_px = (size_pt or 18) * (scale_factor or 1.0)
   local px_size = quantize_size(raw_px)
   local fam = font_family or "sans"
-  local cache_key = px_size .. "_" .. fam .. "_" .. (is_bold and "b" or "r")
+  local style_tag = (is_bold and "b" or "") .. (is_italic and "i" or "")
+  if style_tag == "" then style_tag = "r" end
+  local cache_key = px_size .. "_" .. fam .. "_" .. style_tag
 
   if not _FONT_CACHE[cache_key] then
     local candidates = {}
     if fam == "serif" then
-      if is_bold then
+      if is_bold and is_italic then
+        table.insert(candidates, "C:/Windows/Fonts/georgiaz.ttf")
+        table.insert(candidates, "C:/Windows/Fonts/timesbi.ttf")
+      elseif is_italic then
+        table.insert(candidates, "C:/Windows/Fonts/georgiai.ttf")
+        table.insert(candidates, "C:/Windows/Fonts/timesi.ttf")
+      elseif is_bold then
         table.insert(candidates, "C:/Windows/Fonts/georgiab.ttf")
         table.insert(candidates, "C:/Windows/Fonts/cambriab.ttf")
         table.insert(candidates, "C:/Windows/Fonts/timesbd.ttf")
@@ -140,13 +148,23 @@ local function get_slide_font(size_pt, is_bold, scale_factor, font_family)
         table.insert(candidates, "C:/Windows/Fonts/times.ttf")
       end
     elseif fam == "mono" then
-      if is_bold then
+      if is_bold and is_italic then
+        table.insert(candidates, "C:/Windows/Fonts/consolaz.ttf")
+      elseif is_italic then
+        table.insert(candidates, "C:/Windows/Fonts/consolai.ttf")
+      elseif is_bold then
         table.insert(candidates, "C:/Windows/Fonts/consolab.ttf")
       else
         table.insert(candidates, "C:/Windows/Fonts/consola.ttf")
       end
     end
-    if is_bold then
+    if is_bold and is_italic then
+      table.insert(candidates, "C:/Windows/Fonts/segoeuiz.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/arialbi.ttf")
+    elseif is_italic then
+      table.insert(candidates, "C:/Windows/Fonts/segoeuii.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/ariali.ttf")
+    elseif is_bold then
       table.insert(candidates, "C:/Windows/Fonts/segoeuib.ttf")
       table.insert(candidates, "C:/Windows/Fonts/arialbd.ttf")
       table.insert(candidates, "C:/Windows/Fonts/calibrib.ttf")
@@ -814,8 +832,14 @@ function PptxView:get_slide_dimensions(slide_data, avail_w, avail_h)
   end
 
   if self.mode == "hd" then
-    local base_w = math.max(640, math.min(avail_w - 60 * SCALE, 1200 * SCALE))
+    local max_w = math.max(400, avail_w - 48 * SCALE)
+    local max_h = math.max(240, avail_h - 48 * SCALE)
+    local base_w = math.min(max_w, 1280 * SCALE)
     local base_h = base_w / aspect
+    if base_h > max_h then
+      base_h = max_h
+      base_w = base_h * aspect
+    end
     local sw = base_w * self.zoom
     local sh = base_h * self.zoom
     return sw, sh, 1.0, 1.0
@@ -964,6 +988,7 @@ function PptxView:draw_toolbar()
 end
 
 function PptxView:draw_thumbnails(x, y, w, h)
+  self.thumbnail_buttons = {}
   renderer.draw_rect(x, y, w, h, style.background2 or _COLOR_BG_DARK)
   renderer.draw_rect(x + w - 1, y, 1, h, style.divider or _COLOR_BORDER)
 
@@ -1240,7 +1265,13 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         table.insert(laid_out, { kind = "gap", h = gap_h })
         total_h = total_h + gap_h
       else
-        local font = get_slide_font(p.size or 18, p.bold, scale_factor, p.font)
+        if p.spc_b and p.spc_b > 0 and p_idx > 1 then
+          local bh_spc = p.spc_b * scale_factor
+          table.insert(laid_out, { kind = "gap", h = bh_spc })
+          total_h = total_h + bh_spc
+        end
+
+        local font = get_slide_font(p.size or 18, p.bold, scale_factor, p.font, p.italic)
         local raw_fg = p.color or (bg_lum > 128 and { 20, 24, 30 } or { 245, 245, 248 })
         local fg = invert_color(raw_fg, self.inverted)
         local indent = (p.level or 0) * 18 * scale_factor
@@ -1251,19 +1282,30 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         local runs = p.runs
         if runs and #runs > 1 then
           local tokens = {}
+          local space_w = font:get_width(" ")
           for _, r in ipairs(runs) do
             local r_text = r.text or ""
-            local r_font = get_slide_font(r.size or p.size or 18, r.bold, scale_factor, r.font or p.font)
+            local r_font = get_slide_font(r.size or p.size or 18, r.bold, scale_factor, r.font or p.font, r.italic)
             local r_fg = invert_color(r.color or raw_fg, self.inverted)
             for seg, br in (r_text .. "\n"):gmatch("([^\n]*)\n()") do
-              for word, space in seg:gmatch("(%S+)(%s*)") do
-                table.insert(tokens, {
-                  text = word,
-                  space = (space ~= ""),
-                  font = r_font,
-                  color = r_fg,
-                  w = r_font:get_width(word)
-                })
+              local lead_ws, rest_seg = seg:match("^(%s*)(.*)$")
+              local pending_lead = (#lead_ws > 0) and (#lead_ws * space_w * 0.85) or 0
+              if rest_seg == "" and pending_lead > 0 and #tokens > 0 then
+                tokens[#tokens].trail_px = (tokens[#tokens].trail_px or 0) + pending_lead
+                pending_lead = 0
+              else
+                for word, trail_ws in rest_seg:gmatch("(%S+)(%s*)") do
+                  local trail_px = (#trail_ws > 0) and (#trail_ws * space_w * 0.85) or 0
+                  table.insert(tokens, {
+                    text = word,
+                    lead_px = pending_lead,
+                    trail_px = trail_px,
+                    font = r_font,
+                    color = r_fg,
+                    w = r_font:get_width(word)
+                  })
+                  pending_lead = 0
+                end
               end
               if br <= #r_text then
                 table.insert(tokens, { newline = true })
@@ -1271,31 +1313,32 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
             end
           end
 
-          local space_w = font:get_width(" ")
           local cur_line = {}
           local cur_line_w = 0
 
           for _, tok in ipairs(tokens) do
             if tok.newline then
-              table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh, space_w = space_w })
+              table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh })
               total_h = total_h + lh
               cur_line = {}
               cur_line_w = 0
             else
-              local add_w = (#cur_line > 0 and space_w or 0) + tok.w
-              if cur_line_w + add_w > max_line_w and #cur_line > 0 then
-                table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh, space_w = space_w })
+              local prev_trail = (#cur_line > 0) and (cur_line[#cur_line].trail_px or 0) or 0
+              local gap_px = (#cur_line > 0) and (prev_trail + (tok.lead_px or 0)) or 0
+              if cur_line_w + gap_px + tok.w > max_line_w and #cur_line > 0 then
+                table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh })
                 total_h = total_h + lh
                 cur_line = { tok }
                 cur_line_w = tok.w
               else
+                tok._gap_before = gap_px
                 table.insert(cur_line, tok)
-                cur_line_w = cur_line_w + add_w
+                cur_line_w = cur_line_w + gap_px + tok.w
               end
             end
           end
           if #cur_line > 0 then
-            table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh, space_w = space_w })
+            table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh })
             total_h = total_h + lh
           end
         else
@@ -1330,9 +1373,11 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         end
 
         if p_idx < #paras then
-          local para_gap = math.max(3, math.floor((p.size or 18) * scale_factor * 0.28))
-          table.insert(laid_out, { kind = "gap", h = para_gap })
-          total_h = total_h + para_gap
+          local para_gap = (p.spc_a ~= nil) and (p.spc_a * scale_factor) or math.max(3, math.floor((p.size or 18) * scale_factor * 0.25))
+          if para_gap > 0 then
+            table.insert(laid_out, { kind = "gap", h = para_gap })
+            total_h = total_h + para_gap
+          end
         end
       end
     end
@@ -1341,7 +1386,7 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
     if tb.anchor == "b" then
       cur_y = in_y + math.max(0, in_h - total_h)
     elseif tb.anchor == "ctr" then
-      cur_y = in_y + math.max(0, (in_h - total_h) / 2)
+      cur_y = in_y + (in_h - total_h) / 2
     end
 
     for _, item in ipairs(laid_out) do
@@ -1367,9 +1412,12 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
             draw_x = in_x + math.max(0, item.bw - item.w)
           end
           local cur_x = draw_x
-          for _, tok in ipairs(item.items) do
+          for ti, tok in ipairs(item.items) do
+            if ti > 1 then
+              cur_x = cur_x + (tok._gap_before or 0)
+            end
             renderer.draw_text(tok.font, tok.text, cur_x, cur_y, tok.color)
-            cur_x = cur_x + tok.w + (tok.space and item.space_w or 0)
+            cur_x = cur_x + tok.w
           end
         end
         cur_y = cur_y + item.h
@@ -1675,13 +1723,17 @@ function PptxView:draw()
   elseif page_data then
     local pw, ph = self:get_slide_dimensions(page_data, stage_w, stage_h)
     local cx = math.max(stage_x + 20 * SCALE, stage_x + (stage_w - pw) / 2 - self.scroll.x)
+    local stage_content_y = content_y
+    if ph < stage_h - 36 * SCALE then
+      stage_content_y = ty + self.toolbar_h + (stage_h - ph) / 2 - self.scroll.y
+    end
 
     if self.mode == "browsh" then
-      self:draw_browsh_slide(page_data, cx, content_y, pw, ph)
+      self:draw_browsh_slide(page_data, cx, stage_content_y, pw, ph)
     elseif self.mode == "hd" then
-      self:draw_hd_slide(page_data, cx, content_y, pw, ph)
+      self:draw_hd_slide(page_data, cx, stage_content_y, pw, ph)
     elseif self.mode == "text" then
-      self:draw_text_slide(page_data, cx, content_y, pw, ph)
+      self:draw_text_slide(page_data, cx, stage_content_y, pw, ph)
     end
   end
 
@@ -1703,19 +1755,19 @@ function PptxView:draw()
   if self.hovered_tooltip and not self.slideshow_mode then
     local font = style.font
     local tip = self.hovered_tooltip
-    local tw = font:get_width(tip) + 16 * SCALE
-    local th_tip = font:get_height() + 8 * SCALE
+    local tip_w = font:get_width(tip) + 16 * SCALE
+    local tip_h = font:get_height() + 8 * SCALE
     local br = self.hovered_tooltip_rect or { x = tx, y = ty + self.toolbar_h, w = 30, h = 20 }
-    local tip_x = math.max(tx + 8 * SCALE, math.min(tx + tw - 8 * SCALE, br.x + (br.w - tw) / 2))
+    local tip_x = math.max(tx + 8 * SCALE, math.min(tx + tw - tip_w - 8 * SCALE, br.x + (br.w - tip_w) / 2))
     local tip_y = br.y + br.h + 6 * SCALE
-    if tip_y + th_tip > ty + th then
-      tip_y = math.max(ty + 4 * SCALE, br.y - th_tip - 6 * SCALE)
+    if tip_y + tip_h > ty + th then
+      tip_y = math.max(ty + 4 * SCALE, br.y - tip_h - 6 * SCALE)
     end
 
-    renderer.draw_rect(tip_x - 2, tip_y - 2, tw + 4, th_tip + 4, _COLOR_SHADOW)
-    renderer.draw_rect(tip_x, tip_y, tw, th_tip, _COLOR_BG_DARK)
-    renderer.draw_rect(tip_x, tip_y, tw, th_tip, _COLOR_BORDER_LIGHT)
-    common.draw_text(font, _COLOR_TEXT, tip, "center", tip_x, tip_y, tw, th_tip)
+    renderer.draw_rect(tip_x - 2, tip_y - 2, tip_w + 4, tip_h + 4, _COLOR_SHADOW)
+    renderer.draw_rect(tip_x, tip_y, tip_w, tip_h, _COLOR_BG_DARK)
+    renderer.draw_rect(tip_x, tip_y, tip_w, tip_h, _COLOR_BORDER_LIGHT)
+    common.draw_text(font, _COLOR_TEXT, tip, "center", tip_x, tip_y, tip_w, tip_h)
   end
 end
 
