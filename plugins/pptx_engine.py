@@ -322,12 +322,33 @@ def _extract_bg_from_cSld(cSld, theme_dict):
             c = _resolve_grad_first_color(grad, theme_dict)
             if c is not None:
                 return c
+        # blipFill background (image bg) — use a neutral fallback tint
+        if bgPr.find(f"{{{A_NS}}}blipFill") is not None:
+            return None  # let image shapes handle it; keep existing bg
     bgRef = bg.find(f"{{{P_NS}}}bgRef")
     if bgRef is not None:
+        # <p:bgRef idx="..."> — the idx encodes which theme fill slot to use.
+        # idx 1001-1012 → dk1/lt1/dk2/lt2/accent1-6 respectively.
+        idx_str = bgRef.attrib.get("idx", "0")
+        try:
+            idx = int(idx_str)
+        except ValueError:
+            idx = 0
+        # First try any explicit color child (srgbClr, sysClr, schemeClr, etc.)
         for child in bgRef:
             c = _parse_color_node(child, theme_dict)
             if c is not None:
                 return c
+        # Fallback: decode idx if no explicit child (idx maps to theme color slots)
+        BGREF_IDX_KEYS = {
+            1001: "dk1", 1002: "lt1", 1003: "dk2", 1004: "lt2",
+            1005: "accent1", 1006: "accent2", 1007: "accent3",
+            1008: "accent4", 1009: "accent5", 1010: "accent6",
+            1011: "hlink", 1012: "folHlink",
+        }
+        slot = BGREF_IDX_KEYS.get(idx)
+        if slot and slot in theme_dict:
+            return theme_dict[slot]
     return None
 
 
@@ -350,39 +371,64 @@ def get_slide_background(slide, prs, theme_dict):
     return theme_dict.get("bg1", theme_dict.get("lt1", (255, 255, 255)))
 
 
-def _encode_rgba_rle(pil_rgba):
-    """Encode an RGBA image into compact horizontal spans skipping transparent pixels."""
+def _encode_rgba_rle(pil_rgba, color_tol=3, alpha_tol=4, max_spans=28000):
+    """Encode an RGBA image into compact 2D-merged spans skipping transparent pixels."""
     w, h = pil_rgba.size
     pixels = pil_rgba.load()
-    spans = []
-    for py in range(h):
-        in_run = False
-        run_start = 0
-        run_c = None
-        for px in range(w):
-            r, g, b, a = pixels[px, py]
-            if a < 18:
-                if in_run:
-                    spans.append((run_start, py, px - run_start, 1, run_c[0], run_c[1], run_c[2], run_c[3]))
-                    in_run = False
-                continue
-            cur = (r, g, b, a)
-            if not in_run:
-                in_run = True
-                run_start = px
-                run_c = cur
-            else:
-                if (
-                    abs(r - run_c[0]) > 5
-                    or abs(g - run_c[1]) > 5
-                    or abs(b - run_c[2]) > 5
-                    or abs(a - run_c[3]) > 8
-                ):
-                    spans.append((run_start, py, px - run_start, 1, run_c[0], run_c[1], run_c[2], run_c[3]))
+
+    def _run_pass(ctol, atol):
+        row_spans = []
+        active = {}  # (x, w) -> index in merged list
+        merged = []
+        for py in range(h):
+            in_run = False
+            run_start = 0
+            run_c = None
+            cur_row = []
+            for px in range(w):
+                r, g, b, a = pixels[px, py]
+                if a < 12:
+                    if in_run:
+                        cur_row.append((run_start, px - run_start, run_c[0], run_c[1], run_c[2], run_c[3]))
+                        in_run = False
+                    continue
+                cur = (r, g, b, a)
+                if not in_run:
+                    in_run = True
                     run_start = px
                     run_c = cur
-        if in_run:
-            spans.append((run_start, py, w - run_start, 1, run_c[0], run_c[1], run_c[2], run_c[3]))
+                elif (
+                    abs(r - run_c[0]) > ctol
+                    or abs(g - run_c[1]) > ctol
+                    or abs(b - run_c[2]) > ctol
+                    or abs(a - run_c[3]) > atol
+                ):
+                    cur_row.append((run_start, px - run_start, run_c[0], run_c[1], run_c[2], run_c[3]))
+                    run_start = px
+                    run_c = cur
+            if in_run:
+                cur_row.append((run_start, w - run_start, run_c[0], run_c[1], run_c[2], run_c[3]))
+
+            next_active = {}
+            for x0, rw, r, g, b, a in cur_row:
+                key = (x0, rw)
+                prev_idx = active.get(key)
+                if prev_idx is not None:
+                    pm = merged[prev_idx]
+                    if pm[1] + pm[3] == py and pm[4] == r and pm[5] == g and pm[6] == b and pm[7] == a:
+                        merged[prev_idx] = (x0, pm[1], rw, pm[3] + 1, r, g, b, a)
+                        next_active[key] = prev_idx
+                        continue
+                idx = len(merged)
+                merged.append((x0, py, rw, 1, r, g, b, a))
+                next_active[key] = idx
+            active = next_active
+            row_spans = merged
+        return row_spans
+
+    spans = _run_pass(color_tol, alpha_tol)
+    if max_spans and len(spans) > max_spans:
+        spans = _run_pass(max(color_tol, 8), max(alpha_tol, 12))
     return spans
 
 
@@ -407,13 +453,84 @@ def _get_pil_font(size_px, bold=False, serif=False):
         return None
 
 
-def _render_vector_shape_spans(geom, fill_color, border_color, border_w_pt, nw, nh, prst_av, flip_h, flip_v):
-    """Render non-rectangular vector shapes with 2x supersampled anti-aliasing."""
+def _draw_dashed_line(draw, pts, fill, width, dash="solid"):
+    """Draw solid or dashed/dotted polyline cleanly on a PIL ImageDraw."""
+    if not pts or len(pts) < 2 or not fill:
+        return
+    if not dash or dash == "solid":
+        draw.line(pts, fill=fill, width=width, joint="curve")
+        return
+
+    w = max(2, width)
+    if dash in ("dot", "sysDot"):
+        on_len, off_len = w * 1.6, w * 2.2
+    elif dash in ("lgDash", "lgDashDot"):
+        on_len, off_len = w * 7.0, w * 3.5
+    else:  # dash, sysDash, dashDot
+        on_len, off_len = w * 4.2, w * 2.8
+
+    period = on_len + off_len
+    carry = 0.0
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        dx, dy = x1 - x0, y1 - y0
+        seg_len = math.hypot(dx, dy)
+        if seg_len < 1e-6:
+            continue
+        ux, uy = dx / seg_len, dy / seg_len
+        pos = 0.0
+        while pos < seg_len:
+            phase = (carry + pos) % period
+            if phase < on_len:
+                step = min(on_len - phase, seg_len - pos)
+                sx, sy = x0 + ux * pos, y0 + uy * pos
+                ex, ey = x0 + ux * (pos + step), y0 + uy * (pos + step)
+                draw.line([(sx, sy), (ex, ey)], fill=fill, width=width)
+                pos += step
+            else:
+                pos += min(period - phase, seg_len - pos)
+        carry = (carry + seg_len) % period
+
+
+def _draw_chart_marker(draw, cx, cy, r, sym, fill_rgba, stroke_rgba=None, stroke_w=1):
+    """Draw a crisp OpenXML chart marker symbol (circle, square, diamond, triangle, x, plus)."""
+    if sym == "none" or not fill_rgba:
+        return
+    if sym in ("square", "auto"):
+        draw.rectangle([cx - r, cy - r, cx + r, cy + r], fill=fill_rgba, outline=stroke_rgba, width=stroke_w)
+    elif sym == "diamond":
+        poly = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
+        draw.polygon(poly, fill=fill_rgba, outline=stroke_rgba)
+    elif sym == "triangle":
+        poly = [(cx, cy - r), (cx + r, cy + r), (cx - r, cy + r)]
+        draw.polygon(poly, fill=fill_rgba, outline=stroke_rgba)
+    elif sym == "x":
+        draw.line([(cx - r, cy - r), (cx + r, cy + r)], fill=stroke_rgba or fill_rgba, width=max(2, stroke_w + 1))
+        draw.line([(cx - r, cy + r), (cx + r, cy - r)], fill=stroke_rgba or fill_rgba, width=max(2, stroke_w + 1))
+    elif sym in ("plus", "star"):
+        draw.line([(cx - r, cy), (cx + r, cy)], fill=stroke_rgba or fill_rgba, width=max(2, stroke_w + 1))
+        draw.line([(cx, cy - r), (cx, cy + r)], fill=stroke_rgba or fill_rgba, width=max(2, stroke_w + 1))
+    else:
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=fill_rgba, outline=stroke_rgba, width=stroke_w)
+
+
+def _apply_rot_flip(img, rot_deg=0.0, flip_h=False, flip_v=False):
+    if flip_h:
+        img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    if flip_v:
+        img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+    if abs(rot_deg) > 0.5:
+        img = img.rotate(-rot_deg, resample=Image.Resampling.BICUBIC, expand=True)
+    return img
+
+
+def _render_vector_shape_spans(geom, fill_color, border_color, border_w_pt, nw, nh, prst_av, flip_h, flip_v, rot_deg=0.0, cust_geom_el=None):
+    """Render non-rectangular vector shapes and custom DrawingML geometry with 2x supersampling."""
     if Image is None:
         return None
-    # Reasonable target resolution proportional to normalized slide fraction
-    tw = max(24, min(520, int(round(nw * 720))))
-    th = max(24, min(420, int(round(nh * 405))))
+    tw = max(48, min(960, int(round(nw * 1440))))
+    th = max(48, min(720, int(round(nh * 810))))
     ss = 2
     cw, ch = tw * ss, th * ss
 
@@ -423,21 +540,78 @@ def _render_vector_shape_spans(geom, fill_color, border_color, border_w_pt, nw, 
     fill_rgba = (fill_color[0], fill_color[1], fill_color[2], 255) if fill_color else None
     stroke_rgba = (border_color[0], border_color[1], border_color[2], 255) if border_color else None
     lw = max(ss, int(round(border_w_pt * ss * (tw / max(nw * 720.0, 1.0))))) if stroke_rgba else 0
-    pad = max(1, lw // 2 + 1) if stroke_rgba else 1
+    pad = max(2, lw // 2 + 2) if stroke_rgba else 2
     x0, y0, x1, y1 = pad, pad, max(pad + 2, cw - 1 - pad), max(pad + 2, ch - 1 - pad)
 
-    if geom == "ellipse":
+    if cust_geom_el is not None:
+        drew = False
+        for path_el in cust_geom_el.findall(f".//{{{A_NS}}}path"):
+            pw_g = float(path_el.attrib.get("w", 100000) or 100000)
+            ph_g = float(path_el.attrib.get("h", 100000) or 100000)
+            sx_g = (x1 - x0) / max(1.0, pw_g)
+            sy_g = (y1 - y0) / max(1.0, ph_g)
+            poly = []
+            closed = False
+            for cmd in path_el:
+                ct = _tag_local(cmd.tag)
+                if ct in ("moveto", "lnto"):
+                    pt = cmd.find(f"{{{A_NS}}}pt")
+                    if pt is not None:
+                        poly.append((x0 + float(pt.attrib.get("x", 0)) * sx_g, y0 + float(pt.attrib.get("y", 0)) * sy_g))
+                elif ct == "cubicbezto":
+                    pts_b = cmd.findall(f"{{{A_NS}}}pt")
+                    if len(pts_b) >= 3 and poly:
+                        p0 = poly[-1]
+                        p1 = (x0 + float(pts_b[0].attrib.get("x", 0)) * sx_g, y0 + float(pts_b[0].attrib.get("y", 0)) * sy_g)
+                        p2 = (x0 + float(pts_b[1].attrib.get("x", 0)) * sx_g, y0 + float(pts_b[1].attrib.get("y", 0)) * sy_g)
+                        p3 = (x0 + float(pts_b[2].attrib.get("x", 0)) * sx_g, y0 + float(pts_b[2].attrib.get("y", 0)) * sy_g)
+                        for stp in range(1, 13):
+                            u = stp / 12.0
+                            mu = 1.0 - u
+                            bx = (mu**3)*p0[0] + 3*(mu**2)*u*p1[0] + 3*mu*(u**2)*p2[0] + (u**3)*p3[0]
+                            by = (mu**3)*p0[1] + 3*(mu**2)*u*p1[1] + 3*mu*(u**2)*p2[1] + (u**3)*p3[1]
+                            poly.append((bx, by))
+                    elif pts_b:
+                        p_last = pts_b[-1]
+                        poly.append((x0 + float(p_last.attrib.get("x", 0)) * sx_g, y0 + float(p_last.attrib.get("y", 0)) * sy_g))
+                elif ct == "quadbezto":
+                    pts_b = cmd.findall(f"{{{A_NS}}}pt")
+                    if len(pts_b) >= 2 and poly:
+                        p0 = poly[-1]
+                        p1 = (x0 + float(pts_b[0].attrib.get("x", 0)) * sx_g, y0 + float(pts_b[0].attrib.get("y", 0)) * sy_g)
+                        p2 = (x0 + float(pts_b[1].attrib.get("x", 0)) * sx_g, y0 + float(pts_b[1].attrib.get("y", 0)) * sy_g)
+                        for stp in range(1, 9):
+                            u = stp / 8.0
+                            mu = 1.0 - u
+                            bx = (mu**2)*p0[0] + 2*mu*u*p1[0] + (u**2)*p2[0]
+                            by = (mu**2)*p0[1] + 2*mu*u*p1[1] + (u**2)*p2[1]
+                            poly.append((bx, by))
+                    elif pts_b:
+                        p_last = pts_b[-1]
+                        poly.append((x0 + float(p_last.attrib.get("x", 0)) * sx_g, y0 + float(p_last.attrib.get("y", 0)) * sy_g))
+                elif ct == "close":
+                    closed = True
+            if len(poly) >= 2:
+                drew = True
+                if closed and len(poly) >= 3 and fill_rgba:
+                    draw.polygon(poly, fill=fill_rgba, outline=stroke_rgba)
+                if stroke_rgba:
+                    draw.line(poly + ([poly[0]] if closed else []), fill=stroke_rgba, width=max(ss, lw), joint="curve")
+                elif not closed and fill_rgba:
+                    draw.line(poly, fill=fill_rgba, width=max(ss, int(round(2 * (tw / max(nw * 720.0, 1.0))))), joint="curve")
+        if not drew:
+            img.close()
+            return None
+    elif geom == "ellipse":
         draw.ellipse([x0, y0, x1, y1], fill=fill_rgba, outline=stroke_rgba, width=lw)
     elif geom == "roundRect":
         adj = prst_av.get("adj", 16667.0) / 100000.0
         radius = max(2, int(round(min(x1 - x0, y1 - y0) * adj)))
         draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill_rgba, outline=stroke_rgba, width=lw)
     elif geom in ("rightArrow", "leftArrow", "upArrow", "downArrow"):
-        head_frac = 0.42
-        shaft_frac = 0.46
+        head_frac, shaft_frac = 0.42, 0.46
+        w_span, h_span = x1 - x0, y1 - y0
         if geom in ("rightArrow", "leftArrow"):
-            w_span = x1 - x0
-            h_span = y1 - y0
             hw = max(4, int(w_span * head_frac))
             sy0 = y0 + int(h_span * (1.0 - shaft_frac) / 2.0)
             sy1 = y1 - int(h_span * (1.0 - shaft_frac) / 2.0)
@@ -449,8 +623,6 @@ def _render_vector_shape_spans(geom, fill_color, border_color, border_w_pt, nw, 
                 hx = x0 + hw
                 poly = [(x1, sy0), (hx, sy0), (hx, y0), (x0, cy), (hx, y1), (hx, sy1), (x1, sy1)]
         else:
-            w_span = x1 - x0
-            h_span = y1 - y0
             hh = max(4, int(h_span * head_frac))
             sx0 = x0 + int(w_span * (1.0 - shaft_frac) / 2.0)
             sx1 = x1 - int(w_span * (1.0 - shaft_frac) / 2.0)
@@ -478,13 +650,225 @@ def _render_vector_shape_spans(geom, fill_color, border_color, border_w_pt, nw, 
         if col:
             draw.line([p0, p1], fill=col, width=max(ss, lw))
     else:
+        img.close()
         return None
 
     resized = img.resize((tw, th), Image.Resampling.LANCZOS)
     img.close()
+    if abs(rot_deg) > 0.5:
+        resized = _apply_rot_flip(resized, rot_deg=rot_deg)
     spans = _encode_rgba_rle(resized)
+    rtw, rth = resized.size
     resized.close()
-    return tw, th, spans
+    return rtw, rth, spans
+
+
+_SVG_NAMED_COLORS = {
+    "black": (0, 0, 0), "white": (255, 255, 255), "red": (255, 0, 0),
+    "green": (0, 128, 0), "blue": (0, 0, 255), "yellow": (255, 255, 0),
+    "gray": (128, 128, 128), "grey": (128, 128, 128), "orange": (255, 165, 0),
+    "purple": (128, 0, 128), "cyan": (0, 255, 255), "magenta": (255, 0, 255),
+}
+
+
+def _parse_svg_color(val, opacity=1.0):
+    if not val:
+        return None
+    v = val.strip().lower()
+    if v in ("none", "transparent"):
+        return None
+    rgb = None
+    if v.startswith("#"):
+        hx = v[1:]
+        if len(hx) == 3:
+            rgb = (int(hx[0] * 2, 16), int(hx[1] * 2, 16), int(hx[2] * 2, 16))
+        elif len(hx) >= 6:
+            rgb = (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
+    elif v.startswith("rgb("):
+        nums = [int(float(x.strip())) for x in v[4:-1].split(",")[:3]]
+        if len(nums) == 3:
+            rgb = (max(0, min(255, nums[0])), max(0, min(255, nums[1])), max(0, min(255, nums[2])))
+    else:
+        rgb = _SVG_NAMED_COLORS.get(v)
+    if rgb is None:
+        return None
+    a = max(0, min(255, int(round(255 * opacity))))
+    return (rgb[0], rgb[1], rgb[2], a)
+
+
+def _render_svg_to_rgba(svg_bytes, tw, th):
+    """Lightweight offline SVG vector rasterizer onto an RGBA PIL image."""
+    if Image is None:
+        return None
+    import re
+    try:
+        root = ET.fromstring(svg_bytes)
+    except Exception:
+        return None
+
+    vb = root.attrib.get("viewBox")
+    vb_x, vb_y, vb_w, vb_h = 0.0, 0.0, 100.0, 100.0
+    if vb:
+        parts = [float(p) for p in re.split(r"[\s,]+", vb.strip()) if p]
+        if len(parts) == 4:
+            vb_x, vb_y, vb_w, vb_h = parts
+    else:
+        try:
+            vb_w = float(re.sub(r"[^0-9.]", "", root.attrib.get("width", "100")) or 100)
+            vb_h = float(re.sub(r"[^0-9.]", "", root.attrib.get("height", "100")) or 100)
+        except Exception:
+            pass
+
+    ss = 2
+    cw, ch = max(24, tw * ss), max(24, th * ss)
+    img = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    sx = cw / max(vb_w, 1e-6)
+    sy = ch / max(vb_h, 1e-6)
+
+    def map_pt(px, py, tx=0.0, ty=0.0):
+        return ((px + tx - vb_x) * sx, (py + ty - vb_y) * sy)
+
+    def parse_style(el):
+        st = {}
+        raw = el.attrib.get("style", "")
+        for item in raw.split(";"):
+            if ":" in item:
+                k, v = item.split(":", 1)
+                st[k.strip().lower()] = v.strip()
+        for k in ("fill", "stroke", "stroke-width", "opacity", "fill-opacity", "stroke-opacity"):
+            if k in el.attrib and k not in st:
+                st[k] = el.attrib[k]
+        return st
+
+    def walk(el, parent_style, tx=0.0, ty=0.0):
+        st = dict(parent_style)
+        st.update(parse_style(el))
+        tr = el.attrib.get("transform", "")
+        m_tr = re.search(r"translate\(\s*([+-]?[0-9.eE+-]+)(?:[\s,]+([+-]?[0-9.eE+-]+))?\s*\)", tr)
+        if m_tr:
+            tx += float(m_tr.group(1))
+            ty += float(m_tr.group(2) or 0.0)
+
+        tag = _tag_local(el.tag)
+        op = float(st.get("opacity", 1.0) or 1.0)
+        fill_col = _parse_svg_color(st.get("fill", "#000000"), op * float(st.get("fill-opacity", 1.0) or 1.0)) if tag in ("rect", "circle", "ellipse", "polygon", "path") else None
+        stroke_col = _parse_svg_color(st.get("stroke"), op * float(st.get("stroke-opacity", 1.0) or 1.0)) if "stroke" in st else None
+        sw_px = max(1, int(round(float(re.sub(r"[^0-9.]", "", st.get("stroke-width", "1")) or 1) * min(sx, sy))))
+
+        if tag == "rect":
+            rx = float(el.attrib.get("x", 0))
+            ry = float(el.attrib.get("y", 0))
+            rw = float(el.attrib.get("width", 0))
+            rh = float(el.attrib.get("height", 0))
+            p0, p1 = map_pt(rx, ry, tx, ty), map_pt(rx + rw, ry + rh, tx, ty)
+            draw.rectangle([p0[0], p0[1], p1[0], p1[1]], fill=fill_col, outline=stroke_col, width=sw_px)
+        elif tag == "circle":
+            cx, cy = float(el.attrib.get("cx", 0)), float(el.attrib.get("cy", 0))
+            r = float(el.attrib.get("r", 0))
+            p0, p1 = map_pt(cx - r, cy - r, tx, ty), map_pt(cx + r, cy + r, tx, ty)
+            draw.ellipse([p0[0], p0[1], p1[0], p1[1]], fill=fill_col, outline=stroke_col, width=sw_px)
+        elif tag == "ellipse":
+            cx, cy = float(el.attrib.get("cx", 0)), float(el.attrib.get("cy", 0))
+            rx, ry = float(el.attrib.get("rx", 0)), float(el.attrib.get("ry", 0))
+            p0, p1 = map_pt(cx - rx, cy - ry, tx, ty), map_pt(cx + rx, cy + ry, tx, ty)
+            draw.ellipse([p0[0], p0[1], p1[0], p1[1]], fill=fill_col, outline=stroke_col, width=sw_px)
+        elif tag == "line":
+            p0 = map_pt(float(el.attrib.get("x1", 0)), float(el.attrib.get("y1", 0)), tx, ty)
+            p1 = map_pt(float(el.attrib.get("x2", 0)), float(el.attrib.get("y2", 0)), tx, ty)
+            if stroke_col:
+                draw.line([p0, p1], fill=stroke_col, width=sw_px)
+        elif tag in ("polygon", "polyline"):
+            coords = [float(x) for x in re.findall(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", el.attrib.get("points", ""))]
+            pts = [map_pt(coords[i], coords[i + 1], tx, ty) for i in range(0, len(coords) - 1, 2)]
+            if len(pts) >= 2:
+                if tag == "polygon" and fill_col:
+                    draw.polygon(pts, fill=fill_col, outline=stroke_col)
+                elif stroke_col:
+                    draw.line(pts + ([pts[0]] if tag == "polygon" else []), fill=stroke_col, width=sw_px)
+        elif tag == "path":
+            d = el.attrib.get("d", "")
+            toks = re.findall(r"[MLHVCSQTAZmlhvcsqtaz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", d)
+            subpaths = []
+            cur_pts = []
+            cx, cy, sx0, sy0 = 0.0, 0.0, 0.0, 0.0
+            i, cmd = 0, ""
+            while i < len(toks):
+                t = toks[i]
+                if t.isalpha():
+                    cmd = t
+                    i += 1
+                    if cmd in ("Z", "z"):
+                        if cur_pts:
+                            subpaths.append((cur_pts, True))
+                            cur_pts = []
+                        cx, cy = sx0, sy0
+                    continue
+                if cmd in ("M", "m", "L", "l"):
+                    x, y = float(toks[i]), float(toks[i + 1])
+                    i += 2
+                    if cmd.islower():
+                        x += cx
+                        y += cy
+                    if cmd in ("M", "m"):
+                        if cur_pts:
+                            subpaths.append((cur_pts, False))
+                        cur_pts = [map_pt(x, y, tx, ty)]
+                        sx0, sy0 = x, y
+                        cmd = "l" if cmd == "m" else "L"
+                    else:
+                        cur_pts.append(map_pt(x, y, tx, ty))
+                    cx, cy = x, y
+                elif cmd in ("H", "h"):
+                    x = float(toks[i]) + (cx if cmd == "h" else 0.0)
+                    i += 1
+                    cur_pts.append(map_pt(x, cy, tx, ty))
+                    cx = x
+                elif cmd in ("V", "v"):
+                    y = float(toks[i]) + (cy if cmd == "v" else 0.0)
+                    i += 1
+                    cur_pts.append(map_pt(cx, y, tx, ty))
+                    cy = y
+                elif cmd in ("C", "c"):
+                    x1, y1, x2, y2, x, y = [float(toks[i + k]) for k in range(6)]
+                    i += 6
+                    if cmd == "c":
+                        x1 += cx; y1 += cy; x2 += cx; y2 += cy; x += cx; y += cy
+                    for stp in range(1, 13):
+                        u = stp / 12.0
+                        bx = ((1 - u)**3)*cx + 3*((1 - u)**2)*u*x1 + 3*(1 - u)*(u**2)*x2 + (u**3)*x
+                        by = ((1 - u)**3)*cy + 3*((1 - u)**2)*u*y1 + 3*(1 - u)*(u**2)*y2 + (u**3)*y
+                        cur_pts.append(map_pt(bx, by, tx, ty))
+                    cx, cy = x, y
+                elif cmd in ("Q", "q"):
+                    x1, y1, x, y = [float(toks[i + k]) for k in range(4)]
+                    i += 4
+                    if cmd == "q":
+                        x1 += cx; y1 += cy; x += cx; y += cy
+                    for stp in range(1, 9):
+                        u = stp / 8.0
+                        bx = ((1 - u)**2)*cx + 2*(1 - u)*u*x1 + (u**2)*x
+                        by = ((1 - u)**2)*cy + 2*(1 - u)*u*y1 + (u**2)*y
+                        cur_pts.append(map_pt(bx, by, tx, ty))
+                    cx, cy = x, y
+                else:
+                    i += 1
+            if cur_pts:
+                subpaths.append((cur_pts, False))
+            for pts, is_closed in subpaths:
+                if len(pts) >= 2:
+                    if is_closed and len(pts) >= 3 and fill_col:
+                        draw.polygon(pts, fill=fill_col, outline=stroke_col)
+                    elif stroke_col or fill_col:
+                        draw.line(pts + ([pts[0]] if is_closed else []), fill=stroke_col or fill_col, width=sw_px)
+
+        for child in el:
+            walk(child, st, tx, ty)
+
+    walk(root, {})
+    out = img.resize((tw, th), Image.Resampling.LANCZOS)
+    img.close()
+    return out
 
 
 def _extract_chart_text(el):
@@ -494,41 +878,49 @@ def _extract_chart_text(el):
     return "".join(texts).strip()
 
 
-def _extract_chart_num_list(container_el):
+def _extract_chart_num_map(container_el):
+    """Return ordered {idx: float} dict preserving sparse <c:pt idx="..."> indices."""
     if container_el is None:
-        return []
-    pts = []
+        return {}
+    out = {}
+    fallback_idx = 0
     for pt in container_el.findall(f".//{{{C_NS}}}pt"):
         v_el = pt.find(f"{{{C_NS}}}v")
+        idx = int(pt.attrib["idx"]) if "idx" in pt.attrib else fallback_idx
+        fallback_idx = idx + 1
         if v_el is not None and v_el.text is not None:
             try:
-                pts.append((int(pt.attrib.get("idx", len(pts))), float(v_el.text)))
+                out[idx] = float(v_el.text)
             except Exception:
                 pass
-    pts.sort(key=lambda x: x[0])
-    return [v for _, v in pts]
+    return out
 
 
-def _extract_chart_str_list(container_el):
+def _extract_chart_str_map(container_el):
+    """Return ordered {idx: str} dict and declared ptCount preserving sparse category indices."""
     if container_el is None:
-        return []
-    pts = []
+        return {}, 0
+    out = {}
+    pt_cnt_el = container_el.find(f".//{{{C_NS}}}ptCount")
+    pt_count = int(pt_cnt_el.attrib.get("val", 0)) if pt_cnt_el is not None else 0
+    fallback_idx = 0
     for pt in container_el.findall(f".//{{{C_NS}}}pt"):
         v_el = pt.find(f"{{{C_NS}}}v")
+        idx = int(pt.attrib["idx"]) if "idx" in pt.attrib else fallback_idx
+        fallback_idx = idx + 1
         if v_el is not None and v_el.text is not None:
-            pts.append((int(pt.attrib.get("idx", len(pts))), v_el.text.strip()))
-    pts.sort(key=lambda x: x[0])
-    return [v for _, v in pts]
+            out[idx] = v_el.text.strip()
+    return out, max(pt_count, (max(out.keys()) + 1) if out else 0)
 
 
 def _parse_spPr_stroke(spPr, theme_colors, default_color=None, default_w_pt=1.5):
     if spPr is None:
-        return default_color, default_w_pt, False
+        return default_color, default_w_pt, False, "solid"
     ln = spPr.find(f"{{{A_NS}}}ln")
     if ln is None:
-        return default_color, default_w_pt, False
+        return default_color, default_w_pt, False, "solid"
     if ln.find(f"{{{A_NS}}}noFill") is not None:
-        return None, 0.0, True
+        return None, 0.0, True, "solid"
     col = resolve_color(None, xml_el=ln, theme_dict=theme_colors, default=default_color)
     w_pt = default_w_pt
     if "w" in ln.attrib:
@@ -536,7 +928,9 @@ def _parse_spPr_stroke(spPr, theme_colors, default_color=None, default_w_pt=1.5)
             w_pt = max(0.5, float(ln.attrib["w"]) / EMU_PER_PT)
         except Exception:
             pass
-    return col, w_pt, False
+    dash_el = ln.find(f"{{{A_NS}}}prstDash")
+    dash = dash_el.attrib.get("val", "solid") if dash_el is not None else "solid"
+    return col, w_pt, False, dash
 
 
 def _parse_spPr_fill(spPr, theme_colors, default_color=None):
@@ -620,7 +1014,7 @@ def _catmull_rom_points(pts, subdiv=6):
 
 
 def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
-    """Render OpenXML c:chart XML directly into anti-aliased RGBA RLE spans."""
+    """Render OpenXML c:chart XML accurately into anti-aliased RGBA RLE spans."""
     if Image is None or not chart_shape.has_chart:
         return None
     try:
@@ -628,12 +1022,13 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
     except Exception:
         return None
 
-    tw = max(120, min(620, int(round(nw * 720))))
-    th = max(90, min(420, int(round(nh * 405))))
-    ss = 2
+    tw = max(240, min(960, int(round(nw * 1440))))  # 2x base res -> sharp at any display scale
+    th = max(180, min(640, int(round(nh * 810))))
+    ss = 2  # 2x supersampling -> 4x effective pixel density
+    pt_scale = tw / max(nw * 720.0, 1.0)
+    s_px = ss * pt_scale
     cw, ch = tw * ss, th * ss
 
-    # Background from chartSpace spPr if solid, else transparent
     cs_spPr = cs.find(f"{{{C_NS}}}spPr")
     cs_bg = _parse_spPr_fill(cs_spPr, theme_colors, default_color=None)
     canvas_bg = (cs_bg[0], cs_bg[1], cs_bg[2], 255) if cs_bg else (0, 0, 0, 0)
@@ -650,7 +1045,6 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
         img.close()
         return None
 
-    # Detect chart title
     title_text = ""
     title_color = (235, 240, 245) if (0.299 * effective_bg[0] + 0.587 * effective_bg[1] + 0.114 * effective_bg[2]) < 128 else (0, 30, 43)
     auto_deleted = _bool_attr(chart_el.find(f"{{{C_NS}}}autoTitleDeleted"), default=False)
@@ -662,10 +1056,8 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
             tc_xml = title_el.find(f".//{{{A_NS}}}defRPr")
         title_color = resolve_color(None, xml_el=tc_xml, theme_dict=theme_colors, default=title_color)
 
-    # Parse axes visibility & range
     cat_ax = plot_area.find(f"{{{C_NS}}}catAx")
     val_axes = plot_area.findall(f"{{{C_NS}}}valAx")
-    # Scatter charts have two valAx: first x (axPos b/t), second y (axPos l/r)
     x_ax = cat_ax
     y_ax = val_axes[0] if val_axes else None
     if cat_ax is None and len(val_axes) >= 2:
@@ -684,26 +1076,34 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
     x_title = _extract_chart_text(x_ax.find(f"{{{C_NS}}}title")) if show_x else ""
     y_title = _extract_chart_text(y_ax.find(f"{{{C_NS}}}title")) if show_y else ""
 
-    # Margin allocation depending on whether title/axes exist
-    pad_l = (56 if show_y else 10) * ss + (16 * ss if y_title else 0)
-    pad_r = 16 * ss
-    pad_t = (34 if title_text else 12) * ss
-    pad_b = (32 if show_x else 10) * ss + (16 * ss if x_title else 0)
-
     legend_el = chart_el.find(f"{{{C_NS}}}legend")
     has_legend = legend_el is not None
-    if has_legend:
-        pad_t += 16 * ss
+    leg_pos = "b"
+    if legend_el is not None:
+        lp = legend_el.find(f"{{{C_NS}}}legendPos")
+        if lp is not None and "val" in lp.attrib:
+            leg_pos = lp.attrib["val"]
+
+    pad_l = int(round(((54 if show_y else 10) + (16 if y_title else 0)) * s_px))
+    pad_r = int(round(16 * s_px))
+    pad_t = int(round(((32 if title_text else 12) + (16 if (has_legend and leg_pos == "t") else 0)) * s_px))
+    pad_b = int(round(((28 if show_x else 10) + (16 if x_title else 0) + (20 if (has_legend and leg_pos == "b") else 0)) * s_px))
 
     px0, py0 = pad_l, pad_t
     px1, py1 = max(px0 + 20, cw - pad_r), max(py0 + 20, ch - pad_b)
 
-    # Determine plot type & extract series
     line_chart = plot_area.find(f"{{{C_NS}}}lineChart")
     scatter_chart = plot_area.find(f"{{{C_NS}}}scatterChart")
     bar_chart = plot_area.find(f"{{{C_NS}}}barChart")
     area_chart = plot_area.find(f"{{{C_NS}}}areaChart")
-    pie_chart = plot_area.find(f"{{{C_NS}}}pieChart") or plot_area.find(f"{{{C_NS}}}doughnutChart")
+    pie_chart = plot_area.find(f"{{{C_NS}}}pieChart")
+    if pie_chart is None:
+        pie_chart = plot_area.find(f"{{{C_NS}}}doughnutChart")
+    # Collect ALL chart type nodes for combo-chart support (multiple <c:lineChart> etc.)
+    _all_line_charts    = plot_area.findall(f"{{{C_NS}}}lineChart")
+    _all_scatter_charts = plot_area.findall(f"{{{C_NS}}}scatterChart")
+    _all_bar_charts     = plot_area.findall(f"{{{C_NS}}}barChart")
+    _all_area_charts    = plot_area.findall(f"{{{C_NS}}}areaChart")
 
     fallback_palette = [
         theme_colors.get("accent1", (0, 104, 74)),
@@ -713,23 +1113,30 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
         theme_colors.get("accent5", (255, 175, 50)),
     ]
 
-    # Axis colors
     bg_lum = 0.299 * effective_bg[0] + 0.587 * effective_bg[1] + 0.114 * effective_bg[2]
     axis_default = (160, 175, 185) if bg_lum < 128 else (120, 130, 140)
     grid_default = (45, 65, 78) if bg_lum < 128 else (215, 226, 220)
     lbl_default = (200, 215, 225) if bg_lum < 128 else (85, 105, 118)
+    font_tick = _get_pil_font(10 * s_px, bold=False)
+    font_title = _get_pil_font(13 * s_px, bold=True)
+
+    # Optional plotArea background fill
+    pa_bg = _parse_spPr_fill(plot_area.find(f"{{{C_NS}}}spPr"), theme_colors, default_color=None)
+    if pa_bg is not None:
+        draw.rectangle([px0, py0, px1, py1], fill=pa_bg + (255,))
 
     if pie_chart is not None:
         ser = pie_chart.find(f"{{{C_NS}}}ser")
-        vals = _extract_chart_num_list(ser.find(f"{{{C_NS}}}val")) if ser is not None else []
+        vmap = _extract_chart_num_map(ser.find(f"{{{C_NS}}}val")) if ser is not None else {}
+        vals = [vmap[k] for k in sorted(vmap)]
         total = sum(max(0.0, v) for v in vals) or 1.0
         cx_p, cy_p = cw // 2, (py0 + py1) // 2
-        rad = min(px1 - px0, py1 - py0) // 2 - 6 * ss
+        rad = min(px1 - px0, py1 - py0) // 2 - int(round(6 * s_px))
         start_deg = -90.0
         for idx, v in enumerate(vals):
             sweep = (max(0.0, v) / total) * 360.0
             col = fallback_palette[idx % len(fallback_palette)]
-            draw.pieslice([cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad], start=start_deg, end=start_deg + sweep, fill=col + (255,), outline=canvas_bg if cs_bg else (255, 255, 255, 255), width=ss)
+            draw.pieslice([cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad], start=start_deg, end=start_deg + sweep, fill=col + (255,), outline=canvas_bg if cs_bg else (255, 255, 255, 255), width=max(1, int(round(s_px))))
             start_deg += sweep
     else:
         chart_node = scatter_chart if scatter_chart is not None else (line_chart if line_chart is not None else (area_chart if area_chart is not None else bar_chart))
@@ -737,74 +1144,98 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
             img.close()
             return None
 
+        # For combo charts (e.g. 5 separate <c:lineChart> elements each with 1 series),
+        # collect ser elements from ALL matching chart-type nodes in Z-order.
+        if scatter_chart is not None:
+            _combo_nodes = _all_scatter_charts
+        elif line_chart is not None:
+            _combo_nodes = _all_line_charts
+        elif area_chart is not None:
+            _combo_nodes = _all_area_charts
+        else:
+            _combo_nodes = _all_bar_charts
+
         ser_list = []
-        cat_labels = []
+        cat_map = {}
+        cat_total_count = 0
         all_x, all_y = [], []
 
-        for idx, ser in enumerate(chart_node.findall(f"{{{C_NS}}}ser")):
-            def_col = fallback_palette[idx % len(fallback_palette)]
-            spPr = ser.find(f"{{{C_NS}}}spPr")
-            ln_col, ln_w_pt, no_ln = _parse_spPr_stroke(spPr, theme_colors, default_color=def_col, default_w_pt=2.5)
-            fill_col = _parse_spPr_fill(spPr, theme_colors, default_color=ln_col or def_col)
+        _global_ser_idx = 0
+        for _cnode in _combo_nodes:
+            for ser in _cnode.findall(f"{{{C_NS}}}ser"):
+                idx = _global_ser_idx
+                _global_ser_idx += 1
+                def_col = fallback_palette[idx % len(fallback_palette)]
+                spPr = ser.find(f"{{{C_NS}}}spPr")
+                ln_col, ln_w_pt, no_ln, ln_dash = _parse_spPr_stroke(spPr, theme_colors, default_color=def_col, default_w_pt=2.5)
+                fill_col = _parse_spPr_fill(spPr, theme_colors, default_color=ln_col or def_col)
 
-            mk_el = ser.find(f"{{{C_NS}}}marker")
-            mk_sym = "none"
-            mk_size = 7
-            mk_col = ln_col or fill_col or def_col
-            if mk_el is not None:
-                sym_el = mk_el.find(f"{{{C_NS}}}symbol")
-                if sym_el is not None:
-                    mk_sym = sym_el.attrib.get("val", "circle")
-                sz_el = mk_el.find(f"{{{C_NS}}}size")
-                if sz_el is not None:
-                    try:
-                        mk_size = int(sz_el.attrib["val"])
-                    except Exception:
-                        pass
-                mk_spPr = mk_el.find(f"{{{C_NS}}}spPr")
-                if mk_spPr is not None:
-                    mc = _parse_spPr_fill(mk_spPr, theme_colors, default_color=None)
-                    if mc is None:
-                        mc, _, _ = _parse_spPr_stroke(mk_spPr, theme_colors, default_color=None)
-                    if mc is not None:
-                        mk_col = mc
-            elif getattr(chart_shape.chart, "chart_type", None) and "MARKERS" in str(chart_shape.chart.chart_type):
-                mk_sym = "circle"
+                mk_el = ser.find(f"{{{C_NS}}}marker")
+                mk_sym = "none"
+                mk_size = 7
+                mk_col = ln_col or fill_col or def_col
+                mk_stroke = None
+                if mk_el is not None:
+                    sym_el = mk_el.find(f"{{{C_NS}}}symbol")
+                    if sym_el is not None:
+                        mk_sym = sym_el.attrib.get("val", "circle")
+                    sz_el = mk_el.find(f"{{{C_NS}}}size")
+                    if sz_el is not None:
+                        try:
+                            mk_size = int(sz_el.attrib["val"])
+                        except Exception:
+                            pass
+                    mk_spPr = mk_el.find(f"{{{C_NS}}}spPr")
+                    if mk_spPr is not None:
+                        mc = _parse_spPr_fill(mk_spPr, theme_colors, default_color=None)
+                        ms, _, ms_no, _ = _parse_spPr_stroke(mk_spPr, theme_colors, default_color=None)
+                        if mc is not None:
+                            mk_col = mc
+                        elif ms is not None and not ms_no:
+                            mk_col = ms
+                        if ms is not None and not ms_no:
+                            mk_stroke = ms + (255,)
+                elif getattr(chart_shape.chart, "chart_type", None) and "MARKERS" in str(chart_shape.chart.chart_type):
+                    mk_sym = "circle"
 
-            ser_name = _extract_chart_text(ser.find(f"{{{C_NS}}}tx"))
+                ser_name = _extract_chart_text(ser.find(f"{{{C_NS}}}tx"))
 
-            if scatter_chart is not None:
-                xs = _extract_chart_num_list(ser.find(f"{{{C_NS}}}xVal"))
-                ys = _extract_chart_num_list(ser.find(f"{{{C_NS}}}yVal"))
-                pts = list(zip(xs, ys))
-                all_x.extend(xs)
-                all_y.extend(ys)
-            else:
-                cats = _extract_chart_str_list(ser.find(f"{{{C_NS}}}cat"))
-                if cats and not cat_labels:
-                    cat_labels = cats
-                ys = _extract_chart_num_list(ser.find(f"{{{C_NS}}}val"))
-                xs = list(range(len(ys)))
-                pts = list(zip(xs, ys))
-                all_x.extend(xs)
-                all_y.extend(ys)
+                if scatter_chart is not None:
+                    x_map = _extract_chart_num_map(ser.find(f"{{{C_NS}}}xVal"))
+                    y_map = _extract_chart_num_map(ser.find(f"{{{C_NS}}}yVal"))
+                    common_keys = sorted(set(x_map.keys()) & set(y_map.keys()))
+                    pts = [(x_map[k], y_map[k]) for k in common_keys]
+                    all_x.extend(p[0] for p in pts)
+                    all_y.extend(p[1] for p in pts)
+                else:
+                    cmap, cnt = _extract_chart_str_map(ser.find(f"{{{C_NS}}}cat"))
+                    if cmap and not cat_map:
+                        cat_map = cmap
+                        cat_total_count = max(cat_total_count, cnt)
+                    v_map = _extract_chart_num_map(ser.find(f"{{{C_NS}}}val"))
+                    pts = [(k, v_map[k]) for k in sorted(v_map.keys())]
+                    if pts:
+                        cat_total_count = max(cat_total_count, max(k for k, _ in pts) + 1)
+                    all_x.extend(p[0] for p in pts)
+                    all_y.extend(p[1] for p in pts)
 
-            ser_list.append({
-                "name": ser_name,
-                "pts": pts,
-                "line_col": None if no_ln else ln_col,
-                "line_w": ln_w_pt,
-                "fill_col": fill_col,
-                "mk_sym": mk_sym,
-                "mk_size": mk_size,
-                "mk_col": mk_col,
-            })
+                ser_list.append({
+                    "name": ser_name,
+                    "pts": pts,
+                    "line_col": None if no_ln else ln_col,
+                    "line_w": ln_w_pt,
+                    "line_dash": ln_dash,
+                    "fill_col": fill_col,
+                    "mk_sym": mk_sym,
+                    "mk_size": mk_size,
+                    "mk_col": mk_col,
+                    "mk_stroke": mk_stroke,
+                })
 
         if not all_y:
             img.close()
             return None
 
-        # Resolve Y & X axis scaling bounds
         def _axis_bounds(ax_el, vals):
             amin, amax = min(vals), max(vals)
             if ax_el is not None:
@@ -821,15 +1252,20 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
                 amax += 1.0
             return amin, amax
 
+        is_horiz_bar = False
+        if bar_chart is not None:
+            bdir = bar_chart.find(f"{{{C_NS}}}barDir")
+            if bdir is not None and bdir.attrib.get("val") == "bar":
+                is_horiz_bar = True
+
         ymin, ymax = _axis_bounds(y_ax, all_y)
         if bar_chart is not None and ymin > 0:
             ymin = 0.0
         if scatter_chart is not None:
             xmin, xmax = _axis_bounds(x_ax, all_x)
         else:
-            xmin, xmax = 0.0, float(max(1, (len(cat_labels) or max(all_x or [1]) + 1) - 1))
+            xmin, xmax = 0.0, float(max(1, cat_total_count - 1))
 
-        # Gridlines & Y ticks
         y_unit = None
         if y_ax is not None:
             mu = y_ax.find(f"{{{C_NS}}}majorUnit")
@@ -840,72 +1276,83 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
                     pass
         y_ticks = _nice_ticks(ymin, ymax, count=5, fixed_step=y_unit)
 
-        if show_y:
+        if show_y and not is_horiz_bar:
             mg = y_ax.find(f"{{{C_NS}}}majorGridlines")
             if mg is not None:
-                gcol, gw, gno = _parse_spPr_stroke(mg.find(f"{{{C_NS}}}spPr"), theme_colors, default_color=grid_default, default_w_pt=0.75)
+                gcol, gw, gno, gdash = _parse_spPr_stroke(mg.find(f"{{{C_NS}}}spPr"), theme_colors, default_color=grid_default, default_w_pt=0.75)
                 if gcol and not gno:
                     for yv in y_ticks:
                         yy = py1 - int(round((yv - ymin) / (ymax - ymin) * (py1 - py0)))
-                        draw.line([(px0, yy), (px1, yy)], fill=gcol + (255,), width=max(1, int(gw * ss)))
+                        _draw_dashed_line(draw, [(px0, yy), (px1, yy)], gcol + (255,), max(1, int(round(gw * s_px))), dash=gdash)
 
-        font_tick = _get_pil_font(10 * ss, bold=False)
-        font_title = _get_pil_font(13 * ss, bold=True)
+        if not is_horiz_bar:
+            if show_x:
+                xcol, xw, xno, _ = _parse_spPr_stroke(x_ax.find(f"{{{C_NS}}}spPr"), theme_colors, default_color=axis_default, default_w_pt=1.0)
+                if xcol and not xno:
+                    draw.line([(px0, py1), (px1, py1)], fill=xcol + (255,), width=max(ss, int(round(xw * s_px))))
+                if scatter_chart is not None:
+                    for xv in _nice_ticks(xmin, xmax, count=5):
+                        xx = px0 + int(round((xv - xmin) / (xmax - xmin) * (px1 - px0)))
+                        draw.line([(xx, py1), (xx, py1 + int(round(4 * s_px)))], fill=(xcol or axis_default) + (255,), width=max(1, int(round(s_px))))
+                        if font_tick:
+                            draw.text((xx, py1 + int(round(6 * s_px))), _fmt_num(xv), fill=lbl_default + (255,), font=font_tick, anchor="ma")
+                elif cat_map:
+                    non_empty = [(ci, lbl) for ci, lbl in sorted(cat_map.items()) if lbl]
+                    last_tick_px = -1e9
+                    for ci, lbl in non_empty:
+                        xx = px0 + int(round((ci - xmin) / max(xmax - xmin, 1.0) * (px1 - px0)))
+                        if xx - last_tick_px >= 28 * s_px:
+                            draw.line([(xx, py1), (xx, py1 + int(round(4 * s_px)))], fill=(xcol or axis_default) + (255,), width=max(1, int(round(s_px))))
+                            if font_tick:
+                                draw.text((xx, py1 + int(round(6 * s_px))), lbl, fill=lbl_default + (255,), font=font_tick, anchor="ma")
+                            last_tick_px = xx
+                if x_title and font_tick:
+                    xt_y = (py1 + int(round(22 * s_px))) if (has_legend and leg_pos == "b") else (ch - int(round(4 * s_px)))
+                    draw.text(((px0 + px1) // 2, xt_y), x_title, fill=lbl_default + (255,), font=font_tick, anchor="ma" if (has_legend and leg_pos == "b") else "mb")
 
-        # Axes lines & tick labels
-        if show_x:
-            xcol, xw, _ = _parse_spPr_stroke(x_ax.find(f"{{{C_NS}}}spPr"), theme_colors, default_color=axis_default, default_w_pt=1.0)
-            if xcol:
-                draw.line([(px0, py1), (px1, py1)], fill=xcol + (255,), width=max(ss, int(xw * ss)))
-            if scatter_chart is not None:
-                xt_vals = _nice_ticks(xmin, xmax, count=5)
-                for xv in xt_vals:
-                    xx = px0 + int(round((xv - xmin) / (xmax - xmin) * (px1 - px0)))
-                    lbl = _fmt_num(xv)
-                    draw.line([(xx, py1), (xx, py1 + 4 * ss)], fill=(xcol or axis_default) + (255,), width=ss)
+            if show_y:
+                ycol, yw, yno, _ = _parse_spPr_stroke(y_ax.find(f"{{{C_NS}}}spPr"), theme_colors, default_color=axis_default, default_w_pt=1.0)
+                if ycol and not yno:
+                    draw.line([(px0, py0), (px0, py1)], fill=ycol + (255,), width=max(ss, int(round(yw * s_px))))
+                for yv in y_ticks:
+                    yy = py1 - int(round((yv - ymin) / (ymax - ymin) * (py1 - py0)))
+                    draw.line([(px0 - int(round(4 * s_px)), yy), (px0, yy)], fill=(ycol or axis_default) + (255,), width=max(1, int(round(s_px))))
                     if font_tick:
-                        draw.text((xx, py1 + 6 * ss), lbl, fill=lbl_default + (255,), font=font_tick, anchor="ma")
-            elif cat_labels:
-                step = max(1, len(cat_labels) // 6)
-                for ci in range(0, len(cat_labels), step):
-                    xx = px0 + int(round((ci - xmin) / max(xmax - xmin, 1.0) * (px1 - px0)))
-                    if font_tick:
-                        draw.text((xx, py1 + 6 * ss), cat_labels[ci], fill=lbl_default + (255,), font=font_tick, anchor="ma")
-            if x_title and font_tick:
-                draw.text(((px0 + px1) // 2, ch - 6 * ss), x_title, fill=lbl_default + (255,), font=font_tick, anchor="mb")
-
-        if show_y:
-            ycol, yw, _ = _parse_spPr_stroke(y_ax.find(f"{{{C_NS}}}spPr"), theme_colors, default_color=axis_default, default_w_pt=1.0)
-            if ycol:
-                draw.line([(px0, py0), (px0, py1)], fill=ycol + (255,), width=max(ss, int(yw * ss)))
-            for yv in y_ticks:
-                yy = py1 - int(round((yv - ymin) / (ymax - ymin) * (py1 - py0)))
-                draw.line([(px0 - 4 * ss, yy), (px0, yy)], fill=(ycol or axis_default) + (255,), width=ss)
-                if font_tick:
-                    draw.text((px0 - 8 * ss, yy), _fmt_num(yv), fill=lbl_default + (255,), font=font_tick, anchor="rm")
-            if y_title and font_tick:
-                draw.text((10 * ss, (py0 + py1) // 2), y_title, fill=lbl_default + (255,), font=font_tick, anchor="lm")
+                        draw.text((px0 - int(round(8 * s_px)), yy), _fmt_num(yv), fill=lbl_default + (255,), font=font_tick, anchor="rm")
+                if y_title and font_tick:
+                    draw.text((int(round(8 * s_px)), (py0 + py1) // 2), y_title, fill=lbl_default + (255,), font=font_tick, anchor="lm")
 
         def _to_px(vx, vy):
             sx = px0 + (vx - xmin) / max(xmax - xmin, 1e-9) * (px1 - px0)
             sy = py1 - (vy - ymin) / max(ymax - ymin, 1e-9) * (py1 - py0)
             return (sx, sy)
 
-        # Draw data series
         if bar_chart is not None:
-            n_cats = max(1, len(cat_labels) or len(ser_list[0]["pts"]))
+            n_cats = max(1, cat_total_count or len(ser_list[0]["pts"]))
             n_sers = max(1, len(ser_list))
-            slot_w = (px1 - px0) / float(n_cats)
-            bar_w = max(4 * ss, (slot_w * 0.72) / n_sers)
-            y_zero = py1 - (0.0 - ymin) / max(ymax - ymin, 1e-9) * (py1 - py0)
-            y_zero = max(py0, min(py1, y_zero))
-            for si, s in enumerate(ser_list):
-                bcol = s["fill_col"] or s["line_col"] or fallback_palette[si % len(fallback_palette)]
-                for ci, (_, yv) in enumerate(s["pts"]):
-                    bx0 = px0 + ci * slot_w + slot_w * 0.14 + si * bar_w
-                    bx1 = bx0 + bar_w * 0.90
-                    by = _to_px(ci, yv)[1]
-                    draw.rectangle([bx0, min(by, y_zero), bx1, max(by, y_zero)], fill=bcol + (255,))
+            if is_horiz_bar:
+                slot_h = (py1 - py0) / float(n_cats)
+                bar_h = max(4 * s_px, (slot_h * 0.72) / n_sers)
+                for si, s in enumerate(ser_list):
+                    bcol = s["fill_col"] or s["line_col"] or fallback_palette[si % len(fallback_palette)]
+                    for ci, yv in s["pts"]:
+                        by0 = py0 + ci * slot_h + slot_h * 0.14 + si * bar_h
+                        by1 = by0 + bar_h * 0.90
+                        bx_end = px0 + (yv - ymin) / max(ymax - ymin, 1e-9) * (px1 - px0)
+                        draw.rectangle([px0, by0, max(px0 + 2, bx_end), by1], fill=bcol + (255,))
+                        if show_x and cat_map.get(ci) and si == 0 and font_tick:
+                            draw.text((px0 - int(round(6 * s_px)), (by0 + by1) / 2), cat_map[ci], fill=lbl_default + (255,), font=font_tick, anchor="rm")
+            else:
+                slot_w = (px1 - px0) / float(n_cats)
+                bar_w = max(4 * s_px, (slot_w * 0.72) / n_sers)
+                y_zero = max(py0, min(py1, py1 - (0.0 - ymin) / max(ymax - ymin, 1e-9) * (py1 - py0)))
+                for si, s in enumerate(ser_list):
+                    bcol = s["fill_col"] or s["line_col"] or fallback_palette[si % len(fallback_palette)]
+                    for ci, yv in s["pts"]:
+                        bx0 = px0 + ci * slot_w + slot_w * 0.14 + si * bar_w
+                        bx1 = bx0 + bar_w * 0.90
+                        by = _to_px(ci, yv)[1]
+                        draw.rectangle([bx0, min(by, y_zero), bx1, max(by, y_zero)], fill=bcol + (255,))
         else:
             for s in ser_list:
                 screen_pts = [_to_px(vx, vy) for vx, vy in s["pts"]]
@@ -914,28 +1361,31 @@ def render_chart_to_rgba_rle(chart_shape, nw, nh, theme_colors, effective_bg):
                     poly = [(screen_pts[0][0], py1)] + screen_pts + [(screen_pts[-1][0], py1)]
                     draw.polygon(poly, fill=acol + (140,))
                 if s["line_col"] and len(screen_pts) >= 2:
-                    smooth_pts = _catmull_rom_points(screen_pts, subdiv=5) if len(screen_pts) >= 4 else screen_pts
-                    lw = max(ss, int(round(s["line_w"] * ss * 1.1)))
-                    draw.line(smooth_pts, fill=s["line_col"] + (255,), width=lw, joint="curve")
+                    smooth_pts = _catmull_rom_points(screen_pts, subdiv=6) if (len(screen_pts) >= 4 and s["line_dash"] == "solid" and scatter_chart is None) else screen_pts
+                    lw = max(ss, int(round(s["line_w"] * s_px * 1.1)))
+                    _draw_dashed_line(draw, smooth_pts, s["line_col"] + (255,), lw, dash=s["line_dash"])
                 if s["mk_sym"] != "none":
-                    r_mk = max(3 * ss, int(round((s["mk_size"] or 6) * ss * 0.55)))
-                    mcol = s["mk_col"] + (255,)
+                    r_mk = max(int(round(3 * s_px)), int(round((s["mk_size"] or 6) * s_px * 0.50)))
                     for mx, my in screen_pts:
-                        draw.ellipse([mx - r_mk, my - r_mk, mx + r_mk, my + r_mk], fill=mcol)
+                        _draw_chart_marker(draw, mx, my, r_mk, s["mk_sym"], s["mk_col"] + (255,), stroke_rgba=s["mk_stroke"], stroke_w=max(1, int(round(s_px * 0.5))))
 
         if title_text and font_title:
-            draw.text(((px0 + px1) // 2, 12 * ss), title_text, fill=title_color + (255,), font=font_title, anchor="ma")
+            draw.text(((px0 + px1) // 2, int(round(10 * s_px))), title_text, fill=title_color + (255,), font=font_title, anchor="ma")
 
         if has_legend and font_tick:
-            lx = px0
-            ly = py0 - 16 * ss
-            for s in ser_list[:4]:
-                if not s["name"]:
-                    continue
-                lcol = s["line_col"] or s["mk_col"] or fallback_palette[0]
-                draw.rectangle([lx, ly, lx + 10 * ss, ly + 8 * ss], fill=lcol + (255,))
-                draw.text((lx + 14 * ss, ly + 4 * ss), s["name"], fill=lbl_default + (255,), font=font_tick, anchor="lm")
-                lx += (28 + len(s["name"]) * 6) * ss
+            leg_items = [s for s in ser_list[:6] if s["name"]]
+            if leg_items:
+                est_w = sum(int(round((26 + len(s["name"]) * 6) * s_px)) for s in leg_items)
+                lx = max(px0, (px0 + px1 - est_w) // 2)
+                ly = (ch - int(round(10 * s_px))) if leg_pos == "b" else (py0 - int(round(14 * s_px)))
+                for s in leg_items:
+                    lcol = s["mk_col"] if s["mk_sym"] != "none" else (s["line_col"] or fallback_palette[0])
+                    if s["mk_sym"] != "none":
+                        draw.ellipse([lx, ly - int(round(4 * s_px)), lx + int(round(8 * s_px)), ly + int(round(4 * s_px))], fill=lcol + (255,))
+                    else:
+                        _draw_dashed_line(draw, [(lx, ly), (lx + int(round(12 * s_px)), ly)], lcol + (255,), max(2, int(round(1.5 * s_px))), dash=s["line_dash"])
+                    draw.text((lx + int(round(16 * s_px)), ly), s["name"], fill=lbl_default + (255,), font=font_tick, anchor="lm")
+                    lx += int(round((28 + len(s["name"]) * 6) * s_px))
 
     resized = img.resize((tw, th), Image.Resampling.LANCZOS)
     img.close()
@@ -1217,11 +1667,14 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
         nw = max(0.002, min(1.0 - nx + 0.002, w_emu / sw))
         nh = max(0.002, min(1.0 - ny + 0.002, h_emu / sh))
 
-        # Inspect geometry, fill, and stroke directly from spPr
+        # Inspect geometry, transform (flip/rotate), fill, and stroke directly from spPr
         spPr = shape._element.find(f"{{{P_NS}}}spPr") if hasattr(shape, "_element") else None
+        if spPr is None and hasattr(shape, "_element"):
+            spPr = shape._element.find("{http://schemas.microsoft.com/office/drawing/2008/diagram}spPr")
         geom = "rect"
         prst_av = {}
-        flip_h, flip_v = False, False
+        cust_geom_el = None
+        flip_h, flip_v, rot_deg = False, False, 0.0
         if spPr is not None:
             prst_el = spPr.find(f"{{{A_NS}}}prstGeom")
             if prst_el is not None and prst_el.attrib.get("prst"):
@@ -1232,10 +1685,19 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                             prst_av[gd.attrib["name"]] = float(gd.attrib["fmla"].split()[1])
                         except Exception:
                             pass
+            else:
+                cust_geom_el = spPr.find(f"{{{A_NS}}}custGeom")
+                if cust_geom_el is not None:
+                    geom = "custGeom"
             xfrm = spPr.find(f"{{{A_NS}}}xfrm")
             if xfrm is not None:
                 flip_h = xfrm.attrib.get("flipH") == "1"
                 flip_v = xfrm.attrib.get("flipV") == "1"
+                if "rot" in xfrm.attrib:
+                    try:
+                        rot_deg = float(xfrm.attrib["rot"]) / 60000.0
+                    except Exception:
+                        pass
 
         fill_color = None
         if spPr is not None:
@@ -1279,10 +1741,101 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                 })
             return
 
-        # Vector shapes: plain rects stay fast native rects; curved/arrow/line use AA RGBA spans
+        # SmartArt / DrawingML Diagrams (p:graphicFrame -> dgm:relIds -> ppt/diagrams/drawing*.xml)
+        if hasattr(shape, "_element"):
+            gdata = shape._element.find(f".//{{{A_NS}}}graphicData")
+            if gdata is not None and "diagram" in (gdata.attrib.get("uri", "").lower()):
+                try:
+                    DSP_NS = "http://schemas.microsoft.com/office/drawing/2008/diagram"
+                    drawing_part = None
+                    dm_partname = None
+                    rel_ids = gdata.find(".//{http://schemas.openxmlformats.org/drawingml/2006/diagram}relIds")
+                    if rel_ids is not None:
+                        dm_rid = rel_ids.attrib.get(f"{{{R_NS}}}dm")
+                        if dm_rid and dm_rid in slide.part.rels:
+                            dm_partname = str(slide.part.rels[dm_rid].target_part.partname)
+                    expected_draw = dm_partname.replace("data", "drawing") if dm_partname else None
+                    for rel in slide.part.rels.values():
+                        tname = str(rel.target_part.partname) if hasattr(rel, "target_part") else ""
+                        if expected_draw and tname == expected_draw:
+                            drawing_part = rel.target_part
+                            break
+                        if drawing_part is None and ("diagramDrawing" in rel.reltype or "diagrams/drawing" in str(rel.target_ref)):
+                            drawing_part = rel.target_part
+                    if drawing_part is None and hasattr(slide.part, "package"):
+                        for part in slide.part.package.iter_parts():
+                            pname = str(part.partname)
+                            if expected_draw and pname == expected_draw:
+                                drawing_part = part
+                                break
+                            if drawing_part is None and "diagrams/drawing" in pname:
+                                drawing_part = part
+                    if drawing_part is not None:
+                        droot = ET.fromstring(drawing_part.blob)
+                        spTree = droot.find(f".//{{{DSP_NS}}}spTree")
+                        if spTree is not None:
+                            for dsp_sp in spTree.findall(f"{{{DSP_NS}}}sp"):
+                                d_spPr = dsp_sp.find(f"{{{DSP_NS}}}spPr")
+                                d_txBody = dsp_sp.find(f"{{{DSP_NS}}}txBody")
+                                if d_spPr is None:
+                                    continue
+                                d_xfrm = d_spPr.find(f"{{{A_NS}}}xfrm")
+                                if d_xfrm is None:
+                                    continue
+                                d_off = d_xfrm.find(f"{{{A_NS}}}off")
+                                d_ext = d_xfrm.find(f"{{{A_NS}}}ext")
+                                if d_off is None or d_ext is None:
+                                    continue
+                                dx = float(d_off.attrib.get("x", 0))
+                                dy = float(d_off.attrib.get("y", 0))
+                                dw = max(12700.0, float(d_ext.attrib.get("cx", 0)))
+                                dh = max(12700.0, float(d_ext.attrib.get("cy", 0)))
+                                # Coordinates in drawing*.xml can be local to graphicFrame or full-slide EMU
+                                ax = (left_emu + dx * sx) if (dx + dw <= w_emu * 1.1 and dx < left_emu) else (ox + dx * sx)
+                                ay = (top_emu + dy * sy) if (dy + dh <= h_emu * 1.1 and dy < top_emu) else (oy + dy * sy)
+                                dnx = max(0.0, min(1.0, ax / sw))
+                                dny = max(0.0, min(1.0, ay / sh))
+                                dnw = max(0.002, min(1.0 - dnx + 0.002, (dw * sx) / sw))
+                                dnh = max(0.002, min(1.0 - dny + 0.002, (dh * sy) / sh))
+
+                                d_geom = "rect"
+                                d_av = {}
+                                d_prst = d_spPr.find(f"{{{A_NS}}}prstGeom")
+                                if d_prst is not None and d_prst.attrib.get("prst"):
+                                    d_geom = d_prst.attrib["prst"]
+                                d_fill = _resolve_fill_element(d_spPr.find(f"{{{A_NS}}}solidFill"), theme_colors)
+                                d_ln = d_spPr.find(f"{{{A_NS}}}ln")
+                                d_bcol = _resolve_fill_element(d_ln.find(f"{{{A_NS}}}solidFill"), theme_colors) if (d_ln is not None and d_ln.find(f"{{{A_NS}}}noFill") is None) else None
+                                if d_fill or d_bcol:
+                                    rend = _render_vector_shape_spans(d_geom, d_fill, d_bcol, 1, dnw, dnh, d_av, False, False) if d_geom != "rect" else None
+                                    if rend:
+                                        rtw, rth, rsp = rend
+                                        layers.append({"kind": "image", "x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "tw": rtw, "th": rth, "spans": rsp})
+                                    else:
+                                        layers.append({"kind": "shape", "x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "fill": d_fill, "border": d_bcol, "border_w": 1})
+                                if d_txBody is not None:
+                                    d_paras = []
+                                    for dp in d_txBody.findall(f"{{{A_NS}}}p"):
+                                        txt_runs = [t.text for t in dp.iter(f"{{{A_NS}}}t") if t.text]
+                                        full_dp = "".join(txt_runs).strip()
+                                        if not full_dp:
+                                            continue
+                                        full_text_lines.append(full_dp)
+                                        rpr = dp.find(f".//{{{A_NS}}}rPr")
+                                        d_col = resolve_color(None, xml_el=rpr, theme_dict=theme_colors, default=(255, 255, 255) if (d_fill and (0.299*d_fill[0]+0.587*d_fill[1]+0.114*d_fill[2]) < 128) else (20, 24, 30))
+                                        d_sz = float(rpr.attrib.get("sz", 1200)) / 100.0 if (rpr is not None and "sz" in rpr.attrib) else 12.0
+                                        d_bold = (rpr.attrib.get("b") in ("1", "true")) if rpr is not None else False
+                                        d_paras.append({"text": full_dp, "size": d_sz, "bold": d_bold, "italic": False, "color": d_col, "align": "center", "level": 0, "bullet": False, "font": "sans", "runs": []})
+                                    if d_paras:
+                                        text_blocks.append({"x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "anchor": "ctr", "ins_l": 0.004, "ins_t": 0.002, "ins_r": 0.004, "ins_b": 0.002, "paragraphs": d_paras})
+                except Exception:
+                    pass
+                return
+
+        # Vector shapes: plain unrotated rects stay fast native rects; curved/arrow/line/rotated/custGeom use AA RGBA spans
         if fill_color or border_color:
-            if geom != "rect":
-                rendered = _render_vector_shape_spans(geom, fill_color, border_color, border_w, nw, nh, prst_av, flip_h, flip_v)
+            if geom != "rect" or abs(rot_deg) > 0.5:
+                rendered = _render_vector_shape_spans(geom, fill_color, border_color, border_w, nw, nh, prst_av, flip_h, flip_v, rot_deg=rot_deg, cust_geom_el=cust_geom_el)
                 if rendered:
                     tw, th, spans = rendered
                     layers.append({
@@ -1303,22 +1856,84 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                     "fill": fill_color, "border": border_color, "border_w": border_w,
                 })
 
-        # Embedded Pictures with full RGBA alpha preservation
-        if ((MSO_SHAPE_TYPE and shape.shape_type == MSO_SHAPE_TYPE.PICTURE) or hasattr(shape, "image")) and Image:
+        # Embedded Pictures & Shape blipFills (handles PNG/JPEG/RGBA/SVG, srcRect crop, flipH/flipV, rot)
+        pic_blob = None
+        if (MSO_SHAPE_TYPE and shape.shape_type == MSO_SHAPE_TYPE.PICTURE) or hasattr(shape, "image"):
             try:
-                blob = shape.image.blob
-                pil_img = Image.open(io.BytesIO(blob)).convert("RGBA")
-                thumb_w = min(440, max(32, int(round(nw * 720))))
-                thumb_h = max(24, int(round(thumb_w * (pil_img.height / max(pil_img.width, 1)))))
-                resized = pil_img.resize((thumb_w, thumb_h), Image.Resampling.BILINEAR)
-                pil_img.close()
-                spans = _encode_rgba_rle(resized)
-                resized.close()
-                layers.append({
-                    "kind": "image",
-                    "x": round(nx, 4), "y": round(ny, 4), "w": round(nw, 4), "h": round(nh, 4),
-                    "tw": thumb_w, "th": thumb_h, "spans": spans,
-                })
+                pic_blob = shape.image.blob
+            except Exception:
+                pic_blob = None
+        if pic_blob is None and spPr is not None and spPr.find(f"{{{A_NS}}}blipFill") is not None:
+            try:
+                blip_el = spPr.find(f".//{{{A_NS}}}blip")
+                if blip_el is not None:
+                    rid = blip_el.attrib.get(f"{{{R_NS}}}embed")
+                    if rid and rid in slide.part.rels:
+                        pic_blob = slide.part.rels[rid].target_part.blob
+            except Exception:
+                pic_blob = None
+        if pic_blob is None and hasattr(shape, "_element"):
+            try:
+                svg_el = shape._element.find(".//{http://schemas.microsoft.com/office/drawing/2016/SVG/main}svgBlip")
+                if svg_el is not None:
+                    srid = svg_el.attrib.get(f"{{{R_NS}}}embed")
+                    if srid and srid in slide.part.rels:
+                        pic_blob = slide.part.rels[srid].target_part.blob
+            except Exception:
+                pic_blob = None
+
+        if pic_blob and Image:
+            try:
+                thumb_w = min(900, max(64, int(round(nw * 1280))))
+                thumb_h_est = max(48, int(round(nh * 720)))
+                pil_img = None
+
+                # Check for SVG blob or svgBlip extension when raster fallback fails
+                is_svg = pic_blob.lstrip()[:16].lower().startswith((b"<svg", b"<?xml"))
+                if is_svg:
+                    pil_img = _render_svg_to_rgba(pic_blob, thumb_w, thumb_h_est)
+                else:
+                    try:
+                        pil_img = Image.open(io.BytesIO(pic_blob)).convert("RGBA")
+                    except Exception:
+                        # Fallback to <asvg:svgBlip r:embed="..."/> if raster failed
+                        svg_el = shape._element.find(".//{http://schemas.microsoft.com/office/drawing/2016/SVG/main}svgBlip") if hasattr(shape, "_element") else None
+                        if svg_el is not None:
+                            srid = svg_el.attrib.get(f"{{{R_NS}}}embed")
+                            if srid and srid in slide.part.rels:
+                                pil_img = _render_svg_to_rgba(slide.part.rels[srid].target_part.blob, thumb_w, thumb_h_est)
+
+                if pil_img is not None:
+                    # Apply <a:srcRect l="" t="" r="" b=""/> image crop if present
+                    bf = shape._element.find(f".//{{{A_NS}}}blipFill") if hasattr(shape, "_element") else None
+                    if bf is None and hasattr(shape, "_element"):
+                        bf = shape._element.find(f"{{{P_NS}}}blipFill")
+                    if bf is not None:
+                        src_rect = bf.find(f"{{{A_NS}}}srcRect")
+                        if src_rect is not None:
+                            cl = float(src_rect.attrib.get("l", 0)) / 100000.0
+                            ct = float(src_rect.attrib.get("t", 0)) / 100000.0
+                            cr = float(src_rect.attrib.get("r", 0)) / 100000.0
+                            cb = float(src_rect.attrib.get("b", 0)) / 100000.0
+                            if cl > 0 or ct > 0 or cr > 0 or cb > 0:
+                                iw, ih = pil_img.size
+                                x0_c = max(0, int(round(iw * cl)))
+                                y0_c = max(0, int(round(ih * ct)))
+                                x1_c = max(x0_c + 1, int(round(iw * (1.0 - cr))))
+                                y1_c = max(y0_c + 1, int(round(ih * (1.0 - cb))))
+                                pil_img = pil_img.crop((x0_c, y0_c, x1_c, y1_c))
+
+                    pil_img = _apply_rot_flip(pil_img, rot_deg=rot_deg, flip_h=flip_h, flip_v=flip_v)
+                    thumb_h = max(24, int(round(thumb_w * (pil_img.height / max(pil_img.width, 1)))))
+                    resized = pil_img.resize((thumb_w, thumb_h), Image.Resampling.LANCZOS)
+                    pil_img.close()
+                    spans = _encode_rgba_rle(resized)
+                    resized.close()
+                    layers.append({
+                        "kind": "image",
+                        "x": round(nx, 4), "y": round(ny, 4), "w": round(nw, 4), "h": round(nh, 4),
+                        "tw": thumb_w, "th": thumb_h, "spans": spans,
+                    })
             except Exception:
                 pass
 

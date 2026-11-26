@@ -105,7 +105,7 @@ end
 local _FONT_CACHE = {}
 
 -- Quantize to rich discrete pixel sizes so large 40-72pt titles keep authentic scale
-local QUANTIZED_SIZES = { 10, 12, 14, 16, 18, 20, 22, 26, 30, 34, 40, 46, 54, 64, 76, 90, 108, 128 }
+local QUANTIZED_SIZES = { 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30, 34, 38, 42, 46, 54, 64, 76, 90, 108, 128 }
 
 local function quantize_size(raw_size)
   local best = QUANTIZED_SIZES[1]
@@ -1203,14 +1203,14 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
     if iy + ih >= view_top and iy <= view_bot then
       local spans = img.spans or {}
       for _, sp in ipairs(spans) do
-        local px1 = math.floor(ix + sp[1] * scale_x)
-        local px2 = math.ceil(ix + (sp[1] + sp[3]) * scale_x)
-        local py1 = math.floor(iy + sp[2] * scale_y)
-        local py2 = math.ceil(iy + (sp[2] + (sp[4] or 1)) * scale_y)
+        local px1 = math.floor(ix + sp[1] * scale_x + 0.5)
+        local px2 = math.floor(ix + (sp[1] + sp[3]) * scale_x + 0.5)
+        local py1 = math.floor(iy + sp[2] * scale_y + 0.5)
+        local py2 = math.floor(iy + (sp[2] + (sp[4] or 1)) * scale_y + 0.5)
         local pw_sp = math.max(1, px2 - px1)
         local ph_sp = math.max(1, py2 - py1)
         local alpha = sp[8] or 255
-        if alpha >= 16 then
+        if alpha >= 12 then
           local base = { sp[5], sp[6], sp[7], alpha }
           local col = invert_color(base, self.inverted)
           renderer.draw_rect(px1, py1, pw_sp, ph_sp, col)
@@ -1400,7 +1400,7 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
           elseif item.align == "right" then
             draw_x = (item.in_x or item.x) + math.max(0, item.bw - item.font:get_width(item.text))
           end
-          renderer.draw_text(item.font, item.text, draw_x, cur_y, item.color)
+          renderer.draw_text(item.font, item.text, math.floor(draw_x + 0.5), math.floor(cur_y + 0.5), item.color)
         end
         cur_y = cur_y + item.h
       elseif item.kind == "rich" then
@@ -1412,11 +1412,12 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
             draw_x = in_x + math.max(0, item.bw - item.w)
           end
           local cur_x = draw_x
+          local draw_y = math.floor(cur_y + 0.5)
           for ti, tok in ipairs(item.items) do
             if ti > 1 then
               cur_x = cur_x + (tok._gap_before or 0)
             end
-            renderer.draw_text(tok.font, tok.text, cur_x, cur_y, tok.color)
+            renderer.draw_text(tok.font, tok.text, math.floor(cur_x + 0.5), draw_y, tok.color)
             cur_x = cur_x + tok.w
           end
         end
