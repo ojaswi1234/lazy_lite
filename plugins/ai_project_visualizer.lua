@@ -995,14 +995,14 @@ local ALLOWED_EXTENSIONS = {
 AIAnalyzer.PROVIDERS = {
   nvidia = {
     name = "NVIDIA NIM",
-    default_model = "nvidia/nemotron-3.5-bolt-e4b",
+    default_model = "minimaxai/minimax-m3.1-flash",
     models = {
-      "nvidia/nemotron-3.5-bolt-e4b",
-      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-      "nvidia/nemotron-3.5-lightning-30b-a3b",
-      "nvidia/nemotron-3-ultra-550b-a55b",
-      "stepfun-ai/step-5-preview",
       "minimaxai/minimax-m3.1-flash",
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "nvidia/nemotron-3.5-bolt-e4b",
+      "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "stepfun-ai/step-5-preview",
       "poolside/laguna-xs-2.1",
     },
     endpoint = "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -1109,6 +1109,23 @@ function AIAnalyzer.get_model_label(model_name)
   return " [General]"
 end
 
+-- Extract actual model name from prefixed cloud_api / cache entries without double-stripping NIM orgs
+local function normalize_cached_model_id(provider, mname)
+  if type(mname) ~= "string" then return nil end
+  local prefix = provider .. "/"
+  if mname:sub(1, #prefix) ~= prefix then return nil end
+  local actual = mname:sub(#prefix + 1)
+  if provider ~= "nvidia" and actual:sub(1, #prefix) == prefix then
+    actual = actual:sub(#prefix + 1)
+  elseif provider == "nvidia" then
+    local after = actual:sub(#prefix + 1)
+    if actual:sub(1, #prefix) == prefix and after:find("/", 1, true) then
+      actual = after
+    end
+  end
+  return (#actual > 0) and actual or nil
+end
+
 -- Read cached dynamic models from active Aether instance and model_cache.json
 function AIAnalyzer.get_cached_models(provider)
   local models = {}
@@ -1120,16 +1137,12 @@ function AIAnalyzer.get_cached_models(provider)
     if provider == "groq" or provider == "nvidia" or provider == "ollama" then
       local cmodels = ag_inst.tool_model_lists["cloud_api"]
       if cmodels and type(cmodels) == "table" then
-        local prefix = provider .. "/"
         for _, m in ipairs(cmodels) do
           local mname = (type(m) == "table" and m.name) or (type(m) == "string" and m)
-          if mname and mname:sub(1, #prefix) == prefix then
-            local actual = mname:sub(#prefix + 1)
-            if actual:sub(1, #prefix) == prefix then actual = actual:sub(#prefix + 1) end
-            if not seen[actual] then
-              seen[actual] = true
-              table.insert(models, actual)
-            end
+          local actual = normalize_cached_model_id(provider, mname)
+          if actual and not seen[actual] then
+            seen[actual] = true
+            table.insert(models, actual)
           end
         end
       end
@@ -1173,16 +1186,12 @@ function AIAnalyzer.get_cached_models(provider)
         local data = json_decode(content)
         if type(data) == "table" then
           if data.cloud_api and type(data.cloud_api.models) == "table" then
-            local prefix = provider .. "/"
             for _, m in ipairs(data.cloud_api.models) do
               local mname = (type(m) == "table" and m.name) or (type(m) == "string" and m)
-              if mname and mname:sub(1, #prefix) == prefix then
-                local actual = mname:sub(#prefix + 1)
-                if actual:sub(1, #prefix) == prefix then actual = actual:sub(#prefix + 1) end
-                if not seen[actual] then
-                  seen[actual] = true
-                  table.insert(models, actual)
-                end
+              local actual = normalize_cached_model_id(provider, mname)
+              if actual and not seen[actual] then
+                seen[actual] = true
+                table.insert(models, actual)
               end
             end
           end
@@ -1531,7 +1540,7 @@ function AIAnalyzer.get_active_provider(preferred_provider, preferred_model)
 
   -- Default fallback if nothing has key
   local def_pinfo = AIAnalyzer.PROVIDERS["nvidia"]
-  return "nvidia", (def_pinfo and def_pinfo.default_model) or "nvidia/nemotron-3.5-bolt-e4b", nil
+  return "nvidia", (def_pinfo and def_pinfo.default_model) or "minimaxai/minimax-m3.1-flash", nil
 end
 
 local function get_temp_file(suffix)
@@ -1571,7 +1580,7 @@ local function curl_post(url, json_body, headers)
     end
   end
 
-  local cmd_args = { bin, "-s", "-S", "-X", "POST" }
+  local cmd_args = { bin, "-s", "-S", "--connect-timeout", "12", "--max-time", "45", "-X", "POST" }
   if PLATFORM == "Windows" or package.config:sub(1,1) == "\\" then
     table.insert(cmd_args, "-k")
     table.insert(cmd_args, "--ssl-no-revoke")
@@ -1610,7 +1619,7 @@ local function curl_post(url, json_body, headers)
   local out_parts = {}
   local err_parts = {}
   local start_time = system.get_time()
-  local timeout = 120
+  local timeout = 50
 
   while p:running() do
     if _cancel_requested then
@@ -1677,25 +1686,33 @@ local function curl_post(url, json_body, headers)
   if #body == 0 and #err_out > 0 then
     return nil, "curl error: " .. err_out
   end
+  if body:match("^%s*<!%s*[dD][oO][cC][tT][yY][pP][eE]") or body:match("^%s*<[hH][tT][mM][lL]") then
+    return nil, "Gateway HTTP error (HTML response — proxy/backend temporarily unavailable)"
+  end
   return body, nil
 end
 
--- ─────────────────────────────────────────────────────────────────────────────
--- Call provider API (handles Gemini, OpenAI-compatible, Anthropic)
--- ─────────────────────────────────────────────────────────────────────────────
-local function call_provider(provider, model, api_key, prompt, is_json)
-  local pinfo = AIAnalyzer.PROVIDERS[provider]
-  if not pinfo then return nil, "Unknown provider: " .. tostring(provider) end
-  model = model or pinfo.default_model
-
-  -- Strip provider prefix when routing wrapper-prefixed IDs (e.g. "ollama/gpt-oss:120b" -> "gpt-oss:120b"),
-  -- but keep NVIDIA NIM's required org/model namespace (only strip duplicate "nvidia/<org>/<model>").
-  if model and provider and model:match("^" .. provider .. "/") then
+-- Normalize model identifier for direct provider API dispatch
+local function normalize_provider_model(provider, model)
+  if not model then return model end
+  if provider and model:match("^" .. provider .. "/") then
     local stripped = model:sub(#provider + 2)
     if provider ~= "nvidia" or stripped:find("/", 1, true) then
       model = stripped
     end
   end
+  -- NVIDIA NIM requires <org>/<model> namespace; heal bare names (e.g. "nemotron-3.5-bolt-e4b")
+  if provider == "nvidia" and not model:find("/", 1, true) then
+    model = "nvidia/" .. model
+  end
+  return model
+end
+
+-- Single-attempt provider HTTP request
+local function call_provider_once(provider, model, api_key, prompt, is_json)
+  local pinfo = AIAnalyzer.PROVIDERS[provider]
+  if not pinfo then return nil, "Unknown provider: " .. tostring(provider) end
+  model = normalize_provider_model(provider, model or pinfo.default_model)
 
   if pinfo.type == "gemini" then
     local url = string.format(pinfo.endpoint, model) .. "?key=" .. api_key
@@ -1769,7 +1786,10 @@ local function call_provider(provider, model, api_key, prompt, is_json)
     end
     if parsed.choices and parsed.choices[1] and parsed.choices[1].message then
       local msg = parsed.choices[1].message
-      local text = (msg.content and #msg.content > 0) and msg.content or msg.reasoning
+      local text = (type(msg.content) == "string" and #msg.content > 0 and msg.content)
+                or (type(msg.reasoning_content) == "string" and #msg.reasoning_content > 0 and msg.reasoning_content)
+                or (type(msg.reasoning) == "string" and #msg.reasoning > 0 and msg.reasoning)
+                or nil
       if text and #text > 0 then return text, nil end
     end
     return nil, "No response content from " .. pinfo.name
@@ -1798,6 +1818,48 @@ local function call_provider(provider, model, api_key, prompt, is_json)
   end
 
   return nil, "Unsupported provider: " .. tostring(provider)
+end
+
+local function is_transient_nim_err(err_msg)
+  if type(err_msg) ~= "string" then return false end
+  local el = err_msg:lower()
+  return el:find("404", 1, true)
+      or el:find("502", 1, true)
+      or el:find("gateway http error", 1, true)
+      or el:find("invalid json", 1, true)
+      or el:find("timed out", 1, true)
+      or el:find("content safety", 1, true)
+      or el:find("temporarily unavailable", 1, true)
+      or el:find("no response content", 1, true)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Call provider API (handles Gemini, OpenAI-compatible, Anthropic + NIM fallback)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function call_provider(provider, model, api_key, prompt, is_json)
+  local primary = normalize_provider_model(provider, model)
+  local text, err = call_provider_once(provider, primary, api_key, prompt, is_json)
+  if text then return text, nil end
+
+  if provider == "nvidia" and is_transient_nim_err(err) and not _cancel_requested then
+    local fallbacks = {
+      "minimaxai/minimax-m3.1-flash",
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "nvidia/nemotron-3.5-bolt-e4b",
+    }
+    for _, fb in ipairs(fallbacks) do
+      if fb ~= primary and not _cancel_requested then
+        core.log("[AI Visualizer] NIM model '%s' failed (%s); falling back to '%s'", tostring(primary), tostring(err), fb)
+        if coroutine.running() then coroutine.yield(0.2) end
+        local fb_text, fb_err = call_provider_once(provider, fb, api_key, prompt, is_json)
+        if fb_text then return fb_text, nil end
+        err = fb_err or err
+      end
+    end
+  end
+
+  return nil, err
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -6968,7 +7030,7 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
 
   -- 3. Provider & Model Selector Pill (Interactive click to configure)
   local prov = (view.provider or "nvidia"):upper()
-  local mod = view.model or "nvidia/nemotron-3.5-bolt-e4b"
+  local mod = view.model or "minimaxai/minimax-m3.1-flash"
   if #mod > 24 then mod = mod:match("[^/]+$") or mod end
   if #mod > 24 then mod = mod:sub(1, 21) .. "..." end
   local pill_text = (card_w < 420) and string.format(" %s : %s [Edit] ", prov, mod) or string.format(" Provider: %s   Model: %s  [Change] ", prov, mod)
