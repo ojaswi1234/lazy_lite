@@ -142,6 +142,8 @@ def generate_example(rng, sr, cls_label):
     else:
         neg_kind = rng.choice([
             "plosive_vowel",
+            "murmur_whisper",
+            "word_ending_stop",
             "sibilant",
             "tongue_click",
             "cough",
@@ -149,13 +151,47 @@ def generate_example(rng, sr, cls_label):
             "keyboard_mouse",
             "desk_bump",
             "babble_burst",
-        ], p=[0.24, 0.14, 0.14, 0.10, 0.12, 0.12, 0.08, 0.06])
+        ], p=[0.18, 0.16, 0.14, 0.10, 0.10, 0.08, 0.08, 0.08, 0.04, 0.04])
         bg_type = rng.choice(["quiet", "fan", "noisy_room", "babble"], p=[0.20, 0.30, 0.30, 0.20])
         buf = _make_background(rng, n, sr, bg_type)
-        amp = float(10 ** rng.uniform(np.log10(0.008), np.log10(0.55)))
+        amp = float(10 ** rng.uniform(np.log10(0.006), np.log10(0.55)))
         event_center = c
 
-        if neg_kind == "plosive_vowel":
+        if neg_kind == "murmur_whisper":
+            # Soft continuous murmured/whispered speech (low F0 vocal fry 160-950 Hz + breathy F2/F3 formants 1.2-3.8 kHz)
+            m_len = min(n - int(sr * 0.02), int(sr * rng.uniform(0.140, 0.210)))
+            m_start = max(0, c - int(m_len * rng.uniform(0.35, 0.65)))
+            tm = np.arange(m_len, dtype=np.float32) / sr
+            lo_m = _bandpass_noise(rng, m_len, sr, 170.0, 950.0)
+            hi_m = _bandpass_noise(rng, m_len, sr, float(rng.uniform(1600, 2400)), float(rng.uniform(3200, 4800)))
+            # Syllabic amplitude envelope + brief soft glottal burst near c
+            syll = 0.5 + 0.5 * np.sin(2 * np.pi * float(rng.uniform(3.5, 7.5)) * tm + float(rng.uniform(0, 6.28)))
+            pop_t = np.exp(-((np.arange(m_len) - (c - m_start)) ** 2) / max(1.0, (sr * float(rng.uniform(0.005, 0.015))) ** 2))
+            murmur = (0.75 * lo_m * syll + 0.45 * hi_m * (0.4 * syll + 0.9 * pop_t))
+            murmur *= np.sin(np.pi * np.arange(m_len, dtype=np.float32) / m_len) ** 0.5
+            murmur *= amp / max(float(np.max(np.abs(murmur))), 1e-6)
+            m_end = min(n, m_start + m_len)
+            buf[m_start:m_end] += murmur[: m_end - m_start]
+            event_center = c
+
+        elif neg_kind == "word_ending_stop":
+            # Spoken/murmured word ending in crisp unvoiced 't'/'k'/'p' before silence!
+            pre_len = int(sr * rng.uniform(0.05, 0.095))
+            gap = int(sr * rng.uniform(0.012, 0.040))
+            s0 = max(0, c - gap - pre_len)
+            buf[s0 : s0 + pre_len] += _synth_vowel_segment(rng, pre_len, sr, float(rng.uniform(95, 240)), amp * 0.85)
+            if rng.random() < 0.5:
+                buf[s0 : s0 + pre_len] += _bandpass_noise(rng, pre_len, sr, 180, 900) * (amp * 0.4)
+            b_len = int(sr * rng.uniform(0.008, 0.022))
+            tb = np.arange(b_len, dtype=np.float32) / sr
+            burst = _bandpass_noise(rng, b_len, sr, 1600.0, 6500.0) * np.hanning(b_len).astype(np.float32)
+            # Include vocal-tract F3 formant peak right inside 2.3..3.9 kHz
+            burst += 0.45 * np.sin(2 * np.pi * float(rng.uniform(2300, 3900)) * tb) * np.exp(-tb / 0.007)
+            burst *= (amp * float(rng.uniform(0.4, 0.9))) / max(float(np.max(np.abs(burst))), 1e-6)
+            buf[c : c + b_len] += burst
+            event_center = c + int(np.argmax(np.abs(burst)))
+
+        elif neg_kind == "plosive_vowel":
             # Stop consonant burst ("t"/"k"/"p"/"ch") followed by voiced vowel (+12..40 ms later)
             if rng.random() < 0.55:
                 # Preceding spoken syllable before short stop gap
@@ -324,9 +360,9 @@ def train_mlp(X_tr, y_tr, X_val, y_val, seed=123):
     best_score = -1.0
     best_weights = [p.copy() for p in params]
 
-    # Weight false positives 1.6x stronger than missed snaps to crush false triggers
+    # Weight false positives 2.0x stronger to eliminate speech/murmur false triggers
     pos_w = 1.0
-    neg_w = 1.6
+    neg_w = 2.0
 
     for ep in range(epochs):
         perm = rng.permutation(X_tr.shape[0])

@@ -1355,30 +1355,11 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
     end
   end
 
-  -- 1 & 2. Draw Unified Z-Ordered Visual Layers (or legacy shapes/images fallback)
-  if page_data.layers then
-    for _, lay in ipairs(page_data.layers) do
-      if lay.kind == "shape" then
-        draw_shape_layer(lay)
-      elseif lay.kind == "image" then
-        draw_image_layer(lay)
-      end
-    end
-  else
-    for _, s in ipairs(page_data.shapes or {}) do
-      draw_shape_layer(s)
-    end
-    for _, img in ipairs(page_data.images or {}) do
-      draw_image_layer(img)
-    end
-  end
-
-  -- 3. Native Razor-Sharp FreeType Typography with Insets & Vertical Anchoring
   local width_pt = (page_data.width_pt and page_data.width_pt > 100) and page_data.width_pt or 720.0
   local scale_factor = pw / width_pt
-  local text_blocks = page_data.text_blocks or {}
+  local bg_lum = 0.299 * page_bg[1] + 0.587 * page_bg[2] + 0.114 * page_bg[3]
 
-  for _, tb in ipairs(text_blocks) do
+  local function draw_text_layer(tb)
     local bx = cx + tb.x * pw
     local by = cy + tb.y * ph
     local bw = math.max(12, tb.w * pw)
@@ -1390,14 +1371,13 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
     local in_h = math.max(10, bh - ((tb.ins_t or 0) + (tb.ins_b or 0)) * ph)
 
     local paras = tb.paragraphs or {}
-    local bg_lum = 0.299 * page_bg[1] + 0.587 * page_bg[2] + 0.114 * page_bg[3]
     local laid_out = {}
     local total_h = 0
 
     for p_idx, p in ipairs(paras) do
       local p_text = p.text or ""
       if p_text == "" then
-        local gap_h = 12 * scale_factor
+        local gap_h = 10 * scale_factor
         table.insert(laid_out, { kind = "gap", h = gap_h })
         total_h = total_h + gap_h
       else
@@ -1413,7 +1393,9 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         local indent = (p.level or 0) * 18 * scale_factor
         local text_x = in_x + indent
         local max_line_w = math.max(12, in_w - indent)
-        local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.20))
+        local px_sz = (p.size or 18) * scale_factor
+        local base_lh = math.max(font:get_height(), math.floor(px_sz * 1.12))
+        local lh = base_lh * (p.ln_spc or 1.0)
 
         local runs = p.runs
         if runs and #runs > 1 then
@@ -1478,9 +1460,12 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
             total_h = total_h + lh
           end
         else
+          local sp_w = font:get_width(" ")
           for subline in (p_text .. "\n"):gmatch("(.-)\n") do
+            local lead_ws, rest_sub = subline:match("^(%s*)(.*)$")
+            local lead_px = (#lead_ws > 0) and (#lead_ws * sp_w * 0.85) or 0
             local words = {}
-            for w_word in subline:gmatch("%S+") do
+            for w_word in rest_sub:gmatch("%S+") do
               table.insert(words, w_word)
             end
             if #words == 0 and p_text:find("\n") then
@@ -1488,20 +1473,21 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
               total_h = total_h + lh * 0.6
             else
               local cur_line = {}
+              local avail_w = math.max(12, max_line_w - lead_px)
               for _, w_word in ipairs(words) do
                 table.insert(cur_line, w_word)
                 local test_str = table.concat(cur_line, " ")
-                if font:get_width(test_str) > max_line_w and #cur_line > 1 then
+                if font:get_width(test_str) > avail_w and #cur_line > 1 then
                   table.remove(cur_line)
                   local lstr = table.concat(cur_line, " ")
-                  table.insert(laid_out, { kind = "line", text = lstr, font = font, color = fg, x = text_x, in_x = in_x, bw = in_w, align = p.align, h = lh })
+                  table.insert(laid_out, { kind = "line", text = lstr, font = font, color = fg, x = text_x + lead_px, in_x = in_x, bw = in_w, align = p.align, h = lh })
                   total_h = total_h + lh
                   cur_line = { w_word }
                 end
               end
               if #cur_line > 0 then
                 local lstr = table.concat(cur_line, " ")
-                table.insert(laid_out, { kind = "line", text = lstr, font = font, color = fg, x = text_x, in_x = in_x, bw = in_w, align = p.align, h = lh })
+                table.insert(laid_out, { kind = "line", text = lstr, font = font, color = fg, x = text_x + lead_px, in_x = in_x, bw = in_w, align = p.align, h = lh })
                 total_h = total_h + lh
               end
             end
@@ -1509,7 +1495,7 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         end
 
         if p_idx < #paras then
-          local para_gap = (p.spc_a ~= nil) and (p.spc_a * scale_factor) or math.max(3, math.floor((p.size or 18) * scale_factor * 0.25))
+          local para_gap = (p.spc_a ~= nil) and (p.spc_a * scale_factor) or math.max(2, math.floor(px_sz * 0.16))
           if para_gap > 0 then
             table.insert(laid_out, { kind = "gap", h = para_gap })
             total_h = total_h + para_gap
@@ -1522,9 +1508,12 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
     if tb.anchor == "b" then
       cur_y = in_y + math.max(0, in_h - total_h)
     elseif tb.anchor == "ctr" then
-      cur_y = in_y + (in_h - total_h) / 2
+      cur_y = math.max(in_y, in_y + (in_h - total_h) / 2)
     end
 
+    if tb.clip then
+      core.push_clip_rect(bx, by, bw, bh)
+    end
     for _, item in ipairs(laid_out) do
       if item.kind == "gap" then
         cur_y = cur_y + item.h
@@ -1559,6 +1548,49 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         end
         cur_y = cur_y + item.h
       end
+    end
+    if tb.clip then
+      core.pop_clip_rect()
+    end
+  end
+
+  -- Unified Z-order draw across shapes, images, and text blocks
+  if not page_data._z_queue then
+    local q = {}
+    if page_data.layers then
+      for i, lay in ipairs(page_data.layers) do
+        table.insert(q, { z = i - 0.1, seq = i, item = lay, kind = lay.kind })
+      end
+    else
+      local seq = 0
+      for _, s in ipairs(page_data.shapes or {}) do
+        seq = seq + 1
+        table.insert(q, { z = seq - 0.1, seq = seq, item = s, kind = "shape" })
+      end
+      for _, img in ipairs(page_data.images or {}) do
+        seq = seq + 1
+        table.insert(q, { z = seq - 0.1, seq = seq, item = img, kind = "image" })
+      end
+    end
+    local base_seq = #q
+    for ti, tb in ipairs(page_data.text_blocks or {}) do
+      local tz = tb.z or (base_seq + 1000)
+      table.insert(q, { z = tz + 0.5, seq = base_seq + ti, item = tb, kind = "text" })
+    end
+    table.sort(q, function(a, b)
+      if a.z ~= b.z then return a.z < b.z end
+      return a.seq < b.seq
+    end)
+    page_data._z_queue = q
+  end
+
+  for _, entry in ipairs(page_data._z_queue) do
+    if entry.kind == "shape" then
+      draw_shape_layer(entry.item)
+    elseif entry.kind == "image" then
+      draw_image_layer(entry.item)
+    elseif entry.kind == "text" then
+      draw_text_layer(entry.item)
     end
   end
 end

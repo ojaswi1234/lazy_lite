@@ -696,8 +696,57 @@ def _parse_svg_color(val, opacity=1.0):
     return (rgb[0], rgb[1], rgb[2], a)
 
 
+def _svg_mat_mul(m1, m2):
+    """Multiply two 2D affine matrices (a, b, c, d, e, f) representing [a c e; b d f; 0 0 1]."""
+    a1, b1, c1, d1, e1, f1 = m1
+    a2, b2, c2, d2, e2, f2 = m2
+    return (
+        a1 * a2 + c1 * b2,
+        b1 * a2 + d1 * b2,
+        a1 * c2 + c1 * d2,
+        b1 * c2 + d1 * d2,
+        a1 * e2 + c1 * f2 + e1,
+        b1 * e2 + d1 * f2 + f1,
+    )
+
+
+def _svg_parse_transform(tr_str):
+    """Parse SVG transform attribute (translate, scale, rotate, skewX, skewY, matrix) to 2D affine tuple."""
+    import re
+    mat = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    if not tr_str:
+        return mat
+    for fn, args_str in re.findall(r"([a-zA-Z]+)\s*\(([^)]*)\)", tr_str):
+        nums = [float(x) for x in re.findall(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", args_str)]
+        fn_l = fn.lower()
+        m_op = None
+        if fn_l == "translate" and len(nums) >= 1:
+            m_op = (1.0, 0.0, 0.0, 1.0, nums[0], nums[1] if len(nums) >= 2 else 0.0)
+        elif fn_l == "scale" and len(nums) >= 1:
+            sx = nums[0]
+            sy = nums[1] if len(nums) >= 2 else sx
+            m_op = (sx, 0.0, 0.0, sy, 0.0, 0.0)
+        elif fn_l == "rotate" and len(nums) >= 1:
+            rad = math.radians(nums[0])
+            cs, sn = math.cos(rad), math.sin(rad)
+            if len(nums) >= 3:
+                cx, cy = nums[1], nums[2]
+                m_op = _svg_mat_mul((1.0, 0.0, 0.0, 1.0, cx, cy), _svg_mat_mul((cs, sn, -sn, cs, 0.0, 0.0), (1.0, 0.0, 0.0, 1.0, -cx, -cy)))
+            else:
+                m_op = (cs, sn, -sn, cs, 0.0, 0.0)
+        elif fn_l == "matrix" and len(nums) >= 6:
+            m_op = tuple(nums[:6])
+        elif fn_l == "skewx" and len(nums) >= 1:
+            m_op = (1.0, 0.0, math.tan(math.radians(nums[0])), 1.0, 0.0, 0.0)
+        elif fn_l == "skewy" and len(nums) >= 1:
+            m_op = (1.0, math.tan(math.radians(nums[0])), 0.0, 1.0, 0.0, 0.0)
+        if m_op is not None:
+            mat = _svg_mat_mul(mat, m_op)
+    return mat
+
+
 def _render_svg_to_rgba(svg_bytes, tw, th):
-    """Lightweight offline SVG vector rasterizer onto an RGBA PIL image."""
+    """Offline SVG vector rasterizer with affine transforms, viewBox aspect fit, and Beziers."""
     if Image is None:
         return None
     import re
@@ -723,11 +772,31 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
     cw, ch = max(24, tw * ss), max(24, th * ss)
     img = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    sx = cw / max(vb_w, 1e-6)
-    sy = ch / max(vb_h, 1e-6)
 
-    def map_pt(px, py, tx=0.0, ty=0.0):
-        return ((px + tx - vb_x) * sx, (py + ty - vb_y) * sy)
+    # Respect preserveAspectRatio unless explicitly 'none' so icons don't stretch/overlap
+    par = (root.attrib.get("preserveAspectRatio") or "xMidYMid meet").lower()
+    if "none" in par:
+        sx = cw / max(vb_w, 1e-6)
+        sy = ch / max(vb_h, 1e-6)
+        off_x, off_y = 0.0, 0.0
+    else:
+        u_sc = min(cw / max(vb_w, 1e-6), ch / max(vb_h, 1e-6))
+        sx = sy = u_sc
+        off_x = (cw - vb_w * u_sc) * 0.5
+        off_y = (ch - vb_h * u_sc) * 0.5
+
+    root_mat = (sx, 0.0, 0.0, sy, off_x - vb_x * sx, off_y - vb_y * sy)
+
+    # Index <defs> / symbols by id for <use href="#id"/>
+    defs_by_id = {}
+    for node in root.iter():
+        nid = node.attrib.get("id")
+        if nid:
+            defs_by_id[nid] = node
+
+    def map_pt(px, py, mat):
+        a, b, c, d, e, f = mat
+        return (a * px + c * py + e, b * px + d * py + f)
 
     def parse_style(el):
         st = {}
@@ -741,46 +810,81 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
                 st[k] = el.attrib[k]
         return st
 
-    def walk(el, parent_style, tx=0.0, ty=0.0):
+    def walk(el, parent_style, cur_mat, depth=0):
+        if depth > 24:
+            return
+        tag = _tag_local(el.tag)
+        if tag in ("defs", "clippath", "mask", "title", "desc"):
+            return
+
         st = dict(parent_style)
         st.update(parse_style(el))
-        tr = el.attrib.get("transform", "")
-        m_tr = re.search(r"translate\(\s*([+-]?[0-9.eE+-]+)(?:[\s,]+([+-]?[0-9.eE+-]+))?\s*\)", tr)
-        if m_tr:
-            tx += float(m_tr.group(1))
-            ty += float(m_tr.group(2) or 0.0)
+        local_mat = _svg_parse_transform(el.attrib.get("transform", ""))
+        mat = _svg_mat_mul(cur_mat, local_mat)
 
-        tag = _tag_local(el.tag)
+        if tag == "use":
+            href = el.attrib.get("{http://www.w3.org/1999/xlink}href") or el.attrib.get("href") or ""
+            if href.startswith("#") and href[1:] in defs_by_id:
+                ux = float(re.sub(r"[^0-9.+-]", "", el.attrib.get("x", "0")) or 0)
+                uy = float(re.sub(r"[^0-9.+-]", "", el.attrib.get("y", "0")) or 0)
+                umat = _svg_mat_mul(mat, (1.0, 0.0, 0.0, 1.0, ux, uy))
+                target = defs_by_id[href[1:]]
+                walk(target, st, umat, depth + 1)
+            return
+
         op = float(st.get("opacity", 1.0) or 1.0)
         fill_col = _parse_svg_color(st.get("fill", "#000000"), op * float(st.get("fill-opacity", 1.0) or 1.0)) if tag in ("rect", "circle", "ellipse", "polygon", "path") else None
         stroke_col = _parse_svg_color(st.get("stroke"), op * float(st.get("stroke-opacity", 1.0) or 1.0)) if "stroke" in st else None
-        sw_px = max(1, int(round(float(re.sub(r"[^0-9.]", "", st.get("stroke-width", "1")) or 1) * min(sx, sy))))
+        mat_scale = math.sqrt(abs(mat[0] * mat[3] - mat[1] * mat[2]))
+        sw_px = max(1, int(round(float(re.sub(r"[^0-9.]", "", st.get("stroke-width", "1")) or 1) * max(mat_scale, 0.1))))
 
         if tag == "rect":
-            rx = float(el.attrib.get("x", 0))
-            ry = float(el.attrib.get("y", 0))
+            rx0 = float(el.attrib.get("x", 0))
+            ry0 = float(el.attrib.get("y", 0))
             rw = float(el.attrib.get("width", 0))
             rh = float(el.attrib.get("height", 0))
-            p0, p1 = map_pt(rx, ry, tx, ty), map_pt(rx + rw, ry + rh, tx, ty)
-            draw.rectangle([p0[0], p0[1], p1[0], p1[1]], fill=fill_col, outline=stroke_col, width=sw_px)
+            rad = float(el.attrib.get("rx", el.attrib.get("ry", 0)) or 0)
+            pts = [
+                map_pt(rx0, ry0, mat),
+                map_pt(rx0 + rw, ry0, mat),
+                map_pt(rx0 + rw, ry0 + rh, mat),
+                map_pt(rx0, ry0 + rh, mat),
+            ]
+            # Fast rounded-rect when axis-aligned
+            if rad > 0.5 and abs(mat[1]) < 1e-4 and abs(mat[2]) < 1e-4:
+                x0, x1 = min(pts[0][0], pts[2][0]), max(pts[0][0], pts[2][0])
+                y0, y1 = min(pts[0][1], pts[2][1]), max(pts[0][1], pts[2][1])
+                r_px = max(1, int(round(rad * abs(mat[0]))))
+                draw.rounded_rectangle([x0, y0, x1, y1], radius=r_px, fill=fill_col, outline=stroke_col, width=sw_px)
+            else:
+                if fill_col:
+                    draw.polygon(pts, fill=fill_col, outline=stroke_col)
+                if stroke_col:
+                    draw.line(pts + [pts[0]], fill=stroke_col, width=sw_px)
         elif tag == "circle":
             cx, cy = float(el.attrib.get("cx", 0)), float(el.attrib.get("cy", 0))
             r = float(el.attrib.get("r", 0))
-            p0, p1 = map_pt(cx - r, cy - r, tx, ty), map_pt(cx + r, cy + r, tx, ty)
-            draw.ellipse([p0[0], p0[1], p1[0], p1[1]], fill=fill_col, outline=stroke_col, width=sw_px)
+            pts = [map_pt(cx + r * math.cos(k * math.pi / 16.0), cy + r * math.sin(k * math.pi / 16.0), mat) for k in range(32)]
+            if fill_col:
+                draw.polygon(pts, fill=fill_col, outline=stroke_col)
+            if stroke_col:
+                draw.line(pts + [pts[0]], fill=stroke_col, width=sw_px)
         elif tag == "ellipse":
             cx, cy = float(el.attrib.get("cx", 0)), float(el.attrib.get("cy", 0))
             rx, ry = float(el.attrib.get("rx", 0)), float(el.attrib.get("ry", 0))
-            p0, p1 = map_pt(cx - rx, cy - ry, tx, ty), map_pt(cx + rx, cy + ry, tx, ty)
-            draw.ellipse([p0[0], p0[1], p1[0], p1[1]], fill=fill_col, outline=stroke_col, width=sw_px)
+            pts = [map_pt(cx + rx * math.cos(k * math.pi / 16.0), cy + ry * math.sin(k * math.pi / 16.0), mat) for k in range(32)]
+            if fill_col:
+                draw.polygon(pts, fill=fill_col, outline=stroke_col)
+            if stroke_col:
+                draw.line(pts + [pts[0]], fill=stroke_col, width=sw_px)
         elif tag == "line":
-            p0 = map_pt(float(el.attrib.get("x1", 0)), float(el.attrib.get("y1", 0)), tx, ty)
-            p1 = map_pt(float(el.attrib.get("x2", 0)), float(el.attrib.get("y2", 0)), tx, ty)
+            p0 = map_pt(float(el.attrib.get("x1", 0)), float(el.attrib.get("y1", 0)), mat)
+            p1 = map_pt(float(el.attrib.get("x2", 0)), float(el.attrib.get("y2", 0)), mat)
             if stroke_col:
                 draw.line([p0, p1], fill=stroke_col, width=sw_px)
         elif tag in ("polygon", "polyline"):
             coords = [float(x) for x in re.findall(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", el.attrib.get("points", ""))]
-            pts = [map_pt(coords[i], coords[i + 1], tx, ty) for i in range(0, len(coords) - 1, 2)]
+            pts = [map_pt(coords[i], coords[i + 1], mat) for i in range(0, len(coords) - 1, 2)]
             if len(pts) >= 2:
                 if tag == "polygon" and fill_col:
                     draw.polygon(pts, fill=fill_col, outline=stroke_col)
@@ -792,7 +896,9 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
             subpaths = []
             cur_pts = []
             cx, cy, sx0, sy0 = 0.0, 0.0, 0.0, 0.0
-            i, cmd = 0, ""
+            last_c2x, last_c2y = 0.0, 0.0
+            last_qx, last_qy = 0.0, 0.0
+            i, cmd, prev_cmd = 0, "", ""
             while i < len(toks):
                 t = toks[i]
                 if t.isalpha():
@@ -803,6 +909,7 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
                             subpaths.append((cur_pts, True))
                             cur_pts = []
                         cx, cy = sx0, sy0
+                        prev_cmd = cmd
                     continue
                 if cmd in ("M", "m", "L", "l"):
                     x, y = float(toks[i]), float(toks[i + 1])
@@ -813,22 +920,26 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
                     if cmd in ("M", "m"):
                         if cur_pts:
                             subpaths.append((cur_pts, False))
-                        cur_pts = [map_pt(x, y, tx, ty)]
+                        cur_pts = [map_pt(x, y, mat)]
                         sx0, sy0 = x, y
+                        prev_cmd = cmd
                         cmd = "l" if cmd == "m" else "L"
                     else:
-                        cur_pts.append(map_pt(x, y, tx, ty))
+                        cur_pts.append(map_pt(x, y, mat))
+                        prev_cmd = cmd
                     cx, cy = x, y
                 elif cmd in ("H", "h"):
                     x = float(toks[i]) + (cx if cmd == "h" else 0.0)
                     i += 1
-                    cur_pts.append(map_pt(x, cy, tx, ty))
+                    cur_pts.append(map_pt(x, cy, mat))
                     cx = x
+                    prev_cmd = cmd
                 elif cmd in ("V", "v"):
                     y = float(toks[i]) + (cy if cmd == "v" else 0.0)
                     i += 1
-                    cur_pts.append(map_pt(cx, y, tx, ty))
+                    cur_pts.append(map_pt(cx, y, mat))
                     cy = y
+                    prev_cmd = cmd
                 elif cmd in ("C", "c"):
                     x1, y1, x2, y2, x, y = [float(toks[i + k]) for k in range(6)]
                     i += 6
@@ -838,8 +949,24 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
                         u = stp / 12.0
                         bx = ((1 - u)**3)*cx + 3*((1 - u)**2)*u*x1 + 3*(1 - u)*(u**2)*x2 + (u**3)*x
                         by = ((1 - u)**3)*cy + 3*((1 - u)**2)*u*y1 + 3*(1 - u)*(u**2)*y2 + (u**3)*y
-                        cur_pts.append(map_pt(bx, by, tx, ty))
+                        cur_pts.append(map_pt(bx, by, mat))
+                    last_c2x, last_c2y = x2, y2
                     cx, cy = x, y
+                    prev_cmd = cmd
+                elif cmd in ("S", "s"):
+                    x2, y2, x, y = [float(toks[i + k]) for k in range(4)]
+                    i += 4
+                    if cmd == "s":
+                        x2 += cx; y2 += cy; x += cx; y += cy
+                    x1, y1 = (2 * cx - last_c2x, 2 * cy - last_c2y) if prev_cmd in ("C", "c", "S", "s") else (cx, cy)
+                    for stp in range(1, 13):
+                        u = stp / 12.0
+                        bx = ((1 - u)**3)*cx + 3*((1 - u)**2)*u*x1 + 3*(1 - u)*(u**2)*x2 + (u**3)*x
+                        by = ((1 - u)**3)*cy + 3*((1 - u)**2)*u*y1 + 3*(1 - u)*(u**2)*y2 + (u**3)*y
+                        cur_pts.append(map_pt(bx, by, mat))
+                    last_c2x, last_c2y = x2, y2
+                    cx, cy = x, y
+                    prev_cmd = cmd
                 elif cmd in ("Q", "q"):
                     x1, y1, x, y = [float(toks[i + k]) for k in range(4)]
                     i += 4
@@ -849,8 +976,33 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
                         u = stp / 8.0
                         bx = ((1 - u)**2)*cx + 2*(1 - u)*u*x1 + (u**2)*x
                         by = ((1 - u)**2)*cy + 2*(1 - u)*u*y1 + (u**2)*y
-                        cur_pts.append(map_pt(bx, by, tx, ty))
+                        cur_pts.append(map_pt(bx, by, mat))
+                    last_qx, last_qy = x1, y1
                     cx, cy = x, y
+                    prev_cmd = cmd
+                elif cmd in ("T", "t"):
+                    x, y = float(toks[i]), float(toks[i + 1])
+                    i += 2
+                    if cmd == "t":
+                        x += cx; y += cy
+                    x1, y1 = (2 * cx - last_qx, 2 * cy - last_qy) if prev_cmd in ("Q", "q", "T", "t") else (cx, cy)
+                    for stp in range(1, 9):
+                        u = stp / 8.0
+                        bx = ((1 - u)**2)*cx + 2*(1 - u)*u*x1 + (u**2)*x
+                        by = ((1 - u)**2)*cy + 2*(1 - u)*u*y1 + (u**2)*y
+                        cur_pts.append(map_pt(bx, by, mat))
+                    last_qx, last_qy = x1, y1
+                    cx, cy = x, y
+                    prev_cmd = cmd
+                elif cmd in ("A", "a") and i + 6 < len(toks):
+                    # Approximate SVG arc endpoints smoothly onto target point
+                    x, y = float(toks[i + 5]), float(toks[i + 6])
+                    i += 7
+                    if cmd == "a":
+                        x += cx; y += cy
+                    cur_pts.append(map_pt(x, y, mat))
+                    cx, cy = x, y
+                    prev_cmd = cmd
                 else:
                     i += 1
             if cur_pts:
@@ -863,9 +1015,9 @@ def _render_svg_to_rgba(svg_bytes, tw, th):
                         draw.line(pts + ([pts[0]] if is_closed else []), fill=stroke_col or fill_col, width=sw_px)
 
         for child in el:
-            walk(child, st, tx, ty)
+            walk(child, st, mat, depth + 1)
 
-    walk(root, {})
+    walk(root, {}, root_mat)
     out = img.resize((tw, th), Image.Resampling.LANCZOS)
     img.close()
     return out
@@ -1483,7 +1635,7 @@ def _extract_para_spacing_pt(pPr, tag_name, pt_size):
 
 
 def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
-    """Extract paragraphs/runs resolving full placeholder + theme inheritance."""
+    """Extract paragraphs/runs resolving full placeholder + theme + normAutofit inheritance."""
     tf = shape.text_frame
     ph_type, ph_idx = None, None
     try:
@@ -1491,6 +1643,21 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
         if ph_el is not None:
             ph_type = ph_el.attrib.get("type")
             ph_idx = ph_el.attrib.get("idx")
+    except Exception:
+        pass
+
+    # Parse <a:normAutofit fontScale="..." lnSpcReduction="..."/> so shrunk text boxes stay inside cards
+    font_scale = 1.0
+    ln_spc_reduction = 0.0
+    try:
+        bpr = tf._txBody.find(f"{{{A_NS}}}bodyPr")
+        if bpr is not None:
+            nf = bpr.find(f"{{{A_NS}}}normAutofit")
+            if nf is not None:
+                if "fontScale" in nf.attrib:
+                    font_scale = max(0.15, min(2.0, float(nf.attrib["fontScale"]) / 100000.0))
+                if "lnSpcReduction" in nf.attrib:
+                    ln_spc_reduction = max(0.0, min(0.6, float(nf.attrib["lnSpcReduction"]) / 100000.0))
     except Exception:
         pass
 
@@ -1548,6 +1715,19 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
         except Exception:
             pass
 
+        pt_size_scaled = pt_size * font_scale
+        p_ln_spc = 1.0
+        if pPr is not None:
+            ln_spc_el = pPr.find(f"{{{A_NS}}}lnSpc")
+            if ln_spc_el is not None:
+                pct = ln_spc_el.find(f"{{{A_NS}}}spcPct")
+                if pct is not None and "val" in pct.attrib:
+                    try:
+                        p_ln_spc = max(0.7, min(2.5, float(pct.attrib["val"]) / 100000.0))
+                    except Exception:
+                        pass
+        eff_ln_spc = round(max(0.70, p_ln_spc * (1.0 - ln_spc_reduction)), 3)
+
         runs_data = []
         first_explicit_run_color = None
         for r in p.runs:
@@ -1556,7 +1736,7 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
                 continue
             rPr = r._r.find(f"{{{A_NS}}}rPr")
             rp = _extract_rPr_props(rPr, theme_colors, theme_fonts)
-            r_size = rp.get("size", pt_size)
+            r_size = rp.get("size", pt_size) * font_scale
             r_bold = rp.get("bold", is_bold)
             r_italic = rp.get("italic", is_italic)
             r_font = rp.get("font", p_font)
@@ -1595,20 +1775,23 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
         bu_explicit = pPr is not None and (
             pPr.find(f"{{{A_NS}}}buChar") is not None or pPr.find(f"{{{A_NS}}}buAutoNum") is not None
         )
-        final_text = p_text.strip()
-        already_bulleted = final_text.startswith("•") or final_text.startswith("- ")
+        # Preserve leading indentation spaces when no extra bullet strip needed
+        final_text = p_text.rstrip() if (len(runs_data) <= 1 and "\n" not in p_text and p_text.startswith("  ")) else p_text.strip()
+        already_bulleted = final_text.lstrip().startswith(("•", "- "))
         has_bullet = already_bulleted or ((not bu_none) and (bu_explicit or level > 0))
         if has_bullet and not already_bulleted:
-            final_text = "• " + final_text
+            final_text = "• " + final_text.lstrip()
             if runs_data:
                 runs_data[0]["text"] = "• " + runs_data[0]["text"]
 
-        spc_bef = _extract_para_spacing_pt(pPr, "spcBef", pt_size) or 0.0
-        spc_aft = _extract_para_spacing_pt(pPr, "spcAft", pt_size)
+        spc_bef = (_extract_para_spacing_pt(pPr, "spcBef", pt_size_scaled) or 0.0) * (1.0 - ln_spc_reduction * 0.5)
+        spc_aft = _extract_para_spacing_pt(pPr, "spcAft", pt_size_scaled)
+        if spc_aft is not None:
+            spc_aft = round(spc_aft * (1.0 - ln_spc_reduction * 0.5), 1)
 
         paras.append({
             "text": final_text,
-            "size": round(pt_size, 1),
+            "size": round(pt_size_scaled, 1),
             "bold": bool(is_bold),
             "italic": bool(is_italic),
             "color": effective_p_color,
@@ -1616,23 +1799,44 @@ def extract_paragraphs(shape, slide, theme_colors, theme_fonts, default_color):
             "level": level,
             "bullet": has_bullet,
             "font": p_font,
-            "space_before": spc_bef,
+            "space_before": round(spc_bef, 1),
             "space_after": spc_aft,
+            "ln_spc": eff_ln_spc,
             "runs": runs_data,
         })
 
     return paras, text_lines
 
 
+def _rotated_norm_box(nx, ny, nw, nh, rot_deg, slide_aspect):
+    """Compute centered axis-aligned bounding box after rotation in anisotropic slide space."""
+    if abs(rot_deg) <= 0.5:
+        return nx, ny, nw, nh
+    rad = math.radians(rot_deg)
+    ca, sa = abs(math.cos(rad)), abs(math.sin(rad))
+    wu = nw * slide_aspect
+    hu = nh
+    rw_u = wu * ca + hu * sa
+    rh_u = wu * sa + hu * ca
+    rnw = max(0.002, rw_u / max(slide_aspect, 1e-4))
+    rnh = max(0.002, rh_u)
+    cx = nx + nw * 0.5
+    cy = ny + nh * 0.5
+    return cx - rnw * 0.5, cy - rnh * 0.5, rnw, rnh
+
+
 def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, layers, text_blocks, full_text_lines, default_text_color, ox=0.0, oy=0.0, sx=1.0, sy=1.0, bg_tracker=None):
     """Extract a shape (or grouped shape hierarchy) preserving true Z-order."""
-    # Group shapes
+    # Group shapes (direct child grpSpPr only so nested sub-groups resolve cleanly)
     if MSO_SHAPE_TYPE and shape.shape_type == MSO_SHAPE_TYPE.GROUP:
         try:
-            xfrm = shape._element.find(f".//{{{P_NS}}}grpSpPr/{{{A_NS}}}xfrm")
-            g_off_x, g_off_y = shape.left, shape.top
-            g_ext_x, g_ext_y = max(1, shape.width), max(1, shape.height)
-            ch_off_x, ch_off_y, ch_ext_x, ch_ext_y = 0, 0, g_ext_x, g_ext_y
+            grpPr = shape._element.find(f"{{{P_NS}}}grpSpPr")
+            xfrm = grpPr.find(f"{{{A_NS}}}xfrm") if grpPr is not None else None
+            g_off_x = float(shape.left or 0)
+            g_off_y = float(shape.top or 0)
+            g_ext_x = max(1.0, float(shape.width or 1))
+            g_ext_y = max(1.0, float(shape.height or 1))
+            ch_off_x, ch_off_y, ch_ext_x, ch_ext_y = 0.0, 0.0, g_ext_x, g_ext_y
             if xfrm is not None:
                 chOff = xfrm.find(f"{{{A_NS}}}chOff")
                 chExt = xfrm.find(f"{{{A_NS}}}chExt")
@@ -1657,15 +1861,17 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
         return
 
     try:
+        slide_aspect = sw / max(sh, 1.0)
         left_emu = ox + (shape.left or 0) * sx
         top_emu = oy + (shape.top or 0) * sy
         w_emu = max(12700, (shape.width or 0) * sx)
         h_emu = max(12700, (shape.height or 0) * sy)
 
-        nx = max(0.0, min(1.0, left_emu / sw))
-        ny = max(0.0, min(1.0, top_emu / sh))
-        nw = max(0.002, min(1.0 - nx + 0.002, w_emu / sw))
-        nh = max(0.002, min(1.0 - ny + 0.002, h_emu / sh))
+        # Keep edge-overhang alignment intact instead of clamping negative x/y onto 0 (which shifts centers)
+        nx = max(-0.25, min(1.25, left_emu / sw))
+        ny = max(-0.25, min(1.25, top_emu / sh))
+        nw = max(0.002, min(1.5, w_emu / sw))
+        nh = max(0.002, min(1.5, h_emu / sh))
 
         # Inspect geometry, transform (flip/rotate), fill, and stroke directly from spPr
         spPr = shape._element.find(f"{{{P_NS}}}spPr") if hasattr(shape, "_element") else None
@@ -1774,6 +1980,7 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                         droot = ET.fromstring(drawing_part.blob)
                         spTree = droot.find(f".//{{{DSP_NS}}}spTree")
                         if spTree is not None:
+                            dsp_nodes = []
                             for dsp_sp in spTree.findall(f"{{{DSP_NS}}}sp"):
                                 d_spPr = dsp_sp.find(f"{{{DSP_NS}}}spPr")
                                 d_txBody = dsp_sp.find(f"{{{DSP_NS}}}txBody")
@@ -1790,44 +1997,54 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                                 dy = float(d_off.attrib.get("y", 0))
                                 dw = max(12700.0, float(d_ext.attrib.get("cx", 0)))
                                 dh = max(12700.0, float(d_ext.attrib.get("cy", 0)))
-                                # Coordinates in drawing*.xml can be local to graphicFrame or full-slide EMU
-                                ax = (left_emu + dx * sx) if (dx + dw <= w_emu * 1.1 and dx < left_emu) else (ox + dx * sx)
-                                ay = (top_emu + dy * sy) if (dy + dh <= h_emu * 1.1 and dy < top_emu) else (oy + dy * sy)
-                                dnx = max(0.0, min(1.0, ax / sw))
-                                dny = max(0.0, min(1.0, ay / sh))
-                                dnw = max(0.002, min(1.0 - dnx + 0.002, (dw * sx) / sw))
-                                dnh = max(0.002, min(1.0 - dny + 0.002, (dh * sy) / sh))
+                                dsp_nodes.append((d_spPr, d_txBody, dx, dy, dw, dh))
 
-                                d_geom = "rect"
-                                d_av = {}
-                                d_prst = d_spPr.find(f"{{{A_NS}}}prstGeom")
-                                if d_prst is not None and d_prst.attrib.get("prst"):
-                                    d_geom = d_prst.attrib["prst"]
-                                d_fill = _resolve_fill_element(d_spPr.find(f"{{{A_NS}}}solidFill"), theme_colors)
-                                d_ln = d_spPr.find(f"{{{A_NS}}}ln")
-                                d_bcol = _resolve_fill_element(d_ln.find(f"{{{A_NS}}}solidFill"), theme_colors) if (d_ln is not None and d_ln.find(f"{{{A_NS}}}noFill") is None) else None
-                                if d_fill or d_bcol:
-                                    rend = _render_vector_shape_spans(d_geom, d_fill, d_bcol, 1, dnw, dnh, d_av, False, False) if d_geom != "rect" else None
-                                    if rend:
-                                        rtw, rth, rsp = rend
-                                        layers.append({"kind": "image", "x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "tw": rtw, "th": rth, "spans": rsp})
-                                    else:
-                                        layers.append({"kind": "shape", "x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "fill": d_fill, "border": d_bcol, "border_w": 1})
-                                if d_txBody is not None:
-                                    d_paras = []
-                                    for dp in d_txBody.findall(f"{{{A_NS}}}p"):
-                                        txt_runs = [t.text for t in dp.iter(f"{{{A_NS}}}t") if t.text]
-                                        full_dp = "".join(txt_runs).strip()
-                                        if not full_dp:
-                                            continue
-                                        full_text_lines.append(full_dp)
-                                        rpr = dp.find(f".//{{{A_NS}}}rPr")
-                                        d_col = resolve_color(None, xml_el=rpr, theme_dict=theme_colors, default=(255, 255, 255) if (d_fill and (0.299*d_fill[0]+0.587*d_fill[1]+0.114*d_fill[2]) < 128) else (20, 24, 30))
-                                        d_sz = float(rpr.attrib.get("sz", 1200)) / 100.0 if (rpr is not None and "sz" in rpr.attrib) else 12.0
-                                        d_bold = (rpr.attrib.get("b") in ("1", "true")) if rpr is not None else False
-                                        d_paras.append({"text": full_dp, "size": d_sz, "bold": d_bold, "italic": False, "color": d_col, "align": "center", "level": 0, "bullet": False, "font": "sans", "runs": []})
-                                    if d_paras:
-                                        text_blocks.append({"x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "anchor": "ctr", "ins_l": 0.004, "ins_t": 0.002, "ins_r": 0.004, "ins_b": 0.002, "paragraphs": d_paras})
+                            if dsp_nodes:
+                                # Determine diagram-wide coordinate space consistently (local vs global)
+                                min_dx = min(n[2] for n in dsp_nodes)
+                                min_dy = min(n[3] for n in dsp_nodes)
+                                max_dx2 = max(n[2] + n[4] for n in dsp_nodes)
+                                max_dy2 = max(n[3] + n[5] for n in dsp_nodes)
+                                is_local_diag = (max_dx2 <= w_emu * 1.15 and max_dy2 <= h_emu * 1.15 and (min_dx < left_emu * 0.8 or min_dy < top_emu * 0.8))
+
+                                for d_spPr, d_txBody, dx, dy, dw, dh in dsp_nodes:
+                                    ax = (left_emu + dx * sx) if is_local_diag else (ox + dx * sx)
+                                    ay = (top_emu + dy * sy) if is_local_diag else (oy + dy * sy)
+                                    dnx = max(-0.25, min(1.25, ax / sw))
+                                    dny = max(-0.25, min(1.25, ay / sh))
+                                    dnw = max(0.002, min(1.5, (dw * sx) / sw))
+                                    dnh = max(0.002, min(1.5, (dh * sy) / sh))
+
+                                    d_geom = "rect"
+                                    d_av = {}
+                                    d_prst = d_spPr.find(f"{{{A_NS}}}prstGeom")
+                                    if d_prst is not None and d_prst.attrib.get("prst"):
+                                        d_geom = d_prst.attrib["prst"]
+                                    d_fill = _resolve_fill_element(d_spPr.find(f"{{{A_NS}}}solidFill"), theme_colors)
+                                    d_ln = d_spPr.find(f"{{{A_NS}}}ln")
+                                    d_bcol = _resolve_fill_element(d_ln.find(f"{{{A_NS}}}solidFill"), theme_colors) if (d_ln is not None and d_ln.find(f"{{{A_NS}}}noFill") is None) else None
+                                    if d_fill or d_bcol:
+                                        rend = _render_vector_shape_spans(d_geom, d_fill, d_bcol, 1, dnw, dnh, d_av, False, False) if d_geom != "rect" else None
+                                        if rend:
+                                            rtw, rth, rsp = rend
+                                            layers.append({"kind": "image", "x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "tw": rtw, "th": rth, "spans": rsp})
+                                        else:
+                                            layers.append({"kind": "shape", "x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "fill": d_fill, "border": d_bcol, "border_w": 1})
+                                    if d_txBody is not None:
+                                        d_paras = []
+                                        for dp in d_txBody.findall(f"{{{A_NS}}}p"):
+                                            txt_runs = [t.text for t in dp.iter(f"{{{A_NS}}}t") if t.text]
+                                            full_dp = "".join(txt_runs).strip()
+                                            if not full_dp:
+                                                continue
+                                            full_text_lines.append(full_dp)
+                                            rpr = dp.find(f".//{{{A_NS}}}rPr")
+                                            d_col = resolve_color(None, xml_el=rpr, theme_dict=theme_colors, default=(255, 255, 255) if (d_fill and (0.299*d_fill[0]+0.587*d_fill[1]+0.114*d_fill[2]) < 128) else (20, 24, 30))
+                                            d_sz = float(rpr.attrib.get("sz", 1200)) / 100.0 if (rpr is not None and "sz" in rpr.attrib) else 12.0
+                                            d_bold = (rpr.attrib.get("b") in ("1", "true")) if rpr is not None else False
+                                            d_paras.append({"text": full_dp, "size": d_sz, "bold": d_bold, "italic": False, "color": d_col, "align": "center", "level": 0, "bullet": False, "font": "sans", "ln_spc": 1.0, "runs": []})
+                                        if d_paras:
+                                            text_blocks.append({"z": len(layers), "x": round(dnx, 4), "y": round(dny, 4), "w": round(dnw, 4), "h": round(dnh, 4), "anchor": "ctr", "ins_l": 0.004, "ins_t": 0.002, "ins_r": 0.004, "ins_b": 0.002, "paragraphs": d_paras})
                 except Exception:
                     pass
                 return
@@ -1838,9 +2055,10 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                 rendered = _render_vector_shape_spans(geom, fill_color, border_color, border_w, nw, nh, prst_av, flip_h, flip_v, rot_deg=rot_deg, cust_geom_el=cust_geom_el)
                 if rendered:
                     tw, th, spans = rendered
+                    rnx, rny, rnw, rnh = _rotated_norm_box(nx, ny, nw, nh, rot_deg, slide_aspect)
                     layers.append({
                         "kind": "image",
-                        "x": round(nx, 4), "y": round(ny, 4), "w": round(nw, 4), "h": round(nh, 4),
+                        "x": round(rnx, 4), "y": round(rny, 4), "w": round(rnw, 4), "h": round(rnh, 4),
                         "tw": tw, "th": th, "spans": spans,
                     })
                 else:
@@ -1885,7 +2103,8 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
         if pic_blob and Image:
             try:
                 thumb_w = min(900, max(64, int(round(nw * 1280))))
-                thumb_h_est = max(48, int(round(nh * 720)))
+                # Compute SVG height using actual physical shape aspect (accounts for 4:3 vs 16:9)
+                thumb_h_est = max(48, int(round(thumb_w * (nh / max(nw, 1e-4)) / max(slide_aspect, 1e-4))))
                 pil_img = None
 
                 # Check for SVG blob or svgBlip extension when raster fallback fails
@@ -1929,9 +2148,10 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                     pil_img.close()
                     spans = _encode_rgba_rle(resized)
                     resized.close()
+                    rnx, rny, rnw, rnh = _rotated_norm_box(nx, ny, nw, nh, rot_deg, slide_aspect)
                     layers.append({
                         "kind": "image",
-                        "x": round(nx, 4), "y": round(ny, 4), "w": round(nw, 4), "h": round(nh, 4),
+                        "x": round(rnx, 4), "y": round(rny, 4), "w": round(rnw, 4), "h": round(rnh, 4),
                         "tw": thumb_w, "th": thumb_h, "spans": spans,
                     })
             except Exception:
@@ -2041,6 +2261,7 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                             if cell_paras:
                                 full_text_lines.extend(cell_lines)
                                 text_blocks.append({
+                                    "z": len(layers), "clip": True,
                                     "x": round(cx, 4), "y": round(cy, 4),
                                     "w": round(cw_c, 4), "h": round(ch_c, 4),
                                     "anchor": cell_anchor,
@@ -2069,9 +2290,11 @@ def _extract_shape_recursive(shape, slide, sw, sh, theme_colors, theme_fonts, la
                         ins_b = float(bpr.attrib.get("bIns", 45720)) / sh
                 except Exception:
                     pass
+                rnx, rny, rnw, rnh = _rotated_norm_box(nx, ny, nw, nh, rot_deg, slide_aspect)
                 text_blocks.append({
-                    "x": round(nx, 4), "y": round(ny, 4),
-                    "w": round(nw, 4), "h": round(nh, 4),
+                    "z": len(layers),
+                    "x": round(rnx, 4), "y": round(rny, 4),
+                    "w": round(rnw, 4), "h": round(rnh, 4),
                     "anchor": anchor,
                     "ins_l": round(ins_l, 4), "ins_t": round(ins_t, 4),
                     "ins_r": round(ins_r, 4), "ins_b": round(ins_b, 4),
@@ -2269,8 +2492,10 @@ def render_slide(pptx_path, slide_idx, out_file, width=110, mode="hd"):
 
             f.write("  text_blocks = {\n")
             for tb in text_blocks:
+                z_val = tb.get("z", len(layers))
+                clip_str = "true" if tb.get("clip") else "false"
                 f.write(
-                    f"    {{ x = {tb['x']}, y = {tb['y']}, w = {tb['w']}, h = {tb['h']}, "
+                    f"    {{ z = {z_val}, clip = {clip_str}, x = {tb['x']}, y = {tb['y']}, w = {tb['w']}, h = {tb['h']}, "
                     f"anchor = \"{tb.get('anchor', 't')}\", ins_l = {tb.get('ins_l', 0)}, ins_t = {tb.get('ins_t', 0)}, "
                     f"ins_r = {tb.get('ins_r', 0)}, ins_b = {tb.get('ins_b', 0)}, paragraphs = {{\n"
                 )
@@ -2279,10 +2504,11 @@ def render_slide(pptx_path, slide_idx, out_file, width=110, mode="hd"):
                     spc_b = p.get("space_before", 0.0) or 0.0
                     spc_a = p.get("space_after")
                     spc_a_str = f"{spc_a}" if spc_a is not None else "nil"
+                    ln_spc = p.get("ln_spc", 1.0) or 1.0
                     f.write(
                         f"      {{ text = \"{sanitize_str(p['text'])}\", size = {p['size']}, bold = {'true' if p['bold'] else 'false'}, "
                         f"italic = {'true' if p.get('italic') else 'false'}, color = {{{c[0]},{c[1]},{c[2]}}}, align = \"{p['align']}\", level = {p['level']}, "
-                        f"bullet = {'true' if p['bullet'] else 'false'}, font = \"{p.get('font', 'sans')}\", spc_b = {spc_b}, spc_a = {spc_a_str}"
+                        f"bullet = {'true' if p['bullet'] else 'false'}, font = \"{p.get('font', 'sans')}\", spc_b = {spc_b}, spc_a = {spc_a_str}, ln_spc = {ln_spc}"
                     )
                     if p.get("runs") and len(p["runs"]) > 1:
                         f.write(", runs = {\n")

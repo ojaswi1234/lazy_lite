@@ -94,20 +94,25 @@ def _bandpass_fft(wave, sr, low_hz=75.0, high_hz=1100.0):
     return np.fft.irfft(spec * mask, n=n).astype(np.float32)
 
 
-def compute_acoustic_signature(pcm_window, sr, peak_idx, bg_snap_rms=1e-4):
-    """Compute Direct-to-Reverberant Ratio (DRR) and absolute core RMS for Presenter Lock.
+def compute_acoustic_signature(pcm_window, sr, peak_idx, bg_snap_rms=1e-4, bg_speech_rms=1e-4):
+    """Compute DRR, core crest, murmur/speech-band RMS, and transient isolation ratio.
 
-    A nearby presenter snap concentrates high energy inside [-2..+12 ms] vs diffuse room
-    reverb [+18..+58 ms], whereas an audience disturber across the room has lower DRR
-    (more reverb tail relative to direct peak) and softer absolute amplitude.
+    Detects unvoiced murmuring, whispering, and soft mouth pops that evade pitch ACF.
     """
-    a0 = max(0, peak_idx - int(round(sr * 0.008)))
-    a1 = min(pcm_window.size, peak_idx + int(round(sr * 0.062)))
-    if a1 - a0 < int(sr * 0.025):
-        return {"drr": 1.0, "core_rms": 0.0, "core_peak": 0.0}
+    a0 = max(0, peak_idx - int(round(sr * 0.130)))
+    a1 = min(pcm_window.size, peak_idx + int(round(sr * 0.080)))
+    if a1 - a0 < int(sr * 0.040):
+        return {
+            "drr": 1.0, "core_rms": 0.0, "core_peak": 0.0, "core_crest": 0.0,
+            "speech_pre": 0.0, "speech_post": 0.0, "isolation": 1.0,
+        }
 
-    hp = _highpass_fft(pcm_window[a0:a1].astype(np.float32, copy=False), sr, cutoff_hz=1200.0)
+    seg = pcm_window[a0:a1].astype(np.float32, copy=False)
     c = peak_idx - a0
+
+    hp = _highpass_fft(seg, sr, cutoff_hz=1200.0)
+    sp_bp = _bandpass_fft(seg, sr, low_hz=160.0, high_hz=1150.0)
+
     c0 = max(0, c - int(round(sr * 0.002)))
     c1 = min(hp.size, c + int(round(sr * 0.012)))
     r0 = min(hp.size, c + int(round(sr * 0.018)))
@@ -117,10 +122,37 @@ def compute_acoustic_signature(pcm_window, sr, peak_idx, bg_snap_rms=1e-4):
     rev = hp[r0:r1]
     core_rms = float(np.sqrt(np.mean(core * core) + 1e-14)) if core.size else 0.0
     core_peak = float(np.max(np.abs(core))) if core.size else 0.0
+    core_crest = core_peak / max(core_rms, 1e-9)
     rev_rms = float(np.sqrt(np.mean(rev * rev) + 1e-14)) if rev.size else bg_snap_rms
     excess_rev = max(rev_rms - 0.85 * bg_snap_rms, bg_snap_rms * 0.25, 1e-6)
     drr = core_rms / excess_rev
-    return {"drr": float(min(200.0, drr)), "core_rms": core_rms, "core_peak": core_peak}
+
+    # Unvoiced murmur/speech envelope in 160-1150 Hz before (-125..-18 ms) and after (+16..+75 ms)
+    p0 = max(0, c - int(round(sr * 0.125)))
+    p1 = max(p0 + 16, c - int(round(sr * 0.018)))
+    q0 = min(sp_bp.size, c + int(round(sr * 0.016)))
+    q1 = min(sp_bp.size, c + int(round(sr * 0.075)))
+    pre_sp = sp_bp[p0:p1]
+    post_sp = sp_bp[q0:q1]
+    speech_pre = float(np.sqrt(np.mean(pre_sp * pre_sp) + 1e-14)) if pre_sp.size else 0.0
+    speech_post = float(np.sqrt(np.mean(post_sp * post_sp) + 1e-14)) if post_sp.size else 0.0
+
+    # Isolation ratio: how cleanly high-band core (10 ms) spikes above surrounding high-band audio
+    sur_pre = hp[p0:p1]
+    sur_post = hp[min(hp.size, c + int(round(sr * 0.025))) : min(hp.size, c + int(round(sr * 0.075)))]
+    sur_pre_rms = float(np.sqrt(np.mean(sur_pre * sur_pre) + 1e-14)) if sur_pre.size else bg_snap_rms
+    sur_post_rms = float(np.sqrt(np.mean(sur_post * sur_post) + 1e-14)) if sur_post.size else bg_snap_rms
+    isolation = core_rms / max(0.5 * (sur_pre_rms + sur_post_rms), bg_snap_rms, 1e-6)
+
+    return {
+        "drr": float(min(200.0, drr)),
+        "core_rms": core_rms,
+        "core_peak": core_peak,
+        "core_crest": float(core_crest),
+        "speech_pre": speech_pre,
+        "speech_post": speech_post,
+        "isolation": float(min(200.0, isolation)),
+    }
 
 
 def estimate_voiced_acf(segment, sr, min_hz=75.0, max_hz=360.0):
@@ -219,18 +251,27 @@ def extract_snap_features(
 
         amb_pow = np.minimum(_win_pow(0.135, 0.080), _win_pow(0.075, 0.025))
 
+    # Subtract pre-onset ambient spectrum ONLY above 1400 Hz (steady room hiss / fast-pair guard),
+    # while preserving low/mid vocal energy (60..1400 Hz) so speaking/murmuring is NEVER hidden!
+    raw_tot_energy = float(np.sum(power[(freqs >= 60.0) & (freqs <= min(16000.0, sr * 0.48))])) + 1e-12
     clean_pow = np.maximum(0.0, power - 1.10 * amb_pow)
+    # Restore raw vocal power in 150..1400 Hz while allowing <=140 Hz AC/fan hum subtraction
+    speech_voice_mask = (freqs >= 150.0) & (freqs < 1400.0)
+    clean_pow[speech_voice_mask] = power[speech_voice_mask]
+
     tot_mask = (freqs >= 60.0) & (freqs <= min(16000.0, sr * 0.48))
     tot_energy = float(np.sum(clean_pow[tot_mask])) + 1e-12
 
     band_fracs = []
-    for f_lo, f_hi in BAND_EDGES:
+    for idx_b, (f_lo, f_hi) in enumerate(BAND_EDGES):
         hi_cap = min(f_hi, sr * 0.48)
         if f_lo >= hi_cap:
             band_fracs.append(0.0)
         else:
             bm = (freqs >= f_lo) & (freqs < hi_cap)
-            band_fracs.append(float(np.sum(clean_pow[bm])) / tot_energy)
+            src_p = power if idx_b <= 2 else clean_pow
+            denom = raw_tot_energy if idx_b <= 2 else tot_energy
+            band_fracs.append(float(np.sum(src_p[bm])) / denom)
 
     # Spectral shape metrics over 1.2 kHz .. 12 kHz
     hi_mask = (freqs >= 1200.0) & (freqs <= min(12000.0, sr * 0.48))
@@ -266,7 +307,7 @@ def extract_snap_features(
         peak_prom_log = 0.0
 
     e_snap = float(np.sum(clean_pow[(freqs >= 1800.0) & (freqs <= 5500.0)]))
-    e_low = float(np.sum(clean_pow[(freqs >= 60.0) & (freqs <= 1150.0)]))
+    e_low = float(np.sum(power[(freqs >= 160.0) & (freqs <= 1250.0)]))
     e_ultra = float(np.sum(clean_pow[(freqs >= 6500.0) & (freqs <= min(16000.0, sr * 0.48))]))
 
     snap_vs_low_log = math.log1p(min(250.0, e_snap / max(e_low, tot_energy * 0.002))) / math.log(251.0)
