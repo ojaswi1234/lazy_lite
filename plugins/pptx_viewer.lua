@@ -26,7 +26,10 @@ config.plugins.pptx = common.merge({
   thumbnail_width = 220,
   default_mode = "hd",
   snap_sensitivity = "normal",   -- "low", "normal", "high" (far-field presenter)
-  snap_double_window_ms = 580,   -- max gap (ms) between 2 fast snaps for previous slide
+  snap_gesture_mode = "solo",    -- "solo" (1x next / 2x prev) or "crowd" (2x next / 3x prev)
+  snap_dwell_lock_sec = 2.5,     -- seconds to block forward 1x snap right after slide change
+  snap_presenter_lock = true,    -- enforce calibrated DRR/timbre presenter lock if calibrated
+  snap_double_window_ms = 580,   -- max gap (ms) between fast snaps for multi-snap gestures
 }, config.plugins.pptx)
 
 local function truncate_text(font, text, max_w)
@@ -243,6 +246,9 @@ function PptxView:new(filename)
   self.snap_status_msg = nil
   self.snap_flash_text = nil
   self.snap_flash_timer = 0
+  self.snap_forward_lock_until = 0
+  self.snap_presenter_locked = false
+  self.snap_ml_enabled = true
 
   -- Previous window state for restoring after fullscreen
   self.prev_window_mode = nil
@@ -401,6 +407,10 @@ function PptxView:goto_slide(slide_idx)
   if self.slide == slide_idx and self.cache[slide_idx .. "_" .. self.mode] then
     return
   end
+  if self.slide ~= slide_idx then
+    local dwell = (config.plugins and config.plugins.pptx and tonumber(config.plugins.pptx.snap_dwell_lock_sec)) or 2.5
+    self.snap_forward_lock_until = (dwell > 0) and (os.clock() + dwell) or 0
+  end
   self.slide = slide_idx
   self.scroll.to.x = 0
   self.scroll.to.y = 0
@@ -508,27 +518,78 @@ function PptxView:toggle_slideshow()
   end
 end
 
+function PptxView:_refresh_snap_status_label()
+  local cfg = (config.plugins and config.plugins.pptx) or {}
+  local mode_tag = self.snap_ml_enabled and "ML" or "DSP"
+  local sens_tag = tostring(cfg.snap_sensitivity or "normal"):upper()
+  local gmode = tostring(cfg.snap_gesture_mode or "solo")
+  local lock_tag = self.snap_presenter_locked and "+LOCK" or ""
+  if gmode == "crowd" then
+    self.snap_status_msg = string.format("SNAP %s [%s|CROWD%s] (2x Next | 3x Prev)", mode_tag, sens_tag, lock_tag)
+  else
+    self.snap_status_msg = string.format("SNAP %s [%s%s] (1x Next | 2x Prev)", mode_tag, sens_tag, lock_tag)
+  end
+end
+
 function PptxView:_handle_snap_event(evt)
   if not self.slideshow_mode or not self.snap_active or not evt then return end
   if evt.event == "calibrating" then
     self.snap_ready = false
-    self.snap_status_msg = "SNAP MIC: Calibrating..."
+    self.snap_status_msg = "SNAP MIC: Calibrating floor..."
     core.redraw = true
   elseif evt.event == "ready" then
     self.snap_ready = true
-    local mode_tag = evt.ml and "ML" or "DSP"
-    local sens_tag = tostring(evt.sensitivity or (config.plugins and config.plugins.pptx and config.plugins.pptx.snap_sensitivity) or "normal"):upper()
-    self.snap_status_msg = string.format("SNAP %s [%s] (1x Next | 2x Prev)", mode_tag, sens_tag)
-    core.log("[Snap] Microphone %s snap control ready (%s sensitivity; 1 snap = Next, 2 fast snaps = Prev).", mode_tag, sens_tag)
+    self.snap_ml_enabled = (evt.ml ~= false)
+    self.snap_presenter_locked = (evt.presenter_lock == true)
+    self:_refresh_snap_status_label()
+    core.log("[Snap] %s ready.", self.snap_status_msg)
+    core.redraw = true
+  elseif evt.event == "cal_progress" then
+    local cap = tonumber(evt.captured) or 0
+    local tot = tonumber(evt.total) or 3
+    self.snap_flash_text = string.format("CALIBRATING: Snap at normal podium distance (%d/%d)", cap, tot)
+    self.snap_flash_timer = 4.0
+    core.redraw = true
+  elseif evt.event == "cal_done" then
+    self.snap_presenter_locked = true
+    self:_refresh_snap_status_label()
+    self.snap_flash_text = "PRESENTER LOCK ON (Audience Snaps Blocked)"
+    self.snap_flash_timer = 2.0
+    core.log("[Snap] Presenter 3-snap acoustic lock armed.")
+    core.redraw = true
+  elseif evt.event == "mode_changed" or evt.event == "sens_changed" then
+    self:_refresh_snap_status_label()
+    core.redraw = true
+  elseif evt.event == "guard" then
+    local reason = evt.reason or ""
+    if reason == "crowd_single_ignored" then
+      self.snap_flash_text = "[CROWD GUARD] 1x Random Snap Ignored"
+      self.snap_flash_timer = 1.0
+    elseif reason == "spam_breaker" then
+      self.snap_flash_text = "[GUARD] Disturbance Burst: Forward Paused (8s)"
+      self.snap_flash_timer = 2.2
+    elseif reason == "presenter_mismatch" then
+      self.snap_flash_text = "[LOCK GUARD] Non-Presenter / Distant Snap Blocked"
+      self.snap_flash_timer = 1.3
+    end
     core.redraw = true
   elseif evt.event == "snap" then
+    local cnt = tonumber(evt.count) or 1
     if evt.action == "next" then
-      self.snap_flash_text = "[1x SNAP] Next Slide"
-      self.snap_flash_timer = 1.2
-      self:next_slide()
+      local now = os.clock()
+      if self.snap_forward_lock_until and now < self.snap_forward_lock_until then
+        local rem = self.snap_forward_lock_until - now
+        self.snap_flash_text = string.format("[DWELL GUARD] Forward Locked (%.1fs) - Prev OK", rem)
+        self.snap_flash_timer = 1.0
+      else
+        self.snap_flash_text = string.format("[%dx SNAP] Next Slide", cnt)
+        self.snap_flash_timer = 1.1
+        self:next_slide()
+      end
     elseif evt.action == "prev" then
-      self.snap_flash_text = "[2x SNAP] Previous Slide"
-      self.snap_flash_timer = 1.2
+      -- Backward gesture ALWAYS stays unlocked so presenter can recover immediately
+      self.snap_flash_text = string.format("[%dx SNAP] Previous Slide", cnt)
+      self.snap_flash_timer = 1.1
       self:previous_slide()
     end
     core.redraw = true
@@ -552,13 +613,19 @@ function PptxView:start_snap_detector()
 
   local cfg = (config.plugins and config.plugins.pptx) or {}
   local sens = tostring(cfg.snap_sensitivity or "normal")
+  local gmode = tostring(cfg.snap_gesture_mode or "solo")
   local dbl_ms = tostring(cfg.snap_double_window_ms or 580)
-
-  local proc = process.start({
+  local cmd = {
     "python", "-u", SNAP_BRIDGE,
     "--sensitivity", sens,
+    "--gesture-mode", gmode,
     "--double-window-ms", dbl_ms,
-  }, {
+  }
+  if cfg.snap_presenter_lock == false then
+    table.insert(cmd, "--no-presenter-lock")
+  end
+
+  local proc = process.start(cmd, {
     stdout = process.REDIRECT_PIPE,
     stdin  = process.REDIRECT_PIPE,
     stderr = process.REDIRECT_PIPE,
@@ -602,9 +669,14 @@ function PptxView:start_snap_detector()
                 evt = {
                   event = ev_name,
                   action = line:match('"action"%s*:%s*"([^"]+)"'),
+                  reason = line:match('"reason"%s*:%s*"([^"]+)"'),
                   message = line:match('"message"%s*:%s*"([^"]+)"'),
                   sensitivity = line:match('"sensitivity"%s*:%s*"([^"]+)"'),
+                  count = tonumber(line:match('"count"%s*:%s*(%d+)')),
+                  captured = tonumber(line:match('"captured"%s*:%s*(%d+)')),
+                  total = tonumber(line:match('"total"%s*:%s*(%d+)')),
                   ml = (line:match('"ml"%s*:%s*true') ~= nil),
+                  presenter_lock = (line:match('"presenter_lock"%s*:%s*true') ~= nil),
                 }
               end
             end
@@ -673,14 +745,50 @@ function PptxView:cycle_snap_sensitivity()
   config.plugins.pptx.snap_sensitivity = next_sens
   local labels = { normal = "NORMAL (Balanced)", low = "LOW (Strict Noisy Room)", high = "HIGH (Far Presenter)" }
   core.log("[Snap] Sensitivity set to %s", labels[next_sens] or next_sens)
-  if self.slideshow_mode and self.snap_active then
-    self:stop_snap_detector(true)
-    self:start_snap_detector()
-  elseif self.slideshow_mode then
+  if self.slideshow_mode and self.snap_active and self.snap_proc then
+    pcall(function() self.snap_proc:write("SENS:" .. next_sens .. "\n") end)
+    self:_refresh_snap_status_label()
+  end
+  if self.slideshow_mode then
     self.snap_flash_text = "SNAP SENSITIVITY: " .. (labels[next_sens] or next_sens)
     self.snap_flash_timer = 1.4
   end
   core.redraw = true
+end
+
+function PptxView:toggle_crowd_snap_mode()
+  if not config.plugins or not config.plugins.pptx then return end
+  local cur = tostring(config.plugins.pptx.snap_gesture_mode or "solo")
+  local next_mode = (cur == "crowd") and "solo" or "crowd"
+  config.plugins.pptx.snap_gesture_mode = next_mode
+  if self.slideshow_mode and self.snap_active and self.snap_proc then
+    pcall(function() self.snap_proc:write("MODE:" .. next_mode .. "\n") end)
+    self:_refresh_snap_status_label()
+  end
+  if self.slideshow_mode then
+    self.snap_flash_text = (next_mode == "crowd")
+      and "CROWD-SAFE ON (1x Ignored | 2x Next | 3x Prev)"
+      or  "SOLO MODE ON (1x Next | 2x Prev)"
+    self.snap_flash_timer = 1.8
+  end
+  core.log("[Snap] Gesture mode switched to %s", next_mode)
+  core.redraw = true
+end
+
+function PptxView:calibrate_snap_presenter()
+  if not self.slideshow_mode then
+    core.log("[Snap] Enter Fullscreen Slideshow (F5) first to calibrate presenter snaps.")
+    return
+  end
+  if not self.snap_active then
+    self:start_snap_detector()
+  end
+  if self.snap_proc then
+    pcall(function() self.snap_proc:write("CALIBRATE_START\n") end)
+    self.snap_flash_text = "CALIBRATING: Snap 3 times at podium distance (0/3)"
+    self.snap_flash_timer = 4.5
+    core.redraw = true
+  end
 end
 
 function PptxView:toggle_blank_screen(mode)
@@ -2341,6 +2449,14 @@ end, {
   ["pptx:cycle-snap-sensitivity"] = function(view)
     view:cycle_snap_sensitivity()
   end,
+
+  ["pptx:toggle-crowd-snap-mode"] = function(view)
+    view:toggle_crowd_snap_mode()
+  end,
+
+  ["pptx:calibrate-snap-presenter"] = function(view)
+    view:calibrate_snap_presenter()
+  end,
 })
 
 command.add(function()
@@ -2546,6 +2662,8 @@ keymap.add {
   ["n"]              = "pptx:toggle-notes",
   ["m"]              = "pptx:toggle-snap-control",
   ["shift+m"]        = "pptx:cycle-snap-sensitivity",
+  ["shift+g"]        = "pptx:toggle-crowd-snap-mode",
+  ["shift+k"]        = "pptx:calibrate-snap-presenter",
   ["ctrl+t"]         = "pptx:toggle-thumbnails",
   ["ctrl+m"]         = "pptx:toggle-mode",
   ["ctrl+="]         = "pptx:zoom-in",

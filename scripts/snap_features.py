@@ -10,8 +10,25 @@ regions of feature space while rejecting:
 Pure numpy implementation (zero librosa/scipy dependency).
 """
 
+import functools
 import math
 import numpy as np
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_freqs(n, sr):
+    return np.fft.rfftfreq(n, d=1.0 / sr)
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_hann(n):
+    return np.hanning(n).astype(np.float32)
+
+
+@functools.lru_cache(maxsize=64)
+def _cached_hp_mask(n, sr, cutoff_hz):
+    freqs = _cached_freqs(n, sr)
+    return np.clip((freqs - cutoff_hz * 0.85) / max(cutoff_hz * 0.30, 1.0), 0.0, 1.0).astype(np.float32)
 
 FEATURE_NAMES = [
     "b0_60_250",
@@ -61,10 +78,8 @@ def _highpass_fft(wave, sr, cutoff_hz=1100.0):
     n = wave.shape[0]
     if n < 16:
         return wave
-    freqs = np.fft.rfftfreq(n, d=1.0 / sr)
     spec = np.fft.rfft(wave - np.mean(wave))
-    # Smooth 4-bin cosine transition at cutoff to prevent ringing
-    mask = np.clip((freqs - cutoff_hz * 0.85) / max(cutoff_hz * 0.30, 1.0), 0.0, 1.0)
+    mask = _cached_hp_mask(n, sr, float(cutoff_hz))
     return np.fft.irfft(spec * mask, n=n).astype(np.float32)
 
 
@@ -73,10 +88,39 @@ def _bandpass_fft(wave, sr, low_hz=75.0, high_hz=1100.0):
     n = wave.shape[0]
     if n < 32:
         return wave
-    freqs = np.fft.rfftfreq(n, d=1.0 / sr)
+    freqs = _cached_freqs(n, sr)
     spec = np.fft.rfft(wave - np.mean(wave))
     mask = ((freqs >= low_hz) & (freqs <= high_hz)).astype(np.float32)
     return np.fft.irfft(spec * mask, n=n).astype(np.float32)
+
+
+def compute_acoustic_signature(pcm_window, sr, peak_idx, bg_snap_rms=1e-4):
+    """Compute Direct-to-Reverberant Ratio (DRR) and absolute core RMS for Presenter Lock.
+
+    A nearby presenter snap concentrates high energy inside [-2..+12 ms] vs diffuse room
+    reverb [+18..+58 ms], whereas an audience disturber across the room has lower DRR
+    (more reverb tail relative to direct peak) and softer absolute amplitude.
+    """
+    a0 = max(0, peak_idx - int(round(sr * 0.008)))
+    a1 = min(pcm_window.size, peak_idx + int(round(sr * 0.062)))
+    if a1 - a0 < int(sr * 0.025):
+        return {"drr": 1.0, "core_rms": 0.0, "core_peak": 0.0}
+
+    hp = _highpass_fft(pcm_window[a0:a1].astype(np.float32, copy=False), sr, cutoff_hz=1200.0)
+    c = peak_idx - a0
+    c0 = max(0, c - int(round(sr * 0.002)))
+    c1 = min(hp.size, c + int(round(sr * 0.012)))
+    r0 = min(hp.size, c + int(round(sr * 0.018)))
+    r1 = min(hp.size, c + int(round(sr * 0.058)))
+
+    core = hp[c0:c1]
+    rev = hp[r0:r1]
+    core_rms = float(np.sqrt(np.mean(core * core) + 1e-14)) if core.size else 0.0
+    core_peak = float(np.max(np.abs(core))) if core.size else 0.0
+    rev_rms = float(np.sqrt(np.mean(rev * rev) + 1e-14)) if rev.size else bg_snap_rms
+    excess_rev = max(rev_rms - 0.85 * bg_snap_rms, bg_snap_rms * 0.25, 1e-6)
+    drr = core_rms / excess_rev
+    return {"drr": float(min(200.0, drr)), "core_rms": core_rms, "core_peak": core_peak}
 
 
 def estimate_voiced_acf(segment, sr, min_hz=75.0, max_hz=360.0):
@@ -88,7 +132,7 @@ def estimate_voiced_acf(segment, sr, min_hz=75.0, max_hz=360.0):
     if segment.size < int(sr * 0.025):
         return 0.0
     n = segment.size
-    freqs = np.fft.rfftfreq(n, d=1.0 / sr)
+    freqs = _cached_freqs(n, sr)
     spec = np.fft.rfft(segment - np.mean(segment))
     pow_spec = spec.real * spec.real + spec.imag * spec.imag
 
@@ -152,10 +196,10 @@ def extract_snap_features(
     sp_b = min(seg.size, c + int(round(sr * 0.016)))
     win_wav = seg[sp_a:sp_b]
     n_sp = win_wav.size
-    win_hann = np.hanning(n_sp).astype(np.float32)
+    win_hann = _cached_hann(n_sp)
     spec = np.fft.rfft((win_wav - np.mean(win_wav)) * win_hann)
     power = (spec.real * spec.real + spec.imag * spec.imag) / max(1, n_sp)
-    freqs = np.fft.rfftfreq(n_sp, d=1.0 / sr)
+    freqs = _cached_freqs(n_sp, sr)
 
     # Subtract pre-onset ambient spectrum using 2-half min-statistics so a recent 1st snap
     # in a fast double-snap pair (100-140 ms ago) never contaminates the 2nd snap's floor.
@@ -167,10 +211,10 @@ def extract_snap_features(
             wb = max(wa + 16, c - int(round(sr * t1_sec)))
             sl = seg[wa:wb]
             nw = sl.size
-            hw = np.hanning(nw).astype(np.float32)
+            hw = _cached_hann(nw)
             sp = np.fft.rfft((sl - np.mean(sl)) * hw)
             pw = (sp.real * sp.real + sp.imag * sp.imag) / max(1, nw)
-            fr = np.fft.rfftfreq(nw, d=1.0 / sr)
+            fr = _cached_freqs(nw, sr)
             return np.interp(freqs, fr, pw)
 
         amb_pow = np.minimum(_win_pow(0.135, 0.080), _win_pow(0.075, 0.025))

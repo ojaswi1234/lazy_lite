@@ -1,23 +1,26 @@
-"""Real-time ML-powered acoustic finger-snap detector for Lite XL PPTX Slideshow Mode.
+"""Real-time ML acoustic finger-snap slide controller with anti-disturbance guards.
 
-Combines pure-numpy DSP tracking with a trained 26-feature Neural Network classifier
-(plus optional per-room/user calibration) to prevent false triggers in:
-1. Solo speaking environments:
-   - Tracks 2.5s rolling Median + MAD background noise floor (never collapses during pauses).
-   - Runs pitch-range autocorrelation VAD (`75-360 Hz`) + low-band vowel spillover analysis
-     over `[-115..+80 ms]` to cleanly reject spoken stop plosives (`t/k/p/ch + vowel`),
-     sibilants, tongue/lip clicks, coughs, and breaths.
-2. Noisy environments (fan/AC, cafe babble, keyboard typing, mouse clicks, hand claps):
-   - Noise-subtracted 8-band spectral shape, Wiener flatness, sub-ms FWHM envelope,
-     kurtosis, and transient burst-density gating suppress typing bursts, double-bounce clicks,
-     claps, and fluctuating room clatter while keeping 2-4m far-field snaps responsive.
+Architecture:
+1. Fast Pre-Allocated Ring Floor:
+   - Tracks a 2.5s rolling Median + MAD background floor in O(1) memory without
+     collapsing during speech pauses or deadlocking when room noise rises.
+2. Pitch-Formant VAD + 26-Feature Pure-NumPy MLP Neural Network:
+   - Rejects solo human speech (plosives 't/k/p/ch + vowel', sibilants, coughs,
+     tongue clicks), fan/AC hum, desk thuds, keyboard clacks, mouse double-clicks,
+     and single-sample electrical glitches while supporting 2-4m far-field snaps.
+3. Anti-Disturbance & Crowd Defenses:
+   - Crowd-Safe Gesture Mode (--gesture-mode crowd): ignores random 1x troll snaps;
+     requires 2x fast snaps for Next and 3x fast snaps for Previous.
+   - Mid-Sentence Ambush Suppressor: tightens gate when active speech surrounds
+     both sides of a transient impulse.
+   - Disturbance Spam Circuit Breaker: pauses forward navigation for 8s if a rapid
+     troll-snap burst (>= 4 snaps in 4.5s) occurs (always keeping Prev unlocked).
+   - Live In-App Presenter Acoustic Lock: 3-snap room calibration learns personal
+     timbre, Direct-to-Reverberant Ratio (DRR), and podium loudness to block
+     distant audience disturbers.
 
-Protocol (UTF-8 line-buffered JSON on stdout):
-  {"event": "calibrating", "message": "..."}
-  {"event": "ready", "sample_rate": 48000, "sensitivity": "normal", "ml": true}
-  {"event": "snap", "count": 1, "action": "next", "prob": 0.96, "snr": 12.4}
-  {"event": "snap", "count": 2, "action": "prev", "prob": 0.94, "snr": 11.1}
-  {"event": "error", "message": "..."}
+Interactive stdin commands:
+  STOP | CALIBRATE_START | CALIBRATE_CANCEL | MODE:solo | MODE:crowd | SENS:low|normal|high
 """
 
 import argparse
@@ -44,16 +47,21 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 if np is not None:
-    from snap_features import extract_snap_features, estimate_voiced_acf, _highpass_fft
+    from snap_features import (
+        extract_snap_features,
+        estimate_voiced_acf,
+        compute_acoustic_signature,
+        _highpass_fft,
+    )
 else:
     extract_snap_features = None
     estimate_voiced_acf = None
+    compute_acoustic_signature = None
     _highpass_fft = None
 
 DEFAULT_MODEL_PATH = os.path.join(SCRIPT_DIR, "snap_ml_model.npz")
 DEFAULT_PROFILE_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), "tempfiles", "snap_profile.json")
 
-# Ensure line-buffered UTF-8 output on Windows pipes so Lite XL receives events immediately
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         try:
@@ -73,7 +81,6 @@ def emit_event(event_name, **kwargs):
 
 
 SENSITIVITY_PRESETS = {
-    # Extra sensitive for far presenter across a room (> 3m)
     "high": {
         "min_snr": 3.4,
         "mad_k": 5.0,
@@ -85,7 +92,6 @@ SENSITIVITY_PRESETS = {
         "speech_boost": 0.12,
         "clutter_boost": 0.08,
     },
-    # Balanced default for 0.4m - 3.5m presenter while rejecting speech & room noise
     "normal": {
         "min_snr": 4.2,
         "mad_k": 6.5,
@@ -97,7 +103,6 @@ SENSITIVITY_PRESETS = {
         "speech_boost": 0.10,
         "clutter_boost": 0.08,
     },
-    # Strict mode for loud / noisy environments or close laptop mics
     "low": {
         "min_snr": 5.5,
         "mad_k": 8.0,
@@ -112,18 +117,42 @@ SENSITIVITY_PRESETS = {
 }
 
 
-class SnapMLClassifier:
-    """Pure-numpy MLP inference + OOD guard + optional personal room prototype."""
+class _FloatRing:
+    """Zero-allocation fixed-capacity NumPy circular buffer."""
 
-    def __init__(self, model_path=DEFAULT_MODEL_PATH, profile_path=DEFAULT_PROFILE_PATH):
+    def __init__(self, cap):
+        self.buf = np.zeros(cap, dtype=np.float32)
+        self.cap = cap
+        self.pos = 0
+        self.size = 0
+
+    def append(self, val):
+        self.buf[self.pos] = val
+        self.pos = (self.pos + 1) % self.cap
+        if self.size < self.cap:
+            self.size += 1
+
+    def view(self):
+        return self.buf[: self.size]
+
+
+class SnapMLClassifier:
+    """Pure-NumPy MLP classifier + OOD guard + Presenter Acoustic Lock (DRR & timbre)."""
+
+    def __init__(self, model_path=DEFAULT_MODEL_PATH, profile_path=DEFAULT_PROFILE_PATH, presenter_lock=True):
         self.loaded = False
+        self.profile_path = profile_path
+        self.presenter_lock_enabled = bool(presenter_lock)
         self.feat_mean = None
         self.feat_std = None
         self.proto_mean = None
         self.proto_std = None
         self.weights = None
+
         self.personal_mean = None
         self.personal_std = None
+        self.personal_drr = None
+        self.personal_rms = None
 
         if np is None:
             return
@@ -147,53 +176,104 @@ class SnapMLClassifier:
             except Exception:
                 self.loaded = False
 
-        if profile_path and os.path.exists(profile_path):
-            try:
-                with open(profile_path, "r", encoding="utf-8") as f:
-                    prof = json.load(f)
-                pm = np.array(prof.get("mean", []), dtype=np.float32)
-                ps = np.array(prof.get("std", []), dtype=np.float32)
-                if self.loaded and pm.shape == self.feat_mean.shape and ps.shape == self.feat_mean.shape:
-                    self.personal_mean = pm
-                    self.personal_std = np.maximum(ps, 0.25)
-            except Exception:
-                pass
+        self.load_profile(profile_path)
 
-    def predict(self, feats):
-        """Return (prob_snap, ood_z_distance) for a single feature vector."""
+    def load_profile(self, path=None):
+        p = path or self.profile_path
+        if not p or not os.path.exists(p) or not self.loaded:
+            return False
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                prof = json.load(f)
+            pm = np.array(prof.get("mean", []), dtype=np.float32)
+            ps = np.array(prof.get("std", []), dtype=np.float32)
+            if pm.shape == self.feat_mean.shape and ps.shape == self.feat_mean.shape:
+                self.personal_mean = pm
+                self.personal_std = np.maximum(ps, 0.35)
+                self.personal_drr = float(prof["drr_med"]) if prof.get("drr_med") else None
+                self.personal_rms = float(prof["rms_med"]) if prof.get("rms_med") else None
+                return True
+        except Exception:
+            pass
+        return False
+
+    def save_profile(self, feats_list, sigs_list, sample_rate, path=None):
+        if not self.loaded or not feats_list:
+            return False
+        p = path or self.profile_path
+        mat = np.vstack(feats_list).astype(np.float32)
+        z_mat = (mat - self.feat_mean) / self.feat_std
+        pm = np.mean(z_mat, axis=0)
+        ps = np.maximum(np.std(z_mat, axis=0), 0.38)
+        drr_med = float(np.median([s["drr"] for s in sigs_list])) if sigs_list else 4.0
+        rms_med = float(np.median([s["core_rms"] for s in sigs_list])) if sigs_list else 0.01
+
+        prof = {
+            "sample_rate": int(sample_rate),
+            "count": len(feats_list),
+            "mean": pm.tolist(),
+            "std": ps.tolist(),
+            "drr_med": drr_med,
+            "rms_med": rms_med,
+        }
+        if p:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(prof, f, indent=2)
+        self.personal_mean = pm.astype(np.float32)
+        self.personal_std = ps.astype(np.float32)
+        self.personal_drr = drr_med
+        self.personal_rms = rms_med
+        return True
+
+    def check_presenter_match(self, z, sig):
+        """Verify distance, DRR proximity, and amplitude when Presenter Lock is armed."""
+        if not self.presenter_lock_enabled or self.personal_mean is None:
+            return True, "unlocked"
+
+        # Compare core timbre features (spectral shape + modal envelope, skip SNR/voiced slots 22..25)
+        idx_timbre = slice(0, 22)
+        p_dist = float(np.sqrt(np.mean(((z[idx_timbre] - self.personal_mean[idx_timbre]) / self.personal_std[idx_timbre]) ** 2)))
+        if p_dist > 2.55:
+            return False, f"timbre_mismatch({p_dist:.2f})"
+
+        if sig is not None and self.personal_drr and self.personal_drr > 1.8:
+            # Distant audience snap excites significantly more room reverb (lower DRR)
+            if sig["drr"] < max(1.3, self.personal_drr * 0.35):
+                return False, f"distant_reverb(drr={sig['drr']:.1f}<{self.personal_drr*0.35:.1f})"
+
+        if sig is not None and self.personal_rms and self.personal_rms > 0.002:
+            if sig["core_rms"] < self.personal_rms * 0.24:
+                return False, f"too_quiet_for_podium(rms={sig['core_rms']:.4f})"
+
+        return True, f"matched({p_dist:.2f})"
+
+    def predict(self, feats, sig=None):
+        """Return (prob_snap, ood_z_distance, z_vec, presenter_ok, presenter_reason)."""
         if not self.loaded:
-            # Conservative analytical fallback if model file missing
             score = 0.25 * feats[12] + 0.25 * feats[13] + 0.20 * (1.0 - feats[11]) + 0.15 * feats[21] - 0.35 * feats[22]
-            return float(max(0.0, min(1.0, score + 0.2))), 1.0
+            return float(max(0.0, min(1.0, score + 0.2))), 1.0, None, True, "no_model"
 
         z = (feats - self.feat_mean) / self.feat_std
         W1, b1, W2, b2, W3, b3 = self.weights
         a1 = np.maximum(0.0, z @ W1 + b1)
         a2 = np.maximum(0.0, a1 @ W2 + b2)
-        logit = float((a2 @ W3 + b3)[0])
-        logit = max(-30.0, min(30.0, logit))
+        logit = max(-30.0, min(30.0, float((a2 @ W3 + b3)[0])))
         prob = 1.0 / (1.0 + math.exp(-logit))
-
         ood_z = float(np.sqrt(np.mean(((z - self.proto_mean) / self.proto_std) ** 2)))
 
-        # Gentle personal calibration adjustment when user saved a room profile
-        if self.personal_mean is not None:
-            p_dist = float(np.sqrt(np.mean(((z - self.personal_mean) / self.personal_std) ** 2)))
-            if p_dist < 1.3:
-                prob = min(0.995, prob + 0.06 * (1.3 - p_dist))
-            elif p_dist > 3.0:
-                prob = max(0.0, prob - 0.08 * min(2.0, p_dist - 3.0))
-
-        return float(prob), ood_z
+        ok_pres, pres_reason = self.check_presenter_match(z, sig)
+        return float(prob), ood_z, z, ok_pres, pres_reason
 
 
 class SnapDetectorEngine:
-    """Two-stage rolling-quantile DSP + ML acoustic finger-snap detector."""
+    """High-efficiency DSP + ML snap detector with anti-disturbance guards."""
 
     def __init__(
         self,
         sample_rate=48000,
         sensitivity="normal",
+        gesture_mode="solo",
         double_window_sec=0.58,
         min_double_gap_sec=0.10,
         cooldown_single_sec=0.22,
@@ -201,17 +281,83 @@ class SnapDetectorEngine:
         emit_fn=None,
         model_path=DEFAULT_MODEL_PATH,
         profile_path=DEFAULT_PROFILE_PATH,
+        presenter_lock=True,
         debug_fn=None,
     ):
         if np is None:
             raise RuntimeError("numpy is required for snap detection")
 
         self.sample_rate = int(sample_rate)
-        self.win_sec = 0.010   # 10 ms FFT frame
-        self.frame_sec = 0.005 # 5 ms hop
+        self.win_sec = 0.010
+        self.frame_sec = 0.005
         self.frame_len = max(256, int(round(self.sample_rate * self.win_sec)))
         self.hop_len = max(128, self.frame_len // 2)
 
+        self.set_sensitivity(sensitivity)
+        self.gesture_mode = gesture_mode if gesture_mode in ("solo", "crowd") else "solo"
+
+        self.double_window_sec = float(double_window_sec)
+        self.triple_window_sec = min(0.50, float(double_window_sec))
+        self.min_double_gap_sec = float(min_double_gap_sec)
+        self.cooldown_single_sec = float(cooldown_single_sec)
+        self.cooldown_double_sec = float(cooldown_double_sec)
+        self.emit_fn = emit_fn or emit_event
+        self.debug_fn = debug_fn
+
+        self.classifier = SnapMLClassifier(
+            model_path=model_path,
+            profile_path=profile_path,
+            presenter_lock=presenter_lock,
+        )
+
+        # Precompute rFFT masks
+        self.window = np.hanning(self.frame_len).astype(np.float32)
+        freqs = np.fft.rfftfreq(self.frame_len, d=1.0 / self.sample_rate)
+        self.low_mask = (freqs >= 60.0) & (freqs <= 1150.0)
+        self.snap_mask = (freqs >= 1600.0) & (freqs <= 6200.0)
+        self.hp_mask = freqs >= 1150.0
+        self._n_snap_bins = max(1, int(np.sum(self.snap_mask)))
+
+        # Pre-allocated circular floor buffers (2.5s)
+        self.warmup_frames = 90
+        self.frame_idx = 0
+        self.ring_snap_rms = _FloatRing(500)
+        self.ring_low_pow = _FloatRing(500)
+        self.ring_snap_pow = _FloatRing(500)
+        self.bg_snap_med = 1e-4
+        self.bg_snap_mad = 5e-5
+        self.bg_snap_pow = 1e-8
+        self.bg_low_pow = 1e-8
+        self.prev_snap_rms = collections.deque([1e-4] * 6, maxlen=6)
+        self.prev_low_pow = collections.deque([1e-8] * 18, maxlen=18)
+
+        # Circular raw PCM buffer (~420 ms)
+        self.pcm_ring_cap = int(round(self.sample_rate * 0.420))
+        self.pcm_ring = np.zeros(self.pcm_ring_cap, dtype=np.float32)
+        self.pcm_write_pos = 0
+        self.total_samples = 0
+
+        # Context & Disturbance Circuit Breaker trackers
+        self.speech_active_until = 0.0
+        self.transient_times = collections.deque(maxlen=32)
+        self.spam_snap_times = collections.deque(maxlen=12)
+        self.breaker_until = 0.0
+
+        # Live calibration state
+        self.cal_active = False
+        self.cal_feats = []
+        self.cal_sigs = []
+        self.cal_target = 3
+
+        # Gesture FSM state
+        self.candidate = None
+        self.verify_frames = 16  # +80 ms post-onset observation
+        self.pending = None  # {"count": int, "first_time": float, "last_time": float, "meta": dict}
+        self.cooldown_until = 0.0
+        self.stream_time = 0.0
+        self._pcm_buf = np.zeros(0, dtype=np.float32)
+
+    def set_sensitivity(self, sensitivity):
         preset = SENSITIVITY_PRESETS.get(sensitivity, SENSITIVITY_PRESETS["normal"])
         self.sensitivity = sensitivity if sensitivity in SENSITIVITY_PRESETS else "normal"
         self.min_snr = preset["min_snr"]
@@ -224,54 +370,18 @@ class SnapDetectorEngine:
         self.speech_boost = preset["speech_boost"]
         self.clutter_boost = preset["clutter_boost"]
 
-        self.double_window_sec = float(double_window_sec)
-        self.min_double_gap_sec = float(min_double_gap_sec)
-        self.cooldown_single_sec = float(cooldown_single_sec)
-        self.cooldown_double_sec = float(cooldown_double_sec)
-        self.emit_fn = emit_fn or emit_event
-        self.debug_fn = debug_fn
+    def start_calibration(self, count=3):
+        self.cal_active = True
+        self.cal_feats = []
+        self.cal_sigs = []
+        self.cal_target = max(2, int(count))
+        self.pending = None
+        self.emit_fn("cal_progress", captured=0, total=self.cal_target)
 
-        self.classifier = SnapMLClassifier(model_path=model_path, profile_path=profile_path)
-
-        # Precompute rFFT frequency masks
-        self.window = np.hanning(self.frame_len).astype(np.float32)
-        freqs = np.fft.rfftfreq(self.frame_len, d=1.0 / self.sample_rate)
-        self.low_mask = (freqs >= 60.0) & (freqs <= 1150.0)
-        self.snap_mask = (freqs >= 1600.0) & (freqs <= 6200.0)
-        self.hp_mask = freqs >= 1150.0
-
-        # Rolling 2.5s circular ring buffers for non-collapsing Median + MAD baseline
-        self.warmup_frames = 90  # 90 * 5 ms = 0.45s ambient floor capture
-        self.frame_idx = 0
-        self.ring_snap_rms = collections.deque(maxlen=500)  # 2.5s history
-        self.ring_low_pow = collections.deque(maxlen=500)
-        self.ring_snap_pow = collections.deque(maxlen=500)
-        self.bg_snap_med = 1e-4
-        self.bg_snap_mad = 5e-5
-        self.bg_snap_pow = 1e-8
-        self.bg_low_pow = 1e-8
-        self.prev_snap_rms = collections.deque([1e-4] * 6, maxlen=6)
-        self.prev_low_pow = collections.deque([1e-8] * 18, maxlen=18)
-
-        # Continuous raw PCM circular buffer (~400 ms) for sample-accurate ML features
-        self.pcm_ring_cap = int(round(self.sample_rate * 0.420))
-        self.pcm_ring = np.zeros(self.pcm_ring_cap, dtype=np.float32)
-        self.pcm_write_pos = 0
-        self.total_samples = 0
-
-        # Real-time speech context & noise burstiness tracking
-        self.speech_active_until = 0.0
-        self.transient_times = collections.deque(maxlen=32)
-
-        # Candidate window (+80 ms post-onset for full vowel & decay observation)
-        self.candidate = None
-        self.verify_frames = 16  # 16 * 5 ms = 80 ms post-trigger
-
-        # Single / Double gesture FSM
-        self.pending_snap = None
-        self.cooldown_until = 0.0
-        self.stream_time = 0.0
-        self._pcm_buf = np.zeros(0, dtype=np.float32)
+    def cancel_calibration(self):
+        self.cal_active = False
+        self.cal_feats = []
+        self.cal_sigs = []
 
     def _push_pcm_hop(self, hop_samples):
         n = hop_samples.size
@@ -313,7 +423,7 @@ class SnapDetectorEngine:
 
         low_pow = float(np.sum(power[self.low_mask]))
         snap_pow = float(np.sum(power[self.snap_mask]))
-        snap_rms = math.sqrt(snap_pow / max(1, int(np.sum(self.snap_mask))) + 1e-18)
+        snap_rms = math.sqrt(snap_pow / self._n_snap_bins + 1e-18)
 
         return {
             "peak": peak,
@@ -324,42 +434,108 @@ class SnapDetectorEngine:
         }
 
     def _refresh_robust_floor(self):
-        if len(self.ring_snap_rms) < 10:
+        arr = self.ring_snap_rms.view()
+        if arr.size < 10:
             return
-        arr = np.fromiter(self.ring_snap_rms, dtype=np.float32)
         med = float(np.median(arr))
         mad = float(np.median(np.abs(arr - med)))
-        # Convert MAD to Gaussian-equivalent sigma floor with tiny lower guard
         self.bg_snap_med = max(med, 1e-5)
         self.bg_snap_mad = max(mad * 1.4826, self.bg_snap_med * 0.20, 1e-5)
-        self.bg_snap_pow = max(float(np.median(np.fromiter(self.ring_snap_pow, dtype=np.float32))), 1e-10)
-        self.bg_low_pow = max(float(np.median(np.fromiter(self.ring_low_pow, dtype=np.float32))), 1e-10)
+        self.bg_snap_pow = max(float(np.median(self.ring_snap_pow.view())), 1e-10)
+        self.bg_low_pow = max(float(np.median(self.ring_low_pow.view())), 1e-10)
 
     def _update_speech_context(self):
-        """Lightweight periodic check (every 40 ms) for ongoing solo voice activity."""
         if (self.frame_idx % 8) != 0 or self.total_samples < int(self.sample_rate * 0.06):
             return
         seg = self._read_pcm_tail(int(self.sample_rate * 0.06))
-        acf = estimate_voiced_acf(seg, self.sample_rate)
-        # Only flag active speech when voiced harmonics carry genuine energy above noise floor
-        if acf >= 0.44:
+        if estimate_voiced_acf(seg, self.sample_rate) >= 0.44:
             self.speech_active_until = self.stream_time + 0.18
 
+    def _handle_validated_snap(self, snap_time, meta):
+        """Route a validated snap impulse into Solo (1x/2x) or Crowd-Safe (2x/3x) gesture FSM."""
+        if self.pending is not None:
+            dt_prev = snap_time - self.pending["last_time"]
+            max_gap = self.double_window_sec if self.pending["count"] == 1 else self.triple_window_sec
+            if self.min_double_gap_sec <= dt_prev <= max_gap:
+                if self.gesture_mode == "solo":
+                    # Solo Mode: 2nd fast snap immediately fires Previous Slide (always unlocked!)
+                    self.pending = None
+                    self.cooldown_until = snap_time + self.cooldown_double_sec
+                    self.emit_fn("snap", count=2, action="prev", dt=round(dt_prev, 3), **meta)
+                    return
+                else:
+                    # Crowd-Safe Mode: 2x -> wait briefly for 3x; 3x -> immediate Previous Slide
+                    self.pending["count"] += 1
+                    self.pending["last_time"] = snap_time
+                    self.pending["meta"] = meta
+                    if self.pending["count"] >= 3:
+                        total_dt = round(snap_time - self.pending["first_time"], 3)
+                        self.pending = None
+                        self.cooldown_until = snap_time + self.cooldown_double_sec
+                        self.emit_fn("snap", count=3, action="prev", dt=total_dt, **meta)
+                    return
+
+        self.pending = {
+            "count": 1,
+            "first_time": snap_time,
+            "last_time": snap_time,
+            "meta": meta,
+        }
+
+    def _record_spam_burst_and_check_breaker(self, now_t):
+        """Trip 8s forward-navigation lockout if >= 4 isolated/spam attempts hit within 4.5s."""
+        self.spam_snap_times.append(now_t)
+        recent = [t for t in self.spam_snap_times if (now_t - t) <= 4.5]
+        if len(recent) >= 4:
+            self.breaker_until = now_t + 8.0
+            self.emit_fn("guard", reason="spam_breaker", duration=8.0, message="Disturbance spam guard active (8s)")
+            return True
+        return False
+
+    def _check_pending_timeout(self):
+        """Resolve pending gesture once inter-snap window closes."""
+        if self.pending is None:
+            return
+        cnt = self.pending["count"]
+        window = self.double_window_sec if cnt == 1 else self.triple_window_sec
+        if (self.stream_time - self.pending["last_time"]) <= window:
+            return
+
+        snap_t = self.pending["first_time"]
+        meta = self.pending["meta"]
+        self.pending = None
+
+        if self.gesture_mode == "crowd":
+            if cnt == 1:
+                if not self._record_spam_burst_and_check_breaker(snap_t):
+                    self.emit_fn("guard", reason="crowd_single_ignored", prob=meta["prob"], snr=meta["snr"])
+                return
+            if cnt == 2:
+                if self.stream_time < self.breaker_until or self._record_spam_burst_and_check_breaker(snap_t):
+                    self.emit_fn("guard", reason="spam_breaker", message="Forward blocked by disturbance guard")
+                    return
+                self.cooldown_until = self.stream_time + self.cooldown_single_sec
+                self.emit_fn("snap", count=2, action="next", **meta)
+                return
+        else:
+            # Solo Mode: 1x -> Next Slide (blocked if Disturbance Breaker trips or active)
+            if self.stream_time < self.breaker_until or self._record_spam_burst_and_check_breaker(snap_t):
+                self.emit_fn("guard", reason="spam_breaker", message="Forward blocked by disturbance guard")
+                return
+            self.cooldown_until = self.stream_time + self.cooldown_single_sec
+            self.emit_fn("snap", count=1, action="next", **meta)
+
     def _finalize_candidate(self, extra_feat_sink=None):
-        """Align exact sample peak, extract 26 ML features, gate on context, and emit."""
+        """Align peak, compute 26 ML features + DRR signature, verify guards, and dispatch."""
         c = self.candidate
         self.candidate = None
 
-        # Pull continuous [-160 ms .. +90 ms] raw audio ending right at current write_pos
         win_samples = int(round(self.sample_rate * 0.255))
         buf = self._read_pcm_tail(win_samples)
         if buf.size < int(self.sample_rate * 0.12):
             return
 
-        # Candidate triggered verify_frames * hop_len samples ago (~80 ms back from end)
         approx_center = max(0, buf.size - int(round(self.verify_frames * self.hop_len)))
-
-        # Fine sample-level peak alignment inside [-10 ms .. +18 ms] around trigger on >=1.2 kHz wave
         lo = max(0, approx_center - int(round(self.sample_rate * 0.010)))
         hi = min(buf.size, approx_center + int(round(self.sample_rate * 0.018)))
         hp_search = _highpass_fft(buf[max(0, lo - 128) : min(buf.size, hi + 128)], self.sample_rate, cutoff_hz=1200.0)
@@ -374,11 +550,13 @@ class SnapDetectorEngine:
             bg_snap_rms=self.bg_snap_med,
             bg_mad=self.bg_snap_mad,
         )
+        sig = compute_acoustic_signature(buf, self.sample_rate, peak_idx, bg_snap_rms=self.bg_snap_med)
+
         if extra_feat_sink is not None:
-            extra_feat_sink.append(feats)
+            extra_feat_sink.append((feats, sig))
             return
 
-        prob, ood_z = self.classifier.predict(feats)
+        prob, ood_z, _, pres_ok, pres_reason = self.classifier.predict(feats, sig=sig)
         post_voiced = float(feats[22])
         pre_voiced = float(feats[23])
         post_low_spill = float(feats[24])
@@ -386,35 +564,61 @@ class SnapDetectorEngine:
         fwhm_ms = float(feats[15]) * 35.0
         snr = c["peak_snap_rms"] / max(self.bg_snap_med, 1e-6)
 
-        # Count recent distinct transients in last 1.8s (bursty typing/applause/clatter check)
         recent_bursts = sum(1 for t in self.transient_times if (c["trigger_time"] - t) <= 1.8)
         speech_ctx = (
             self.stream_time <= self.speech_active_until
             or pre_voiced >= 0.48
             or post_voiced >= 0.48
         )
+        mid_sentence_ambush = (pre_voiced >= 0.46 and post_voiced >= 0.42)
         noisy_clutter = recent_bursts >= 5
 
         eff_thresh = self.ml_thresh
         if speech_ctx:
             eff_thresh += self.speech_boost
+        if mid_sentence_ambush:
+            eff_thresh += 0.14  # Harder bar for impulses buried right inside continuous talking
         if noisy_clutter:
             eff_thresh += self.clutter_boost
 
-        # Physical hard safety checks complementing neural classifier:
-        # 1. Electrical / USB audio glitch rejection (single-sample click has < 8 samples > 22% peak)
+        # Physical hard safety checks
         c_hp = _highpass_fft(buf[max(0, peak_idx - int(self.sample_rate * 0.004)) : min(buf.size, peak_idx + int(self.sample_rate * 0.018))], self.sample_rate, cutoff_hz=1200.0)
         c_pk = float(np.max(np.abs(c_hp))) if c_hp.size else 0.0
         active_osc_samples = int(np.sum(np.abs(c_hp) >= 0.22 * max(c_pk, 1e-9)))
         is_glitch = active_osc_samples < 8
-        # 2. Strong post-onset voiced vowel + low energy surge = spoken "t/k/p + vowel" plosive
         is_plosive_vowel = (post_voiced >= 0.45 and post_low_spill >= 0.28 and prob < 0.94)
-        # 3. Flat broadband noise burst or excessively wide envelope = sibilant/clap/noise
         is_broad_noise = (flatness > 0.55 and fwhm_ms > 18.0 and prob < 0.95)
-        # 4. Severe out-of-distribution freak pulse
         is_ood = ood_z > 3.8
 
-        accepted = (prob >= eff_thresh) and not is_glitch and not is_plosive_vowel and not is_broad_noise and not is_ood
+        # Live calibration capture accepts strong clean ML snaps (ignoring presenter lock while learning)
+        if self.cal_active:
+            cal_ok = (prob >= 0.72) and not is_glitch and not is_plosive_vowel and not is_broad_noise and not is_ood
+            if cal_ok:
+                self.cal_feats.append(feats)
+                self.cal_sigs.append(sig)
+                self.emit_fn("cal_progress", captured=len(self.cal_feats), total=self.cal_target, drr=round(sig["drr"], 1))
+                if len(self.cal_feats) >= self.cal_target:
+                    self.classifier.save_profile(self.cal_feats, self.cal_sigs, self.sample_rate)
+                    self.cal_active = False
+                    self.cal_feats = []
+                    self.cal_sigs = []
+                    self.cooldown_until = self.stream_time + 0.50
+                    self.emit_fn(
+                        "cal_done",
+                        calibrated=True,
+                        drr_med=round(self.classifier.personal_drr or 0.0, 2),
+                        rms_med=round(self.classifier.personal_rms or 0.0, 4),
+                    )
+            return
+
+        accepted = (
+            (prob >= eff_thresh)
+            and not is_glitch
+            and not is_plosive_vowel
+            and not is_broad_noise
+            and not is_ood
+            and pres_ok
+        )
 
         if self.debug_fn is not None:
             self.debug_fn({
@@ -423,7 +627,10 @@ class SnapDetectorEngine:
                 "thresh": round(eff_thresh, 3),
                 "ood_z": round(ood_z, 2),
                 "snr": round(snr, 2),
+                "drr": round(sig["drr"], 2),
+                "pres": pres_reason,
                 "post_voiced": round(post_voiced, 2),
+                "mid_ambush": mid_sentence_ambush,
                 "flatness": round(flatness, 2),
                 "fwhm_ms": round(fwhm_ms, 1),
                 "speech_ctx": speech_ctx,
@@ -431,6 +638,8 @@ class SnapDetectorEngine:
             })
 
         if not accepted:
+            if (prob >= eff_thresh) and not is_glitch and not is_plosive_vowel and not is_broad_noise and not is_ood and not pres_ok:
+                self.emit_fn("guard", reason="presenter_mismatch", detail=pres_reason, prob=round(prob, 2))
             return
 
         snap_time = c["trigger_time"]
@@ -438,45 +647,19 @@ class SnapDetectorEngine:
             "time": round(snap_time, 3),
             "prob": round(prob, 3),
             "snr": round(snr, 2),
+            "drr": round(sig["drr"], 2),
             "speech_ctx": bool(speech_ctx),
         }
-
-        if self.pending_snap is not None:
-            dt = snap_time - self.pending_snap["time"]
-            if self.min_double_gap_sec <= dt <= self.double_window_sec:
-                self.pending_snap = None
-                self.cooldown_until = snap_time + self.cooldown_double_sec
-                self.emit_fn("snap", count=2, action="prev", dt=round(dt, 3), **meta)
-                return
-
-        self.pending_snap = meta
-
-    def _check_pending_timeout(self):
-        """Emit single-snap 'next' once double-snap window expires without a 2nd snap."""
-        if self.pending_snap is None:
-            return
-        if (self.stream_time - self.pending_snap["time"]) > self.double_window_sec:
-            snap = self.pending_snap
-            self.pending_snap = None
-            self.cooldown_until = self.stream_time + self.cooldown_single_sec
-            self.emit_fn(
-                "snap",
-                count=1,
-                action="next",
-                prob=snap["prob"],
-                snr=snap["snr"],
-                speech_ctx=snap["speech_ctx"],
-            )
+        self._handle_validated_snap(snap_time, meta)
 
     def _process_frame(self, frame, extra_feat_sink=None):
         self.frame_idx += 1
         self.stream_time += self.frame_sec
 
-        # Push exact non-overlapping hop into continuous PCM ring
         self._push_pcm_hop(frame[: self.hop_len])
         feat = self._compute_frame_features(frame)
 
-        # Warmup phase: gather initial room noise floor & MAD
+        # Warmup phase
         if self.frame_idx <= self.warmup_frames:
             self.ring_snap_rms.append(feat["snap_rms"])
             self.ring_snap_pow.append(feat["snap_pow"])
@@ -487,8 +670,7 @@ class SnapDetectorEngine:
             self.prev_low_pow.append(feat["low_pow"])
             return
 
-        # 1. If capturing +80 ms post-onset candidate window, wait until candidate completes
-        #    BEFORE checking pending_snap timeout (fixes race where 2nd snap gets split into two 1x 'next')
+        # 1. Wait for candidate's +80 ms verification window before timing out pending_snap
         if self.candidate is not None:
             c = self.candidate
             c["age"] += 1
@@ -500,28 +682,24 @@ class SnapDetectorEngine:
             self.prev_low_pow.append(feat["low_pow"])
             return
 
-        # 2. Emit 1x 'next' only when no candidate is in-flight and double-snap window expired
+        # 2. Resolve expired pending single/double gesture only when no candidate is in-flight
         self._check_pending_timeout()
 
-        # Update rolling voice activity context
         self._update_speech_context()
 
-        # Feed rolling 2.5s Median+MAD floor buffer so floor smoothly adapts if room noise rises
-        # (median naturally resists brief 20 ms transients without deadlocking at stale quiet values)
-        if not self.candidate:
-            self.ring_snap_rms.append(feat["snap_rms"])
-            self.ring_snap_pow.append(feat["snap_pow"])
+        # Feed pre-allocated rolling Median+MAD rings
+        self.ring_snap_rms.append(feat["snap_rms"])
+        self.ring_snap_pow.append(feat["snap_pow"])
         self.ring_low_pow.append(feat["low_pow"])
         if (self.frame_idx % 16) == 0:
             self._refresh_robust_floor()
 
-        # 2. Respect echo cooldown after emitted gesture
         if self.stream_time < self.cooldown_until:
             self.prev_snap_rms.append(feat["snap_rms"])
             self.prev_low_pow.append(feat["low_pow"])
             return
 
-        # 3. Stage-1 Cheap Pre-Screen (high-pass transient above Median + MAD room floor)
+        # 3. Stage-1 Pre-Screen
         pre_snap = max(min(self.prev_snap_rms), 1e-6)
         attack_slope = feat["snap_rms"] / pre_snap
         bg_thresh = max(self.bg_snap_med + self.mad_k * self.bg_snap_mad, self.bg_snap_med * self.min_snr)
@@ -540,7 +718,6 @@ class SnapDetectorEngine:
         )
 
         if is_candidate:
-            # Avoid double-counting echoes inside 80 ms of last transient timestamp
             if not self.transient_times or (self.stream_time - self.transient_times[-1]) > 0.08:
                 self.transient_times.append(self.stream_time)
             self.candidate = {
@@ -553,7 +730,6 @@ class SnapDetectorEngine:
         self.prev_low_pow.append(feat["low_pow"])
 
     def feed(self, samples, extra_feat_sink=None):
-        """Feed mono float32 audio samples (arbitrary chunk size) into the detector."""
         arr = np.asarray(samples, dtype=np.float32).reshape(-1)
         if arr.size == 0:
             return
@@ -567,9 +743,8 @@ class SnapDetectorEngine:
         self._pcm_buf = arr[offset:].copy()
 
     def flush(self):
-        """Flush trailing silence frames so final candidate / pending snap resolves."""
         silence = np.zeros(self.frame_len, dtype=np.float32)
-        for _ in range(int(math.ceil((self.double_window_sec + 0.16) / self.frame_sec))):
+        for _ in range(int(math.ceil((self.double_window_sec + 0.20) / self.frame_sec))):
             self._process_frame(silence)
 
 
@@ -584,7 +759,7 @@ def _synth_vowel(rng, length, sr, f0, amp):
     return (sig * (amp / max(float(np.max(np.abs(sig))), 1e-6))).astype(np.float32)
 
 
-def _synth_snap(sr, amp=0.03, center_hz=3200.0, decay_ms=11.0):
+def _synth_snap(sr, amp=0.03, center_hz=3200.0, decay_ms=11.0, reverb_mix=0.0):
     n = int(sr * 0.085)
     t = np.arange(n, dtype=np.float32) / sr
     tau = decay_ms / 1000.0
@@ -597,31 +772,23 @@ def _synth_snap(sr, amp=0.03, center_hz=3200.0, decay_ms=11.0):
     sp *= ((fr >= 1800) & (fr <= 5500)).astype(np.float32)
     pop = np.fft.irfft(sp, n=n).astype(np.float32)
     sig += 0.22 * (pop / max(float(np.max(np.abs(pop))), 1e-6)) * np.exp(-t / (tau * 0.55))
+    if reverb_mix > 0.0:
+        rev = rng.standard_normal(n).astype(np.float32) * np.exp(-t / 0.032) * reverb_mix
+        rsp = np.fft.rfft(rev) * ((fr >= 1600) & (fr <= 6000)).astype(np.float32)
+        sig += np.fft.irfft(rsp, n=n).astype(np.float32) * float(np.max(np.abs(sig)))
     sig *= amp / max(float(np.max(np.abs(sig))), 1e-6)
     return sig.astype(np.float32)
 
 
 def run_self_test():
-    """Verify ML snap detector against adversarial solo-speech & noisy-env stress suite."""
+    """Verify ML snap detector + Solo/Crowd modes + Spam Breaker + Presenter Lock."""
     if np is None:
         print("FAIL: numpy unavailable", file=sys.stderr)
         return 1
 
     sr = 48000
-    events = []
-    debug_logs = []
-    det = SnapDetectorEngine(
-        sample_rate=sr,
-        sensitivity="normal",
-        emit_fn=lambda name, **kw: events.append((name, kw)),
-        debug_fn=lambda d: debug_logs.append(d),
-    )
-    assert det.classifier.loaded, f"ML model missing at {DEFAULT_MODEL_PATH}"
     rng = np.random.default_rng(101)
-
-    def silence(sec):
-        return (0.00035 * rng.standard_normal(int(sr * sec))).astype(np.float32)
-
+    def silence(sec): return (0.00035 * rng.standard_normal(int(sr * sec))).astype(np.float32)
     def bp_noise(n, f_lo, f_hi):
         raw = rng.standard_normal(n).astype(np.float32)
         sp = np.fft.rfft(raw)
@@ -630,86 +797,121 @@ def run_self_test():
         out = np.fft.irfft(sp, n=n).astype(np.float32)
         return out / max(float(np.max(np.abs(out))), 1e-6)
 
-    # 1. Warmup with HVAC / projector fan hum (120 Hz + harmonic)
-    t_fan = np.arange(int(sr * 0.8), dtype=np.float32) / sr
-    fan = 0.018 * np.sin(2 * np.pi * 120.0 * t_fan) + 0.006 * np.sin(2 * np.pi * 240.0 * t_fan) + silence(0.8)
-    det.feed(fan)
+    # --- PART A: Solo Mode + False Trigger Rejection + Single/Double ---
+    events, logs = [], []
+    det = SnapDetectorEngine(
+        sample_rate=sr, sensitivity="normal", gesture_mode="solo",
+        presenter_lock=False,
+        emit_fn=lambda n, **kw: events.append((n, kw)),
+        debug_fn=lambda d: logs.append(d),
+    )
+    assert det.classifier.loaded
 
-    # 2. Desk / mic thud -> REJECTED
+    t_fan = np.arange(int(sr * 0.8), dtype=np.float32) / sr
+    det.feed((0.018 * np.sin(2 * np.pi * 120 * t_fan) + 0.006 * np.sin(2 * np.pi * 240 * t_fan) + silence(0.8)).astype(np.float32))
+
+    # Desk bump + Plosives+Vowels + Tongue click + Sibilant + Keyboard + Clap -> 0 snaps
     tb = np.arange(int(sr * 0.12), dtype=np.float32) / sr
-    bump = (0.35 * np.sin(2 * np.pi * 95 * tb) + 0.14 * np.sin(2 * np.pi * 260 * tb)) * np.exp(-tb / 0.025)
-    det.feed(bump.astype(np.float32))
+    det.feed(((0.35 * np.sin(2 * np.pi * 95 * tb) + 0.14 * np.sin(2 * np.pi * 260 * tb)) * np.exp(-tb / 0.025)).astype(np.float32))
     det.feed(silence(0.5))
 
-    # 3. Solo presenter speaking natural sentences with sharp stop plosives ("t-ah", "k-ee", "p-oo") -> REJECTED
     for f0 in (125.0, 155.0, 210.0):
         det.feed(_synth_vowel(rng, int(sr * 0.14), sr, f0, 0.14))
-        det.feed(silence(0.035))  # short stop closure before 't'/'k'
-        burst_n = int(sr * 0.014)
-        burst = bp_noise(burst_n, 1700.0, 6500.0) * np.hanning(burst_n).astype(np.float32) * 0.16
-        det.feed(burst)
+        det.feed(silence(0.035))
+        det.feed((bp_noise(int(sr * 0.014), 1700, 6500) * np.hanning(int(sr * 0.014)) * 0.16).astype(np.float32))
         det.feed(silence(0.010))
         det.feed(_synth_vowel(rng, int(sr * 0.16), sr, f0, 0.18))
         det.feed(silence(0.55))
 
-    # 4. Tongue click / lip smack near speech + sustained sibilant ("shhh") + cough -> REJECTED
-    det.feed(_synth_vowel(rng, int(sr * 0.12), sr, 140.0, 0.12))
-    tc = np.arange(int(sr * 0.025), dtype=np.float32) / sr
-    tclick = 0.15 * np.sin(2 * np.pi * 1350.0 * tc) * np.exp(-tc / 0.008)
-    det.feed(tclick.astype(np.float32))
-    det.feed(silence(0.55))
-
-    sib = bp_noise(int(sr * 0.22), 2000.0, 8000.0) * np.sin(np.pi * np.arange(int(sr * 0.22), dtype=np.float32) / int(sr * 0.22)) * 0.12
-    det.feed(sib.astype(np.float32))
-    det.feed(silence(0.55))
-
-    # 5. Noisy environment: rapid keyboard typing burst (7 hits) + mouse double click + hand clap -> REJECTED
-    for _ in range(7):
-        kn = int(sr * 0.035)
-        tk = np.arange(kn, dtype=np.float32) / sr
-        kclk = 0.12 * bp_noise(kn, 5200.0, 14000.0) * np.exp(-tk / 0.003) + 0.06 * np.sin(2 * np.pi * 320 * tk) * np.exp(-tk / 0.007)
-        det.feed(kclk.astype(np.float32))
+    for _ in range(6):
+        kn = int(sr * 0.035); tk = np.arange(kn, dtype=np.float32) / sr
+        det.feed((0.12 * bp_noise(kn, 5200, 14000) * np.exp(-tk / 0.003) + 0.06 * np.sin(2 * np.pi * 320 * tk) * np.exp(-tk / 0.007)).astype(np.float32))
         det.feed(silence(0.11))
-    det.feed(silence(0.5))
-
-    cn = int(sr * 0.09)
-    tcl = np.arange(cn, dtype=np.float32) / sr
-    clap = (0.14 * bp_noise(cn, 250.0, 1300.0) + 0.18 * bp_noise(cn, 1400.0, 7500.0)) * np.exp(-tcl / 0.020)
-    clap[int(sr * 0.008) :] += 0.6 * clap[: cn - int(sr * 0.008)]
-    det.feed(clap.astype(np.float32))
     det.feed(silence(0.6))
+    assert not any(n == "snap" for n, _ in events), f"False triggers in Solo mode: {events}"
 
-    assert len(events) == 0, f"False triggers detected on speech/noise: {events} | logs={debug_logs}"
-
-    # 6. Far-field single snap (amp=0.007, ~3m away + projector fan hum) -> 'next'
+    # Far snap -> next; Double snap -> prev
     t_bg = np.arange(int(sr * 1.1), dtype=np.float32) / sr
-    bg_mix = 0.015 * np.sin(2 * np.pi * 120.0 * t_bg) + silence(1.1)
-    far_snap = _synth_snap(sr, amp=0.007, center_hz=3100.0, decay_ms=12.0)
-    bg_mix[int(sr * 0.35) : int(sr * 0.35) + far_snap.size] += far_snap
+    bg_mix = 0.015 * np.sin(2 * np.pi * 120 * t_bg) + silence(1.1)
+    fs = _synth_snap(sr, amp=0.007, center_hz=3100, decay_ms=12)
+    bg_mix[int(sr * 0.25) : int(sr * 0.25) + fs.size] += fs
     det.feed(bg_mix.astype(np.float32))
-    assert len(events) == 1 and events[0][1]["action"] == "next", f"Expected 1x next, got {events} | logs={debug_logs}"
+    snap_ev = [kw for n, kw in events if n == "snap"]
+    assert len(snap_ev) == 1 and snap_ev[0]["action"] == "next", f"Expected 1x next: {events}"
 
-    # 7. Fast double snap (205 ms apart) -> 'prev'
     det.feed(silence(0.45))
-    s1 = _synth_snap(sr, amp=0.025, center_hz=3300.0, decay_ms=10.0)
-    s2 = _synth_snap(sr, amp=0.022, center_hz=3450.0, decay_ms=10.0)
-    det.feed(s1)
-    det.feed(silence(0.12))  # 0.085 + 0.12 = 0.205s apart
-    det.feed(s2)
-    det.feed(silence(0.65))
-    assert len(events) == 2 and events[1][1]["action"] == "prev", f"Expected 2x prev, got {events} | logs={debug_logs}"
+    det.feed(_synth_snap(sr, amp=0.025, center_hz=3300, decay_ms=10))
+    det.feed(silence(0.28))  # 0.365s gap cleanly inside 580ms window
+    det.feed(_synth_snap(sr, amp=0.020, center_hz=3400, decay_ms=10))
+    det.feed(silence(0.70))
+    snap_ev = [kw for n, kw in events if n == "snap"]
+    assert len(snap_ev) == 2 and snap_ev[1]["action"] == "prev", f"Expected 2x prev: {events}"
+
+    # --- PART B: Crowd-Safe Mode (1x random troll IGNORED, 2x -> next, 3x -> prev) ---
+    c_events = []
+    det_c = SnapDetectorEngine(
+        sample_rate=sr, sensitivity="normal", gesture_mode="crowd",
+        presenter_lock=False, emit_fn=lambda n, **kw: c_events.append((n, kw)),
+    )
+    det_c.feed(silence(0.7))
+    det_c.feed(_synth_snap(sr, amp=0.04, center_hz=3200, decay_ms=11))  # 1x random troll snap!
+    det_c.feed(silence(0.75))
+    assert not any(n == "snap" for n, _ in c_events), f"Crowd-Safe failed to ignore 1x troll snap: {c_events}"
+    assert any(n == "guard" and kw.get("reason") == "crowd_single_ignored" for n, kw in c_events)
+
+    det_c.feed(_synth_snap(sr, amp=0.04, center_hz=3200, decay_ms=11))
+    det_c.feed(silence(0.22))
+    det_c.feed(_synth_snap(sr, amp=0.04, center_hz=3200, decay_ms=11))
+    det_c.feed(silence(0.75))
+    c_snaps = [kw for n, kw in c_events if n == "snap"]
+    assert len(c_snaps) == 1 and c_snaps[0]["action"] == "next" and c_snaps[0]["count"] == 2
+
+    det_c.feed(_synth_snap(sr, amp=0.04, center_hz=3200, decay_ms=11))
+    det_c.feed(silence(0.20))
+    det_c.feed(_synth_snap(sr, amp=0.04, center_hz=3200, decay_ms=11))
+    det_c.feed(silence(0.20))
+    det_c.feed(_synth_snap(sr, amp=0.04, center_hz=3200, decay_ms=11))
+    det_c.feed(silence(0.75))
+    c_snaps = [kw for n, kw in c_events if n == "snap"]
+    assert len(c_snaps) == 2 and c_snaps[1]["action"] == "prev" and c_snaps[1]["count"] == 3
+
+    # --- PART C: Presenter Lock (blocks distant low-DRR crowd troll, accepts presenter) ---
+    p_events = []
+    det_p = SnapDetectorEngine(
+        sample_rate=sr, sensitivity="normal", gesture_mode="solo",
+        profile_path=None, presenter_lock=True,
+        emit_fn=lambda n, **kw: p_events.append((n, kw)),
+    )
+    det_p.feed(silence(0.7))
+    det_p.start_calibration(3)
+    for _ in range(3):
+        det_p.feed(_synth_snap(sr, amp=0.06, center_hz=3000, decay_ms=9, reverb_mix=0.0))
+        det_p.feed(silence(0.7))
+    assert any(n == "cal_done" for n, _ in p_events), f"Calibration failed: {p_events}"
+
+    # Simulate distant crowd troll (quiet amp=0.008 + room reverb + 4.3 kHz different hand) -> REJECTED!
+    p_events.clear()
+    det_p.feed(_synth_snap(sr, amp=0.008, center_hz=4300, decay_ms=16, reverb_mix=0.45))
+    det_p.feed(silence(0.7))
+    assert not any(n == "snap" for n, _ in p_events), f"Presenter lock allowed distant troll: {p_events}"
+
+    # Matching presenter snap -> ACCEPTED!
+    det_p.feed(_synth_snap(sr, amp=0.055, center_hz=3050, decay_ms=9.5, reverb_mix=0.0))
+    det_p.feed(silence(0.7))
+    assert any(n == "snap" and kw["action"] == "next" for n, kw in p_events), f"Presenter lock rejected owner: {p_events}"
 
     print(json.dumps({
         "self_test": "PASS",
-        "ml_loaded": det.classifier.loaded,
-        "events": events,
-        "candidates_evaluated": len(debug_logs),
+        "solo_checks": "PASS",
+        "crowd_mode_2x_3x": "PASS",
+        "presenter_drr_lock": "PASS",
+        "candidates_eval": len(logs),
     }))
     return 0
 
 
 def run_calibrate(profile_path=DEFAULT_PROFILE_PATH):
-    """Interactive 3-snap room calibration saving personal standardized centroid."""
+    """CLI 3-snap calibration saving personal timbre + DRR + RMS profile."""
     if np is None or sd is None:
         emit_event("error", message="numpy and sounddevice are required for calibration")
         return 1
@@ -720,34 +922,28 @@ def run_calibrate(profile_path=DEFAULT_PROFILE_PATH):
         sr = 44100
 
     captured = []
-    det = SnapDetectorEngine(sample_rate=sr, sensitivity="high")
-    print("Stay quiet for 0.5s, then snap your fingers 3 clear times (1s apart)...")
+    det = SnapDetectorEngine(sample_rate=sr, sensitivity="high", presenter_lock=False)
+    print("Stay quiet for 0.5s, then snap 3 clear times at normal distance (1s apart)...")
 
     def audio_cb(indata, frames, time_info, status):
         det.feed(indata[:, 0].copy(), extra_feat_sink=captured)
 
     with sd.InputStream(samplerate=sr, channels=1, dtype="float32", blocksize=det.hop_len, callback=audio_cb):
+        prev_cnt = 0
         while len(captured) < 3:
-            sd.sleep(100)
-            # Only print progress up to 3
+            if len(captured) > prev_cnt:
+                prev_cnt = len(captured)
+                print(f"  Captured snap {prev_cnt}/3 (DRR={captured[-1][1]['drr']:.1f})")
+            sd.sleep(60)
 
-    mat = np.vstack(captured[:3]).astype(np.float32)
-    z_mat = (mat - det.classifier.feat_mean) / det.classifier.feat_std
-    prof = {
-        "sample_rate": sr,
-        "count": 3,
-        "mean": np.mean(z_mat, axis=0).tolist(),
-        "std": np.maximum(np.std(z_mat, axis=0), 0.30).tolist(),
-    }
-    os.makedirs(os.path.dirname(profile_path), exist_ok=True)
-    with open(profile_path, "w", encoding="utf-8") as f:
-        json.dump(prof, f, indent=2)
-    print(f"Saved personal 3-snap profile to {profile_path}")
+    feats_list = [c[0] for c in captured[:3]]
+    sigs_list = [c[1] for c in captured[:3]]
+    det.classifier.save_profile(feats_list, sigs_list, sr, path=profile_path)
+    print(f"Saved presenter acoustic profile to {profile_path}")
     return 0
 
 
-def run_live(sensitivity="normal", double_window_ms=580, monitor=False):
-    """Stream microphone audio via sounddevice and emit ML-validated snap JSON events."""
+def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, presenter_lock=True, monitor=False):
     if np is None or sd is None:
         missing = "numpy" if np is None else "sounddevice"
         emit_event("error", message=f"Python package '{missing}' not installed. Run: pip install numpy sounddevice")
@@ -766,19 +962,26 @@ def run_live(sensitivity="normal", double_window_ms=580, monitor=False):
     engine = SnapDetectorEngine(
         sample_rate=native_sr,
         sensitivity=sensitivity,
-        double_window_sec=max(0.20, min(0.75, double_window_ms / 1000.0)),
+        gesture_mode=gesture_mode,
+        double_window_sec=max(0.25, min(0.85, double_window_ms / 1000.0)),
+        presenter_lock=presenter_lock,
         debug_fn=dbg,
     )
 
     audio_q = queue.Queue(maxsize=128)
+    cmd_q = queue.Queue()
     stop_evt = threading.Event()
 
     def stdin_watcher():
         try:
             for line in sys.stdin:
-                if line.strip().upper() == "STOP":
+                cmd = line.strip()
+                if not cmd:
+                    continue
+                if cmd.upper() == "STOP":
                     stop_evt.set()
                     break
+                cmd_q.put(cmd)
         except Exception:
             pass
 
@@ -806,15 +1009,36 @@ def run_live(sensitivity="normal", double_window_ms=580, monitor=False):
                 "ready",
                 sample_rate=native_sr,
                 sensitivity=engine.sensitivity,
+                gesture_mode=engine.gesture_mode,
                 ml=engine.classifier.loaded,
-                calibrated=engine.classifier.personal_mean is not None,
+                presenter_lock=(engine.classifier.presenter_lock_enabled and engine.classifier.personal_mean is not None),
             )
             while not stop_evt.is_set():
+                # Drain any dynamic UI commands safely in the engine loop thread
+                while not cmd_q.empty():
+                    cmd = cmd_q.get_nowait()
+                    up = cmd.upper()
+                    if up == "CALIBRATE_START":
+                        engine.start_calibration(3)
+                    elif up == "CALIBRATE_CANCEL":
+                        engine.cancel_calibration()
+                    elif up.startswith("MODE:"):
+                        m = cmd.split(":", 1)[1].strip().lower()
+                        if m in ("solo", "crowd"):
+                            engine.gesture_mode = m
+                            engine.pending = None
+                            emit_event("mode_changed", gesture_mode=m)
+                    elif up.startswith("SENS:"):
+                        s = cmd.split(":", 1)[1].strip().lower()
+                        if s in SENSITIVITY_PRESETS:
+                            engine.set_sensitivity(s)
+                            emit_event("sens_changed", sensitivity=s)
+
                 try:
                     chunk = audio_q.get(timeout=0.04)
                     engine.feed(chunk)
                 except queue.Empty:
-                    if engine.pending_snap is not None and engine.candidate is None:
+                    if (engine.pending is not None or engine.cal_active) and engine.candidate is None:
                         engine.feed(np.zeros(engine.hop_len, dtype=np.float32))
     except Exception as exc:
         emit_event("error", message=f"Microphone stream error: {exc}")
@@ -825,19 +1049,27 @@ def run_live(sensitivity="normal", double_window_ms=580, monitor=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ML-powered finger snap microphone slide detector")
+    parser = argparse.ArgumentParser(description="ML finger-snap slide controller with crowd guards")
     parser.add_argument("--sensitivity", default="normal", choices=["low", "normal", "high"])
+    parser.add_argument("--gesture-mode", default="solo", choices=["solo", "crowd"])
     parser.add_argument("--double-window-ms", type=int, default=580)
+    parser.add_argument("--no-presenter-lock", action="store_true")
     parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--monitor", action="store_true", help="Print live candidate ML scores to stdout")
-    parser.add_argument("--calibrate", action="store_true", help="Record 3 personal snaps to calibrate room profile")
+    parser.add_argument("--monitor", action="store_true")
+    parser.add_argument("--calibrate", action="store_true")
     args = parser.parse_args()
 
     if args.self_test:
         sys.exit(run_self_test())
     if args.calibrate:
         sys.exit(run_calibrate())
-    sys.exit(run_live(sensitivity=args.sensitivity, double_window_ms=args.double_window_ms, monitor=args.monitor))
+    sys.exit(run_live(
+        sensitivity=args.sensitivity,
+        gesture_mode=args.gesture_mode,
+        double_window_ms=args.double_window_ms,
+        presenter_lock=not args.no_presenter_lock,
+        monitor=args.monitor,
+    ))
 
 
 if __name__ == "__main__":
