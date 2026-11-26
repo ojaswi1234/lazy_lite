@@ -516,8 +516,10 @@ function PptxView:_handle_snap_event(evt)
     core.redraw = true
   elseif evt.event == "ready" then
     self.snap_ready = true
-    self.snap_status_msg = "SNAP MIC ON (1x Next | 2x Prev)"
-    core.log("[Snap] Microphone snap control ready (1 snap = Next, 2 fast snaps = Prev).")
+    local mode_tag = evt.ml and "ML" or "DSP"
+    local sens_tag = tostring(evt.sensitivity or (config.plugins and config.plugins.pptx and config.plugins.pptx.snap_sensitivity) or "normal"):upper()
+    self.snap_status_msg = string.format("SNAP %s [%s] (1x Next | 2x Prev)", mode_tag, sens_tag)
+    core.log("[Snap] Microphone %s snap control ready (%s sensitivity; 1 snap = Next, 2 fast snaps = Prev).", mode_tag, sens_tag)
     core.redraw = true
   elseif evt.event == "snap" then
     if evt.action == "next" then
@@ -601,6 +603,8 @@ function PptxView:start_snap_detector()
                   event = ev_name,
                   action = line:match('"action"%s*:%s*"([^"]+)"'),
                   message = line:match('"message"%s*:%s*"([^"]+)"'),
+                  sensitivity = line:match('"sensitivity"%s*:%s*"([^"]+)"'),
+                  ml = (line:match('"ml"%s*:%s*true') ~= nil),
                 }
               end
             end
@@ -653,6 +657,30 @@ function PptxView:toggle_snap_control()
   else
     self:start_snap_detector()
   end
+end
+
+function PptxView:cycle_snap_sensitivity()
+  if not config.plugins or not config.plugins.pptx then return end
+  local order = { "normal", "low", "high" }
+  local cur = tostring(config.plugins.pptx.snap_sensitivity or "normal")
+  local next_sens = "normal"
+  for i, s in ipairs(order) do
+    if s == cur then
+      next_sens = order[(i % #order) + 1]
+      break
+    end
+  end
+  config.plugins.pptx.snap_sensitivity = next_sens
+  local labels = { normal = "NORMAL (Balanced)", low = "LOW (Strict Noisy Room)", high = "HIGH (Far Presenter)" }
+  core.log("[Snap] Sensitivity set to %s", labels[next_sens] or next_sens)
+  if self.slideshow_mode and self.snap_active then
+    self:stop_snap_detector(true)
+    self:start_snap_detector()
+  elseif self.slideshow_mode then
+    self.snap_flash_text = "SNAP SENSITIVITY: " .. (labels[next_sens] or next_sens)
+    self.snap_flash_timer = 1.4
+  end
+  core.redraw = true
 end
 
 function PptxView:toggle_blank_screen(mode)
@@ -2309,6 +2337,10 @@ end, {
   ["pptx:toggle-snap-control"] = function(view)
     view:toggle_snap_control()
   end,
+
+  ["pptx:cycle-snap-sensitivity"] = function(view)
+    view:cycle_snap_sensitivity()
+  end,
 })
 
 command.add(function()
@@ -2513,6 +2545,7 @@ keymap.add {
   ["w"]              = "pptx:toggle-white-screen",
   ["n"]              = "pptx:toggle-notes",
   ["m"]              = "pptx:toggle-snap-control",
+  ["shift+m"]        = "pptx:cycle-snap-sensitivity",
   ["ctrl+t"]         = "pptx:toggle-thumbnails",
   ["ctrl+m"]         = "pptx:toggle-mode",
   ["ctrl+="]         = "pptx:zoom-in",
