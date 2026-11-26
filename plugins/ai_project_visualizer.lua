@@ -1688,9 +1688,13 @@ local function call_provider(provider, model, api_key, prompt, is_json)
   if not pinfo then return nil, "Unknown provider: " .. tostring(provider) end
   model = model or pinfo.default_model
 
-  -- Strip provider prefix if present (e.g. "ollama/gpt-oss:120b" -> "gpt-oss:120b")
+  -- Strip provider prefix when routing wrapper-prefixed IDs (e.g. "ollama/gpt-oss:120b" -> "gpt-oss:120b"),
+  -- but keep NVIDIA NIM's required org/model namespace (only strip duplicate "nvidia/<org>/<model>").
   if model and provider and model:match("^" .. provider .. "/") then
-    model = model:sub(#provider + 2)
+    local stripped = model:sub(#provider + 2)
+    if provider ~= "nvidia" or stripped:find("/", 1, true) then
+      model = stripped
+    end
   end
 
   if pinfo.type == "gemini" then
