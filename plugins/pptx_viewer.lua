@@ -104,8 +104,8 @@ end
 -- ============================================================================
 local _FONT_CACHE = {}
 
--- Quantize to discrete point sizes to prevent FreeType glyph cache texture atlas exhaustion
-local QUANTIZED_SIZES = { 11, 13, 15, 18, 22, 26, 32, 40, 52, 68 }
+-- Quantize to rich discrete pixel sizes so large 40-72pt titles keep authentic scale
+local QUANTIZED_SIZES = { 10, 12, 14, 16, 18, 20, 22, 26, 30, 34, 40, 46, 54, 64, 76, 90, 108, 128 }
 
 local function quantize_size(raw_size)
   local best = QUANTIZED_SIZES[1]
@@ -120,20 +120,39 @@ local function quantize_size(raw_size)
   return best
 end
 
-local function get_slide_font(size_pt, is_bold, scale_factor)
-  local raw_px = (size_pt or 18) * (scale_factor or 1.0) * 1.333
+local function get_slide_font(size_pt, is_bold, scale_factor, font_family)
+  -- Convert points using exact slide width scale (1 pt = pw / slide_width_pt)
+  local raw_px = (size_pt or 18) * (scale_factor or 1.0)
   local px_size = quantize_size(raw_px)
-  local cache_key = px_size .. "_" .. (is_bold and "b" or "r")
+  local fam = font_family or "sans"
+  local cache_key = px_size .. "_" .. fam .. "_" .. (is_bold and "b" or "r")
 
   if not _FONT_CACHE[cache_key] then
     local candidates = {}
+    if fam == "serif" then
+      if is_bold then
+        table.insert(candidates, "C:/Windows/Fonts/georgiab.ttf")
+        table.insert(candidates, "C:/Windows/Fonts/cambriab.ttf")
+        table.insert(candidates, "C:/Windows/Fonts/timesbd.ttf")
+      else
+        table.insert(candidates, "C:/Windows/Fonts/georgia.ttf")
+        table.insert(candidates, "C:/Windows/Fonts/cambria.ttc")
+        table.insert(candidates, "C:/Windows/Fonts/times.ttf")
+      end
+    elseif fam == "mono" then
+      if is_bold then
+        table.insert(candidates, "C:/Windows/Fonts/consolab.ttf")
+      else
+        table.insert(candidates, "C:/Windows/Fonts/consola.ttf")
+      end
+    end
     if is_bold then
-      table.insert(candidates, "C:/Windows/Fonts/arialbd.ttf")
       table.insert(candidates, "C:/Windows/Fonts/segoeuib.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/arialbd.ttf")
       table.insert(candidates, "C:/Windows/Fonts/calibrib.ttf")
     else
-      table.insert(candidates, "C:/Windows/Fonts/arial.ttf")
       table.insert(candidates, "C:/Windows/Fonts/segoeui.ttf")
+      table.insert(candidates, "C:/Windows/Fonts/arial.ttf")
       table.insert(candidates, "C:/Windows/Fonts/calibri.ttf")
     end
     table.insert(candidates, DATADIR .. "/fonts/FiraSans-Regular.ttf")
@@ -1128,14 +1147,11 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
   local view_top = self.slideshow_mode and 0 or (self.position.y + self.toolbar_h)
   local view_bot = self.slideshow_mode and select(2, system.get_window_size()) or (self.position.y + self.size.y)
 
-  -- 1. Draw Vector Shapes (Cards, Banners, Background Containers, Dividers)
-  local shapes = page_data.shapes or {}
-  for _, s in ipairs(shapes) do
+  local function draw_shape_layer(s)
     local sx = cx + s.x * pw
     local sy = cy + s.y * ph
     local sw = s.w * pw
     local sh = s.h * ph
-
     if sy + sh >= view_top and sy <= view_bot then
       if s.fill then
         local fill_col = invert_color(s.fill, self.inverted)
@@ -1152,16 +1168,13 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
     end
   end
 
-  -- 2. Draw Embedded Pictures / Diagrams
-  local images = page_data.images or {}
-  for _, img in ipairs(images) do
+  local function draw_image_layer(img)
     local ix = cx + img.x * pw
     local iy = cy + img.y * ph
     local iw = img.w * pw
     local ih = img.h * ph
     local scale_x = iw / math.max(1, img.tw)
     local scale_y = ih / math.max(1, img.th)
-
     if iy + ih >= view_top and iy <= view_bot then
       local spans = img.spans or {}
       for _, sp in ipairs(spans) do
@@ -1171,136 +1184,195 @@ function PptxView:draw_hd_slide(page_data, cx, cy, pw, ph)
         local py2 = math.ceil(iy + (sp[2] + (sp[4] or 1)) * scale_y)
         local pw_sp = math.max(1, px2 - px1)
         local ph_sp = math.max(1, py2 - py1)
-        local col = invert_color({ sp[5], sp[6], sp[7] }, self.inverted)
-        renderer.draw_rect(px1, py1, pw_sp, ph_sp, col)
+        local alpha = sp[8] or 255
+        if alpha >= 16 then
+          local base = { sp[5], sp[6], sp[7], alpha }
+          local col = invert_color(base, self.inverted)
+          renderer.draw_rect(px1, py1, pw_sp, ph_sp, col)
+        end
       end
     end
   end
 
-  -- 3. Native Razor-Sharp FreeType Typography
-  local scale_factor = pw / 1100.0
+  -- 1 & 2. Draw Unified Z-Ordered Visual Layers (or legacy shapes/images fallback)
+  if page_data.layers then
+    for _, lay in ipairs(page_data.layers) do
+      if lay.kind == "shape" then
+        draw_shape_layer(lay)
+      elseif lay.kind == "image" then
+        draw_image_layer(lay)
+      end
+    end
+  else
+    for _, s in ipairs(page_data.shapes or {}) do
+      draw_shape_layer(s)
+    end
+    for _, img in ipairs(page_data.images or {}) do
+      draw_image_layer(img)
+    end
+  end
+
+  -- 3. Native Razor-Sharp FreeType Typography with Insets & Vertical Anchoring
+  local width_pt = (page_data.width_pt and page_data.width_pt > 100) and page_data.width_pt or 720.0
+  local scale_factor = pw / width_pt
   local text_blocks = page_data.text_blocks or {}
 
   for _, tb in ipairs(text_blocks) do
     local bx = cx + tb.x * pw
     local by = cy + tb.y * ph
-    local bw = math.max(80, tb.w * pw)
-    local cur_y = by
+    local bw = math.max(12, tb.w * pw)
+    local bh = math.max(10, (tb.h or 0.1) * ph)
+
+    local in_x = bx + (tb.ins_l or 0) * pw
+    local in_y = by + (tb.ins_t or 0) * ph
+    local in_w = math.max(12, bw - ((tb.ins_l or 0) + (tb.ins_r or 0)) * pw)
+    local in_h = math.max(10, bh - ((tb.ins_t or 0) + (tb.ins_b or 0)) * ph)
 
     local paras = tb.paragraphs or {}
-    for _, p in ipairs(paras) do
+    local bg_lum = 0.299 * page_bg[1] + 0.587 * page_bg[2] + 0.114 * page_bg[3]
+    local laid_out = {}
+    local total_h = 0
+
+    for p_idx, p in ipairs(paras) do
       local p_text = p.text or ""
       if p_text == "" then
-        cur_y = cur_y + 14 * scale_factor
+        local gap_h = 12 * scale_factor
+        table.insert(laid_out, { kind = "gap", h = gap_h })
+        total_h = total_h + gap_h
       else
-        local font = get_slide_font(p.size or 18, p.bold, scale_factor)
-        local bg_lum = 0.299 * page_bg[1] + 0.587 * page_bg[2] + 0.114 * page_bg[3]
+        local font = get_slide_font(p.size or 18, p.bold, scale_factor, p.font)
         local raw_fg = p.color or (bg_lum > 128 and { 20, 24, 30 } or { 245, 245, 248 })
         local fg = invert_color(raw_fg, self.inverted)
+        local indent = (p.level or 0) * 18 * scale_factor
+        local text_x = in_x + indent
+        local max_line_w = math.max(12, in_w - indent)
+        local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.20))
 
-        local indent = (p.level or 0) * 26 * scale_factor
-        local text_x = bx + indent
-        local max_line_w = math.max(60, bw - indent)
-
-        -- Multi-run rich typography check
         local runs = p.runs
         if runs and #runs > 1 then
           local tokens = {}
           for _, r in ipairs(runs) do
             local r_text = r.text or ""
-            local r_font = get_slide_font(r.size or p.size or 18, r.bold, scale_factor)
+            local r_font = get_slide_font(r.size or p.size or 18, r.bold, scale_factor, r.font or p.font)
             local r_fg = invert_color(r.color or raw_fg, self.inverted)
-            for word, space in r_text:gmatch("(%S+)(%s*)") do
-              table.insert(tokens, {
-                text = word,
-                space = (space ~= ""),
-                font = r_font,
-                color = r_fg,
-                w = r_font:get_width(word)
-              })
+            for seg, br in (r_text .. "\n"):gmatch("([^\n]*)\n()") do
+              for word, space in seg:gmatch("(%S+)(%s*)") do
+                table.insert(tokens, {
+                  text = word,
+                  space = (space ~= ""),
+                  font = r_font,
+                  color = r_fg,
+                  w = r_font:get_width(word)
+                })
+              end
+              if br <= #r_text then
+                table.insert(tokens, { newline = true })
+              end
             end
           end
 
           local space_w = font:get_width(" ")
-          local lines = {}
           local cur_line = {}
           local cur_line_w = 0
 
           for _, tok in ipairs(tokens) do
-            local add_w = (#cur_line > 0 and space_w or 0) + tok.w
-            if cur_line_w + add_w > max_line_w and #cur_line > 0 then
-              table.insert(lines, { items = cur_line, w = cur_line_w })
-              cur_line = { tok }
-              cur_line_w = tok.w
+            if tok.newline then
+              table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh, space_w = space_w })
+              total_h = total_h + lh
+              cur_line = {}
+              cur_line_w = 0
             else
-              table.insert(cur_line, tok)
-              cur_line_w = cur_line_w + add_w
+              local add_w = (#cur_line > 0 and space_w or 0) + tok.w
+              if cur_line_w + add_w > max_line_w and #cur_line > 0 then
+                table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh, space_w = space_w })
+                total_h = total_h + lh
+                cur_line = { tok }
+                cur_line_w = tok.w
+              else
+                table.insert(cur_line, tok)
+                cur_line_w = cur_line_w + add_w
+              end
             end
           end
           if #cur_line > 0 then
-            table.insert(lines, { items = cur_line, w = cur_line_w })
-          end
-
-          local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.22))
-          for _, line_info in ipairs(lines) do
-            if cur_y + lh >= view_top and cur_y <= view_bot then
-              local draw_x = text_x
-              if p.align == "center" then
-                draw_x = bx + math.max(0, (bw - line_info.w) / 2)
-              elseif p.align == "right" then
-                draw_x = bx + math.max(0, bw - line_info.w)
-              end
-
-              local cur_x = draw_x
-              for _, tok in ipairs(line_info.items) do
-                renderer.draw_text(tok.font, tok.text, cur_x, cur_y, tok.color)
-                cur_x = cur_x + tok.w + (tok.space and space_w or 0)
-              end
-            end
-            cur_y = cur_y + lh
+            table.insert(laid_out, { kind = "rich", items = cur_line, w = cur_line_w, x = text_x, bw = in_w, align = p.align, h = lh, space_w = space_w })
+            total_h = total_h + lh
           end
         else
-          -- Word Wrapping for uniform single-run paragraph
-          local words = {}
-          for w_word in p_text:gmatch("%S+") do
-            table.insert(words, w_word)
-          end
-
-          local lines = {}
-          local cur_line = {}
-          for _, w_word in ipairs(words) do
-            table.insert(cur_line, w_word)
-            local test_str = table.concat(cur_line, " ")
-            if font:get_width(test_str) > max_line_w and #cur_line > 1 then
-              table.remove(cur_line)
-              table.insert(lines, table.concat(cur_line, " "))
-              cur_line = { w_word }
+          for subline in (p_text .. "\n"):gmatch("(.-)\n") do
+            local words = {}
+            for w_word in subline:gmatch("%S+") do
+              table.insert(words, w_word)
             end
-          end
-          if #cur_line > 0 then
-            table.insert(lines, table.concat(cur_line, " "))
-          end
-
-          local lh = font:get_height() + math.max(2, math.floor((p.size or 18) * scale_factor * 0.22))
-
-          for _, line_str in ipairs(lines) do
-            if cur_y + lh >= view_top and cur_y <= view_bot then
-              local draw_x = text_x
-              if p.align == "center" then
-                draw_x = bx + math.max(0, (bw - font:get_width(line_str)) / 2)
-              elseif p.align == "right" then
-                draw_x = bx + math.max(0, bw - font:get_width(line_str))
+            if #words == 0 and p_text:find("\n") then
+              table.insert(laid_out, { kind = "gap", h = lh * 0.6 })
+              total_h = total_h + lh * 0.6
+            else
+              local cur_line = {}
+              for _, w_word in ipairs(words) do
+                table.insert(cur_line, w_word)
+                local test_str = table.concat(cur_line, " ")
+                if font:get_width(test_str) > max_line_w and #cur_line > 1 then
+                  table.remove(cur_line)
+                  local lstr = table.concat(cur_line, " ")
+                  table.insert(laid_out, { kind = "line", text = lstr, font = font, color = fg, x = text_x, in_x = in_x, bw = in_w, align = p.align, h = lh })
+                  total_h = total_h + lh
+                  cur_line = { w_word }
+                end
               end
-
-              renderer.draw_text(font, line_str, draw_x, cur_y, fg)
+              if #cur_line > 0 then
+                local lstr = table.concat(cur_line, " ")
+                table.insert(laid_out, { kind = "line", text = lstr, font = font, color = fg, x = text_x, in_x = in_x, bw = in_w, align = p.align, h = lh })
+                total_h = total_h + lh
+              end
             end
-            cur_y = cur_y + lh
           end
         end
 
-        -- Inter-paragraph breathing margin
-        local para_gap = math.max(4, math.floor((p.size or 18) * scale_factor * 0.35))
-        cur_y = cur_y + para_gap
+        if p_idx < #paras then
+          local para_gap = math.max(3, math.floor((p.size or 18) * scale_factor * 0.28))
+          table.insert(laid_out, { kind = "gap", h = para_gap })
+          total_h = total_h + para_gap
+        end
+      end
+    end
+
+    local cur_y = in_y
+    if tb.anchor == "b" then
+      cur_y = in_y + math.max(0, in_h - total_h)
+    elseif tb.anchor == "ctr" then
+      cur_y = in_y + math.max(0, (in_h - total_h) / 2)
+    end
+
+    for _, item in ipairs(laid_out) do
+      if item.kind == "gap" then
+        cur_y = cur_y + item.h
+      elseif item.kind == "line" then
+        if cur_y + item.h >= view_top and cur_y <= view_bot then
+          local draw_x = item.x
+          if item.align == "center" then
+            draw_x = (item.in_x or item.x) + math.max(0, (item.bw - item.font:get_width(item.text)) / 2)
+          elseif item.align == "right" then
+            draw_x = (item.in_x or item.x) + math.max(0, item.bw - item.font:get_width(item.text))
+          end
+          renderer.draw_text(item.font, item.text, draw_x, cur_y, item.color)
+        end
+        cur_y = cur_y + item.h
+      elseif item.kind == "rich" then
+        if cur_y + item.h >= view_top and cur_y <= view_bot then
+          local draw_x = item.x
+          if item.align == "center" then
+            draw_x = in_x + math.max(0, (item.bw - item.w) / 2)
+          elseif item.align == "right" then
+            draw_x = in_x + math.max(0, item.bw - item.w)
+          end
+          local cur_x = draw_x
+          for _, tok in ipairs(item.items) do
+            renderer.draw_text(tok.font, tok.text, cur_x, cur_y, tok.color)
+            cur_x = cur_x + tok.w + (tok.space and item.space_w or 0)
+          end
+        end
+        cur_y = cur_y + item.h
       end
     end
   end
