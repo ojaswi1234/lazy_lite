@@ -164,6 +164,9 @@ class _NeuralSpeechVAD:
         self._phase = 0.0
         self._in_tail = np.zeros(0, dtype=np.float32)
         self._buf16 = np.zeros(0, dtype=np.float32)
+        self._pend_raw = []
+        self._pend_samples = 0
+        self._batch_samples = max(256, int(round(self.sr * 0.015)))
 
         if np is None or ort is None or not vad_path or not os.path.exists(vad_path):
             return
@@ -180,9 +183,12 @@ class _NeuralSpeechVAD:
         except Exception:
             self.loaded = False
 
-    def feed_hop(self, hop, stream_time):
-        if not self.loaded or hop.size == 0:
+    def _drain_pending(self, stream_time):
+        if self._pend_samples == 0:
             return
+        hop = self._pend_raw[0] if len(self._pend_raw) == 1 else np.concatenate(self._pend_raw)
+        self._pend_raw.clear()
+        self._pend_samples = 0
         arr = hop if self._in_tail.size == 0 else np.concatenate((self._in_tail, hop))
         upper = float(arr.size) - 1.0001
         if upper >= self._phase:
@@ -213,13 +219,26 @@ class _NeuralSpeechVAD:
             self.latest_prob = prob
             self.history.append((stream_time, prob))
 
+    def feed_hop(self, hop, stream_time):
+        if not self.loaded or hop.size == 0:
+            return
+        self._pend_raw.append(hop)
+        self._pend_samples += hop.size
+        self._last_t = stream_time
+        if self._pend_samples >= self._batch_samples:
+            self._drain_pending(stream_time)
+
     def is_speech_window(self, t_lo, t_hi, min_valid_t=0.0, snap_center_t=None, vocal_support=True):
         """Return (is_speech, max_prob) inside [t_lo, t_hi], ignoring initial LSTM warmup.
 
         Separates pre-onset speaking (`< snap_center_t - 0.030`) and post-tail syllables
         (`> snap_center_t + 0.175`) from `0..175ms` room reverb tail when `vocal_support` is False.
         """
-        if not self.loaded or not self.history:
+        if not self.loaded:
+            return False, 0.0
+        if self._pend_samples > 0:
+            self._drain_pending(getattr(self, "_last_t", t_hi))
+        if not self.history:
             return False, 0.0
         lo = max(float(min_valid_t), float(t_lo))
         pts = [(ts, p) for (ts, p) in self.history if lo <= ts <= t_hi]
@@ -406,7 +425,7 @@ class SnapDetectorEngine:
         self.gesture_mode = gesture_mode if gesture_mode in ("solo", "crowd") else "solo"
 
         self.double_window_sec = float(double_window_sec)
-        self.triple_window_sec = min(0.50, float(double_window_sec))
+        self.triple_window_sec = min(0.38, float(double_window_sec))
         self.min_double_gap_sec = float(min_double_gap_sec)
         self.cooldown_single_sec = float(cooldown_single_sec)
         self.cooldown_double_sec = float(cooldown_double_sec)
@@ -534,10 +553,8 @@ class SnapDetectorEngine:
         spec = np.fft.rfft(centered * self.window)
         power = (spec.real * spec.real + spec.imag * spec.imag) / max(1, self.frame_len)
 
-        hp_wave = np.fft.irfft(spec * self.hp_mask, n=self.frame_len)
-        peak = float(np.max(np.abs(hp_wave)))
-        hp_rms = float(np.sqrt(np.mean(hp_wave * hp_wave)) + 1e-9)
-        crest = peak / hp_rms
+        hp_pow = float(np.sum(power[self.hp_mask]))
+        hp_rms = math.sqrt(max(0.0, 2.0 * hp_pow / (max(1, self.frame_len) * 0.375)) + 1e-18)
 
         low_pow = float(np.sum(power[self.low_mask]))
         speech_pow = float(np.sum(power[self.speech_mask]))
@@ -548,8 +565,8 @@ class SnapDetectorEngine:
         speech_rms = math.sqrt(max(0.0, 2.0 * speech_pow / (max(1, self.frame_len) * 0.375)) + 1e-18)
 
         return {
-            "peak": peak,
-            "crest": crest,
+            "spec": spec,
+            "hp_rms": hp_rms,
             "low_pow": low_pow,
             "snap_pow": snap_pow,
             "snap_rms": snap_rms,
@@ -615,10 +632,11 @@ class SnapDetectorEngine:
                     self.emit_fn("guard", reason="speech_word_filter", vad=round(vad_mx, 2))
                     return
                 if self.gesture_mode == "solo":
-                    # Solo Mode: 2nd fast snap immediately fires Previous Slide (always unlocked!)
+                    # Solo Mode: 2nd fast snap compensates if optimistic 1x just advanced
+                    comp = bool(self.pending.get("emitted_next"))
                     self.pending = None
                     self.cooldown_until = snap_time + self.cooldown_double_sec
-                    self.emit_fn("snap", count=2, action="prev", dt=round(dt_prev, 3), **meta)
+                    self.emit_fn("snap", count=2, action="prev", compensate_next=comp, dt=round(dt_prev, 3), **meta)
                     return
                 else:
                     # Crowd-Safe Mode: 2x -> wait briefly for 3x; 3x -> immediate Previous Slide
@@ -635,10 +653,32 @@ class SnapDetectorEngine:
                 # Ignore ultra-close rebound/slapback (< 135 ms) rather than resetting/re-arming pending
                 return
 
+        if self.gesture_mode == "solo":
+            # Optimistic instant-Next in Solo Mode (~80ms instead of +480ms wait!)
+            if (snap_time - self.last_next_emit_time) < 0.55:
+                self.emit_fn("guard", reason="echo_cooldown", message="Ignored rapid forward echo/rebound")
+                return
+            if self.stream_time < self.breaker_until or self._record_spam_burst_and_check_breaker(snap_time):
+                self.emit_fn("guard", reason="spam_breaker", message="Forward blocked by disturbance guard")
+                return
+            self.last_next_emit_time = snap_time
+            # Only blank ultra-close acoustic slapback (< min_double_gap_sec) so fast 150-350ms 2x double-snaps stay open
+            self.cooldown_until = snap_time + self.min_double_gap_sec
+            self.pending = {
+                "count": 1,
+                "first_time": snap_time,
+                "last_time": snap_time,
+                "emitted_next": True,
+                "meta": meta,
+            }
+            self.emit_fn("snap", count=1, action="next", optimistic=True, **meta)
+            return
+
         self.pending = {
             "count": 1,
             "first_time": snap_time,
             "last_time": snap_time,
+            "emitted_next": False,
             "meta": meta,
         }
 
@@ -659,6 +699,10 @@ class SnapDetectorEngine:
         cnt = self.pending["count"]
         window = self.double_window_sec if cnt == 1 else self.triple_window_sec
         if (self.stream_time - self.pending["last_time"]) <= window:
+            return
+
+        if self.gesture_mode == "solo" and self.pending.get("emitted_next"):
+            self.pending = None
             return
 
         snap_t = self.pending["first_time"]
@@ -929,7 +973,7 @@ class SnapDetectorEngine:
                 self.ring_snap_pow.append(feat["snap_pow"])
                 self.ring_low_pow.append(feat["low_pow"])
                 self.ring_speech_rms.append(feat["speech_rms"])
-                if (self.frame_idx % 16) == 0:
+                if (self.frame_idx % 32) == 0:
                     self._refresh_robust_floor()
             self.prev_snap_rms.append(feat["snap_rms"])
             self.prev_low_pow.append(feat["low_pow"])
@@ -945,15 +989,21 @@ class SnapDetectorEngine:
         excess_low = max(0.0, feat["low_pow"] - local_low_floor * 1.25)
         quick_ratio = excess_snap / max(excess_low, 1e-12)
 
-        is_candidate = (
-            feat["peak"] >= self.min_peak
-            and feat["snap_rms"] >= bg_thresh
-            and attack_slope >= self.min_attack
-            and feat["crest"] >= self.min_crest_pre
-            and quick_ratio >= self.min_band_ratio
-        )
+        is_candidate = False
+        is_snap_spike = False
+        if feat["snap_rms"] >= bg_thresh * 0.85 and (quick_ratio >= self.min_band_ratio or quick_ratio >= 1.4):
+            hp_wave = np.fft.irfft(feat["spec"] * self.hp_mask, n=self.frame_len)
+            peak = float(np.max(np.abs(hp_wave)))
+            crest = peak / max(feat["hp_rms"], 1e-9)
+            is_candidate = (
+                peak >= self.min_peak
+                and feat["snap_rms"] >= bg_thresh
+                and attack_slope >= self.min_attack
+                and crest >= self.min_crest_pre
+                and quick_ratio >= self.min_band_ratio
+            )
+            is_snap_spike = is_candidate or (crest >= 2.2 and quick_ratio >= 1.4)
 
-        is_snap_spike = is_candidate or (feat["crest"] >= 2.2 and quick_ratio >= 1.4 and feat["snap_rms"] >= bg_thresh * 0.85)
         self._update_speech_context(feat["speech_rms"], is_snap_onset=is_snap_spike)
 
         # Feed pre-allocated rolling Median+MAD rings ONLY during quiet non-speech baseline frames
@@ -963,7 +1013,7 @@ class SnapDetectorEngine:
             self.ring_snap_pow.append(feat["snap_pow"])
             self.ring_low_pow.append(feat["low_pow"])
             self.ring_speech_rms.append(feat["speech_rms"])
-            if (self.frame_idx % 16) == 0:
+            if (self.frame_idx % 32) == 0:
                 self._refresh_robust_floor()
 
         if is_candidate:
@@ -1098,13 +1148,13 @@ def run_self_test():
     snap_ev = [kw for n, kw in events if n == "snap"]
     assert len(snap_ev) == 1 and snap_ev[0]["action"] == "next", f"Expected 1x next: {events}"
 
-    det.feed(silence(0.45))
+    det.feed(silence(0.65))
     det.feed(_synth_snap(sr, amp=0.025, center_hz=3300, decay_ms=10))
-    det.feed(silence(0.28))  # 0.365s gap cleanly inside 580ms window
+    det.feed(silence(0.28))  # 0.365s gap cleanly inside 420ms window
     det.feed(_synth_snap(sr, amp=0.020, center_hz=3400, decay_ms=10))
-    det.feed(silence(0.70))
+    det.feed(silence(0.60))
     snap_ev = [kw for n, kw in events if n == "snap"]
-    assert len(snap_ev) == 2 and snap_ev[1]["action"] == "prev", f"Expected 2x prev: {events}"
+    assert len(snap_ev) == 3 and snap_ev[1]["action"] == "next" and snap_ev[2]["action"] == "prev" and snap_ev[2].get("compensate_next") is True, f"Expected optimistic next + compensated 2x prev: {events}"
 
     # --- PART B: Crowd-Safe Mode (1x random troll IGNORED, 2x -> next, 3x -> prev) ---
     c_events = []
@@ -1290,14 +1340,27 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
 
     emit_event("calibrating", message="Calibrating ML noise floor...")
 
+    def _open_audio_stream():
+        try:
+            return sd.InputStream(
+                samplerate=native_sr,
+                channels=1,
+                dtype="float32",
+                blocksize=engine.hop_len,
+                latency="low",
+                callback=audio_callback,
+            )
+        except Exception:
+            return sd.InputStream(
+                samplerate=native_sr,
+                channels=1,
+                dtype="float32",
+                blocksize=0,
+                callback=audio_callback,
+            )
+
     try:
-        with sd.InputStream(
-            samplerate=native_sr,
-            channels=1,
-            dtype="float32",
-            blocksize=0,
-            callback=audio_callback,
-        ):
+        with _open_audio_stream():
             emit_event(
                 "ready",
                 sample_rate=native_sr,
@@ -1329,7 +1392,7 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
                             emit_event("sens_changed", sensitivity=s)
 
                 try:
-                    chunk = audio_q.get(timeout=0.04)
+                    chunk = audio_q.get(timeout=0.015)
                     engine.feed(chunk)
                 except queue.Empty:
                     if (engine.pending is not None or engine.cal_active) and engine.candidate is None:
@@ -1346,7 +1409,7 @@ def main():
     parser = argparse.ArgumentParser(description="ML finger-snap slide controller with crowd guards")
     parser.add_argument("--sensitivity", default="normal", choices=["low", "normal", "high"])
     parser.add_argument("--gesture-mode", default="solo", choices=["solo", "crowd"])
-    parser.add_argument("--double-window-ms", type=int, default=480)
+    parser.add_argument("--double-window-ms", type=int, default=420)
     parser.add_argument("--no-presenter-lock", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--monitor", action="store_true")

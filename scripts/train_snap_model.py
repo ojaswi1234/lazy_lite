@@ -179,9 +179,9 @@ def generate_example(rng, sr, cls_label):
             tau_th = float(rng.uniform(0.0018, 0.0042))
             snap += float(rng.uniform(0.08, 0.24)) * max(float(np.max(np.abs(snap))), 1e-6) * np.sin(2 * np.pi * f_th * t) * np.exp(-t / tau_th)
 
-        # Far-field air-absorption high-frequency rolloff (~35% far presenter samples 1.8..4.5m)
-        if rng.random() < 0.35:
-            dist_sim = float(rng.uniform(1.8, 4.5))
+        # Far-field air-absorption high-frequency rolloff (~42% far presenter samples 1.8..5.0m)
+        if rng.random() < 0.42:
+            dist_sim = float(rng.uniform(1.8, 5.0))
             fr_s = np.fft.rfftfreq(snap.size, d=1.0 / sr)
             atten = np.exp(-np.maximum(0.0, fr_s - 1800.0) * dist_sim / 18000.0).astype(np.float32)
             snap = np.fft.irfft(np.fft.rfft(snap) * atten, n=snap.size).astype(np.float32)
@@ -194,10 +194,10 @@ def generate_example(rng, sr, cls_label):
             buf[c - br_len : c] += br
 
         snap = _apply_reverb(snap, sr, float(rng.uniform(0.0, 0.68)), rng)
-        # Ensure weaker far-field levels (0.002..0.012) are well represented cleanly
-        if rng.random() < 0.32:
-            amp = min(amp, float(rng.uniform(0.0020, 0.015)))
-            amp = max(amp, bg_rms_est * float(rng.uniform(0.75, 2.2)))
+        # Ensure weaker far-field levels (0.0015..0.015) are well represented cleanly
+        if rng.random() < 0.36:
+            amp = min(amp, float(rng.uniform(0.0015, 0.015)))
+            amp = max(amp, bg_rms_est * float(rng.uniform(0.70, 2.2)))
         # Simulate hardware mic AGC / soft limiter saturation on ~28% of real captures
         if rng.random() < 0.28:
             mx = max(float(np.max(np.abs(snap))), 1e-6)
@@ -209,6 +209,7 @@ def generate_example(rng, sr, cls_label):
     else:
         neg_kind = rng.choice([
             "plosive_vowel",
+            "unvoiced_consonant_spike",
             "murmur_whisper",
             "word_ending_stop",
             "sibilant",
@@ -218,13 +219,43 @@ def generate_example(rng, sr, cls_label):
             "keyboard_mouse",
             "desk_bump",
             "babble_burst",
-        ], p=[0.18, 0.16, 0.14, 0.10, 0.10, 0.08, 0.08, 0.08, 0.04, 0.04])
+        ], p=[0.16, 0.14, 0.14, 0.12, 0.09, 0.09, 0.07, 0.07, 0.06, 0.03, 0.03])
         bg_type = rng.choice(["quiet", "fan", "noisy_room", "babble"], p=[0.20, 0.30, 0.30, 0.20])
         buf = _make_background(rng, n, sr, bg_type)
         amp = float(10 ** rng.uniform(np.log10(0.006), np.log10(0.55)))
         event_center = c
 
-        if neg_kind == "murmur_whisper":
+        if neg_kind == "unvoiced_consonant_spike":
+            # Crisp unvoiced consonant burst ("t"/"k"/"p"/"ch") with formant tract resonances + breath aspiration
+            b_len = int(sr * rng.uniform(0.005, 0.018))
+            tb = np.arange(b_len, dtype=np.float32) / sr
+            raw = rng.standard_normal(b_len).astype(np.float32)
+            fr = np.fft.rfftfreq(b_len, d=1.0 / sr)
+            f2 = float(rng.uniform(1400.0, 2600.0))
+            f3 = float(rng.uniform(2500.0, 4600.0))
+            tract = (
+                0.7 * np.exp(-0.5 * ((fr - f2) / 360.0) ** 2)
+                + np.exp(-0.5 * ((fr - f3) / 480.0) ** 2)
+                + 0.45 * ((fr >= 3800.0) & (fr <= min(8500.0, sr * 0.46)))
+            ).astype(np.float32)
+            burst = np.fft.irfft(np.fft.rfft(raw) * tract, n=b_len).astype(np.float32)
+            burst *= np.hanning(b_len).astype(np.float32)
+            if rng.random() < 0.45:
+                burst += 0.25 * float(np.max(np.abs(burst))) * np.sin(2 * np.pi * f3 * tb) * np.exp(-tb / 0.004)
+            asp_len = min(n - c - b_len, int(sr * rng.uniform(0.018, 0.055)))
+            asp = _bandpass_noise(rng, asp_len, sr, 900.0, 6200.0) * np.exp(-np.arange(asp_len, dtype=np.float32) / (sr * 0.022))
+            burst *= amp / max(float(np.max(np.abs(burst))), 1e-6)
+            buf[c : c + b_len] += burst
+            if asp_len > 10:
+                buf[c + b_len : c + b_len + asp_len] += asp * (amp * float(rng.uniform(0.18, 0.45))) / max(float(np.max(np.abs(asp))), 1e-6)
+            if rng.random() < 0.45:
+                vd = int(sr * rng.uniform(0.035, 0.095))
+                vl = min(n - c - vd, int(sr * rng.uniform(0.045, 0.085)))
+                if vl > int(sr * 0.02):
+                    buf[c + vd : c + vd + vl] += _synth_vowel_segment(rng, vl, sr, float(rng.uniform(100, 250)), amp * float(rng.uniform(0.4, 1.0)))
+            event_center = c + int(np.argmax(np.abs(burst)))
+
+        elif neg_kind == "murmur_whisper":
             # Soft continuous murmured/whispered speech (low F0 vocal fry 160-950 Hz + breathy F2/F3 formants 1.2-3.8 kHz)
             m_len = min(n - int(sr * 0.02), int(sr * rng.uniform(0.140, 0.210)))
             m_start = max(0, c - int(m_len * rng.uniform(0.35, 0.65)))
@@ -510,8 +541,8 @@ def main():
     t0 = time.time()
     rng = np.random.default_rng(2026)
 
-    n_pos = 5000
-    n_neg = 9000
+    n_pos = 6000
+    n_neg = 10500
     X_list = []
     y_list = []
 

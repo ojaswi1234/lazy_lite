@@ -27,9 +27,9 @@ config.plugins.pptx = common.merge({
   default_mode = "hd",
   snap_sensitivity = "normal",   -- "low", "normal", "high" (far-field presenter)
   snap_gesture_mode = "solo",    -- "solo" (1x next / 2x prev) or "crowd" (2x next / 3x prev)
-  snap_dwell_lock_sec = 2.5,     -- seconds to block forward 1x snap right after slide change
+  snap_dwell_lock_sec = 0.75,    -- seconds to block rapid forward echo right after slide change
   snap_presenter_lock = true,    -- enforce calibrated DRR/timbre presenter lock if calibrated
-  snap_double_window_ms = 480,   -- max gap (ms) between fast snaps for multi-snap gestures
+  snap_double_window_ms = 420,   -- max gap (ms) between fast snaps for multi-snap gestures
 }, config.plugins.pptx)
 
 local function truncate_text(font, text, max_w)
@@ -408,7 +408,7 @@ function PptxView:goto_slide(slide_idx)
     return
   end
   if self.slide ~= slide_idx then
-    local dwell = (config.plugins and config.plugins.pptx and tonumber(config.plugins.pptx.snap_dwell_lock_sec)) or 2.5
+    local dwell = (config.plugins and config.plugins.pptx and tonumber(config.plugins.pptx.snap_dwell_lock_sec)) or 0.75
     self.snap_forward_lock_until = (dwell > 0) and (system.get_time() + dwell) or 0
   end
   self.slide = slide_idx
@@ -581,16 +581,31 @@ function PptxView:_handle_snap_event(evt)
         local rem = self.snap_forward_lock_until - now
         self.snap_flash_text = string.format("[DWELL GUARD] Forward Locked (%.1fs) - Prev OK", rem)
         self.snap_flash_timer = 1.0
+        if evt.optimistic then
+          self.snap_last_optimistic = { time = now, moved = false }
+        end
       else
+        local prev_slide = self.slide
         self.snap_flash_text = string.format("[%dx SNAP] Next Slide", cnt)
         self.snap_flash_timer = 1.1
         self:next_slide()
+        if evt.optimistic then
+          self.snap_last_optimistic = { time = now, moved = (self.slide ~= prev_slide) }
+        end
       end
     elseif evt.action == "prev" then
-      -- Backward gesture ALWAYS stays unlocked so presenter can recover immediately
+      -- Backward gesture ALWAYS stays unlocked; compensate if optimistic 1x next just advanced
+      local now = system.get_time()
+      local steps = 1
+      if evt.compensate_next and self.snap_last_optimistic and (now - self.snap_last_optimistic.time) <= 1.2 then
+        if self.snap_last_optimistic.moved then
+          steps = 2
+        end
+        self.snap_last_optimistic = nil
+      end
       self.snap_flash_text = string.format("[%dx SNAP] Previous Slide", cnt)
       self.snap_flash_timer = 1.1
-      self:previous_slide()
+      self:goto_slide(self.slide - steps)
     end
     core.redraw = true
   elseif evt.event == "error" then
@@ -614,7 +629,7 @@ function PptxView:start_snap_detector()
   local cfg = (config.plugins and config.plugins.pptx) or {}
   local sens = tostring(cfg.snap_sensitivity or "normal")
   local gmode = tostring(cfg.snap_gesture_mode or "solo")
-  local dbl_ms = tostring(cfg.snap_double_window_ms or 480)
+  local dbl_ms = tostring(cfg.snap_double_window_ms or 420)
   local cmd = {
     "python", "-u", SNAP_BRIDGE,
     "--sensitivity", sens,
@@ -677,6 +692,8 @@ function PptxView:start_snap_detector()
                   total = tonumber(line:match('"total"%s*:%s*(%d+)')),
                   ml = (line:match('"ml"%s*:%s*true') ~= nil),
                   presenter_lock = (line:match('"presenter_lock"%s*:%s*true') ~= nil),
+                  compensate_next = (line:match('"compensate_next"%s*:%s*true') ~= nil),
+                  optimistic = (line:match('"optimistic"%s*:%s*true') ~= nil),
                 }
               end
             end
@@ -686,7 +703,7 @@ function PptxView:start_snap_detector()
           end
         end
       end
-      coroutine.yield(0.04)
+      coroutine.yield(0.012)
     end
     -- Drain final stderr if Python exited unexpectedly while still active
     if self.snap_active and self.snap_session_id == session_id then
