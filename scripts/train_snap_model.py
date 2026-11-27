@@ -116,30 +116,61 @@ def generate_example(rng, sr, cls_label):
         bg_rms_est = float(np.sqrt(np.mean(buf[max(0, c - int(sr * 0.04)) : c] ** 2) + 1e-12))
         amp = float(10 ** rng.uniform(np.log10(0.004), np.log10(0.48)))
         amp = min(0.85, max(amp, bg_rms_est * float(rng.uniform(0.85, 3.8))))
-        # Sample fundamental resonance weighted toward natural finger-snap pocket frequencies (1.65..4.9 kHz),
-        # ensuring solid coverage of 1.7..2.4 kHz laptop-mic & warm snaps without starving upper modes.
-        if rng.random() < 0.35:
-            f1 = float(rng.uniform(1650.0, 2450.0))
+        # Sample fundamental resonance weighted toward natural finger-snap pocket frequencies (1.55..4.9 kHz)
+        if rng.random() < 0.36:
+            f1 = float(rng.uniform(1550.0, 2450.0))
         else:
             f1 = float(rng.uniform(2200.0, 4900.0))
-        f2 = f1 * float(rng.uniform(1.30, 1.95))
-        w2 = float(rng.uniform(0.0, 0.52)) if rng.random() < 0.72 else 0.0
-        tau1 = float(rng.uniform(0.0038, 0.022))
-        tau2 = tau1 * float(rng.uniform(0.42, 0.88))
         sn_len = min(n - c, int(sr * 0.090))
         t = np.arange(sn_len, dtype=np.float32) / sr
-        attack = 1.0 - np.exp(-t / float(rng.uniform(0.00012, 0.00085)))
-        snap = attack * (
-            float(rng.uniform(0.55, 0.88)) * np.sin(2 * np.pi * f1 * t) * np.exp(-t / tau1)
-            + w2 * np.sin(2 * np.pi * f2 * t) * np.exp(-t / tau2)
-        )
-        # Broadband percussive skin click component shaped around 1.5..6 kHz (varied Q)
-        if rng.random() < 0.85:
-            pop_lo = max(1400.0, f1 * 0.65)
-            pop_hi = min(6500.0, max(pop_lo + 800.0, f1 * 1.65), sr * 0.45)
-            pop = _bandpass_noise(rng, sn_len, sr, pop_lo, pop_hi)
-            pop /= max(float(np.max(np.abs(pop))), 1e-6)
-            snap += float(rng.uniform(0.12, 0.45)) * pop * np.exp(-t / (tau1 * float(rng.uniform(0.45, 0.85))))
+
+        pos_style = rng.choice(["modal", "cavity_q", "fast_crack"], p=[0.40, 0.40, 0.20])
+        if pos_style == "modal":
+            f2 = f1 * float(rng.uniform(1.30, 1.95))
+            w2 = float(rng.uniform(0.0, 0.52)) if rng.random() < 0.72 else 0.0
+            tau1 = float(rng.uniform(0.0022, 0.020))
+            tau2 = tau1 * float(rng.uniform(0.42, 0.88))
+            attack = 1.0 - np.exp(-t / float(rng.uniform(0.00012, 0.00080)))
+            snap = attack * (
+                float(rng.uniform(0.55, 0.88)) * np.sin(2 * np.pi * f1 * t) * np.exp(-t / tau1)
+                + w2 * np.sin(2 * np.pi * f2 * t) * np.exp(-t / tau2)
+            )
+            if rng.random() < 0.88:
+                pop_lo = max(1400.0, f1 * 0.65)
+                pop_hi = min(6500.0, max(pop_lo + 800.0, f1 * 1.65), sr * 0.45)
+                pop = _bandpass_noise(rng, sn_len, sr, pop_lo, pop_hi)
+                pop /= max(float(np.max(np.abs(pop))), 1e-6)
+                snap += float(rng.uniform(0.15, 0.50)) * pop * np.exp(-t / (tau1 * float(rng.uniform(0.45, 0.85))))
+        elif pos_style == "cavity_q":
+            # Realistic finite-Q Helmholtz air-pocket resonance (Gaussian spectral band Q=2.0..7.5, crisp 1.8..10ms decay)
+            raw = rng.standard_normal(sn_len).astype(np.float32)
+            fr = np.fft.rfftfreq(sn_len, d=1.0 / sr)
+            q_val = float(rng.uniform(2.0, 7.5))
+            bw = max(260.0, f1 / q_val)
+            bp = np.exp(-0.5 * ((fr - f1) / bw) ** 2).astype(np.float32)
+            if rng.random() < 0.45:
+                f2 = min(6200.0, f1 * float(rng.uniform(1.38, 1.85)))
+                bp += float(rng.uniform(0.25, 0.55)) * np.exp(-0.5 * ((fr - f2) / (bw * 1.2)) ** 2).astype(np.float32)
+            cav = np.fft.irfft(np.fft.rfft(raw) * bp, n=sn_len).astype(np.float32)
+            cav /= max(float(np.max(np.abs(cav))), 1e-6)
+            tau1 = float(rng.uniform(0.0018, 0.010))
+            attack = 1.0 - np.exp(-t / float(rng.uniform(0.00010, 0.00050)))
+            snap = cav * attack * np.exp(-t / tau1)
+        else:
+            # Ultra-fast dry snap crack (tau 1.4..4.0 ms, broadband 1.4..6.5 kHz)
+            tau1 = float(rng.uniform(0.0014, 0.0040))
+            lo_f = float(rng.uniform(1350.0, 2400.0))
+            hi_f = float(rng.uniform(4200.0, 7200.0))
+            crk = _bandpass_noise(rng, sn_len, sr, lo_f, min(hi_f, sr * 0.45))
+            crk /= max(float(np.max(np.abs(crk))), 1e-6)
+            attack = 1.0 - np.exp(-t / float(rng.uniform(0.00008, 0.00035)))
+            snap = crk * attack * np.exp(-t / tau1)
+
+        # Optional subtle finger-on-palm impact thump (180..520 Hz decaying rapidly in <6 ms)
+        if rng.random() < 0.35:
+            f_th = float(rng.uniform(180.0, 520.0))
+            tau_th = float(rng.uniform(0.0020, 0.0055))
+            snap += float(rng.uniform(0.12, 0.42)) * max(float(np.max(np.abs(snap))), 1e-6) * np.sin(2 * np.pi * f_th * t) * np.exp(-t / tau_th)
 
         # Tiny optional finger friction pre-brush 2..5 ms before pop
         if rng.random() < 0.40:
@@ -461,8 +492,8 @@ def main():
     t0 = time.time()
     rng = np.random.default_rng(2026)
 
-    n_pos = 3600
-    n_neg = 8400
+    n_pos = 4400
+    n_neg = 8800
     X_list = []
     y_list = []
 

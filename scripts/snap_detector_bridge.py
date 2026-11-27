@@ -31,6 +31,13 @@ import os
 import queue
 import sys
 import threading
+import time
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
+    except Exception:
+        pass
 
 try:
     import numpy as np
@@ -100,7 +107,7 @@ SENSITIVITY_PRESETS = {
         "min_crest_pre": 2.05,
         "min_core_crest": 2.10,
         "min_attack": 2.25,
-        "min_band_ratio": 0.85,
+        "min_band_ratio": 0.68,
         "ml_thresh": 0.76,
         "speech_boost": 0.13,
         "clutter_boost": 0.08,
@@ -639,7 +646,7 @@ class SnapDetectorEngine:
         c_hp = _highpass_fft(buf[max(0, peak_idx - int(self.sample_rate * 0.004)) : min(buf.size, peak_idx + int(self.sample_rate * 0.018))], self.sample_rate, cutoff_hz=1200.0)
         c_pk = float(np.max(np.abs(c_hp))) if c_hp.size else 0.0
         active_osc_samples = int(np.sum(np.abs(c_hp) >= 0.22 * max(c_pk, 1e-9)))
-        is_glitch = active_osc_samples < 8
+        is_glitch = active_osc_samples < 5
         # Allow soft-clipped / laptop-AGC snaps (core_crest 1.45..2.10) when ML confidence & isolation are strong
         is_soft_mouth_pop = (
             sig["core_crest"] < 1.45
@@ -648,7 +655,9 @@ class SnapDetectorEngine:
         is_murmur_embedded = speech_ctx and low_isolation and (sig["core_crest"] < 4.5 or prob < 0.96)
         is_plosive_vowel = (voiced_post_active and post_low_spill >= 0.26 and prob < 0.95)
         is_broad_noise = (flatness > 0.55 and fwhm_ms > 18.0 and prob < 0.95)
-        is_ood = ood_z > 3.8
+        is_ood = (ood_z > 5.2) or (
+            ood_z > 4.2 and (prob < 0.85 or snr < 8.0 or sig["isolation"] < 5.0 or speech_ctx)
+        )
 
         # Live calibration capture accepts strong clean ML snaps (ignoring presenter lock while learning)
         if self.cal_active:
@@ -769,7 +778,7 @@ class SnapDetectorEngine:
         low_hist = list(self.prev_low_pow)[:-3] if len(self.prev_low_pow) > 6 else list(self.prev_low_pow)
         local_low_floor = max(self.bg_low_pow, float(np.median(low_hist)) * 1.05)
         excess_snap = max(0.0, feat["snap_pow"] - self.bg_snap_pow)
-        excess_low = max(0.0, feat["low_pow"] - local_low_floor)
+        excess_low = max(0.0, feat["low_pow"] - local_low_floor * 1.25)
         quick_ratio = excess_snap / max(excess_low, 1e-12)
 
         is_candidate = (
@@ -1058,6 +1067,34 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
     stop_evt = threading.Event()
 
     def stdin_watcher():
+        is_win = (sys.platform == "win32")
+        if is_win:
+            try:
+                import ctypes
+                import msvcrt
+                handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+                avail = ctypes.c_ulong(0)
+                while not stop_evt.is_set():
+                    ok = ctypes.windll.kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(avail), None)
+                    if not ok:
+                        stop_evt.set()
+                        break
+                    if avail.value > 0:
+                        line = sys.stdin.readline()
+                        if not line:
+                            stop_evt.set()
+                            break
+                        cmd = line.strip()
+                        if cmd.upper() == "STOP":
+                            stop_evt.set()
+                            break
+                        if cmd:
+                            cmd_q.put(cmd)
+                    else:
+                        time.sleep(0.05)
+                return
+            except Exception:
+                pass
         try:
             for line in sys.stdin:
                 cmd = line.strip()
@@ -1087,7 +1124,7 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
             samplerate=native_sr,
             channels=1,
             dtype="float32",
-            blocksize=engine.hop_len,
+            blocksize=0,
             callback=audio_callback,
         ):
             emit_event(

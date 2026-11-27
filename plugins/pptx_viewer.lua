@@ -409,7 +409,7 @@ function PptxView:goto_slide(slide_idx)
   end
   if self.slide ~= slide_idx then
     local dwell = (config.plugins and config.plugins.pptx and tonumber(config.plugins.pptx.snap_dwell_lock_sec)) or 2.5
-    self.snap_forward_lock_until = (dwell > 0) and (os.clock() + dwell) or 0
+    self.snap_forward_lock_until = (dwell > 0) and (system.get_time() + dwell) or 0
   end
   self.slide = slide_idx
   self.scroll.to.x = 0
@@ -576,7 +576,7 @@ function PptxView:_handle_snap_event(evt)
   elseif evt.event == "snap" then
     local cnt = tonumber(evt.count) or 1
     if evt.action == "next" then
-      local now = os.clock()
+      local now = system.get_time()
       if self.snap_forward_lock_until and now < self.snap_forward_lock_until then
         local rem = self.snap_forward_lock_until - now
         self.snap_flash_text = string.format("[DWELL GUARD] Forward Locked (%.1fs) - Prev OK", rem)
