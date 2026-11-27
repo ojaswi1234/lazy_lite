@@ -275,7 +275,7 @@ if ($setupMongo) {
 
 if ($realPython) {
     Write-Host "Installing Core AI, Memory Tree & Voice Dependencies (LangGraph, SQLite Checkpoint, MCP, etc.)..." -ForegroundColor Cyan
-    try { & $pyExe @($pyPreArgs + @("-m", "pip", "install", "requests", "pypdfium2", "pypdf", "Pillow", "pyfiglet", "numpy", "sounddevice", "--quiet")) 2>$null } catch {}
+    try { & $pyExe @($pyPreArgs + @("-m", "pip", "install", "requests", "pypdfium2", "pypdf", "Pillow", "pyfiglet", "numpy", "sounddevice", "onnxruntime", "--quiet")) 2>$null } catch {}
     try { & $pyExe @($pyPreArgs + @("-m", "pip", "install", "langchain-core", "langchain-google-genai", "langchain-groq", "langchain-openai", "langchain-anthropic", "langgraph", "langgraph-checkpoint-sqlite", "groq", "openai", "anthropic", "mcp", "langchain-mcp-adapters", "graphifyy", "duckduckgo-search", "psutil", "google-genai", "--quiet")) 2>$null } catch {}
 }
 

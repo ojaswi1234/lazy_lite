@@ -273,9 +273,9 @@ if command -v python3 &> /dev/null; then
     python3 -m pip install requests langchain-core langchain-google-genai langchain-groq langchain-openai langchain-anthropic langgraph langgraph-checkpoint-sqlite groq openai anthropic mcp langchain-mcp-adapters graphifyy duckduckgo-search psutil google-genai --quiet 2>/dev/null || true
     
     echo "Installing PDF, UI Splash & Audio Dependencies..."
-    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice --break-system-packages --quiet 2>/dev/null || \
-    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice --user --quiet 2>/dev/null || \
-    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice --quiet 2>/dev/null || true
+    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice onnxruntime --break-system-packages --quiet 2>/dev/null || \
+    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice onnxruntime --user --quiet 2>/dev/null || \
+    python3 -m pip install pypdfium2 pypdf Pillow pyfiglet numpy sounddevice onnxruntime --quiet 2>/dev/null || true
 fi
 
 # 3.5. LeetCode & Assessment Suite Dependencies

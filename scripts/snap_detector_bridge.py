@@ -49,6 +49,11 @@ try:
 except ImportError:
     sd = None
 
+try:
+    import onnxruntime as ort
+except ImportError:
+    ort = None
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
@@ -67,6 +72,7 @@ else:
     _highpass_fft = None
 
 DEFAULT_MODEL_PATH = os.path.join(SCRIPT_DIR, "snap_ml_model.npz")
+DEFAULT_VAD_PATH = os.path.join(SCRIPT_DIR, "silero_vad_16k_op15.onnx")
 DEFAULT_PROFILE_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), "tempfiles", "snap_profile.json")
 
 for _stream in (sys.stdout, sys.stderr):
@@ -144,6 +150,99 @@ class _FloatRing:
 
     def view(self):
         return self.buf[: self.size]
+
+
+class _NeuralSpeechVAD:
+    """On-device Silero VAD ONNX neural speech/word/character/filler filter (16 kHz)."""
+
+    def __init__(self, sample_rate, vad_path=DEFAULT_VAD_PATH):
+        self.sr = int(sample_rate)
+        self.loaded = False
+        self.latest_prob = 0.0
+        self.history = collections.deque(maxlen=80)  # ~2.56s at 32 ms per VAD step
+        self._step = float(self.sr) / 16000.0
+        self._phase = 0.0
+        self._in_tail = np.zeros(0, dtype=np.float32)
+        self._buf16 = np.zeros(0, dtype=np.float32)
+
+        if np is None or ort is None or not vad_path or not os.path.exists(vad_path):
+            return
+        try:
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = 1
+            opts.inter_op_num_threads = 1
+            self.sess = ort.InferenceSession(vad_path, sess_options=opts, providers=["CPUExecutionProvider"])
+            self._inp_names = {i.name for i in self.sess.get_inputs()}
+            self._state = np.zeros((2, 1, 128), dtype=np.float32)
+            self._ctx = np.zeros((1, 64), dtype=np.float32)
+            self._sr_arr = np.array(16000, dtype=np.int64)
+            self.loaded = True
+        except Exception:
+            self.loaded = False
+
+    def feed_hop(self, hop, stream_time):
+        if not self.loaded or hop.size == 0:
+            return
+        arr = hop if self._in_tail.size == 0 else np.concatenate((self._in_tail, hop))
+        upper = float(arr.size) - 1.0001
+        if upper >= self._phase:
+            k_count = int(math.floor((upper - self._phase) / self._step)) + 1
+            pos = self._phase + np.arange(k_count, dtype=np.float64) * self._step
+            idx0 = np.floor(pos).astype(np.int64)
+            frac = (pos - idx0).astype(np.float32)
+            out16 = (arr[idx0] * (1.0 - frac) + arr[idx0 + 1] * frac).astype(np.float32)
+            next_pos = self._phase + k_count * self._step
+            drop = min(arr.size, int(math.floor(next_pos)))
+            self._in_tail = arr[drop:].copy()
+            self._phase = next_pos - drop
+            if out16.size > 0:
+                self._buf16 = out16 if self._buf16.size == 0 else np.concatenate((self._buf16, out16))
+        else:
+            self._in_tail = arr.copy()
+
+        while self._buf16.size >= 512:
+            win = self._buf16[:512][None, :]
+            self._buf16 = self._buf16[512:]
+            inp = np.concatenate((self._ctx, win), axis=1)
+            feeds = {"input": inp, "state": self._state}
+            if "sr" in self._inp_names:
+                feeds["sr"] = self._sr_arr
+            out, self._state = self.sess.run(None, feeds)
+            self._ctx = win[:, -64:]
+            prob = float(out[0][0])
+            self.latest_prob = prob
+            self.history.append((stream_time, prob))
+
+    def is_speech_window(self, t_lo, t_hi, min_valid_t=0.0, snap_center_t=None, vocal_support=True):
+        """Return (is_speech, max_prob) inside [t_lo, t_hi], ignoring initial LSTM warmup.
+
+        Separates pre-onset speaking (`< snap_center_t - 0.030`) and post-tail syllables
+        (`> snap_center_t + 0.175`) from `0..175ms` room reverb tail when `vocal_support` is False.
+        """
+        if not self.loaded or not self.history:
+            return False, 0.0
+        lo = max(float(min_valid_t), float(t_lo))
+        pts = [(ts, p) for (ts, p) in self.history if lo <= ts <= t_hi]
+        if not pts:
+            return False, 0.0
+        mx = max(p for _, p in pts)
+        if snap_center_t is None:
+            hits = sum(1 for _, p in pts if p >= 0.24)
+            return (mx >= 0.36 or hits >= 2), mx
+
+        surr = [p for (ts, p) in pts if ts < (snap_center_t - 0.030) or ts > (snap_center_t + 0.175)]
+        surr_mx = max(surr) if surr else 0.0
+        surr_hits = sum(1 for p in surr if p >= 0.22)
+        if surr_mx >= 0.32 or surr_hits >= 2:
+            return True, max(mx, surr_mx)
+
+        if vocal_support:
+            hits = sum(1 for _, p in pts if p >= 0.24)
+            return (mx >= 0.34 or hits >= 2), mx
+
+        # Without vocal-band energy (pure >1.2kHz room reverb tail), require sustained multi-frame speech
+        sustained_hits = sum(1 for _, p in pts if p >= 0.55)
+        return (sustained_hits >= 4), mx
 
 
 class SnapMLClassifier:
@@ -319,6 +418,7 @@ class SnapDetectorEngine:
             profile_path=profile_path,
             presenter_lock=presenter_lock,
         )
+        self.vad = _NeuralSpeechVAD(sample_rate=self.sample_rate)
 
         # Precompute rFFT masks
         self.window = np.hanning(self.frame_len).astype(np.float32)
@@ -371,6 +471,7 @@ class SnapDetectorEngine:
         self.cooldown_until = 0.0
         self.last_next_emit_time = -10.0
         self.stream_time = 0.0
+        self.warmup_end_time = self.warmup_frames * self.frame_sec + 0.05
         self._pcm_buf = np.zeros(0, dtype=np.float32)
 
     def set_sensitivity(self, sensitivity):
@@ -504,6 +605,15 @@ class SnapDetectorEngine:
                 first_snr = float(self.pending["meta"].get("snr", 1.0))
                 if meta["snr"] < first_snr * 0.25 and meta["drr"] < 2.2:
                     return
+                vad_hit, vad_mx = self.vad.is_speech_window(
+                    self.pending["first_time"] - 0.38, self.stream_time,
+                    min_valid_t=self.warmup_end_time, snap_center_t=snap_time,
+                    vocal_support=bool(meta.get("speech_ctx") or self.pending["meta"].get("speech_ctx")),
+                )
+                if vad_hit:
+                    self.pending = None
+                    self.emit_fn("guard", reason="speech_word_filter", vad=round(vad_mx, 2))
+                    return
                 if self.gesture_mode == "solo":
                     # Solo Mode: 2nd fast snap immediately fires Previous Slide (always unlocked!)
                     self.pending = None
@@ -554,6 +664,17 @@ class SnapDetectorEngine:
         snap_t = self.pending["first_time"]
         meta = self.pending["meta"]
         self.pending = None
+
+        # Pre-commit Word/Character/Filler Lookahead Filter (+480 ms):
+        # If spoken syllable/vowel/filler arrived BEFORE or AFTER an unvoiced consonant burst, cancel!
+        vad_hit, vad_mx = self.vad.is_speech_window(
+            snap_t - 0.38, self.stream_time,
+            min_valid_t=self.warmup_end_time, snap_center_t=snap_t,
+            vocal_support=bool(meta.get("speech_ctx")),
+        )
+        if vad_hit:
+            self.emit_fn("guard", reason="speech_word_filter", vad=round(vad_mx, 2), prob=meta["prob"])
+            return
 
         if self.gesture_mode == "crowd":
             if cnt == 1:
@@ -662,15 +783,41 @@ class SnapDetectorEngine:
             or (sig["core_crest"] < self.min_core_crest and (prob < 0.84 or sig["isolation"] < 2.1 or speech_ctx))
         )
         is_murmur_embedded = speech_ctx and low_isolation and (prob < 0.94 or sig["core_crest"] < 2.2)
+        has_vocal_support = bool(
+            speech_ctx
+            or sig["speech_pre"] >= max(0.0024, self.bg_speech_med * 1.45)
+            or sig["speech_post"] >= max(0.0024, self.bg_speech_med * 1.45)
+            or post_voiced >= 0.15
+            or (sig["isolation"] < 1.45 and prob < 0.95)
+        )
+        vad_hit, vad_mx = self.vad.is_speech_window(
+            c["trigger_time"] - 0.38, self.stream_time,
+            min_valid_t=self.warmup_end_time, snap_center_t=c["trigger_time"],
+            vocal_support=has_vocal_support,
+        )
+        # Sustained speech consonants/fricatives/words have low isolation & low DRR;
+        # exempt high-confidence crisp far-field reverberant snaps when neural VAD confirms non-speech.
+        is_sustained_syllable = (
+            (sig["isolation"] < 1.72 and sig["drr"] < 1.80)
+            or (sig["drr"] < 1.05 and sig["isolation"] < 2.3)
+        ) and (
+            has_vocal_support
+            or vad_mx >= 0.20
+            or prob < 0.94
+            or flatness > 0.12
+            or fwhm_ms > 14.0
+            or not self.vad.loaded
+        )
         is_plosive_vowel = (voiced_post_active and post_low_spill >= 0.26 and prob < 0.95)
         is_broad_noise = (flatness > 0.55 and fwhm_ms > 18.0 and prob < 0.95)
+        is_ambient_clutter = (recent_bursts >= 4 and sig["isolation"] < 1.65) or (sig["isolation"] < 1.38 and snr < 3.5)
         is_ood = (ood_z > 5.2) or (
             ood_z > 4.2 and (prob < 0.85 or snr < 8.0 or sig["isolation"] < 5.0 or speech_ctx)
         )
 
         # Live calibration capture accepts strong clean ML snaps (ignoring presenter lock while learning)
         if self.cal_active:
-            cal_ok = (prob >= 0.72) and not is_glitch and not is_plosive_vowel and not is_broad_noise and not is_ood
+            cal_ok = (prob >= 0.72) and not vad_hit and not is_sustained_syllable and not is_glitch and not is_plosive_vowel and not is_broad_noise and not is_ood
             if cal_ok:
                 self.cal_feats.append(feats)
                 self.cal_sigs.append(sig)
@@ -691,6 +838,9 @@ class SnapDetectorEngine:
 
         accepted = (
             (prob >= eff_thresh)
+            and not vad_hit
+            and not is_sustained_syllable
+            and not is_ambient_clutter
             and not is_glitch
             and not is_soft_mouth_pop
             and not is_murmur_embedded
@@ -716,11 +866,14 @@ class SnapDetectorEngine:
                 "flatness": round(flatness, 2),
                 "fwhm_ms": round(fwhm_ms, 1),
                 "speech_ctx": speech_ctx,
+                "vad": round(vad_mx, 2),
                 "clutter": recent_bursts,
             })
 
         if not accepted:
-            if (prob >= eff_thresh) and not is_glitch and not is_soft_mouth_pop and not is_murmur_embedded and not is_plosive_vowel and not is_broad_noise and not is_ood and not pres_ok:
+            if vad_hit and (prob >= eff_thresh):
+                self.emit_fn("guard", reason="speech_word_filter", vad=round(vad_mx, 2), prob=round(prob, 2))
+            elif (prob >= eff_thresh) and not vad_hit and not is_sustained_syllable and not is_glitch and not is_soft_mouth_pop and not is_murmur_embedded and not is_plosive_vowel and not is_broad_noise and not is_ood and not pres_ok:
                 self.emit_fn("guard", reason="presenter_mismatch", detail=pres_reason, prob=round(prob, 2))
             return
 
@@ -739,6 +892,7 @@ class SnapDetectorEngine:
         self.stream_time += self.frame_sec
 
         self._push_pcm_hop(frame[: self.hop_len])
+        self.vad.feed_hop(frame[: self.hop_len], self.stream_time)
         feat = self._compute_frame_features(frame)
 
         # Warmup phase
@@ -770,12 +924,13 @@ class SnapDetectorEngine:
 
         if self.stream_time < self.cooldown_until:
             self._update_speech_context(feat["speech_rms"], is_snap_onset=False)
-            self.ring_snap_rms.append(feat["snap_rms"])
-            self.ring_snap_pow.append(feat["snap_pow"])
-            self.ring_low_pow.append(feat["low_pow"])
-            self.ring_speech_rms.append(feat["speech_rms"])
-            if (self.frame_idx % 16) == 0:
-                self._refresh_robust_floor()
+            if self.vad.latest_prob < 0.24 and self.stream_time > self.speech_active_until:
+                self.ring_snap_rms.append(feat["snap_rms"])
+                self.ring_snap_pow.append(feat["snap_pow"])
+                self.ring_low_pow.append(feat["low_pow"])
+                self.ring_speech_rms.append(feat["speech_rms"])
+                if (self.frame_idx % 16) == 0:
+                    self._refresh_robust_floor()
             self.prev_snap_rms.append(feat["snap_rms"])
             self.prev_low_pow.append(feat["low_pow"])
             return
@@ -801,8 +956,9 @@ class SnapDetectorEngine:
         is_snap_spike = is_candidate or (feat["crest"] >= 2.2 and quick_ratio >= 1.4 and feat["snap_rms"] >= bg_thresh * 0.85)
         self._update_speech_context(feat["speech_rms"], is_snap_onset=is_snap_spike)
 
-        # Feed pre-allocated rolling Median+MAD rings (only feed quiet/non-candidate baseline frames into floor)
-        if not is_candidate:
+        # Feed pre-allocated rolling Median+MAD rings ONLY during quiet non-speech baseline frames
+        # so talking for 2+ seconds never pulls bg_speech_med/bg_snap_med up to speaker volume.
+        if not is_candidate and self.vad.latest_prob < 0.24 and self.stream_time > self.speech_active_until:
             self.ring_snap_rms.append(feat["snap_rms"])
             self.ring_snap_pow.append(feat["snap_pow"])
             self.ring_low_pow.append(feat["low_pow"])
@@ -1081,23 +1237,29 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
             try:
                 import ctypes
                 import msvcrt
-                handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+                fd = sys.stdin.fileno()
+                handle = msvcrt.get_osfhandle(fd)
                 avail = ctypes.c_ulong(0)
+                rx_buf = b""
                 while not stop_evt.is_set():
                     ok = ctypes.windll.kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(avail), None)
                     if not ok:
                         stop_evt.set()
                         break
                     if avail.value > 0:
-                        line = sys.stdin.readline()
-                        if not line:
+                        chunk = os.read(fd, min(4096, int(avail.value)))
+                        if not chunk:
                             stop_evt.set()
                             break
-                        cmd = line.strip()
-                        if cmd.upper() == "STOP":
-                            stop_evt.set()
-                            break
-                        if cmd:
+                        rx_buf += chunk
+                        while b"\n" in rx_buf:
+                            raw_ln, rx_buf = rx_buf.split(b"\n", 1)
+                            cmd = raw_ln.decode("utf-8", errors="ignore").strip()
+                            if not cmd:
+                                continue
+                            if cmd.upper() == "STOP":
+                                stop_evt.set()
+                                return
                             cmd_q.put(cmd)
                     else:
                         time.sleep(0.05)
@@ -1142,6 +1304,7 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
                 sensitivity=engine.sensitivity,
                 gesture_mode=engine.gesture_mode,
                 ml=engine.classifier.loaded,
+                vad=engine.vad.loaded,
                 presenter_lock=(engine.classifier.presenter_lock_enabled and engine.classifier.personal_mean is not None),
             )
             while not stop_evt.is_set():
