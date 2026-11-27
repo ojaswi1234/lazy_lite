@@ -2903,6 +2903,10 @@ local function sanitize_ai_output(out, tab)
     return ""
   end)
   out = out:gsub("%[ERROR Reading [^\r\n]*%][^\r\n]*\r?\n?", "")
+  out = out:gsub("]%s*<%]%s*minimax[^>\r\n]*", "")
+  out = out:gsub("<invoke[^>\r\n]*>", "")
+  out = out:gsub("</?invoke[^>]*>", "")
+  out = out:gsub("</?command[^>]*>", "")
   out = out:gsub("<think.-</think>%s*", "")
   out = out:gsub("<thought.-</thought>%s*", "")
   out = out:gsub("</?think>", "")
@@ -5199,13 +5203,19 @@ function AGView:draw()
         local bot_m = (blk.level == 1 and 10 * SCALE) or (blk.level == 2 and 8 * SCALE) or (blk.level == 3 and 4 * SCALE) or 0
         line_y = line_y + top_m
 
-        for l_idx, w_line in ipairs(blk.wrapped_lines) do
-          if line_y + lh >= chat_top and line_y <= chat_bot then
+        local num_w_lines = #blk.wrapped_lines
+        local first_p_vis = math.max(1, math.floor((chat_top - line_y) / lh) + 1)
+        local last_p_vis  = math.min(num_w_lines, math.ceil((chat_bot - line_y) / lh) + 1)
+        local para_y_start = line_y
+        for l_idx = first_p_vis, last_p_vis do
+          local draw_py = para_y_start + (l_idx - 1) * lh
+          local w_line = blk.wrapped_lines[l_idx]
+          if draw_py + lh >= chat_top and draw_py <= chat_bot and w_line then
             local lx = x + pad + msg_pad
             local para_avail_w = math.max(10*SCALE, msg_w - 2 * msg_pad)
-            core.push_clip_rect(lx, line_y, para_avail_w, lh)
+            core.push_clip_rect(lx, draw_py, para_avail_w, lh)
             if blk.list_prefix and l_idx == 1 then
-              draw_text_emoji(f, blk.list_prefix, lx, line_y, P.fg_accent)
+              draw_text_emoji(f, blk.list_prefix, lx, draw_py, P.fg_accent)
               lx = lx + f:get_width(blk.list_prefix)
             elseif blk.list_prefix then
               lx = lx + f:get_width(blk.list_prefix)
@@ -5218,16 +5228,16 @@ function AGView:draw()
                 -- Pill badge for inline code
                 local pill_pad = math.floor(3 * (SCALE or 1))
                 local pill_h = cfont:get_height() + math.floor(2 * (SCALE or 1))
-                local pill_y = line_y - math.floor(1 * (SCALE or 1))
+                local pill_y = draw_py - math.floor(1 * (SCALE or 1))
                 local pill_w = seg.width
                 renderer.draw_rect(lx, pill_y, pill_w, pill_h, P.bg_btn)
                 draw_rect_outline(lx, pill_y, pill_w, pill_h, { P.border[1], P.border[2], P.border[3], 120 })
                 ccol = style.syntax["keyword"] or P.fg_accent
-                draw_text_emoji(cfont, seg.text, lx + pill_pad, line_y, ccol)
+                draw_text_emoji(cfont, seg.text, lx + pill_pad, draw_py, ccol)
                 if seg.url and self._link_rects then
-                  table.insert(self._link_rects, { x = lx, y = line_y, w = pill_w, h = pill_h, url = seg.url })
+                  table.insert(self._link_rects, { x = lx, y = draw_py, w = pill_w, h = pill_h, url = seg.url })
                   if self.hover_link_url == seg.url then
-                    renderer.draw_rect(lx + pill_pad, line_y + cfont:get_height() - 1, pill_w - 2 * pill_pad, 1, ccol)
+                    renderer.draw_rect(lx + pill_pad, draw_py + cfont:get_height() - 1, pill_w - 2 * pill_pad, 1, ccol)
                   end
                 end
                 lx = lx + pill_w
@@ -5239,20 +5249,20 @@ function AGView:draw()
                 elseif seg.type == "link" then
                   ccol = style.syntax["function"] or P.fg_accent
                   if seg.url and self._link_rects then
-                    table.insert(self._link_rects, { x = lx, y = line_y, w = seg.width, h = lh, url = seg.url })
+                    table.insert(self._link_rects, { x = lx, y = draw_py, w = seg.width, h = lh, url = seg.url })
                     if self.hover_link_url == seg.url then
-                      renderer.draw_rect(lx, line_y + cfont:get_height() - 1, seg.width, 1, ccol)
+                      renderer.draw_rect(lx, draw_py + cfont:get_height() - 1, seg.width, 1, ccol)
                     end
                   end
                 end
-                draw_text_emoji(cfont, seg.text, lx, line_y, ccol)
+                draw_text_emoji(cfont, seg.text, lx, draw_py, ccol)
                 lx = lx + seg.width
               end
             end
             core.pop_clip_rect()
           end
-          line_y = line_y + lh
         end
+        line_y = para_y_start + num_w_lines * lh
 
         -- Horizontal divider line under section titles (H1 and H2)
         if blk.level == 1 then

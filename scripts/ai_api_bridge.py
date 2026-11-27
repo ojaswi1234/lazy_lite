@@ -677,6 +677,11 @@ def normalize_tool_call(name: str, args: dict, available_tools: list = None):
         "cat": "read_file",
         "open_file": "read_file",
         "get_file": "read_file",
+        "shell": "local_shell",
+        "invoke_shell": "local_shell",
+        "bash": "local_shell",
+        "powershell": "local_shell",
+        "read": "read_file",
         "write": "write_file",
         "writefile": "write_file",
         "edit_file": "write_file",
@@ -733,6 +738,28 @@ def normalize_tool_call(name: str, args: dict, available_tools: list = None):
 
     return target_name, norm_args
 
+def dedupe_and_cap_tool_calls(tool_calls: list, max_calls: int = 8) -> list:
+    """Remove duplicate pseudo/hallucinated tool calls and cap fan-out per turn."""
+    if not tool_calls:
+        return []
+    seen = set()
+    out = []
+    for tc in tool_calls:
+        name = tc.get("name", "")
+        args = tc.get("args") or {}
+        try:
+            sig = (name, json.dumps(args, sort_keys=True))
+        except Exception:
+            sig = (name, str(args))
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(tc)
+        if len(out) >= max_calls:
+            break
+    return out
+
+
 def strip_balanced_functions(text: str):
     """Accurately extracts and strips balanced function declarations including nested braces and TS types."""
     pos = 0
@@ -775,7 +802,10 @@ def parse_pseudo_tool_calls(text: str, available_tools: list = None):
     tool_calls = []
     clean_text = text or ""
 
-    # 1. Strip reasoning blocks <think>...</think> and <thought>...</thought>
+    # 1. Strip reasoning blocks & MiniMax internal delimiters
+    clean_text = re.sub(r'\]<\][^<\r\n]*\[>\[', '', clean_text)
+    clean_text = re.sub(r'\]<\]minimax[^\r\n]*', '', clean_text)
+    clean_text = re.sub(r'</?(?:think|thought|minimax|command)(?:\s[^>]*)?>', '', clean_text)
     clean_text = re.sub(r'<think>[\s\S]*?</think>', '', clean_text)
     clean_text = re.sub(r'<thought>[\s\S]*?</thought>', '', clean_text)
     clean_text = re.sub(r'</?think>', '', clean_text)
@@ -991,12 +1021,27 @@ def parse_pseudo_tool_calls(text: str, available_tools: list = None):
         except Exception:
             pass
 
-    # 6. Clean any remaining bare, unclosed, or orphaned XML tags
-    clean_text = re.sub(r'</?(?:tool_call|function|function_call|parameter|invoke|think|thought|arg_key|arg_value|antArtifact)[^>]*>', '', clean_text)
+    # 4b. Format: unclosed MiniMax/Anthropic <invoke_shell"> or <invoke name="..."> followed by JSON object line
+    unclosed_inv = list(re.finditer(r'<invoke(?:_([a-zA-Z0-9_\-]+)|(?:\s+name=[\'"]?([^\'">\s]+)))?[\'"]?\s*>\s*(\{[^\r\n]+\})', clean_text))
+    for m in reversed(unclosed_inv):
+        fn_name = (m.group(1) or m.group(2) or "local_shell").strip()
+        try:
+            params = json.loads(m.group(3))
+        except Exception:
+            params = None
+        if isinstance(params, dict):
+            t_name, t_args = normalize_tool_call(fn_name, params, available_tools)
+            tool_calls.append({"id": f"call_{uuid.uuid4().hex[:8]}", "name": t_name, "args": t_args})
+            clean_text = clean_text[:m.start()] + clean_text[m.end():]
+
+    # 6. Clean any remaining bare, unclosed, or orphaned XML tags and leaked pseudo-call JSON lines
+    clean_text = re.sub(r'<invoke[^>\r\n]*>\s*(?:\{"command"\s*:[^\r\n]*)?', '', clean_text)
+    clean_text = re.sub(r'^\s*\{"(?:command|filepath|path|query)"\s*:[^\r\n]*\}\s*$', '', clean_text, flags=re.MULTILINE)
+    clean_text = re.sub(r'</?(?:tool_call|function|function_call|parameter|invoke|invoke_[a-zA-Z0-9_\-]+|think|thought|arg_key|arg_value|antArtifact|command|minimax)[^>\r\n]*>', '', clean_text)
     clean_text = re.sub(r'^[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?\s*$', '', clean_text, flags=re.MULTILINE)
     clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
 
-    return tool_calls, clean_text
+    return dedupe_and_cap_tool_calls(tool_calls), clean_text
 
 
 class StreamInterceptor:
@@ -1006,12 +1051,18 @@ class StreamInterceptor:
         self.buffer = ""
         self.flushed_text = ""
         self.tool_calls = []
+        self.degenerated = False
+        self._pseudo_hits = 0
+        self._recent_lines = {}
         self.tag_prefixes = [
+            "]<]minimax", "]<]",
+            "<minimax", "</minimax",
             "<tool_call", "</tool_call",
             "<function=", "</function",
             "<function_call", "</function_call",
             "[TOOL_CALL", "[tool_calls",
-            "<invoke", "</invoke",
+            "<invoke_", "<invoke", "</invoke",
+            "<command", "</command",
             "<think", "</think",
             "<thought", "</thought",
             "<parameter", "</parameter",
@@ -1021,7 +1072,7 @@ class StreamInterceptor:
             "await read_file", "read_file(",
             "await write_file", "write_file("
         ]
-        self.max_prefix_len = 25
+        self.max_prefix_len = 28
 
     def _strip_balanced_functions(self, text: str):
         pos = 0
@@ -1057,18 +1108,44 @@ class StreamInterceptor:
         return "".join(result), extracted
 
     def _parse_candidate_block(self, block: str):
+        # 0. MiniMax M3 interleaved delimiters: ]<]minimax[>[ or ]<]...[>[ -> discard silently
+        m_mm = re.match(r'^(?:\]<\][^\r\n<\[]*(?:\[>\[)?|\]<\]minimax\[>\[|</?(?:minimax|command)(?:\s[^>\r\n]*)?>)\s*', block)
+        if m_mm:
+            return 0, m_mm.end(), None, None
+
         # 1. Reasoning blocks: <think>...</think> or <thought>...</thought> -> discard silently
         m_th = re.match(r'<(?:think|thought)>([\s\S]*?)</(?:think|thought)>\s*', block)
         if m_th:
             return 0, m_th.end(), None, None
 
         # 2. Stray closing reasoning / invoke / tool tags at start of buffer -> discard silently
-        m_stray = re.match(r'</(?:think|thought|invoke|tool_call|function|function_call)>\s*', block)
+        m_stray = re.match(r'</(?:think|thought|invoke|invoke_[a-zA-Z0-9_\-]+|tool_call|function|function_call|command|minimax)(?:\s[^>\r\n]*)?>\s*', block)
         if m_stray:
             return 0, m_stray.end(), None, None
 
+        # 2b. Unclosed MiniMax/Anthropic <invoke_shell"> or <invoke name="..."> followed by single-line JSON (wait for newline or next tag if partial)
+        m_minv = re.match(r'<invoke(?:_([a-zA-Z0-9_\-]+)|(?:\s+name=[\'"]?([^\'">\s]+)))?[\'"]?\s*>\s*(\{[^\r\n]+\})\s*(?:</invoke\s*>)?(?=\s*(?:\r?\n|\]<\]|<|\Z))', block)
+        if m_minv:
+            # Guard: wait until either newline or next tag arrives so partial JSON line isn't truncated
+            after_pos = m_minv.end()
+            if after_pos < len(block) or block[m_minv.start():after_pos].endswith('\n'):
+                fn_name = (m_minv.group(1) or m_minv.group(2) or "local_shell").strip()
+                try:
+                    params = json.loads(m_minv.group(3))
+                except Exception:
+                    params = None
+                if isinstance(params, dict):
+                    t_name, t_args = normalize_tool_call(fn_name, params, self.available_tools)
+                    return 0, after_pos, t_name, t_args
+                return 0, after_pos, None, None
+
+        # 2c. Bare <invoke_shell"> immediately followed by another tag
+        m_bare_inv = re.match(r'<invoke(?:_[a-zA-Z0-9_\-]+)?[\'"]?\s*>\s*(?=\]<\||<invoke|<tool_call|</)', block)
+        if m_bare_inv:
+            return 0, m_bare_inv.end(), None, None
+
         # 3. Consecutive bare opening <tool_call> followed by another tag or code
-        m_bare_tc = re.match(r'<tool_call(?:\s+name=[\'"][^\'"]*[\'"])?>\s*(?=<tool_call|</invoke|</think|<invoke|<think|function|await|\w+\()', block)
+        m_bare_tc = re.match(r'<tool_call(?:\s+name=[\'"][^\'"]*[\'"])?>\s*(?=\]<\||<tool_call|</invoke|</think|<invoke|<think|function|await|\w+\()', block)
         if m_bare_tc:
             return 0, m_bare_tc.end(), None, None
 
@@ -1251,14 +1328,19 @@ class StreamInterceptor:
                     _, end_idx, t_name, t_args = res
                     import uuid
                     if t_name is not None:
+                        self._pseudo_hits += 1
                         self.tool_calls.append({
                             "id": f"call_{uuid.uuid4().hex[:8]}",
                             "name": t_name,
                             "args": t_args
                         })
+                        if self._pseudo_hits >= 10:
+                            self.degenerated = True
                     self.buffer = self.buffer[end_idx:]
                     continue
                 else:
+                    if len(self.buffer) > 4000 and (self.buffer.count("<invoke") + self.buffer.count("]<]")) >= 10:
+                        self.degenerated = True
                     break
             else:
                 tail_len = 0
@@ -1277,6 +1359,19 @@ class StreamInterceptor:
                     out += self.buffer
                     self.buffer = ""
                     break
+
+        if not self.degenerated and chunk:
+            if "Autopilot is active. Autopilot is active." in (out + self.buffer):
+                self.degenerated = True
+            elif "\n" in chunk:
+                for ln in chunk.splitlines():
+                    s_ln = ln.strip()
+                    if len(s_ln) >= 45:
+                        cnt = self._recent_lines.get(s_ln, 0) + 1
+                        self._recent_lines[s_ln] = cnt
+                        if cnt >= 5:
+                            self.degenerated = True
+                            break
 
         self.flushed_text += out
         return out
@@ -1327,14 +1422,30 @@ class StreamInterceptor:
                 else:
                     self.tool_calls.append({"id": f"call_{uuid.uuid4().hex[:8]}", "name": t_name, "args": {"input": arg1}})
 
+            # Also extract any remaining MiniMax / unclosed <invoke_shell"> + JSON blocks
+            for m_ui in re.finditer(r'<invoke(?:_([a-zA-Z0-9_\-]+)|(?:\s+name=[\'"]?([^\'">\s]+)))?[\'"]?\s*>\s*(\{[^\r\n]+\})', self.buffer):
+                fn_name = (m_ui.group(1) or m_ui.group(2) or "local_shell").strip()
+                try:
+                    params = json.loads(m_ui.group(3))
+                except Exception:
+                    params = None
+                if isinstance(params, dict):
+                    nt, na = normalize_tool_call(fn_name, params, self.available_tools)
+                    self.tool_calls.append({"id": f"call_{uuid.uuid4().hex[:8]}", "name": nt, "args": na})
+
             cleaned = re.sub(invoc_pattern, '', self.buffer)
-            cleaned = re.sub(r'</?(?:tool_call|function|function_call|parameter|invoke|think|thought|arg_key|arg_value|antArtifact)[^>]*>', '', cleaned)
+            cleaned = re.sub(r'\]<\][^<\r\n]*\[>\[', '', cleaned)
+            cleaned = re.sub(r'\]<\]minimax[^\r\n]*', '', cleaned)
+            cleaned = re.sub(r'<invoke[^>\r\n]*>\s*(?:\{"command"\s*:[^\r\n]*)?', '', cleaned)
+            cleaned = re.sub(r'^\s*\{"(?:command|filepath|path|query)"\s*:[^\r\n]*\}\s*$', '', cleaned, flags=re.MULTILINE)
+            cleaned = re.sub(r'</?(?:tool_call|function|function_call|parameter|invoke|invoke_[a-zA-Z0-9_\-]+|think|thought|arg_key|arg_value|antArtifact|command|minimax)[^>\r\n]*>', '', cleaned)
             cleaned = re.sub(r'^[a-zA-Z0-9_\-]+\s*\(\s*\)\s*;?\s*$', '', cleaned, flags=re.MULTILINE)
             cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
             out += cleaned
             self.buffer = ""
             break
 
+        self.tool_calls = dedupe_and_cap_tool_calls(self.tool_calls)
         self.flushed_text += out
         return out
 
@@ -2771,10 +2882,10 @@ HOW TO ACT:
                 active_llm = llm_with_tools
                 messages = [SystemMessage(content=system_prompt)] + safe_messages
 
-            try:
+            async def _stream_with_guard(target_llm, msg_list, avail_tools, cap_turns=True):
                 full_msg = None
-                interceptor = StreamInterceptor(available_tools=tools if active_llm == llm_with_tools else [])
-                async for chunk in active_llm.astream(messages):
+                interceptor = StreamInterceptor(available_tools=avail_tools)
+                async for chunk in target_llm.astream(msg_list):
                     if full_msg is None:
                         full_msg = chunk
                     else:
@@ -2784,27 +2895,37 @@ HOW TO ACT:
                         if safe_chunk:
                             sys.stdout.write(safe_chunk)
                             sys.stdout.flush()
+                    if interceptor.degenerated:
+                        sys.stderr.write("\n[WARN] Interrupted repetitive/hallucinated stream loop early.\n")
+                        sys.stderr.flush()
+                        break
                 final_tail = interceptor.finish()
                 if final_tail:
                     sys.stdout.write(final_tail)
                     sys.stdout.flush()
 
-                msg = full_msg if full_msg is not None else AIMessage(content="")
-
-                # Check if native tool_calls were returned
-                native_calls = getattr(msg, "tool_calls", None)
+                out_msg = full_msg if full_msg is not None else AIMessage(content="")
+                native_calls = getattr(out_msg, "tool_calls", None)
                 if not native_calls:
                     if interceptor.tool_calls:
-                        msg.tool_calls = interceptor.tool_calls
-                        msg.content = interceptor.flushed_text
-                    elif msg.content:
-                        p_calls, p_clean = parse_pseudo_tool_calls(msg.content, available_tools=tools)
+                        out_msg.tool_calls = dedupe_and_cap_tool_calls(interceptor.tool_calls)
+                        out_msg.content = interceptor.flushed_text
+                    elif out_msg.content:
+                        p_calls, p_clean = parse_pseudo_tool_calls(out_msg.content, available_tools=avail_tools)
                         if p_calls:
-                            msg.tool_calls = p_calls
-                            msg.content = p_clean
+                            out_msg.tool_calls = p_calls
+                        out_msg.content = p_clean
+                else:
+                    out_msg.tool_calls = dedupe_and_cap_tool_calls(native_calls)
+                    if interceptor.flushed_text:
+                        out_msg.content = interceptor.flushed_text
+                if cap_turns and tool_turns >= max_allowed_turns:
+                    out_msg.tool_calls = []
+                return out_msg
 
-                if tool_turns >= max_allowed_turns:
-                    msg.tool_calls = []
+            try:
+                avail = tools if active_llm == llm_with_tools else []
+                msg = await _stream_with_guard(active_llm, messages, avail, cap_turns=True)
 
             except Exception as e:
                 err_str = str(e).lower()
@@ -2832,36 +2953,7 @@ HOW TO ACT:
                     core_success = False
                     try:
                         llm_core = llm.bind_tools(core_tools) if llm and core_tools and tool_turns < max_allowed_turns else llm
-                        full_msg = None
-                        fb_interceptor = StreamInterceptor(available_tools=core_tools)
-                        async for chunk in llm_core.astream(clean_msgs):
-                            if full_msg is None:
-                                full_msg = chunk
-                            else:
-                                full_msg += chunk
-                            if chunk.content:
-                                safe_chunk = fb_interceptor.feed_chunk(chunk.content)
-                                if safe_chunk:
-                                    sys.stdout.write(safe_chunk)
-                                    sys.stdout.flush()
-                        final_tail = fb_interceptor.finish()
-                        if final_tail:
-                            sys.stdout.write(final_tail)
-                            sys.stdout.flush()
-
-                        msg = full_msg if full_msg is not None else AIMessage(content="")
-                        native_calls = getattr(msg, "tool_calls", None)
-                        if not native_calls:
-                            if fb_interceptor.tool_calls:
-                                msg.tool_calls = fb_interceptor.tool_calls
-                                msg.content = fb_interceptor.flushed_text
-                            elif msg.content:
-                                p_calls, p_clean = parse_pseudo_tool_calls(msg.content, available_tools=core_tools)
-                                if p_calls:
-                                    msg.tool_calls = p_calls
-                                    msg.content = p_clean
-                        if tool_turns >= max_allowed_turns:
-                            msg.tool_calls = []
+                        msg = await _stream_with_guard(llm_core, clean_msgs, core_tools, cap_turns=True)
                         core_success = True
                     except Exception as core_err:
                         sys.stderr.write(f"\n[DIAGNOSTIC] Core tools also rejected ({core_err}). Falling back to chat-only mode.\n")
@@ -2873,32 +2965,7 @@ HOW TO ACT:
                             if provider == "groq":
                                 while len(clean_msgs) > 2 and sum(len(m.content or "") for m in clean_msgs) > 8000:
                                     clean_msgs.pop(1)
-                            full_msg = None
-                            chat_interceptor = StreamInterceptor(available_tools=core_tools)
-                            async for chunk in llm.astream(clean_msgs):
-                                if full_msg is None:
-                                    full_msg = chunk
-                                else:
-                                    full_msg += chunk
-                                if chunk.content:
-                                    safe_chunk = chat_interceptor.feed_chunk(chunk.content)
-                                    if safe_chunk:
-                                        sys.stdout.write(safe_chunk)
-                                        sys.stdout.flush()
-                            final_tail = chat_interceptor.finish()
-                            if final_tail:
-                                sys.stdout.write(final_tail)
-                                sys.stdout.flush()
-
-                            msg = full_msg if full_msg is not None else AIMessage(content="")
-                            if chat_interceptor.tool_calls:
-                                msg.tool_calls = chat_interceptor.tool_calls
-                                msg.content = chat_interceptor.flushed_text
-                            elif msg.content:
-                                p_calls, p_clean = parse_pseudo_tool_calls(msg.content, available_tools=core_tools)
-                                if p_calls:
-                                    msg.tool_calls = p_calls
-                                    msg.content = p_clean
+                            msg = await _stream_with_guard(llm, clean_msgs, core_tools, cap_turns=False)
 
                         except Exception as fallback_e:
                             execution_had_error = True
