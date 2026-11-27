@@ -168,16 +168,18 @@ def estimate_voiced_acf(segment, sr, min_hz=75.0, max_hz=360.0):
     spec = np.fft.rfft(segment - np.mean(segment))
     pow_spec = spec.real * spec.real + spec.imag * spec.imag
 
-    # Vocal band energy & formant check (suppress pure 60/120 Hz electrical/fan hums)
+    # Vocal band energy & formant check (suppress pure 60-185 Hz electrical/fan hums & ultra-quiet floor)
     e_total_low = float(np.sum(pow_spec[(freqs >= 65.0) & (freqs <= 1400.0)]))
     e_formant = float(np.sum(pow_spec[(freqs >= 260.0) & (freqs <= 1400.0)]))
-    if e_total_low < 1e-8 or (e_formant / max(e_total_low, 1e-12)) < 0.12:
+    e_hum = float(np.sum(pow_spec[(freqs >= 65.0) & (freqs <= 185.0)]))
+    if e_total_low < 1e-8 or (e_formant / max(e_total_low, 1e-12)) < 0.22 or e_formant < 0.35 * e_hum:
         return 0.0
 
     mask = ((freqs >= min_hz) & (freqs <= max_hz * 2.5)).astype(np.float32)
     bp = np.fft.irfft(spec * mask, n=n).astype(np.float32)
     energy = float(np.dot(bp, bp))
-    if energy < 1e-10:
+    bp_rms = math.sqrt(energy / max(1, n))
+    if energy < 1e-10 or bp_rms < 0.0022:
         return 0.0
     fft_n = 1 << int(math.ceil(math.log2(2 * n - 1)))
     f = np.fft.rfft(bp, n=fft_n)

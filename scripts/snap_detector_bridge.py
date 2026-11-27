@@ -89,40 +89,40 @@ def emit_event(event_name, **kwargs):
 
 SENSITIVITY_PRESETS = {
     "high": {
-        "min_snr": 3.0,
-        "mad_k": 4.5,
-        "min_peak": 0.0020,
-        "min_crest_pre": 1.90,
-        "min_core_crest": 2.05,
-        "min_attack": 2.0,
-        "min_band_ratio": 0.72,
-        "ml_thresh": 0.64,
+        "min_snr": 2.1,
+        "mad_k": 3.4,
+        "min_peak": 0.0010,
+        "min_crest_pre": 1.70,
+        "min_core_crest": 1.80,
+        "min_attack": 1.55,
+        "min_band_ratio": 0.45,
+        "ml_thresh": 0.60,
+        "speech_boost": 0.15,
+        "clutter_boost": 0.09,
+    },
+    "normal": {
+        "min_snr": 2.5,
+        "mad_k": 4.2,
+        "min_peak": 0.0018,
+        "min_crest_pre": 1.85,
+        "min_core_crest": 1.95,
+        "min_attack": 1.80,
+        "min_band_ratio": 0.55,
+        "ml_thresh": 0.72,
         "speech_boost": 0.14,
         "clutter_boost": 0.08,
     },
-    "normal": {
-        "min_snr": 3.0,
-        "mad_k": 5.0,
-        "min_peak": 0.0036,
-        "min_crest_pre": 2.05,
-        "min_core_crest": 2.10,
-        "min_attack": 2.25,
-        "min_band_ratio": 0.68,
-        "ml_thresh": 0.76,
-        "speech_boost": 0.13,
-        "clutter_boost": 0.08,
-    },
     "low": {
-        "min_snr": 4.8,
-        "mad_k": 7.5,
-        "min_peak": 0.0075,
-        "min_crest_pre": 2.45,
-        "min_core_crest": 2.60,
-        "min_attack": 2.8,
-        "min_band_ratio": 1.10,
-        "ml_thresh": 0.85,
-        "speech_boost": 0.10,
-        "clutter_boost": 0.06,
+        "min_snr": 4.2,
+        "mad_k": 6.5,
+        "min_peak": 0.0055,
+        "min_crest_pre": 2.30,
+        "min_core_crest": 2.40,
+        "min_attack": 2.50,
+        "min_band_ratio": 0.95,
+        "ml_thresh": 0.84,
+        "speech_boost": 0.11,
+        "clutter_boost": 0.07,
     },
 }
 
@@ -284,10 +284,10 @@ class SnapDetectorEngine:
         sample_rate=48000,
         sensitivity="normal",
         gesture_mode="solo",
-        double_window_sec=0.58,
-        min_double_gap_sec=0.10,
-        cooldown_single_sec=0.22,
-        cooldown_double_sec=0.45,
+        double_window_sec=0.48,
+        min_double_gap_sec=0.135,
+        cooldown_single_sec=0.24,
+        cooldown_double_sec=0.48,
         emit_fn=None,
         model_path=DEFAULT_MODEL_PATH,
         profile_path=DEFAULT_PROFILE_PATH,
@@ -369,6 +369,7 @@ class SnapDetectorEngine:
         self.verify_frames = 16  # +80 ms post-onset observation
         self.pending = None  # {"count": int, "first_time": float, "last_time": float, "meta": dict}
         self.cooldown_until = 0.0
+        self.last_next_emit_time = -10.0
         self.stream_time = 0.0
         self._pcm_buf = np.zeros(0, dtype=np.float32)
 
@@ -499,6 +500,10 @@ class SnapDetectorEngine:
             dt_prev = snap_time - self.pending["last_time"]
             max_gap = self.double_window_sec if self.pending["count"] == 1 else self.triple_window_sec
             if self.min_double_gap_sec <= dt_prev <= max_gap:
+                # Reject weak late room slapback / reverberation echoes as a deliberate 2nd snap
+                first_snr = float(self.pending["meta"].get("snr", 1.0))
+                if meta["snr"] < first_snr * 0.25 and meta["drr"] < 2.2:
+                    return
                 if self.gesture_mode == "solo":
                     # Solo Mode: 2nd fast snap immediately fires Previous Slide (always unlocked!)
                     self.pending = None
@@ -516,6 +521,9 @@ class SnapDetectorEngine:
                         self.cooldown_until = snap_time + self.cooldown_double_sec
                         self.emit_fn("snap", count=3, action="prev", dt=total_dt, **meta)
                     return
+            elif dt_prev < self.min_double_gap_sec:
+                # Ignore ultra-close rebound/slapback (< 135 ms) rather than resetting/re-arming pending
+                return
 
         self.pending = {
             "count": 1,
@@ -561,9 +569,13 @@ class SnapDetectorEngine:
                 return
         else:
             # Solo Mode: 1x -> Next Slide (blocked if Disturbance Breaker trips or active)
+            if (self.stream_time - self.last_next_emit_time) < 1.15:
+                self.emit_fn("guard", reason="echo_cooldown", message="Ignored rapid forward echo/rebound")
+                return
             if self.stream_time < self.breaker_until or self._record_spam_burst_and_check_breaker(snap_t):
                 self.emit_fn("guard", reason="spam_breaker", message="Forward blocked by disturbance guard")
                 return
+            self.last_next_emit_time = self.stream_time
             self.cooldown_until = self.stream_time + self.cooldown_single_sec
             self.emit_fn("snap", count=1, action="next", **meta)
 
@@ -615,13 +627,10 @@ class SnapDetectorEngine:
         murmur_post = sig["speech_post"] >= sp_floor
         low_isolation = sig["isolation"] < 3.4
 
-        # Gate periodic ACF against stationary fan hum (which never elevates above ambient speech floor)
-        voiced_pre_active = (pre_voiced >= 0.45) and (
-            self.bg_speech_med < 0.006 or sig["speech_pre"] >= self.bg_speech_med * 1.15 or low_isolation
-        )
-        voiced_post_active = (post_voiced >= 0.45) and (
-            self.bg_speech_med < 0.006 or sig["speech_post"] >= self.bg_speech_med * 1.15 or low_isolation
-        )
+        # Gate periodic ACF against stationary fan/electrical hum and quiet background ripple
+        speech_active_gate = max(0.0028, self.bg_speech_med * 1.18, self.bg_speech_med + 2.0 * self.bg_speech_mad)
+        voiced_pre_active = (pre_voiced >= 0.45) and (sig["speech_pre"] >= speech_active_gate)
+        voiced_post_active = (post_voiced >= 0.45) and (sig["speech_post"] >= speech_active_gate)
 
         recent_bursts = sum(1 for t in self.transient_times if (c["trigger_time"] - t) <= 1.8)
         speech_ctx = (
@@ -631,7 +640,7 @@ class SnapDetectorEngine:
             or murmur_pre
             or murmur_post
         )
-        mid_sentence_ambush = ((voiced_pre_active or murmur_pre) and (post_voiced >= 0.40 or murmur_post))
+        mid_sentence_ambush = ((voiced_pre_active or murmur_pre) and (voiced_post_active or murmur_post))
         noisy_clutter = recent_bursts >= 5
 
         eff_thresh = self.ml_thresh
@@ -647,12 +656,12 @@ class SnapDetectorEngine:
         c_pk = float(np.max(np.abs(c_hp))) if c_hp.size else 0.0
         active_osc_samples = int(np.sum(np.abs(c_hp) >= 0.22 * max(c_pk, 1e-9)))
         is_glitch = active_osc_samples < 5
-        # Allow soft-clipped / laptop-AGC snaps (core_crest 1.45..2.10) when ML confidence & isolation are strong
+        # Allow soft-clipped / AGC / far-field reverberant snaps (low crest & DRR) when ML confidence is strong
         is_soft_mouth_pop = (
             sig["core_crest"] < 1.45
-            or (sig["core_crest"] < self.min_core_crest and (prob < 0.84 or sig["isolation"] < 4.5 or speech_ctx))
+            or (sig["core_crest"] < self.min_core_crest and (prob < 0.84 or sig["isolation"] < 2.1 or speech_ctx))
         )
-        is_murmur_embedded = speech_ctx and low_isolation and (sig["core_crest"] < 4.5 or prob < 0.96)
+        is_murmur_embedded = speech_ctx and low_isolation and (prob < 0.94 or sig["core_crest"] < 2.2)
         is_plosive_vowel = (voiced_post_active and post_low_spill >= 0.26 and prob < 0.95)
         is_broad_noise = (flatness > 0.55 and fwhm_ms > 18.0 and prob < 0.95)
         is_ood = (ood_z > 5.2) or (
@@ -1174,7 +1183,7 @@ def main():
     parser = argparse.ArgumentParser(description="ML finger-snap slide controller with crowd guards")
     parser.add_argument("--sensitivity", default="normal", choices=["low", "normal", "high"])
     parser.add_argument("--gesture-mode", default="solo", choices=["solo", "crowd"])
-    parser.add_argument("--double-window-ms", type=int, default=580)
+    parser.add_argument("--double-window-ms", type=int, default=480)
     parser.add_argument("--no-presenter-lock", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--monitor", action="store_true")

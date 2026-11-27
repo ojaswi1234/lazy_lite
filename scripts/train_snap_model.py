@@ -45,11 +45,18 @@ def _pink_noise(rng, n):
 def _apply_reverb(sig, sr, rt60, rng):
     if rt60 <= 0.04:
         return sig
-    ir_len = min(int(sr * 0.08), sig.size)
+    ir_len = min(int(sr * 0.12), sig.size)
     t_ir = np.arange(ir_len, dtype=np.float32) / sr
-    decay = np.exp(-t_ir / max(rt60 * 0.16, 0.008))
-    ir = rng.standard_normal(ir_len).astype(np.float32) * decay * 0.14
+    decay = np.exp(-t_ir / max(rt60 * 0.18, 0.010))
+    diffuse_gain = float(rng.uniform(0.12, 0.36))
+    ir = rng.standard_normal(ir_len).astype(np.float32) * decay * diffuse_gain
     ir[0] = 1.0
+    # Add discrete early room reflections (8..32 ms) typical at 2-4.5m speaker distance
+    if rt60 >= 0.18:
+        for _ in range(int(rng.integers(1, 4))):
+            r_idx = int(sr * rng.uniform(0.008, 0.032))
+            if r_idx < ir_len:
+                ir[r_idx] += float(rng.uniform(0.15, 0.42))
     n_fft = 1 << int(np.ceil(np.log2(sig.size + ir_len - 1)))
     out = np.fft.irfft(np.fft.rfft(sig, n=n_fft) * np.fft.rfft(ir, n=n_fft), n=n_fft)[: sig.size]
     return out.astype(np.float32)
@@ -166,11 +173,18 @@ def generate_example(rng, sr, cls_label):
             attack = 1.0 - np.exp(-t / float(rng.uniform(0.00008, 0.00035)))
             snap = crk * attack * np.exp(-t / tau1)
 
-        # Optional subtle finger-on-palm impact thump (180..520 Hz decaying rapidly in <6 ms)
-        if rng.random() < 0.35:
+        # Optional subtle finger-on-palm impact thump (180..520 Hz decaying rapidly in <4.5 ms)
+        if rng.random() < 0.28:
             f_th = float(rng.uniform(180.0, 520.0))
-            tau_th = float(rng.uniform(0.0020, 0.0055))
-            snap += float(rng.uniform(0.12, 0.42)) * max(float(np.max(np.abs(snap))), 1e-6) * np.sin(2 * np.pi * f_th * t) * np.exp(-t / tau_th)
+            tau_th = float(rng.uniform(0.0018, 0.0042))
+            snap += float(rng.uniform(0.08, 0.24)) * max(float(np.max(np.abs(snap))), 1e-6) * np.sin(2 * np.pi * f_th * t) * np.exp(-t / tau_th)
+
+        # Far-field air-absorption high-frequency rolloff (~35% far presenter samples 1.8..4.5m)
+        if rng.random() < 0.35:
+            dist_sim = float(rng.uniform(1.8, 4.5))
+            fr_s = np.fft.rfftfreq(snap.size, d=1.0 / sr)
+            atten = np.exp(-np.maximum(0.0, fr_s - 1800.0) * dist_sim / 18000.0).astype(np.float32)
+            snap = np.fft.irfft(np.fft.rfft(snap) * atten, n=snap.size).astype(np.float32)
 
         # Tiny optional finger friction pre-brush 2..5 ms before pop
         if rng.random() < 0.40:
@@ -179,7 +193,11 @@ def generate_example(rng, sr, cls_label):
             br *= (0.12 * float(np.max(np.abs(snap)))) / max(float(np.max(np.abs(br))), 1e-6)
             buf[c - br_len : c] += br
 
-        snap = _apply_reverb(snap, sr, float(rng.uniform(0.0, 0.38)), rng)
+        snap = _apply_reverb(snap, sr, float(rng.uniform(0.0, 0.68)), rng)
+        # Ensure weaker far-field levels (0.002..0.012) are well represented cleanly
+        if rng.random() < 0.32:
+            amp = min(amp, float(rng.uniform(0.0020, 0.015)))
+            amp = max(amp, bg_rms_est * float(rng.uniform(0.75, 2.2)))
         # Simulate hardware mic AGC / soft limiter saturation on ~28% of real captures
         if rng.random() < 0.28:
             mx = max(float(np.max(np.abs(snap))), 1e-6)
@@ -492,8 +510,8 @@ def main():
     t0 = time.time()
     rng = np.random.default_rng(2026)
 
-    n_pos = 4400
-    n_neg = 8800
+    n_pos = 5000
+    n_neg = 9000
     X_list = []
     y_list = []
 

@@ -29,7 +29,7 @@ config.plugins.pptx = common.merge({
   snap_gesture_mode = "solo",    -- "solo" (1x next / 2x prev) or "crowd" (2x next / 3x prev)
   snap_dwell_lock_sec = 2.5,     -- seconds to block forward 1x snap right after slide change
   snap_presenter_lock = true,    -- enforce calibrated DRR/timbre presenter lock if calibrated
-  snap_double_window_ms = 580,   -- max gap (ms) between fast snaps for multi-snap gestures
+  snap_double_window_ms = 480,   -- max gap (ms) between fast snaps for multi-snap gestures
 }, config.plugins.pptx)
 
 local function truncate_text(font, text, max_w)
@@ -614,7 +614,7 @@ function PptxView:start_snap_detector()
   local cfg = (config.plugins and config.plugins.pptx) or {}
   local sens = tostring(cfg.snap_sensitivity or "normal")
   local gmode = tostring(cfg.snap_gesture_mode or "solo")
-  local dbl_ms = tostring(cfg.snap_double_window_ms or 580)
+  local dbl_ms = tostring(cfg.snap_double_window_ms or 480)
   local cmd = {
     "python", "-u", SNAP_BRIDGE,
     "--sensitivity", sens,
