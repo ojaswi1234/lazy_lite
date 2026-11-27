@@ -414,10 +414,10 @@ class SnapDetectorEngine:
         sample_rate=48000,
         sensitivity="normal",
         gesture_mode="solo",
-        double_window_sec=0.48,
-        min_double_gap_sec=0.135,
+        double_window_sec=0.54,
+        min_double_gap_sec=0.088,
         cooldown_single_sec=0.24,
-        cooldown_double_sec=0.48,
+        cooldown_double_sec=0.34,
         emit_fn=None,
         model_path=DEFAULT_MODEL_PATH,
         profile_path=DEFAULT_PROFILE_PATH,
@@ -633,12 +633,18 @@ class SnapDetectorEngine:
             if self.min_double_gap_sec <= dt_prev <= max_gap:
                 # Reject weak late room slapback / reverberation echoes as a deliberate 2nd snap
                 first_snr = float(self.pending["meta"].get("snr", 1.0))
-                if meta["snr"] < first_snr * 0.25 and meta["drr"] < 2.2:
+                if dt_prev < 0.140:
+                    if meta["snr"] < max(3.2, first_snr * 0.25):
+                        return
+                elif meta["snr"] < first_snr * 0.20 and meta["drr"] < 1.8:
                     return
+                # Check Silero VAD ONLY from past Snap #1's tail (~last_time + 0.14s) so Snap #1 itself isn't misread as pre-speech!
                 vad_hit, vad_mx = self.vad.is_speech_window(
-                    self.pending["first_time"] - 0.38, self.stream_time,
-                    min_valid_t=self.warmup_end_time, snap_center_t=snap_time,
-                    vocal_support=bool(meta.get("speech_ctx") or self.pending["meta"].get("speech_ctx")),
+                    max(self.pending["last_time"] + 0.140, snap_time - 0.120),
+                    self.stream_time,
+                    min_valid_t=self.warmup_end_time,
+                    snap_center_t=snap_time,
+                    vocal_support=bool(meta.get("speech_ctx")),
                 )
                 if vad_hit:
                     self.pending = None
@@ -663,11 +669,11 @@ class SnapDetectorEngine:
                         self.emit_fn("snap", count=3, action="prev", dt=total_dt, **meta)
                     return
             elif dt_prev < self.min_double_gap_sec:
-                # Ignore ultra-close rebound/slapback (< 135 ms) rather than resetting/re-arming pending
+                # Ignore ultra-close rebound/slapback (< 88 ms) rather than resetting/re-arming pending
                 return
 
         if self.gesture_mode == "solo":
-            # Optimistic instant-Next in Solo Mode (~80ms instead of +480ms wait!)
+            # Optimistic instant-Next in Solo Mode (~80ms instead of +540ms wait!)
             if (snap_time - self.last_next_emit_time) < 0.55:
                 self.emit_fn("guard", reason="echo_cooldown", message="Ignored rapid forward echo/rebound")
                 return
@@ -675,8 +681,8 @@ class SnapDetectorEngine:
                 self.emit_fn("guard", reason="spam_breaker", message="Forward blocked by disturbance guard")
                 return
             self.last_next_emit_time = snap_time
-            # Only blank ultra-close acoustic slapback (< min_double_gap_sec) so fast 150-350ms 2x double-snaps stay open
-            self.cooldown_until = snap_time + self.min_double_gap_sec
+            # Open double-snap window immediately after finalize (~85ms) so 90-540ms 2x snaps always catch
+            self.cooldown_until = self.stream_time + 0.005
             self.pending = {
                 "count": 1,
                 "first_time": snap_time,
@@ -687,6 +693,7 @@ class SnapDetectorEngine:
             self.emit_fn("snap", count=1, action="next", optimistic=True, **meta)
             return
 
+        self.cooldown_until = self.stream_time + 0.005
         self.pending = {
             "count": 1,
             "first_time": snap_time,
@@ -811,23 +818,43 @@ class SnapDetectorEngine:
         voiced_post_active = (post_voiced >= 0.45) and (sig["speech_post"] >= speech_active_gate)
 
         recent_bursts = sum(1 for t in self.transient_times if (c["trigger_time"] - t) <= 1.8)
+        dt_pending = (c["trigger_time"] - self.pending["last_time"]) if self.pending is not None else -1.0
+        max_pending_gap = (
+            (self.double_window_sec if self.pending["count"] == 1 else self.triple_window_sec)
+            if self.pending is not None
+            else 0.0
+        )
+        awaiting_double = (self.pending is not None) and (self.min_double_gap_sec <= dt_pending <= max_pending_gap)
+        first_pending_snr = float(self.pending["meta"].get("snr", 1.0)) if awaiting_double else 0.0
+
+        # When inside a validated double/triple gesture, Snap #1's own tail sits in -125..-18ms
+        # so do not let murmur_pre or residual low tail from Snap #1 falsely raise speech_ctx.
         speech_ctx = (
-            self.stream_time <= self.speech_active_until
-            or voiced_pre_active
+            (self.stream_time <= self.speech_active_until and not awaiting_double)
+            or (voiced_pre_active and not awaiting_double)
             or voiced_post_active
-            or murmur_pre
+            or (murmur_pre and not awaiting_double)
             or murmur_post
         )
-        mid_sentence_ambush = ((voiced_pre_active or murmur_pre) and (voiced_post_active or murmur_post))
-        noisy_clutter = recent_bursts >= 5
+        mid_sentence_ambush = ((voiced_pre_active or murmur_pre) and (voiced_post_active or murmur_post)) if not awaiting_double else False
+        noisy_clutter = (recent_bursts >= 5) and not awaiting_double
 
-        eff_thresh = self.ml_thresh
-        if speech_ctx:
-            eff_thresh += self.speech_boost
-        if mid_sentence_ambush:
-            eff_thresh += 0.14  # Harder bar for impulses buried right inside continuous talking/murmuring
-        if noisy_clutter:
-            eff_thresh += self.clutter_boost
+        if awaiting_double:
+            if dt_pending < 0.165 and snr >= max(3.2, first_pending_snr * 0.25):
+                # Tightly spaced (<165ms) fast 2nd snap includes Snap #1 inside its -125ms FFT window
+                eff_thresh = max(0.24, self.ml_thresh - 0.36)
+            else:
+                eff_thresh = max(0.45, self.ml_thresh - 0.18)
+            if speech_ctx:
+                eff_thresh += self.speech_boost
+        else:
+            eff_thresh = self.ml_thresh
+            if speech_ctx:
+                eff_thresh += self.speech_boost
+            if mid_sentence_ambush:
+                eff_thresh += 0.14  # Harder bar for impulses buried right inside continuous talking/murmuring
+            if noisy_clutter:
+                eff_thresh += self.clutter_boost
 
         # Physical hard safety checks
         c_hp = _highpass_fft(buf[max(0, peak_idx - int(self.sample_rate * 0.004)) : min(buf.size, peak_idx + int(self.sample_rate * 0.018))], self.sample_rate, cutoff_hz=1200.0)
@@ -835,41 +862,55 @@ class SnapDetectorEngine:
         active_osc_samples = int(np.sum(np.abs(c_hp) >= 0.22 * max(c_pk, 1e-9)))
         is_glitch = active_osc_samples < 5
         # Allow soft-clipped / AGC / far-field reverberant snaps (low crest & DRR) when ML confidence is strong
-        is_soft_mouth_pop = (
-            sig["core_crest"] < 1.45
-            or (sig["core_crest"] < self.min_core_crest and (prob < 0.84 or sig["isolation"] < 2.1 or speech_ctx))
-        )
-        is_murmur_embedded = speech_ctx and low_isolation and (prob < 0.94 or sig["core_crest"] < 2.2)
+        if awaiting_double:
+            is_soft_mouth_pop = (sig["core_crest"] < 1.40) or (sig["core_crest"] < 1.75 and dt_pending < 0.150)
+            is_murmur_embedded = speech_ctx and (post_voiced >= 0.35) and (prob < 0.90)
+        else:
+            is_soft_mouth_pop = (
+                sig["core_crest"] < 1.45
+                or (sig["core_crest"] < self.min_core_crest and (prob < 0.84 or sig["isolation"] < 2.1 or speech_ctx))
+            )
+            is_murmur_embedded = speech_ctx and low_isolation and (prob < 0.94 or sig["core_crest"] < 2.2)
+
         has_vocal_support = bool(
             speech_ctx
-            or sig["speech_pre"] >= max(0.0024, self.bg_speech_med * 1.45)
+            or (not awaiting_double and sig["speech_pre"] >= max(0.0024, self.bg_speech_med * 1.45))
             or sig["speech_post"] >= max(0.0024, self.bg_speech_med * 1.45)
             or post_voiced >= 0.15
-            or (sig["isolation"] < 1.45 and prob < 0.95)
+            or (not awaiting_double and sig["isolation"] < 1.45 and prob < 0.95)
+        )
+        vad_t_lo = (
+            max(self.pending["last_time"] + 0.140, c["trigger_time"] - 0.120)
+            if awaiting_double
+            else (c["trigger_time"] - 0.38)
         )
         vad_hit, vad_mx = self.vad.is_speech_window(
-            c["trigger_time"] - 0.38, self.stream_time,
+            vad_t_lo, self.stream_time,
             min_valid_t=self.warmup_end_time, snap_center_t=c["trigger_time"],
             vocal_support=has_vocal_support,
         )
         # Sustained speech consonants/fricatives/words have low isolation & low DRR;
-        # exempt high-confidence crisp far-field reverberant snaps when neural VAD confirms non-speech.
+        # exempt high-confidence crisp far-field reverberant snaps and active 2x continuation snaps.
         is_sustained_syllable = (
-            (sig["isolation"] < 1.72 and sig["drr"] < 1.80)
-            or (sig["drr"] < 1.05 and sig["isolation"] < 2.3)
-        ) and (
-            has_vocal_support
-            or vad_mx >= 0.20
-            or prob < 0.94
-            or flatness > 0.12
-            or fwhm_ms > 14.0
-            or not self.vad.loaded
+            not awaiting_double
+            and (
+                (sig["isolation"] < 1.72 and sig["drr"] < 1.80)
+                or (sig["drr"] < 1.05 and sig["isolation"] < 2.3)
+            )
+            and (
+                has_vocal_support
+                or vad_mx >= 0.20
+                or prob < 0.94
+                or flatness > 0.12
+                or fwhm_ms > 14.0
+                or not self.vad.loaded
+            )
         )
         is_plosive_vowel = (voiced_post_active and post_low_spill >= 0.26 and prob < 0.95)
-        is_broad_noise = (flatness > 0.55 and fwhm_ms > 18.0 and prob < 0.95)
-        is_ambient_clutter = (recent_bursts >= 4 and sig["isolation"] < 1.65) or (sig["isolation"] < 1.38 and snr < 3.5)
-        is_ood = (ood_z > 5.2) or (
-            ood_z > 4.2 and (prob < 0.85 or snr < 8.0 or sig["isolation"] < 5.0 or speech_ctx)
+        is_broad_noise = (flatness > 0.55 and fwhm_ms > 18.0 and prob < 0.95) if not awaiting_double else (flatness > 0.65 and prob < 0.70)
+        is_ambient_clutter = (not awaiting_double) and ((recent_bursts >= 4 and sig["isolation"] < 1.65) or (sig["isolation"] < 1.38 and snr < 3.5))
+        is_ood = False if awaiting_double else (
+            (ood_z > 5.2) or (ood_z > 4.2 and (prob < 0.85 or snr < 8.0 or sig["isolation"] < 5.0 or speech_ctx))
         )
 
         # Live calibration capture accepts strong clean ML snaps (ignoring presenter lock while learning)
@@ -1003,22 +1044,38 @@ class SnapDetectorEngine:
         excess_low = max(0.0, feat["low_pow"] - local_low_floor * 1.25)
         quick_ratio = excess_snap / max(excess_low, 1e-12)
 
+        in_double_window = False
+        if self.pending is not None:
+            dt_p = self.stream_time - self.pending["last_time"]
+            max_p = self.double_window_sec if self.pending["count"] == 1 else self.triple_window_sec
+            in_double_window = (self.min_double_gap_sec <= dt_p <= max_p)
+
+        eff_min_peak = self.min_peak * (0.65 if in_double_window else 1.0)
+        eff_bg_thresh = bg_thresh * (0.85 if in_double_window else 1.0)
+        eff_min_attack = self.min_attack * (0.65 if in_double_window else 1.0)
+        eff_min_crest = max(1.45, self.min_crest_pre * (0.85 if in_double_window else 1.0))
+        eff_min_band = self.min_band_ratio * (0.72 if in_double_window else 1.0)
+
         is_candidate = False
         is_snap_spike = False
-        if feat["snap_rms"] >= bg_thresh * 0.85 and (quick_ratio >= self.min_band_ratio or quick_ratio >= 1.4):
+        if feat["snap_rms"] >= eff_bg_thresh * 0.85 and (quick_ratio >= eff_min_band or quick_ratio >= 1.4):
             hp_wave = np.fft.irfft(feat["spec"] * self.hp_mask, n=self.frame_len)
             peak = float(np.max(np.abs(hp_wave)))
             crest = peak / max(feat["hp_rms"], 1e-9)
             is_candidate = (
-                peak >= self.min_peak
-                and feat["snap_rms"] >= bg_thresh
-                and attack_slope >= self.min_attack
-                and crest >= self.min_crest_pre
-                and quick_ratio >= self.min_band_ratio
+                peak >= eff_min_peak
+                and feat["snap_rms"] >= eff_bg_thresh
+                and attack_slope >= eff_min_attack
+                and crest >= eff_min_crest
+                and quick_ratio >= eff_min_band
             )
             is_snap_spike = is_candidate or (crest >= 2.2 and quick_ratio >= 1.4)
 
-        self._update_speech_context(feat["speech_rms"], is_snap_onset=is_snap_spike)
+        # Suppress post-snap tail from latching speech_ctx right after a validated snap unless VAD sees voice
+        if in_double_window and (self.stream_time - self.pending["last_time"]) <= 0.22 and self.vad.latest_prob < 0.30:
+            pass
+        else:
+            self._update_speech_context(feat["speech_rms"], is_snap_onset=is_snap_spike)
 
         # Feed pre-allocated rolling Median+MAD rings ONLY during quiet non-speech baseline frames
         # so talking for 2+ seconds never pulls bg_speech_med/bg_snap_med up to speaker volume.
@@ -1426,7 +1483,7 @@ def main():
     parser = argparse.ArgumentParser(description="ML finger-snap slide controller with crowd guards")
     parser.add_argument("--sensitivity", default="normal", choices=["low", "normal", "high"])
     parser.add_argument("--gesture-mode", default="solo", choices=["solo", "crowd"])
-    parser.add_argument("--double-window-ms", type=int, default=420)
+    parser.add_argument("--double-window-ms", type=int, default=540)
     parser.add_argument("--no-presenter-lock", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--monitor", action="store_true")

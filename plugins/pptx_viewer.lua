@@ -29,7 +29,7 @@ config.plugins.pptx = common.merge({
   snap_gesture_mode = "solo",    -- "solo" (1x next / 2x prev) or "crowd" (2x next / 3x prev)
   snap_dwell_lock_sec = 0.75,    -- seconds to block rapid forward echo right after slide change
   snap_presenter_lock = true,    -- enforce calibrated DRR/timbre presenter lock if calibrated
-  snap_double_window_ms = 420,   -- max gap (ms) between fast snaps for multi-snap gestures
+  snap_double_window_ms = 540,   -- max gap (ms) between fast snaps for multi-snap gestures
 }, config.plugins.pptx)
 
 local function truncate_text(font, text, max_w)
@@ -354,6 +354,10 @@ function PptxView:request_slide(slide_idx, mode)
   if self.active_proc and self.active_slide_loading == cache_key then
     return
   end
+  if self.active_proc and (self.active_proc_type == "slide" or self.active_proc_type == "prefetch") then
+    pcall(function() self.active_proc:terminate() end)
+    self.active_proc = nil
+  end
 
   self.loading = true
   self.loading_msg = string.format("Rendering Slide %d / %d (%s)...", slide_idx, self.slide_count, mode:upper())
@@ -631,7 +635,7 @@ function PptxView:start_snap_detector()
   local cfg = (config.plugins and config.plugins.pptx) or {}
   local sens = tostring(cfg.snap_sensitivity or "normal")
   local gmode = tostring(cfg.snap_gesture_mode or "solo")
-  local dbl_ms = tostring(cfg.snap_double_window_ms or 420)
+  local dbl_ms = tostring(cfg.snap_double_window_ms or 540)
   local cmd = {
     "python", "-u", SNAP_BRIDGE,
     "--sensitivity", sens,
