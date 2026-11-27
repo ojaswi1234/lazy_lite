@@ -179,6 +179,18 @@ class _NeuralSpeechVAD:
             self._state = np.zeros((2, 1, 128), dtype=np.float32)
             self._ctx = np.zeros((1, 64), dtype=np.float32)
             self._sr_arr = np.array(16000, dtype=np.int64)
+            # Pre-prime LSTM hidden states with ~256ms of quiet noise (<3ms CPU)
+            # so live mic frame 1 does not trigger a cold-start 0.44 probability spike.
+            prime_rng = np.random.default_rng(7)
+            prime_chunk = np.zeros((1, 512), dtype=np.float32)
+            for _ in range(8):
+                prime_chunk[0, :] = (1.5e-4 * prime_rng.standard_normal(512)).astype(np.float32)
+                inp_p = np.concatenate((self._ctx, prime_chunk), axis=1)
+                feeds_p = {"input": inp_p, "state": self._state}
+                if "sr" in self._inp_names:
+                    feeds_p["sr"] = self._sr_arr
+                _, self._state = self.sess.run(None, feeds_p)
+                self._ctx = prime_chunk[:, -64:].copy()
             self.loaded = True
         except Exception:
             self.loaded = False
@@ -449,8 +461,9 @@ class SnapDetectorEngine:
         self._n_snap_bins = max(1, int(np.sum(self.snap_mask)))
         self._n_speech_bins = max(1, int(np.sum(self.speech_mask)))
 
-        # Pre-allocated circular floor buffers (2.5s)
-        self.warmup_frames = 90
+        # Pre-allocated circular floor buffers (2.5s): skip initial 40ms driver open-mic thump
+        self.startup_discard_frames = 8
+        self.warmup_frames = 22
         self.frame_idx = 0
         self.ring_snap_rms = _FloatRing(500)
         self.ring_low_pow = _FloatRing(500)
@@ -490,7 +503,7 @@ class SnapDetectorEngine:
         self.cooldown_until = 0.0
         self.last_next_emit_time = -10.0
         self.stream_time = 0.0
-        self.warmup_end_time = self.warmup_frames * self.frame_sec + 0.05
+        self.warmup_end_time = self.warmup_frames * self.frame_sec + 0.01
         self._pcm_buf = np.zeros(0, dtype=np.float32)
 
     def set_sensitivity(self, sensitivity):
@@ -939,14 +952,15 @@ class SnapDetectorEngine:
         self.vad.feed_hop(frame[: self.hop_len], self.stream_time)
         feat = self._compute_frame_features(frame)
 
-        # Warmup phase
+        # Warmup phase: discard initial ~40ms driver open-mic pop, then measure clean room floor
         if self.frame_idx <= self.warmup_frames:
-            self.ring_snap_rms.append(feat["snap_rms"])
-            self.ring_snap_pow.append(feat["snap_pow"])
-            self.ring_low_pow.append(feat["low_pow"])
-            self.ring_speech_rms.append(feat["speech_rms"])
-            if self.frame_idx == self.warmup_frames or (self.frame_idx % 20 == 0):
-                self._refresh_robust_floor()
+            if self.frame_idx > self.startup_discard_frames:
+                self.ring_snap_rms.append(feat["snap_rms"])
+                self.ring_snap_pow.append(feat["snap_pow"])
+                self.ring_low_pow.append(feat["low_pow"])
+                self.ring_speech_rms.append(feat["speech_rms"])
+                if self.frame_idx == self.warmup_frames:
+                    self._refresh_robust_floor()
             self.prev_snap_rms.append(feat["snap_rms"])
             self.prev_low_pow.append(feat["low_pow"])
             return
@@ -1361,15 +1375,7 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
 
     try:
         with _open_audio_stream():
-            emit_event(
-                "ready",
-                sample_rate=native_sr,
-                sensitivity=engine.sensitivity,
-                gesture_mode=engine.gesture_mode,
-                ml=engine.classifier.loaded,
-                vad=engine.vad.loaded,
-                presenter_lock=(engine.classifier.presenter_lock_enabled and engine.classifier.personal_mean is not None),
-            )
+            ready_emitted = False
             while not stop_evt.is_set():
                 # Drain any dynamic UI commands safely in the engine loop thread
                 while not cmd_q.empty():
@@ -1394,6 +1400,17 @@ def run_live(sensitivity="normal", gesture_mode="solo", double_window_ms=580, pr
                 try:
                     chunk = audio_q.get(timeout=0.015)
                     engine.feed(chunk)
+                    if (not ready_emitted) and engine.frame_idx >= engine.warmup_frames:
+                        ready_emitted = True
+                        emit_event(
+                            "ready",
+                            sample_rate=native_sr,
+                            sensitivity=engine.sensitivity,
+                            gesture_mode=engine.gesture_mode,
+                            ml=engine.classifier.loaded,
+                            vad=engine.vad.loaded,
+                            presenter_lock=(engine.classifier.presenter_lock_enabled and engine.classifier.personal_mean is not None),
+                        )
                 except queue.Empty:
                     if (engine.pending is not None or engine.cal_active) and engine.candidate is None:
                         engine.feed(np.zeros(engine.hop_len, dtype=np.float32))

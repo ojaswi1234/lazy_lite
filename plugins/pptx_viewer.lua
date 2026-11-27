@@ -346,6 +346,7 @@ function PptxView:request_slide(slide_idx, mode)
   local cache_key = slide_idx .. "_" .. mode
   if self.cache[cache_key] then
     self.loading = false
+    self:prefetch_next_slide()
     core.redraw = true
     return
   end
@@ -485,6 +486,7 @@ function PptxView:start_slideshow()
     end
   end
 
+  self:prefetch_next_slide()
   core.redraw = true
   core.log("[Slideshow] Fullscreen presentation active. Press Escape to exit, Space/Arrows or on-screen buttons to navigate.")
 end
