@@ -59,11 +59,13 @@ def _make_background(rng, n, sr, bg_type):
     t = np.arange(n, dtype=np.float32) / sr
     bg = rng.standard_normal(n).astype(np.float32) * 0.0004
     if bg_type in ("fan", "noisy_room", "babble"):
-        hum_f = float(rng.uniform(55.0, 180.0))
-        bg += float(rng.uniform(0.004, 0.025)) * np.sin(2 * np.pi * hum_f * t)
-        bg += float(rng.uniform(0.002, 0.010)) * np.sin(2 * np.pi * (2.0 * hum_f) * t)
+        hum_f = float(rng.uniform(35.0, 195.0))
+        bg += float(rng.uniform(0.005, 0.045)) * np.sin(2 * np.pi * hum_f * t)
+        bg += float(rng.uniform(0.002, 0.022)) * np.sin(2 * np.pi * (2.0 * hum_f) * t)
+        # Stationary room airflow / laptop fan rumble in 60..750 Hz
+        bg += _bandpass_noise(rng, n, sr, 40.0, 750.0) * float(rng.uniform(0.006, 0.055))
     if bg_type in ("noisy_room", "babble"):
-        bg += _pink_noise(rng, n) * float(rng.uniform(0.003, 0.020))
+        bg += _pink_noise(rng, n) * float(rng.uniform(0.004, 0.028))
     if bg_type == "babble":
         # Distant chatter harmonic modulation in 140..1200 Hz
         for _ in range(int(rng.integers(2, 5))):
@@ -110,32 +112,48 @@ def generate_example(rng, sr, cls_label):
                 rng, sp_len, sr, float(rng.uniform(100, 240)), float(rng.uniform(0.015, 0.08))
             )
 
-        # Realistic multi-modal damped cavity snap + tiny pre-brush
-        amp = float(10 ** rng.uniform(np.log10(0.003), np.log10(0.45)))
-        f1 = float(rng.uniform(1950.0, 4600.0))
-        f2 = f1 * float(rng.uniform(1.32, 1.92))
-        tau1 = float(rng.uniform(0.0045, 0.018))
-        tau2 = tau1 * float(rng.uniform(0.45, 0.85))
-        sn_len = min(n - c, int(sr * 0.085))
+        # Realistic single/dual-mode damped cavity snap + broad skin-click + optional AGC soft limiting
+        bg_rms_est = float(np.sqrt(np.mean(buf[max(0, c - int(sr * 0.04)) : c] ** 2) + 1e-12))
+        amp = float(10 ** rng.uniform(np.log10(0.004), np.log10(0.48)))
+        amp = min(0.85, max(amp, bg_rms_est * float(rng.uniform(0.85, 3.8))))
+        # Sample fundamental resonance weighted toward natural finger-snap pocket frequencies (1.65..4.9 kHz),
+        # ensuring solid coverage of 1.7..2.4 kHz laptop-mic & warm snaps without starving upper modes.
+        if rng.random() < 0.35:
+            f1 = float(rng.uniform(1650.0, 2450.0))
+        else:
+            f1 = float(rng.uniform(2200.0, 4900.0))
+        f2 = f1 * float(rng.uniform(1.30, 1.95))
+        w2 = float(rng.uniform(0.0, 0.52)) if rng.random() < 0.72 else 0.0
+        tau1 = float(rng.uniform(0.0038, 0.022))
+        tau2 = tau1 * float(rng.uniform(0.42, 0.88))
+        sn_len = min(n - c, int(sr * 0.090))
         t = np.arange(sn_len, dtype=np.float32) / sr
-        attack = 1.0 - np.exp(-t / float(rng.uniform(0.00015, 0.0008)))
+        attack = 1.0 - np.exp(-t / float(rng.uniform(0.00012, 0.00085)))
         snap = attack * (
-            float(rng.uniform(0.55, 0.85)) * np.sin(2 * np.pi * f1 * t) * np.exp(-t / tau1)
-            + float(rng.uniform(0.20, 0.50)) * np.sin(2 * np.pi * f2 * t) * np.exp(-t / tau2)
+            float(rng.uniform(0.55, 0.88)) * np.sin(2 * np.pi * f1 * t) * np.exp(-t / tau1)
+            + w2 * np.sin(2 * np.pi * f2 * t) * np.exp(-t / tau2)
         )
-        # Broadband percussive skin click component shaped inside 1.5..6 kHz
-        pop = _bandpass_noise(rng, sn_len, sr, 1500.0, min(6500.0, sr * 0.45))
-        pop /= max(float(np.max(np.abs(pop))), 1e-6)
-        snap += float(rng.uniform(0.10, 0.35)) * pop * np.exp(-t / (tau1 * 0.55))
+        # Broadband percussive skin click component shaped around 1.5..6 kHz (varied Q)
+        if rng.random() < 0.85:
+            pop_lo = max(1400.0, f1 * 0.65)
+            pop_hi = min(6500.0, max(pop_lo + 800.0, f1 * 1.65), sr * 0.45)
+            pop = _bandpass_noise(rng, sn_len, sr, pop_lo, pop_hi)
+            pop /= max(float(np.max(np.abs(pop))), 1e-6)
+            snap += float(rng.uniform(0.12, 0.45)) * pop * np.exp(-t / (tau1 * float(rng.uniform(0.45, 0.85))))
 
         # Tiny optional finger friction pre-brush 2..5 ms before pop
-        if rng.random() < 0.45:
+        if rng.random() < 0.40:
             br_len = int(sr * rng.uniform(0.002, 0.005))
-            br = _bandpass_noise(rng, br_len, sr, 2500.0, 8000.0)
+            br = _bandpass_noise(rng, br_len, sr, 2400.0, 8000.0)
             br *= (0.12 * float(np.max(np.abs(snap)))) / max(float(np.max(np.abs(br))), 1e-6)
             buf[c - br_len : c] += br
 
-        snap = _apply_reverb(snap, sr, float(rng.uniform(0.0, 0.35)), rng)
+        snap = _apply_reverb(snap, sr, float(rng.uniform(0.0, 0.38)), rng)
+        # Simulate hardware mic AGC / soft limiter saturation on ~28% of real captures
+        if rng.random() < 0.28:
+            mx = max(float(np.max(np.abs(snap))), 1e-6)
+            drive = float(rng.uniform(0.38, 0.72))
+            snap = np.tanh(snap / (drive * mx)) * (drive * mx)
         snap *= amp / max(float(np.max(np.abs(snap))), 1e-6)
         buf[c : c + sn_len] += snap
         event_center = c + int(np.argmax(np.abs(snap[: int(sr * 0.015)])))
@@ -360,9 +378,9 @@ def train_mlp(X_tr, y_tr, X_val, y_val, seed=123):
     best_score = -1.0
     best_weights = [p.copy() for p in params]
 
-    # Weight false positives 2.0x stronger to eliminate speech/murmur false triggers
+    # Weight false positives slightly stronger without over-suppressing 1.7-2.3 kHz & AGC snaps
     pos_w = 1.0
-    neg_w = 2.0
+    neg_w = 1.4
 
     for ep in range(epochs):
         perm = rng.permutation(X_tr.shape[0])

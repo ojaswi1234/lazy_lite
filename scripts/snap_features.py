@@ -111,7 +111,7 @@ def compute_acoustic_signature(pcm_window, sr, peak_idx, bg_snap_rms=1e-4, bg_sp
     c = peak_idx - a0
 
     hp = _highpass_fft(seg, sr, cutoff_hz=1200.0)
-    sp_bp = _bandpass_fft(seg, sr, low_hz=160.0, high_hz=1150.0)
+    sp_bp = _bandpass_fft(seg, sr, low_hz=220.0, high_hz=1150.0)
 
     c0 = max(0, c - int(round(sr * 0.002)))
     c1 = min(hp.size, c + int(round(sr * 0.012)))
@@ -233,45 +233,49 @@ def extract_snap_features(
     power = (spec.real * spec.real + spec.imag * spec.imag) / max(1, n_sp)
     freqs = _cached_freqs(n_sp, sr)
 
-    # Subtract pre-onset ambient spectrum using 2-half min-statistics so a recent 1st snap
-    # in a fast double-snap pair (100-140 ms ago) never contaminates the 2nd snap's floor.
+    # Subtract pre-onset ambient spectrum using length-matched `n_sp` Hann windows so a recent
+    # 1st snap (100-140 ms ago) never raises the floor AND 60/120 Hz sidelobes cancel cleanly.
     if bg_spectrum is not None and bg_spectrum.shape == power.shape:
         amb_pow = bg_spectrum
     else:
-        def _win_pow(t0_sec, t1_sec):
-            wa = max(0, c - int(round(sr * t0_sec)))
-            wb = max(wa + 16, c - int(round(sr * t1_sec)))
+        def _win_pow_matched(end_offset_sec):
+            wb = max(n_sp, c - int(round(sr * end_offset_sec)))
+            wa = max(0, wb - n_sp)
             sl = seg[wa:wb]
-            nw = sl.size
-            hw = _cached_hann(nw)
+            if sl.size == n_sp:
+                sp = np.fft.rfft((sl - np.mean(sl)) * win_hann)
+                return (sp.real * sp.real + sp.imag * sp.imag) / max(1, n_sp)
+            hw = _cached_hann(sl.size)
             sp = np.fft.rfft((sl - np.mean(sl)) * hw)
-            pw = (sp.real * sp.real + sp.imag * sp.imag) / max(1, nw)
-            fr = _cached_freqs(nw, sr)
-            return np.interp(freqs, fr, pw)
+            pw = (sp.real * sp.real + sp.imag * sp.imag) / max(1, sl.size)
+            return np.interp(freqs, _cached_freqs(sl.size, sr), pw)
 
-        amb_pow = np.minimum(_win_pow(0.135, 0.080), _win_pow(0.075, 0.025))
+        # 5 matched-length 20ms frames across -140..-30 ms: median avoids both double-snap bleed
+        # (ignores up to 2 spike frames) and chi^2 min downward bias on fan turbulence.
+        stack = np.stack([
+            _win_pow_matched(0.120),
+            _win_pow_matched(0.098),
+            _win_pow_matched(0.076),
+            _win_pow_matched(0.054),
+            _win_pow_matched(0.032),
+        ], axis=0)
+        amb_pow = np.median(stack, axis=0)
 
-    # Subtract pre-onset ambient spectrum ONLY above 1400 Hz (steady room hiss / fast-pair guard),
-    # while preserving low/mid vocal energy (60..1400 Hz) so speaking/murmuring is NEVER hidden!
-    raw_tot_energy = float(np.sum(power[(freqs >= 60.0) & (freqs <= min(16000.0, sr * 0.48))])) + 1e-12
-    clean_pow = np.maximum(0.0, power - 1.10 * amb_pow)
-    # Restore raw vocal power in 150..1400 Hz while allowing <=140 Hz AC/fan hum subtraction
-    speech_voice_mask = (freqs >= 150.0) & (freqs < 1400.0)
-    clean_pow[speech_voice_mask] = power[speech_voice_mask]
+    # Subtract pre-onset stationary ambient spectrum so steady room/ceiling-fan noise
+    # does not drown out finger snaps; transient vowels/murmurs above floor still keep 150-1400 Hz energy.
+    clean_pow = np.maximum(0.0, power - 1.25 * amb_pow)
 
     tot_mask = (freqs >= 60.0) & (freqs <= min(16000.0, sr * 0.48))
     tot_energy = float(np.sum(clean_pow[tot_mask])) + 1e-12
 
     band_fracs = []
-    for idx_b, (f_lo, f_hi) in enumerate(BAND_EDGES):
+    for f_lo, f_hi in BAND_EDGES:
         hi_cap = min(f_hi, sr * 0.48)
         if f_lo >= hi_cap:
             band_fracs.append(0.0)
         else:
             bm = (freqs >= f_lo) & (freqs < hi_cap)
-            src_p = power if idx_b <= 2 else clean_pow
-            denom = raw_tot_energy if idx_b <= 2 else tot_energy
-            band_fracs.append(float(np.sum(src_p[bm])) / denom)
+            band_fracs.append(float(np.sum(clean_pow[bm])) / tot_energy)
 
     # Spectral shape metrics over 1.2 kHz .. 12 kHz
     hi_mask = (freqs >= 1200.0) & (freqs <= min(12000.0, sr * 0.48))
@@ -306,8 +310,8 @@ def extract_snap_features(
     else:
         peak_prom_log = 0.0
 
-    e_snap = float(np.sum(clean_pow[(freqs >= 1800.0) & (freqs <= 5500.0)]))
-    e_low = float(np.sum(power[(freqs >= 160.0) & (freqs <= 1250.0)]))
+    e_snap = float(np.sum(clean_pow[(freqs >= 1700.0) & (freqs <= 5500.0)]))
+    e_low = float(np.sum(clean_pow[(freqs >= 160.0) & (freqs <= 1250.0)]))
     e_ultra = float(np.sum(clean_pow[(freqs >= 6500.0) & (freqs <= min(16000.0, sr * 0.48))]))
 
     snap_vs_low_log = math.log1p(min(250.0, e_snap / max(e_low, tot_energy * 0.002))) / math.log(251.0)

@@ -82,39 +82,39 @@ def emit_event(event_name, **kwargs):
 
 SENSITIVITY_PRESETS = {
     "high": {
-        "min_snr": 3.4,
-        "mad_k": 5.0,
+        "min_snr": 3.0,
+        "mad_k": 4.5,
         "min_peak": 0.0020,
-        "min_crest_pre": 2.0,
-        "min_core_crest": 2.2,
-        "min_attack": 2.1,
-        "min_band_ratio": 0.75,
-        "ml_thresh": 0.65,
-        "speech_boost": 0.13,
+        "min_crest_pre": 1.90,
+        "min_core_crest": 2.05,
+        "min_attack": 2.0,
+        "min_band_ratio": 0.72,
+        "ml_thresh": 0.64,
+        "speech_boost": 0.14,
         "clutter_boost": 0.08,
     },
     "normal": {
-        "min_snr": 4.4,
-        "mad_k": 6.8,
-        "min_peak": 0.0045,
-        "min_crest_pre": 2.35,
-        "min_core_crest": 2.4,
-        "min_attack": 2.6,
-        "min_band_ratio": 0.95,
-        "ml_thresh": 0.78,
-        "speech_boost": 0.12,
+        "min_snr": 3.0,
+        "mad_k": 5.0,
+        "min_peak": 0.0036,
+        "min_crest_pre": 2.05,
+        "min_core_crest": 2.10,
+        "min_attack": 2.25,
+        "min_band_ratio": 0.85,
+        "ml_thresh": 0.76,
+        "speech_boost": 0.13,
         "clutter_boost": 0.08,
     },
     "low": {
-        "min_snr": 5.8,
-        "mad_k": 8.5,
-        "min_peak": 0.0085,
-        "min_crest_pre": 2.7,
-        "min_core_crest": 2.8,
-        "min_attack": 3.1,
-        "min_band_ratio": 1.20,
-        "ml_thresh": 0.87,
-        "speech_boost": 0.09,
+        "min_snr": 4.8,
+        "mad_k": 7.5,
+        "min_peak": 0.0075,
+        "min_crest_pre": 2.45,
+        "min_core_crest": 2.60,
+        "min_attack": 2.8,
+        "min_band_ratio": 1.10,
+        "ml_thresh": 0.85,
+        "speech_boost": 0.10,
         "clutter_boost": 0.06,
     },
 }
@@ -317,7 +317,7 @@ class SnapDetectorEngine:
         self.window = np.hanning(self.frame_len).astype(np.float32)
         freqs = np.fft.rfftfreq(self.frame_len, d=1.0 / self.sample_rate)
         self.low_mask = (freqs >= 60.0) & (freqs <= 1150.0)
-        self.speech_mask = (freqs >= 160.0) & (freqs <= 1150.0)
+        self.speech_mask = (freqs >= 220.0) & (freqs <= 1150.0)
         self.snap_mask = (freqs >= 1600.0) & (freqs <= 6200.0)
         self.hp_mask = freqs >= 1150.0
         self._n_snap_bins = max(1, int(np.sum(self.snap_mask)))
@@ -434,7 +434,9 @@ class SnapDetectorEngine:
         speech_pow = float(np.sum(power[self.speech_mask]))
         snap_pow = float(np.sum(power[self.snap_mask]))
         snap_rms = math.sqrt(snap_pow / self._n_snap_bins + 1e-18)
-        speech_rms = math.sqrt(speech_pow / self._n_speech_bins + 1e-18)
+        # Match waveform bandpass RMS scale (160-1150 Hz) used by compute_acoustic_signature
+        # Parseval with Hann window (mean(win^2) == 0.375)
+        speech_rms = math.sqrt(max(0.0, 2.0 * speech_pow / (max(1, self.frame_len) * 0.375)) + 1e-18)
 
         return {
             "peak": peak,
@@ -463,17 +465,26 @@ class SnapDetectorEngine:
             self.bg_speech_med = max(s_med, 1e-5)
             self.bg_speech_mad = max(s_mad * 1.4826, self.bg_speech_med * 0.25, 1e-5)
 
-    def _update_speech_context(self, cur_speech_rms=0.0):
-        # Fast unvoiced murmur / whisper envelope check (160-1150 Hz energy jump above 2.5s floor)
-        sp_thresh = max(self.bg_speech_med + 4.5 * self.bg_speech_mad, self.bg_speech_med * 3.0, 0.0020)
+    def _update_speech_context(self, cur_speech_rms=0.0, is_snap_onset=False):
+        # Skip transient snap-onset frames so broadband impulse spill never self-triggers speech_ctx
+        if is_snap_onset:
+            return
+        # Fast unvoiced murmur / whisper envelope check (160-1150 Hz jump above 2.5s floor)
+        sp_thresh = max(self.bg_speech_med + 4.5 * self.bg_speech_mad, self.bg_speech_med * 2.6, 0.0022)
         if cur_speech_rms >= sp_thresh:
-            self.speech_active_until = self.stream_time + 0.30
+            self.speech_active_until = self.stream_time + 0.28
             return
         if (self.frame_idx % 8) != 0 or self.total_samples < int(self.sample_rate * 0.06):
             return
+        # Require speech-band energy to sit near/above floor and show modulation if room floor is noisy,
+        # so stationary ceiling/laptop fan periodicity never latches speech_ctx forever.
+        if cur_speech_rms < max(0.0018, self.bg_speech_med * 0.90):
+            return
         seg = self._read_pcm_tail(int(self.sample_rate * 0.06))
-        if estimate_voiced_acf(seg, self.sample_rate) >= 0.42:
-            self.speech_active_until = self.stream_time + 0.30
+        if estimate_voiced_acf(seg, self.sample_rate) >= 0.44:
+            # Stationary motor/fan hum has tiny variation relative to its floor and high steady baseline
+            if self.bg_speech_med < 0.006 or cur_speech_rms >= self.bg_speech_med * 1.25:
+                self.speech_active_until = self.stream_time + 0.28
 
     def _handle_validated_snap(self, snap_time, meta):
         """Route a validated snap impulse into Solo (1x/2x) or Crowd-Safe (2x/3x) gesture FSM."""
@@ -592,20 +603,28 @@ class SnapDetectorEngine:
         fwhm_ms = float(feats[15]) * 35.0
         snr = c["peak_snap_rms"] / max(self.bg_snap_med, 1e-6)
 
-        sp_floor = max(self.bg_speech_med + 4.0 * self.bg_speech_mad, self.bg_speech_med * 2.8, 0.0018)
+        sp_floor = max(self.bg_speech_med + 4.0 * self.bg_speech_mad, self.bg_speech_med * 2.4, 0.0020)
         murmur_pre = sig["speech_pre"] >= sp_floor
         murmur_post = sig["speech_post"] >= sp_floor
         low_isolation = sig["isolation"] < 3.4
 
+        # Gate periodic ACF against stationary fan hum (which never elevates above ambient speech floor)
+        voiced_pre_active = (pre_voiced >= 0.45) and (
+            self.bg_speech_med < 0.006 or sig["speech_pre"] >= self.bg_speech_med * 1.15 or low_isolation
+        )
+        voiced_post_active = (post_voiced >= 0.45) and (
+            self.bg_speech_med < 0.006 or sig["speech_post"] >= self.bg_speech_med * 1.15 or low_isolation
+        )
+
         recent_bursts = sum(1 for t in self.transient_times if (c["trigger_time"] - t) <= 1.8)
         speech_ctx = (
             self.stream_time <= self.speech_active_until
-            or pre_voiced >= 0.44
-            or post_voiced >= 0.44
+            or voiced_pre_active
+            or voiced_post_active
             or murmur_pre
             or murmur_post
         )
-        mid_sentence_ambush = ((pre_voiced >= 0.44 or murmur_pre) and (post_voiced >= 0.40 or murmur_post))
+        mid_sentence_ambush = ((voiced_pre_active or murmur_pre) and (post_voiced >= 0.40 or murmur_post))
         noisy_clutter = recent_bursts >= 5
 
         eff_thresh = self.ml_thresh
@@ -621,9 +640,13 @@ class SnapDetectorEngine:
         c_pk = float(np.max(np.abs(c_hp))) if c_hp.size else 0.0
         active_osc_samples = int(np.sum(np.abs(c_hp) >= 0.22 * max(c_pk, 1e-9)))
         is_glitch = active_osc_samples < 8
-        is_soft_mouth_pop = sig["core_crest"] < self.min_core_crest
+        # Allow soft-clipped / laptop-AGC snaps (core_crest 1.45..2.10) when ML confidence & isolation are strong
+        is_soft_mouth_pop = (
+            sig["core_crest"] < 1.45
+            or (sig["core_crest"] < self.min_core_crest and (prob < 0.84 or sig["isolation"] < 4.5 or speech_ctx))
+        )
         is_murmur_embedded = speech_ctx and low_isolation and (sig["core_crest"] < 4.5 or prob < 0.96)
-        is_plosive_vowel = (post_voiced >= 0.44 and post_low_spill >= 0.26 and prob < 0.95)
+        is_plosive_vowel = (voiced_post_active and post_low_spill >= 0.26 and prob < 0.95)
         is_broad_noise = (flatness > 0.55 and fwhm_ms > 18.0 and prob < 0.95)
         is_ood = ood_z > 3.8
 
@@ -727,22 +750,19 @@ class SnapDetectorEngine:
         # 2. Resolve expired pending single/double gesture only when no candidate is in-flight
         self._check_pending_timeout()
 
-        self._update_speech_context(feat["speech_rms"])
-
-        # Feed pre-allocated rolling Median+MAD rings
-        self.ring_snap_rms.append(feat["snap_rms"])
-        self.ring_snap_pow.append(feat["snap_pow"])
-        self.ring_low_pow.append(feat["low_pow"])
-        self.ring_speech_rms.append(feat["speech_rms"])
-        if (self.frame_idx % 16) == 0:
-            self._refresh_robust_floor()
-
         if self.stream_time < self.cooldown_until:
+            self._update_speech_context(feat["speech_rms"], is_snap_onset=False)
+            self.ring_snap_rms.append(feat["snap_rms"])
+            self.ring_snap_pow.append(feat["snap_pow"])
+            self.ring_low_pow.append(feat["low_pow"])
+            self.ring_speech_rms.append(feat["speech_rms"])
+            if (self.frame_idx % 16) == 0:
+                self._refresh_robust_floor()
             self.prev_snap_rms.append(feat["snap_rms"])
             self.prev_low_pow.append(feat["low_pow"])
             return
 
-        # 3. Stage-1 Pre-Screen
+        # 3. Stage-1 Pre-Screen BEFORE speech-context update so snap onset never poisons speech_ctx
         pre_snap = max(min(self.prev_snap_rms), 1e-6)
         attack_slope = feat["snap_rms"] / pre_snap
         bg_thresh = max(self.bg_snap_med + self.mad_k * self.bg_snap_mad, self.bg_snap_med * self.min_snr)
@@ -759,6 +779,18 @@ class SnapDetectorEngine:
             and feat["crest"] >= self.min_crest_pre
             and quick_ratio >= self.min_band_ratio
         )
+
+        is_snap_spike = is_candidate or (feat["crest"] >= 2.2 and quick_ratio >= 1.4 and feat["snap_rms"] >= bg_thresh * 0.85)
+        self._update_speech_context(feat["speech_rms"], is_snap_onset=is_snap_spike)
+
+        # Feed pre-allocated rolling Median+MAD rings (only feed quiet/non-candidate baseline frames into floor)
+        if not is_candidate:
+            self.ring_snap_rms.append(feat["snap_rms"])
+            self.ring_snap_pow.append(feat["snap_pow"])
+            self.ring_low_pow.append(feat["low_pow"])
+            self.ring_speech_rms.append(feat["speech_rms"])
+            if (self.frame_idx % 16) == 0:
+                self._refresh_robust_floor()
 
         if is_candidate:
             if not self.transient_times or (self.stream_time - self.transient_times[-1]) > 0.08:
