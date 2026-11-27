@@ -995,15 +995,15 @@ local ALLOWED_EXTENSIONS = {
 AIAnalyzer.PROVIDERS = {
   nvidia = {
     name = "NVIDIA NIM",
-    default_model = "minimaxai/minimax-m3.1-flash",
+    default_model = "nvidia/nemotron-3.5-bolt-e4b",
     models = {
-      "minimaxai/minimax-m3.1-flash",
-      "nvidia/nemotron-3-ultra-550b-a55b",
-      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
       "nvidia/nemotron-3.5-bolt-e4b",
       "nvidia/nemotron-3.5-lightning-30b-a3b",
-      "stepfun-ai/step-5-preview",
       "poolside/laguna-xs-2.1",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "minimaxai/minimax-m3.1-flash",
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      "stepfun-ai/step-5-preview",
     },
     endpoint = "https://integrate.api.nvidia.com/v1/chat/completions",
     type = "openai_chat",
@@ -1233,9 +1233,12 @@ function AIAnalyzer.get_cached_models(provider)
   return models
 end
 
--- Cancel flag
-local _cancel_requested = false
+-- Per-run cancellation tokens & active process registry (prevents cross-run cascades)
+local _global_gen = 0
+local _analyze_gen = 0
 local _active = false
+local _active_procs = {}
+local _nim_cooldown_until = {}
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Minimal JSON encoder
@@ -1540,7 +1543,7 @@ function AIAnalyzer.get_active_provider(preferred_provider, preferred_model)
 
   -- Default fallback if nothing has key
   local def_pinfo = AIAnalyzer.PROVIDERS["nvidia"]
-  return "nvidia", (def_pinfo and def_pinfo.default_model) or "minimaxai/minimax-m3.1-flash", nil
+  return "nvidia", (def_pinfo and def_pinfo.default_model) or "nvidia/nemotron-3.5-bolt-e4b", nil
 end
 
 local function get_temp_file(suffix)
@@ -1561,9 +1564,11 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Execute curl and return response body or nil + error (non-blocking process)
 -- ─────────────────────────────────────────────────────────────────────────────
-local _current_proc = nil
+local function curl_post(url, json_body, headers, opts)
+  opts = opts or {}
+  local is_cancelled = opts.is_cancelled or function() return false end
+  if is_cancelled() then return nil, "Request cancelled" end
 
-local function curl_post(url, json_body, headers)
   local tmp_in = get_temp_file("_in.json")
 
   local f, err = io.open(tmp_in, "wb")
@@ -1580,7 +1585,20 @@ local function curl_post(url, json_body, headers)
     end
   end
 
-  local cmd_args = { bin, "-s", "-S", "--connect-timeout", "12", "--max-time", "45", "-X", "POST" }
+  local stream_mode = (opts.stream == true)
+  local cmd_args = { bin, "-s", "-S" }
+  if stream_mode then
+    table.insert(cmd_args, "-N")
+    table.insert(cmd_args, "--connect-timeout"); table.insert(cmd_args, "12")
+    table.insert(cmd_args, "--speed-time");      table.insert(cmd_args, "25")
+    table.insert(cmd_args, "--speed-limit");     table.insert(cmd_args, "1")
+    table.insert(cmd_args, "--max-time");        table.insert(cmd_args, "110")
+  else
+    table.insert(cmd_args, "--connect-timeout"); table.insert(cmd_args, "12")
+    table.insert(cmd_args, "--max-time");        table.insert(cmd_args, "55")
+  end
+  table.insert(cmd_args, "-X")
+  table.insert(cmd_args, "POST")
   if PLATFORM == "Windows" or package.config:sub(1,1) == "\\" then
     table.insert(cmd_args, "-k")
     table.insert(cmd_args, "--ssl-no-revoke")
@@ -1615,17 +1633,17 @@ local function curl_post(url, json_body, headers)
     return nil, "Failed to start curl process: " .. tostring(start_err or "process.start unavailable")
   end
 
-  _current_proc = p
+  _active_procs[p] = true
   local out_parts = {}
   local err_parts = {}
   local start_time = system.get_time()
-  local timeout = 50
+  local timeout = opts.timeout or (stream_mode and 115 or 60)
 
   while p:running() do
-    if _cancel_requested then
+    if is_cancelled() then
+      _active_procs[p] = nil
       pcall(function() p:kill() end)
       pcall(os.remove, tmp_in)
-      _current_proc = nil
       return nil, "Request cancelled"
     end
 
@@ -1647,9 +1665,9 @@ local function curl_post(url, json_body, headers)
     end
 
     if system.get_time() - start_time > timeout then
+      _active_procs[p] = nil
       pcall(function() p:kill() end)
       pcall(os.remove, tmp_in)
-      _current_proc = nil
       return nil, "Request timed out after " .. timeout .. " seconds"
     end
 
@@ -1677,8 +1695,8 @@ local function curl_post(url, json_body, headers)
     end
   end
 
+  _active_procs[p] = nil
   pcall(os.remove, tmp_in)
-  _current_proc = nil
 
   local body = table.concat(out_parts)
   local err_out = table.concat(err_parts)
@@ -1708,8 +1726,51 @@ local function normalize_provider_model(provider, model)
   return model
 end
 
+-- Parse OpenAI-compatible Server-Sent Events (SSE) chunks cleanly
+local function parse_openai_sse(body, provider_name)
+  if type(body) ~= "string" then return nil, nil end
+  local sse_chunks = 0
+  local content_parts = {}
+  local reasoning_parts = {}
+  for line in (body .. "\n"):gmatch("(.-)\r?\n") do
+    local payload = line:match("^data:%s*(.-)%s*$")
+    if payload and #payload > 0 and payload ~= "[DONE]" then
+      local chunk = json_decode(payload)
+      if type(chunk) == "table" then
+        sse_chunks = sse_chunks + 1
+        if chunk.error then
+          local emsg = type(chunk.error) == "table" and chunk.error.message or tostring(chunk.error)
+          return nil, provider_name .. " stream error: " .. emsg
+        end
+        local ch = chunk.choices and chunk.choices[1]
+        if ch then
+          local delta = ch.delta or ch.message
+          if type(delta) == "table" then
+            if type(delta.content) == "string" and #delta.content > 0 then
+              table.insert(content_parts, delta.content)
+            end
+            if type(delta.reasoning_content) == "string" and #delta.reasoning_content > 0 then
+              table.insert(reasoning_parts, delta.reasoning_content)
+            elseif type(delta.reasoning) == "string" and #delta.reasoning > 0 then
+              table.insert(reasoning_parts, delta.reasoning)
+            end
+          end
+        end
+      end
+    end
+  end
+  if sse_chunks == 0 then
+    return nil, nil
+  end
+  local text = table.concat(content_parts)
+  if #text > 0 then return text, nil end
+  local rtext = table.concat(reasoning_parts)
+  if #rtext > 0 then return rtext, nil end
+  return nil, "No response content from " .. provider_name
+end
+
 -- Single-attempt provider HTTP request
-local function call_provider_once(provider, model, api_key, prompt, is_json)
+local function call_provider_once(provider, model, api_key, prompt, is_json, opts)
   local pinfo = AIAnalyzer.PROVIDERS[provider]
   if not pinfo then return nil, "Unknown provider: " .. tostring(provider) end
   model = normalize_provider_model(provider, model or pinfo.default_model)
@@ -1726,7 +1787,7 @@ local function call_provider_once(provider, model, api_key, prompt, is_json)
     if is_json then
       req.generationConfig.responseMimeType = "application/json"
     end
-    local body, err = curl_post(url, json_encode(req), { ["Content-Type"] = "application/json" })
+    local body, err = curl_post(url, json_encode(req), { ["Content-Type"] = "application/json" }, opts)
     if not body then return nil, err end
     local parsed = json_decode(body)
     if type(parsed) ~= "table" then return nil, "Invalid JSON from Gemini: " .. body:sub(1, 120) end
@@ -1752,6 +1813,7 @@ local function call_provider_once(provider, model, api_key, prompt, is_json)
       { role = "system", content = "You are a senior software architecture analyst. Follow instructions carefully and output exact format requested." },
       { role = "user", content = prompt }
     }
+    local use_nim_stream = (provider == "nvidia")
     local req = {
       model = model,
       messages = messages,
@@ -1762,6 +1824,11 @@ local function call_provider_once(provider, model, api_key, prompt, is_json)
     else
       req.max_tokens = 8192
     end
+    if use_nim_stream then
+      req.stream = true
+      -- Disable internal chain-of-thought reasoning to prevent 45s NIM buffer timeouts
+      req.chat_template_kwargs = { enable_thinking = false }
+    end
     if is_json then
       req.response_format = { type = "json_object" }
     end
@@ -1770,8 +1837,24 @@ local function call_provider_once(provider, model, api_key, prompt, is_json)
       ["Content-Type"] = "application/json",
       ["Authorization"] = auth_header,
     }
-    local body, err = curl_post(endpoint, json_encode(req), headers)
+    local req_opts = opts
+    if use_nim_stream then
+      req_opts = {
+        stream = true,
+        is_cancelled = opts and opts.is_cancelled,
+        timeout = opts and opts.timeout,
+      }
+    end
+    local body, err = curl_post(endpoint, json_encode(req), headers, req_opts)
     if not body then return nil, err end
+
+    if use_nim_stream then
+      local sse_text, sse_err = parse_openai_sse(body, pinfo.name)
+      if sse_text then return sse_text, nil end
+      if sse_err then return nil, sse_err end
+      -- Otherwise fall through to normal JSON error / payload decoding (e.g. 404/429 JSON errors)
+    end
+
     local parsed = json_decode(body)
     if type(parsed) ~= "table" then return nil, "Invalid JSON from " .. pinfo.name .. ": " .. body:sub(1, 120) end
     if parsed.error then
@@ -1783,6 +1866,10 @@ local function call_provider_once(provider, model, api_key, prompt, is_json)
       end
       local emsg = type(parsed.error) == "table" and parsed.error.message or tostring(parsed.error)
       return nil, pinfo.name .. " error: " .. emsg
+    end
+    if parsed.status and tonumber(parsed.status) and tonumber(parsed.status) >= 400 then
+      local msg = parsed.detail or parsed.title or ("HTTP " .. tostring(parsed.status))
+      return nil, pinfo.name .. " error (" .. tostring(parsed.status) .. "): " .. tostring(msg)
     end
     if parsed.choices and parsed.choices[1] and parsed.choices[1].message then
       local msg = parsed.choices[1].message
@@ -1806,7 +1893,7 @@ local function call_provider_once(provider, model, api_key, prompt, is_json)
       max_tokens = 4096,
       temperature = 0.2,
     }
-    local body, err = curl_post(pinfo.endpoint, json_encode(req), headers)
+    local body, err = curl_post(pinfo.endpoint, json_encode(req), headers, opts)
     if not body then return nil, err end
     local parsed = json_decode(body)
     if type(parsed) ~= "table" then return nil, "Invalid JSON from Anthropic: " .. body:sub(1, 120) end
@@ -1824,10 +1911,16 @@ local function is_transient_nim_err(err_msg)
   if type(err_msg) ~= "string" then return false end
   local el = err_msg:lower()
   return el:find("404", 1, true)
+      or el:find("429", 1, true)
+      or el:find("500", 1, true)
       or el:find("502", 1, true)
+      or el:find("503", 1, true)
+      or el:find("504", 1, true)
+      or el:find("rate limit", 1, true)
       or el:find("gateway http error", 1, true)
       or el:find("invalid json", 1, true)
       or el:find("timed out", 1, true)
+      or el:find("timeout", 1, true)
       or el:find("content safety", 1, true)
       or el:find("temporarily unavailable", 1, true)
       or el:find("no response content", 1, true)
@@ -1836,30 +1929,70 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Call provider API (handles Gemini, OpenAI-compatible, Anthropic + NIM fallback)
 -- ─────────────────────────────────────────────────────────────────────────────
-local function call_provider(provider, model, api_key, prompt, is_json)
+local function call_provider(provider, model, api_key, prompt, is_json, opts)
+  opts = opts or {}
+  local is_cancelled = opts.is_cancelled or function() return false end
   local primary = normalize_provider_model(provider, model)
-  local text, err = call_provider_once(provider, primary, api_key, prompt, is_json)
-  if text then return text, nil end
 
-  if provider == "nvidia" and is_transient_nim_err(err) and not _cancel_requested then
+  -- Build ordered candidate list; for NVIDIA put fastest non-thinking fallbacks first & skip cooled-down models
+  local candidates = { primary }
+  if provider == "nvidia" then
+    local now = system.get_time()
     local fallbacks = {
+      "nvidia/nemotron-3.5-bolt-e4b",
+      "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "poolside/laguna-xs-2.1",
+      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
       "minimaxai/minimax-m3.1-flash",
       "nvidia/nemotron-3-ultra-550b-a55b",
-      "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-      "nvidia/nemotron-3.5-bolt-e4b",
     }
-    for _, fb in ipairs(fallbacks) do
-      if fb ~= primary and not _cancel_requested then
-        core.log("[AI Visualizer] NIM model '%s' failed (%s); falling back to '%s'", tostring(primary), tostring(err), fb)
-        if coroutine.running() then coroutine.yield(0.2) end
-        local fb_text, fb_err = call_provider_once(provider, fb, api_key, prompt, is_json)
-        if fb_text then return fb_text, nil end
-        err = fb_err or err
+    local seen = { [primary] = true }
+    local active_list = {}
+    local cooled_list = {}
+    local function add_cand(m)
+      local cd = _nim_cooldown_until[m]
+      if cd and now < cd then
+        table.insert(cooled_list, m)
+      else
+        table.insert(active_list, m)
       end
+    end
+    add_cand(primary)
+    for _, fb in ipairs(fallbacks) do
+      if not seen[fb] then
+        seen[fb] = true
+        add_cand(fb)
+      end
+    end
+    candidates = {}
+    for _, m in ipairs(active_list) do table.insert(candidates, m) end
+    -- Keep cooled candidates only as a last-resort backup if primary had an error
+    if #candidates == 0 then
+      candidates = cooled_list
     end
   end
 
-  return nil, err
+  local last_err = nil
+  for idx, m in ipairs(candidates) do
+    if is_cancelled() then return nil, "Request cancelled", m end
+    local text, err = call_provider_once(provider, m, api_key, prompt, is_json, opts)
+    if text then
+      _nim_cooldown_until[m] = nil
+      return text, nil, m
+    end
+    last_err = err
+    if provider ~= "nvidia" or not is_transient_nim_err(err) or is_cancelled() then
+      return nil, err, m
+    end
+    _nim_cooldown_until[m] = system.get_time() + 120
+    local next_m = candidates[idx + 1]
+    if next_m then
+      core.log("[AI Visualizer] NIM model '%s' failed (%s); falling back to '%s'", tostring(m), tostring(err), tostring(next_m))
+      if coroutine.running() then coroutine.yield(0.2) end
+    end
+  end
+
+  return nil, last_err, primary
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1890,12 +2023,123 @@ end
 -- Cancel ongoing analysis
 -- ─────────────────────────────────────────────────────────────────────────────
 function AIAnalyzer.cancel()
-  _cancel_requested = true
+  _global_gen = _global_gen + 1
+  _analyze_gen = _analyze_gen + 1
   _active = false
-  if _current_proc then
-    pcall(function() _current_proc:kill() end)
-    _current_proc = nil
+  for proc, _ in pairs(_active_procs) do
+    pcall(function() proc:kill() end)
   end
+  _active_procs = {}
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Compact pipe-delimited record parser for Pass 2 (cuts API tokens ~50-65% with JSON fallback)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function parse_compact_diagrams(text)
+  if type(text) ~= "string" or #text == 0 then return nil end
+  local clean = text:gsub("```%w*%s*\n?", ""):gsub("\n?```", "")
+  local diagrams = {}
+  local cur_diag = nil
+
+  local function trim(s)
+    return (s or ""):match("^%s*(.-)%s*$") or ""
+  end
+  local function split_pipes(line)
+    local out = {}
+    local pos = 1
+    while true do
+      local s = line:find("|", pos, true)
+      if not s then
+        table.insert(out, line:sub(pos))
+        break
+      end
+      table.insert(out, line:sub(pos, s - 1))
+      pos = s + 1
+    end
+    return out
+  end
+
+  for raw_line in (clean .. "\n"):gmatch("(.-)\r?\n") do
+    local line = trim(raw_line)
+    if #line >= 3 then
+      if line:sub(1, 2) == "D|" then
+        local cat = trim(line:sub(3))
+        if #cat > 0 then
+          cur_diag = { category = cat, nodes = {}, edges = {} }
+          table.insert(diagrams, cur_diag)
+        end
+      elseif cur_diag and line:sub(1, 2) == "N|" then
+        local p = split_pipes(line)
+        -- Support both 10-col (N|id|label|file|line|type|tier|tech|scope|desc) and 11-col (ext|sug|desc)
+        local nid = trim(p[2])
+        local lbl = trim(p[3])
+        if #nid > 0 and #lbl > 0 then
+          local c9 = trim(p[9]):lower()
+          local ext_flag, sug_flag, desc_idx = false, false, 10
+          if c9 == "repo" or c9 == "local" or c9 == "ext" or c9 == "external" or c9 == "sug" or c9 == "suggested" then
+            ext_flag = (c9 == "ext" or c9 == "external")
+            sug_flag = (c9 == "sug" or c9 == "suggested")
+            desc_idx = 10
+          else
+            local c10 = trim(p[10]):lower()
+            ext_flag = (c9 == "1" or c9 == "true" or c9 == "yes")
+            sug_flag = (c10 == "1" or c10 == "true" or c10 == "yes")
+            desc_idx = 11
+          end
+          local desc = ""
+          if #p >= desc_idx then
+            local parts = {}
+            for k = desc_idx, #p do
+              local seg = trim(p[k])
+              if #seg > 0 then table.insert(parts, seg) end
+            end
+            desc = table.concat(parts, " / ")
+          end
+          table.insert(cur_diag.nodes, {
+            id        = nid,
+            label     = lbl,
+            file      = (#trim(p[4]) > 0) and trim(p[4]) or nil,
+            line      = tonumber(trim(p[5])) or 1,
+            type      = (#trim(p[6]) > 0) and trim(p[6]) or "component",
+            tier      = (#trim(p[7]) > 0) and trim(p[7]) or "application",
+            tech      = trim(p[8]),
+            external  = ext_flag,
+            suggested = sug_flag,
+            desc      = desc,
+          })
+        end
+      elseif cur_diag and line:sub(1, 2) == "E|" then
+        local p = split_pipes(line)
+        -- E|from|to|type|label
+        local fn = trim(p[2])
+        local tn = trim(p[3])
+        if #fn > 0 and #tn > 0 then
+          local parts = {}
+          for k = 5, #p do
+            local seg = trim(p[k])
+            if #seg > 0 then table.insert(parts, seg) end
+          end
+          local elbl = table.concat(parts, " / ")
+          table.insert(cur_diag.edges, {
+            from  = fn,
+            to    = tn,
+            type  = (#trim(p[4]) > 0) and trim(p[4]) or "http",
+            label = elbl,
+          })
+        end
+      end
+    end
+  end
+
+  local has_nodes = false
+  for _, d in ipairs(diagrams) do
+    if #d.nodes > 0 then
+      has_nodes = true
+      break
+    end
+  end
+  if not has_nodes then return nil end
+  return { diagrams = diagrams }
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1907,8 +2151,14 @@ end
 -- opts: { provider = "groq"|"ollama"|"gemini", model = "..." } (optional)
 -- ─────────────────────────────────────────────────────────────────────────────
 function AIAnalyzer.analyze(file_list, on_progress, on_complete, on_error, opts)
-  _cancel_requested = false
+  -- Supersede any prior running analysis cleanly so parallel timeout storms cannot happen
+  AIAnalyzer.cancel()
+  local my_gen = _analyze_gen
   _active = true
+  local function is_cancelled()
+    return _analyze_gen ~= my_gen
+  end
+  local req_opts = { is_cancelled = is_cancelled }
 
   opts = opts or {}
   local provider, model, api_key = AIAnalyzer.get_active_provider(opts.provider, opts.model)
@@ -1973,8 +2223,10 @@ function AIAnalyzer.analyze(file_list, on_progress, on_complete, on_error, opts)
   local last_error = nil
   local BATCH_SIZE = 20
 
+  local active_model = model
+
   for i = 1, #source_files, BATCH_SIZE do
-    if _cancel_requested then
+    if is_cancelled() then
       on_error("Analysis cancelled.")
       return
     end
@@ -2009,8 +2261,13 @@ function AIAnalyzer.analyze(file_list, on_progress, on_complete, on_error, opts)
                    "- Do NOT suggest or recommend tools not seen in the file.\n\n" ..
                    "FILES:\n" .. table.concat(batch, "\n\n---\n\n")
 
-    local text, err = call_provider(provider, model, api_key, prompt, false)
+    local text, err, used_model = call_provider(provider, active_model, api_key, prompt, false, req_opts)
+    if is_cancelled() then
+      on_error("Analysis cancelled.")
+      return
+    end
     if text then
+      if used_model then active_model = used_model end
       for line in text:gmatch('[^\n]+') do
         if #line > 2 then
           table.insert(summaries, line)
@@ -2022,7 +2279,7 @@ function AIAnalyzer.analyze(file_list, on_progress, on_complete, on_error, opts)
     end
   end
 
-  if _cancel_requested then
+  if is_cancelled() then
     on_error("Analysis cancelled.")
     return
   end
@@ -2048,67 +2305,40 @@ function AIAnalyzer.analyze(file_list, on_progress, on_complete, on_error, opts)
 
   on_progress(string.format("[%s] Pass 2: Generating grounded architecture diagrams...", pname))
 
-  -- ── PASS 2: Generate structured graph strictly from summaries ──────────────
-  local pass2_prompt = [[You are an enterprise software architect. Based on the codebase summaries below, construct comprehensive production-grade architecture diagrams as valid JSON following the C4 model and cloud engineering standards.
+  -- ── PASS 2: Generate structured graph via compact pipe-delimited schema (~55% fewer tokens, JSON fallback kept)
+  local pass2_prompt = [[You are an enterprise software architect. Construct grounded C4 architecture diagrams from SUMMARIES across applicable architectural views (System Topology (C4), Data Flow & Lifecycle, Component & Domain Architecture, Security, Auth & Ingress, Event Brokers & Async Pipelines, Persistence & Cloud Infrastructure).
 
 SUMMARIES:
 ]] .. summary_text .. [[
 
-Generate a JSON object with a top-level "diagrams" array containing diagrams for these 6 distinct architectural views:
-1. "System Topology (C4)": High-level container/service topology showing Client/Ingress -> Backend Services -> Message Queues -> Databases -> External Cloud APIs.
-2. "Data Flow & Lifecycle": Step-by-step pipeline tracing incoming requests through validation, business logic, persistence, and async events.
-3. "Component & Domain Architecture": In-process clean architecture showing Controllers -> Application Services -> Domain Aggregates/Models -> Repositories.
-4. "Security, Auth & Ingress": Gateways, CORS/WAF, JWT token validation, authorization guards, session stores, sanitization.
-5. "Event Brokers & Async Pipelines": Message queues, event producers, background workers, scheduled jobs, webhooks, and dead-letter queues.
-6. "Persistence & Cloud Infrastructure": Relational DBs, Document DBs, Redis caches, S3 object storage, configuration, and connection pools.
+RULES (STRICT CODE GROUNDING):
+- Represent ONLY actual components, modules, files, and imports visible in SUMMARIES above. NEVER invent Kafka, Redis, Postgres, MongoDB, Docker, or cloud services unless present in SUMMARIES.
+- Use scope="repo" for files/modules in SUMMARIES, scope="ext" ONLY if an external cloud/API client exists in code, or scope="sug" ONLY for optional "[AI Suggestion] ..." additions (with empty file).
+- Put each view's N| and E| lines IMMEDIATELY after its D| header. Never emit back-to-back empty D| headers.
+- Every node should have at least one E| edge. Never end lines with a trailing "|".
 
-CRITICAL ARCHITECTURE GUIDELINES (STRICT CODE GROUNDING):
-- STRICT GROUNDING IN REPOSITORY: Represent ONLY the actual components, modules, files, and technologies that TRULY EXIST in the provided file summaries. NEVER hallucinate, invent, or assume third-party tools (such as Kafka, Redis, RabbitMQ, PostgreSQL, MongoDB, AWS S3, Stripe, Docker, Kubernetes) unless they are explicitly imported, configured, or referenced in the project files!
-- ACCURATE SIZING WITHOUT ARTIFICIAL QUOTAS: Do NOT generate fictional filler nodes. If a project has 4 real components, represent those 4 components accurately and cleanly. If a category (e.g. Event Brokers) is not used in the codebase, accurately show how the codebase handles events (e.g. in-memory callbacks, EventEmitter, Promises) or create a focused diagram of the actual components.
-- EXTERNAL CLOUD & INFRASTRUCTURE: Only mark "external": true if the code contains an active client or configuration connecting to that external service.
-- AI ARCHITECTURAL SUGGESTIONS (MUST BE LABELED): If you recommend an industry-standard architectural enhancement (e.g. adding a cache, rate limiter, or message queue) that is NOT yet implemented in the codebase, you MUST set "suggested": true, "external": true, omit "file", and prefix "desc" with "[AI Suggestion] Recommended addition for ...". This ensures developers know it is a suggestion rather than existing code.
-- INTERCONNECTIVITY: Aim for realistic dependency links between components. Every node must connect into the dependency graph with at least one edge.
-- EXPLICIT PROTOCOL EDGES: Every edge must describe the interaction with a protocol type ("http", "grpc", "sql", "cache", "event", "queue", "auth", "inject") and clear label.
+OUTPUT FORMAT (compact 1-line records, NO JSON, NO markdown fences):
+D|<category_name>
+N|<id>|<ExactNameFromSummaries>|<rel_file_or_empty>|<line>|<type>|<tier>|<tech>|<repo|ext|sug>|<one_sentence_role>
+E|<from_id>|<to_id>|<http|grpc|sql|cache|event|queue|auth|inject>|<action_description>
 
-JSON SCHEMA:
-{
-  "diagrams": [
-    {
-      "category": "System Topology (C4)",
-      "nodes": [
-        {
-          "id": "node_id",
-          "label": "ExactNameFromSummaries",
-          "file": "path/file.ts",
-          "line": 1,
-          "type": "gateway|endpoint|service|domain|database|cache|queue|cloud|auth|middleware|storage|component",
-          "tier": "ingress|application|domain|integration|persistence|infrastructure",
-          "tech": "OnlyRealImportsFromSummaries",
-          "desc": "One sentence describing its operational role",
-          "external": false,
-          "suggested": false
-        }
-      ],
-      "edges": [
-        {
-          "from": "node1_id",
-          "to": "node2_id",
-          "label": "protocol / action description",
-          "type": "http|grpc|sql|cache|event|queue|auth|inject"
-        }
-      ]
-    }
-  ]
-}
+Valid types: gateway, endpoint, service, domain, database, cache, queue, cloud, auth, middleware, storage, component
+Valid tiers: ingress, application, domain, integration, persistence, infrastructure
 
-Output ONLY the raw valid JSON. Do not wrap in markdown or add commentary.]]
-  local text, err = call_provider(provider, model, api_key, pass2_prompt, true)
+EXAMPLE:
+D|System Topology (C4)
+N|auth_ctrl|AuthController|src/auth.ts|12|endpoint|ingress|express|repo|Handles login and token issuance
+N|user_repo|UserRepository|src/repo.ts|5|database|persistence|pg|repo|Queries PostgreSQL user records
+E|auth_ctrl|user_repo|sql|Validates credentials against users table
+
+Output ONLY raw D|, N|, and E| lines.]]
+  local text, err = call_provider(provider, active_model, api_key, pass2_prompt, false, req_opts)
   if err then
     on_error("Diagram generation failed with " .. pname .. ": " .. err)
     return
   end
 
-  if _cancel_requested then
+  if is_cancelled() then
     on_error("Analysis cancelled.")
     return
   end
@@ -2120,11 +2350,12 @@ Output ONLY the raw valid JSON. Do not wrap in markdown or add commentary.]]
 
   on_progress("Parsing diagram data...")
 
-  local clean_text = text
-  if clean_text then
+  -- Try compact record format first; seamlessly fall back to JSON if model replied with JSON
+  local parsed = parse_compact_diagrams(text)
+  if not parsed then
+    local clean_text = text
     local inner = clean_text:match("```%w*\n?(.-)\n?```")
     if inner then clean_text = inner end
-    -- Clean up accidental double-braces or double-commas in LLM arrays
     clean_text = clean_text:gsub("}%s*{%s*}%s*,?%s*{", "},{"):gsub("}%s*{%s*}", "}")
     clean_text = clean_text:gsub(",%s*,+", ",")
     clean_text = clean_text:gsub(",%s*([%]%}])", "%1")
@@ -2136,12 +2367,11 @@ Output ONLY the raw valid JSON. Do not wrap in markdown or add commentary.]]
         clean_text = clean_text:sub(s, end_pos)
       end
     end
-  end
-
-  local parsed = json_decode(clean_text)
-  if type(parsed) ~= "table" and text then
-    local s = text:find('{')
-    if s then parsed = json_decode(text:sub(s)) end
+    parsed = json_decode(clean_text)
+    if type(parsed) ~= "table" then
+      local js = text:find('{')
+      if js then parsed = json_decode(text:sub(js)) end
+    end
   end
 
   if type(parsed) ~= "table" or type(parsed.diagrams) ~= "table" then
@@ -2169,16 +2399,19 @@ Output ONLY the raw valid JSON. Do not wrap in markdown or add commentary.]]
           node.suggested = (node.suggested == true or node.suggested == "true")
           node.line      = tonumber(node.line) or 1
           local is_file_real = false
-          if node.file and not node.external then
+          local is_ai_sug = node.desc and node.desc:find('%[AI Suggestion%]', 1, true)
+          if node.file and not is_ai_sug then
             local nf = node.file:gsub('\\', '/')
             if file_set[nf] or file_set[node.file] then
               is_file_real = true
+              node.external = false
             else
               local base = nf:match('[^/]+$') or nf
               for f in pairs(file_set) do
                 if f:match('[^/]+$') == base then
                   node.file = f
                   is_file_real = true
+                  node.external = false
                   break
                 end
               end
@@ -2483,8 +2716,11 @@ Respond with a JSON object ONLY:
   "involved_nodes": ["component_id_1", "component_id_2"]
 }]], category or "Architecture", table.concat(comp_lines, "\n"), table.concat(edge_lines, "\n"), query)
 
+  local req_gen = _global_gen
   core.add_thread(function()
-    local body, err = call_provider(provider, model, api_key, prompt, true)
+    local body, err = call_provider(provider, model, api_key, prompt, true, {
+      is_cancelled = function() return _global_gen ~= req_gen end,
+    })
     if not body or err then
       -- Fallback to intelligent local reasoning on network / LLM failure
       local local_res = AIAnalyzer.local_architecture_query(query, diagram, category)
@@ -2606,8 +2842,11 @@ Respond with a JSON object ONLY:
   ]
 }]], category or "General", table.concat(comp_lines, "\n"), table.concat(edge_lines, "\n"), table.concat(findings_summary, "\n"))
 
+  local req_gen = _global_gen
   core.add_thread(function()
-    local body, err = call_provider(provider, model, api_key, prompt, true)
+    local body, err = call_provider(provider, model, api_key, prompt, true, {
+      is_cancelled = function() return _global_gen ~= req_gen end,
+    })
     if not body or err then
       if on_complete then
         on_complete({
@@ -7030,7 +7269,7 @@ function DiagramRenderer.draw_empty(view, cx, cy, label)
 
   -- 3. Provider & Model Selector Pill (Interactive click to configure)
   local prov = (view.provider or "nvidia"):upper()
-  local mod = view.model or "minimaxai/minimax-m3.1-flash"
+  local mod = view.model or "nvidia/nemotron-3.5-bolt-e4b"
   if #mod > 24 then mod = mod:match("[^/]+$") or mod end
   if #mod > 24 then mod = mod:sub(1, 21) .. "..." end
   local pill_text = (card_w < 420) and string.format(" %s : %s [Edit] ", prov, mod) or string.format(" Provider: %s   Model: %s  [Change] ", prov, mod)
