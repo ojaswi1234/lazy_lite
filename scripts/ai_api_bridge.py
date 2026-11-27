@@ -1550,6 +1550,17 @@ def save_mcp_catalog_cache(cache_data):
     except Exception:
         pass
 
+def sync_catalog_cache_on_change(server_id, remove=False):
+    if not server_id:
+        return
+    cache = load_mcp_catalog_cache()
+    if server_id in cache:
+        if remove:
+            del cache[server_id]
+        else:
+            cache[server_id]["stale"] = True
+        save_mcp_catalog_cache(cache)
+
 def update_server_catalog_profile(srv_name, tools):
     if not tools:
         return
@@ -2515,8 +2526,10 @@ HOW TO ACT:
                 with open(skills_file, "r", encoding="utf-8") as f:
                     installed_skills_list = json.load(f)
             
-            if prompt.startswith("/"):
-                cmd = prompt.split()[0][1:]
+            clean_user_cmd_text = re.sub(r'^Regarding the active file [^:]+:\s*', '', clean_prompt_text(prompt or "")).strip()
+            slash_source = prompt if (prompt or "").startswith("/") else clean_user_cmd_text
+            if slash_source.startswith("/"):
+                cmd = slash_source.split()[0][1:]
                 for s in installed_skills_list:
                     if s.get("id") == cmd:
                         custom_skill_prompt = f"\n\n[ACTIVE SKILL INSTRUCTION: {s.get('title')}]\n{s.get('system_prompt')}"
@@ -2905,6 +2918,7 @@ HOW TO ACT:
             return {"messages": [msg]}
 
         async def tool_executor(state: AgentState):
+            await sync_mcp_servers()
             last_message = state["messages"][-1]
             tool_outputs = []
             tool_calls = last_message.tool_calls or []
@@ -3027,46 +3041,84 @@ HOW TO ACT:
         async with AsyncExitStack() as stack:
             mcp_tools = []
             mcp_config_path = os.path.join(config_dir, "mcp_config.json")
-            if enable_tools and not read_only and os.path.exists(mcp_config_path):
+            loaded_server_sigs = {}
+            last_mcp_mtime = [0.0]
+
+            async def _load_single_mcp_server(srv_name, srv_conf):
+                print(f"\n[STATUS:Loading MCP ({srv_name})...]", flush=True)
+                merged_env = os.environ.copy()
+                tool_env = srv_conf.get("env", {})
+                if isinstance(tool_env, dict):
+                    for k, v in tool_env.items():
+                        if v: merged_env[k] = str(v)
+
+                cmd = srv_conf.get("command", "")
+                if sys.platform == "win32":
+                    cmd = shutil.which(cmd) or cmd
+
+                params = StdioServerParameters(
+                    command=cmd,
+                    args=srv_conf.get("args", []),
+                    env=merged_env
+                )
+                async def init_single_server():
+                    read, write = await stack.enter_async_context(robust_stdio_client(params))
+                    session = await stack.enter_async_context(ClientSession(read, write))
+                    await asyncio.wait_for(session.initialize(), timeout=35.0)
+                    return await asyncio.wait_for(load_mcp_tools(session), timeout=15.0)
+
+                return await asyncio.wait_for(init_single_server(), timeout=55.0)
+
+            async def sync_mcp_servers(force=False):
+                if not (enable_tools and not read_only):
+                    return []
+                if not os.path.exists(mcp_config_path):
+                    return []
+                try:
+                    mtime = os.path.getmtime(mcp_config_path)
+                except Exception:
+                    return []
+                if not force and mtime == last_mcp_mtime[0]:
+                    return []
+                last_mcp_mtime[0] = mtime
+
                 try:
                     with open(mcp_config_path, "r", encoding="utf-8-sig") as f:
                         mcp_data = json.load(f)
                 except Exception as e:
-                    mcp_data = {}
                     sys.stderr.write(f"[ERROR Reading mcp_config.json]: {e}\n")
+                    return []
 
-                server_items = list(mcp_data.get("mcpServers", {}).items())
-                for srv_name, srv_conf in server_items:
+                desired = mcp_data.get("mcpServers", {}) or {}
+                # Prune removed or reconfigured servers from active mcp_tools
+                for existing_srv in list(loaded_server_sigs.keys()):
+                    new_sig = json.dumps(desired.get(existing_srv), sort_keys=True) if existing_srv in desired else None
+                    if existing_srv not in desired or new_sig != loaded_server_sigs[existing_srv]:
+                        mcp_tools[:] = [t for t in mcp_tools if getattr(t, "_mcp_server", "") != existing_srv]
+                        del loaded_server_sigs[existing_srv]
+                        if existing_srv not in desired:
+                            sync_catalog_cache_on_change(existing_srv, remove=True)
+
+                newly_connected = []
+                for srv_name, srv_conf in desired.items():
+                    sig = json.dumps(srv_conf, sort_keys=True)
+                    if loaded_server_sigs.get(srv_name) == sig:
+                        continue
                     try:
-                        print(f"\n[STATUS:Loading MCP ({srv_name})...]", flush=True)
-                        merged_env = os.environ.copy()
-                        tool_env = srv_conf.get("env", {})
-                        if isinstance(tool_env, dict):
-                            for k, v in tool_env.items():
-                                if v: merged_env[k] = str(v)
-                        
-                        cmd = srv_conf.get("command", "")
-                        if sys.platform == "win32":
-                            cmd = shutil.which(cmd) or cmd
-
-                        params = StdioServerParameters(
-                            command=cmd,
-                            args=srv_conf.get("args", []),
-                            env=merged_env
-                        )
-                        async def init_single_server():
-                            read, write = await stack.enter_async_context(robust_stdio_client(params))
-                            session = await stack.enter_async_context(ClientSession(read, write))
-                            await asyncio.wait_for(session.initialize(), timeout=12.0)
-                            return await asyncio.wait_for(load_mcp_tools(session), timeout=10.0)
-
-                        srv_tools = await asyncio.wait_for(init_single_server(), timeout=25.0)
+                        srv_tools = await _load_single_mcp_server(srv_name, srv_conf)
                         if srv_tools:
                             for t in srv_tools:
                                 t._mcp_server = srv_name
                             mcp_tools.extend(srv_tools)
+                            loaded_server_sigs[srv_name] = sig
+                            update_server_catalog_profile(srv_name, srv_tools)
+                            newly_connected.append((srv_name, len(srv_tools)))
                     except Exception as srv_err:
-                        pass
+                        sys.stderr.write(f"[WARN MCP load {srv_name}]: {srv_err}\n")
+                return newly_connected
+
+            if enable_tools and not read_only and os.path.exists(mcp_config_path):
+                await sync_mcp_servers(force=True)
 
             # Define Universal Meta-Tools for Dynamic MCP Discovery & Invocation
             if enable_tools and not read_only:
@@ -3080,10 +3132,11 @@ HOW TO ACT:
                     arguments: Optional[Any] = Field(default_factory=dict, description="Dictionary or JSON object of arguments matching the tool's input schema")
 
                 @tool(args_schema=SearchMcpToolsInput)
-                def search_mcp_tools(query: str, server: Optional[str] = None) -> str:
+                async def search_mcp_tools(query: str, server: Optional[str] = None) -> str:
                     """Search for available tools across all connected MCP servers by keywords or functionality.
-                    Use this to discover specialized tools not present in your directly bound tool list.
-                    Returns tool names, server names, descriptions, and required argument schemas."""
+                    Automatically hot-reloads any newly configured servers in mcp_config.json before searching.
+                    Use this to discover specialized tools not present in your directly bound tool list."""
+                    await sync_mcp_servers()
                     if not mcp_tools:
                         return "No MCP servers or tools are currently connected."
                     s_filter = (server or "").strip().lower()
@@ -3114,8 +3167,9 @@ HOW TO ACT:
                 @tool(args_schema=CallMcpToolInput)
                 async def call_mcp_tool(server_name: str, tool_name: str, arguments: Optional[Any] = None) -> str:
                     """Execute any tool from any connected MCP server dynamically.
-                    Arguments must be a valid dictionary matching the tool's input schema.
-                    Use search_mcp_tools first if you need to inspect the required parameters."""
+                    Automatically hot-reloads any newly configured servers from mcp_config.json if missing.
+                    Arguments must be a valid dictionary matching the tool's input schema."""
+                    await sync_mcp_servers()
                     if not mcp_tools:
                         return "Error: No MCP tools are connected."
                     args = arguments or {}
@@ -3133,7 +3187,15 @@ HOW TO ACT:
                     except Exception as e:
                         return f"Error executing {tool_name} on {server_name}: {str(e)}"
 
-                meta_tools = [search_mcp_tools, call_mcp_tool]
+                @tool
+                async def reload_mcp_tools() -> str:
+                    """Hot-reload mcp_config.json and local_skills.json right now to connect newly added or updated MCP servers without restarting."""
+                    newly = await sync_mcp_servers(force=True)
+                    srvs = sorted(list({getattr(t, "_mcp_server", "") for t in mcp_tools}))
+                    added_desc = ", ".join(f"{s} ({n} tools)" for s, n in newly) if newly else "none"
+                    return f"Reloaded MCP configuration. Newly connected: {added_desc}. Active servers ({len(srvs)}): {', '.join(srvs)}. Total live MCP tools: {len(mcp_tools)}."
+
+                meta_tools = [search_mcp_tools, call_mcp_tool, reload_mcp_tools]
             else:
                 meta_tools = []
 
@@ -4539,10 +4601,12 @@ def main():
                 if "mcpServers" in mcp_cfg and srv_name in mcp_cfg["mcpServers"]:
                     if ek == "Installed":
                         del mcp_cfg["mcpServers"][srv_name]
-                        with open(mcp_path, "w") as f: json.dump(mcp_cfg, f, indent=2)
+                        with open(mcp_path, "w", encoding="utf-8") as f: json.dump(mcp_cfg, f, indent=2)
+                        sync_catalog_cache_on_change(srv_name, remove=True)
                     elif "env" in mcp_cfg["mcpServers"][srv_name] and ek in mcp_cfg["mcpServers"][srv_name]["env"]:
                         del mcp_cfg["mcpServers"][srv_name]["env"][ek]
-                        with open(mcp_path, "w") as f: json.dump(mcp_cfg, f, indent=2)
+                        with open(mcp_path, "w", encoding="utf-8") as f: json.dump(mcp_cfg, f, indent=2)
+                        sync_catalog_cache_on_change(srv_name, remove=False)
             except: pass
         else:
             if args.provider in keys:
@@ -4557,11 +4621,12 @@ def main():
         if args.provider.startswith("MCP::"):
             _, srv_name, ek = args.provider.split("::", 2)
             mcp_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
-            with open(mcp_path, "r") as f: mcp_cfg = json.load(f)
+            with open(mcp_path, "r", encoding="utf-8-sig") as f: mcp_cfg = json.load(f)
             if "mcpServers" in mcp_cfg and srv_name in mcp_cfg["mcpServers"]:
                 if "env" not in mcp_cfg["mcpServers"][srv_name]: mcp_cfg["mcpServers"][srv_name]["env"] = {}
                 mcp_cfg["mcpServers"][srv_name]["env"][ek] = args.set_key
-                with open(mcp_path, "w") as f: json.dump(mcp_cfg, f, indent=2)
+                with open(mcp_path, "w", encoding="utf-8") as f: json.dump(mcp_cfg, f, indent=2)
+                sync_catalog_cache_on_change(srv_name, remove=False)
         else:
             keys[args.provider] = args.set_key
             config_dir = os.path.dirname(os.path.abspath(__file__))
@@ -4607,7 +4672,8 @@ def main():
             "env": {}
         }
         
-        with open(cfg_path, "w") as f: json.dump(cfg, f, indent=2)
+        with open(cfg_path, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)
+        sync_catalog_cache_on_change(target, remove=False)
         print(f"Installed MCP tool {target} via direct native runner")
         sys.exit(0)
             
@@ -4616,10 +4682,11 @@ def main():
         pass
         cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
         try:
-            with open(cfg_path, "r") as f: cfg = json.load(f)
+            with open(cfg_path, "r", encoding="utf-8-sig") as f: cfg = json.load(f)
             if "mcpServers" in cfg and args.uninstall_tool in cfg["mcpServers"]:
                 del cfg["mcpServers"][args.uninstall_tool]
-            with open(cfg_path, "w") as f: json.dump(cfg, f, indent=2)
+            with open(cfg_path, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)
+            sync_catalog_cache_on_change(args.uninstall_tool, remove=True)
         except: pass
         print(f"Uninstalled tool {args.uninstall_tool}")
         sys.exit(0)
@@ -4627,12 +4694,13 @@ def main():
         pass
         cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_config.json")
         try:
-            with open(cfg_path, "r") as f: cfg = json.load(f)
+            with open(cfg_path, "r", encoding="utf-8-sig") as f: cfg = json.load(f)
             if "mcpServers" not in cfg: cfg["mcpServers"] = {}
             if args.set_tool_env[0] not in cfg["mcpServers"]: cfg["mcpServers"][args.set_tool_env[0]] = {"env": {}}
             if "env" not in cfg["mcpServers"][args.set_tool_env[0]]: cfg["mcpServers"][args.set_tool_env[0]]["env"] = {}
             cfg["mcpServers"][args.set_tool_env[0]]["env"][args.set_tool_env[1]] = args.set_tool_env[2]
-            with open(cfg_path, "w") as f: json.dump(cfg, f, indent=2)
+            with open(cfg_path, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)
+            sync_catalog_cache_on_change(args.set_tool_env[0], remove=False)
         except: pass
         print(f"Set env for {args.set_tool_env[0]}")
         sys.exit(0)
@@ -4821,6 +4889,7 @@ def main():
         cfg["mcpServers"][tool_id] = current
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
+        sync_catalog_cache_on_change(tool_id, remove=False)
         print(f"Saved configuration for {tool_id}", flush=True)
         sys.exit(0)
 
@@ -4860,26 +4929,26 @@ def main():
         import urllib.request
         skill_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_skills.json")
         try:
-            with open(skill_db_path, "r") as f: skills = json.load(f)
+            with open(skill_db_path, "r", encoding="utf-8-sig") as f: skills = json.load(f)
         except: skills = []
         # if arg is FILE:path
         skill_obj = {}
         if args.install_skill.startswith("FILE:"):
-            with open(args.install_skill[5:], "r", encoding="utf-8") as f: skill_obj = json.load(f)
+            with open(args.install_skill[5:], "r", encoding="utf-8-sig") as f: skill_obj = json.load(f)
         s_id = skill_obj.get("id")
         if s_id:
             skills = [s for s in skills if s.get("id") != s_id]
         skills.append(skill_obj)
-        with open(skill_db_path, "w") as f: json.dump(skills, f, indent=2)
+        with open(skill_db_path, "w", encoding="utf-8") as f: json.dump(skills, f, indent=2)
         print(f"Installed skill {skill_obj.get('id', 'unknown')}")
         sys.exit(0)
     if args.uninstall_skill:
         pass
         skill_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_skills.json")
         try:
-            with open(skill_db_path, "r") as f: skills = json.load(f)
+            with open(skill_db_path, "r", encoding="utf-8-sig") as f: skills = json.load(f)
             skills = [s for s in skills if s.get("id") != args.uninstall_skill]
-            with open(skill_db_path, "w") as f: json.dump(skills, f, indent=2)
+            with open(skill_db_path, "w", encoding="utf-8") as f: json.dump(skills, f, indent=2)
         except: pass
         print(f"Uninstalled skill {args.uninstall_skill}")
         sys.exit(0)

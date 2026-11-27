@@ -2125,9 +2125,10 @@ function AGView:submit(prompt, is_auto_continuation)
     self:state().has_session = true
     self:state().status = "idle"
     local tool_name = (tool and tool.name) or "Aether Engine"
-    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/clear` - Clear chat history & active swarm\n  `/api` - Manage API Keys & MCP Tools\n  `/team clear` - Disband active swarm (keeps chat history)\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation\n  `/prune` - Prune dead branches & compact memory tree"
+    local help_text = "Built-in commands:\n  `/help` - Show this message\n  `/reload` - Hot-reload MCP tools, servers & skills (zero restart)\n  `/clear` - Clear chat history & active swarm\n  `/api` - Manage API Keys & MCP Tools\n  `/team clear` - Disband active swarm (keeps chat history)\n  `/usage` - Show model usage\n  `/resume` - Resume a past conversation\n  `/prune` - Prune dead branches & compact memory tree"
     core.add_thread(function()
-      local p = process.start({"python", USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py", "--get-installed-skills"})
+      self:reload_tools_and_skills(true)
+      local p = process.start({resolve_python_bin(), USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py", "--get-installed-skills"})
       if p then
           local out = ""
           while p:running() do
@@ -2177,7 +2178,7 @@ function AGView:submit(prompt, is_auto_continuation)
     
     local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
     core.add_thread(function()
-      local p, err = process.start({ "python", bridge, "--validate-keys" })
+      local p, err = process.start({ resolve_python_bin(), bridge, "--validate-keys" })
       if not p then
         self.api_key_status = { status = "error", err = err, data = parsed_data }
         return
@@ -2306,6 +2307,33 @@ function AGView:submit(prompt, is_auto_continuation)
   end
 
   local prompt_text = prompt:match("^%s*(.-)%s*$")
+
+  if prompt_text == "/reload" or prompt_text == "/refresh" then
+    self:state().input = ""
+    self:_add_session("user", prompt_text)
+    local summary = self:reload_tools_and_skills(false, function(results)
+      local lines = { "**Hot-Reload Complete (No Restart Needed):**" }
+      for _, srv_res in ipairs(results) do
+        local icon = (srv_res.status == "connected") and "🟢" or "⚠️"
+        table.insert(lines, string.format("- %s `%s`: %s", icon, srv_res.id, srv_res.message or srv_res.status))
+      end
+      if #results == 0 then
+        table.insert(lines, "- No MCP servers configured in `mcp_config.json`.")
+      end
+      local sk_cnt = self.installed_skills_count or 0
+      table.insert(lines, string.format("- Skills loaded: **%d** (`local_skills.json`)", sk_cnt))
+      self:_add_session("ai", table.concat(lines, "\n"))
+      self:state().scroll_to_bottom = true
+      core.redraw = true
+    end)
+    if (self.installed_tools_count or 0) > 0 then
+      self.enable_tools = true
+    end
+    self:_add_session("ai", string.format("🔄 Hot-reloaded **%d MCP server(s)** and **%d skill(s)** from disk. Verifying server handshakes...", summary.tools_count, summary.skills_count))
+    self:state().scroll_to_bottom = true
+    core.redraw = true
+    return
+  end
 
   if prompt_text == "/prune" then
     self:state().input = ""
@@ -2439,6 +2467,25 @@ function AGView:submit(prompt, is_auto_continuation)
   local needs_pty = false
 
   if tool and tool.build_run_argv then
+    -- Hot-read local_skills.json so newly installed /slash skills work immediately without restart
+    self:reload_tools_and_skills(true)
+    local resolved_skill = nil
+    local slash_cmd = prompt_text:match("^/([%w_%-%.:]+)")
+    if slash_cmd and self.installed_skills_map and self.installed_skills_map[slash_cmd] then
+      resolved_skill = slash_cmd
+    elseif type(self.active_skill) == "table" and self.active_skill.id then
+      resolved_skill = self.active_skill.id
+    elseif type(self.active_skill) == "string" and self.active_skill ~= "" then
+      resolved_skill = self.active_skill
+    end
+    local encoded_skill_state = nil
+    if resolved_skill and self.skill_state and next(self.skill_state) ~= nil then
+      local ok_j, json = pcall(require, "plugins.lsp.json")
+      if ok_j and json and json.encode then
+        encoded_skill_state = json.encode(self.skill_state)
+      end
+    end
+
     -- Use the tool's registered argv builder
     local tc = self:_tool_cfg(tool_id)
     local is_auto = config.ai_sidebar and config.ai_sidebar.autopilot or false
@@ -2455,6 +2502,8 @@ function AGView:submit(prompt, is_auto_continuation)
       extra_files  = nil,
       autopilot    = is_auto,
       enable_tools = is_tools,
+      active_skill = resolved_skill,
+      skill_state  = encoded_skill_state,
     })
     needs_pty = tool.needs_pty or false
   else
@@ -3470,6 +3519,104 @@ local function draw_rect_outline(x, y, w, h, col)
   renderer.draw_rect(x+w-1, y,     1, h, col)
 end
 
+function AGView:reload_tools_and_skills(quiet, on_all_tested)
+  local ok_json, json = pcall(require, "plugins.lsp.json")
+  local skills_map, skills_list, skills_count = {}, {}, 0
+  local tools_map, tools_count = {}, 0
+  local srv_ids = {}
+
+  if ok_json then
+    local f_sk = io.open(USERDIR .. PATHSEP .. "scripts/local_skills.json", "r")
+    if f_sk then
+      local sk_raw = f_sk:read("*a")
+      f_sk:close()
+      local ok_s, sk_data = pcall(json.decode, sk_raw)
+      if ok_s and type(sk_data) == "table" then
+        skills_list = sk_data
+        skills_count = #sk_data
+        for _, s in ipairs(sk_data) do
+          if s.id then skills_map[s.id] = true end
+        end
+      end
+    end
+
+    local f_mc = io.open(USERDIR .. PATHSEP .. "scripts/mcp_config.json", "r")
+    if f_mc then
+      local mc_raw = f_mc:read("*a")
+      f_mc:close()
+      local ok_m, mc_data = pcall(json.decode, mc_raw)
+      if ok_m and type(mc_data) == "table" and type(mc_data.mcpServers) == "table" then
+        self._tool_cfg_sigs = self._tool_cfg_sigs or {}
+        for k, srv_cfg in pairs(mc_data.mcpServers) do
+          tools_map[k] = true
+          tools_count = tools_count + 1
+          table.insert(srv_ids, k)
+          local ok_e, sig = pcall(json.encode, srv_cfg)
+          if ok_e and self._tool_cfg_sigs[k] and self._tool_cfg_sigs[k] ~= sig and self.tool_health_map then
+            self.tool_health_map[k] = nil
+          end
+          if ok_e then self._tool_cfg_sigs[k] = sig end
+        end
+      end
+    end
+  end
+
+  if self.tool_health_map then
+    for k, _ in pairs(self.tool_health_map) do
+      if not tools_map[k] then
+        self.tool_health_map[k] = nil
+      end
+    end
+  end
+
+  self.installed_skills_list  = skills_list
+  self.installed_skills_map   = skills_map
+  self.installed_skills_count = skills_count
+  self.installed_tools_map    = tools_map
+  self.installed_tools_count  = tools_count
+
+  if self.active_skill then
+    local aid = type(self.active_skill) == "table" and self.active_skill.id or self.active_skill
+    if aid and not skills_map[aid] then
+      self.active_skill = nil
+    end
+  end
+
+  if not quiet and AI_TOOLS and AI_TOOLS.detect_all then
+    local det = AI_TOOLS.detect_all(config.ai_sidebar)
+    config.ai_sidebar.detected = det
+    config.ai_sidebar.detected_list = AI_TOOLS.get_detected(det)
+  end
+
+  if on_all_tested then
+    table.sort(srv_ids)
+    if #srv_ids == 0 then
+      on_all_tested({})
+    else
+      local results = {}
+      local remaining = #srv_ids
+      for _, srv_id in ipairs(srv_ids) do
+        self:test_tool_health(srv_id, function(res)
+          table.insert(results, { id = srv_id, status = res.status, message = res.message, tool_count = res.tool_count })
+          remaining = remaining - 1
+          if remaining == 0 then
+            table.sort(results, function(a, b) return a.id < b.id end)
+            on_all_tested(results)
+          end
+        end)
+      end
+    end
+  elseif not quiet then
+    for _, srv_id in ipairs(srv_ids) do
+      if not self.tool_health_map or not self.tool_health_map[srv_id] then
+        self:test_tool_health(srv_id)
+      end
+    end
+  end
+
+  return { tools_count = tools_count, skills_count = skills_count }
+end
+
 function AGView:fetch_marketplace()
   if self._is_fetching then return end
   self._is_fetching = true
@@ -3478,44 +3625,16 @@ function AGView:fetch_marketplace()
   core.add_thread(function()
       local ok_json, json = pcall(require, "plugins.lsp.json")
       
-      -- Synchronously update installed maps & counts for badges and status
-      self.installed_skills_map = {}
-      self.installed_tools_map = {}
-      self.installed_skills_count = 0
-      self.installed_tools_count = 0
-      if ok_json then
-        local f_sk = io.open(USERDIR .. PATHSEP .. "scripts/local_skills.json", "r")
-        if f_sk then
-          local sk_raw = f_sk:read("*a")
-          f_sk:close()
-          local ok_s, sk_data = pcall(json.decode, sk_raw)
-          if ok_s and type(sk_data) == "table" then
-            self.installed_skills_count = #sk_data
-            for _, s in ipairs(sk_data) do
-              if s.id then self.installed_skills_map[s.id] = true end
-            end
-          end
-        end
-        local f_mc = io.open(USERDIR .. PATHSEP .. "scripts/mcp_config.json", "r")
-        if f_mc then
-          local mc_raw = f_mc:read("*a")
-          f_mc:close()
-          local ok_m, mc_data = pcall(json.decode, mc_raw)
-          if ok_m and type(mc_data) == "table" and mc_data.mcpServers then
-            local count = 0
-            for k, _ in pairs(mc_data.mcpServers) do
-              self.installed_tools_map[k] = true
-              count = count + 1
-              if not self.tool_health_map or not self.tool_health_map[k] then
-                self:test_tool_health(k)
-              end
-            end
-            self.installed_tools_count = count
-          end
+      -- Synchronously reload installed skills & MCP maps so UI reflects live disk state immediately
+      self:reload_tools_and_skills(true)
+      for k, _ in pairs(self.installed_tools_map or {}) do
+        if not self.tool_health_map or not self.tool_health_map[k] then
+          self:test_tool_health(k)
         end
       end
 
       local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
+      local py_bin = resolve_python_bin()
       local arg = ""
       if self.show_tools_tab then
           arg = self.show_installed_skills and "--get-installed-tools" or "--get-marketplace-tools"
@@ -3524,7 +3643,7 @@ function AGView:fetch_marketplace()
       end
       
       local tmp_file = USERDIR .. PATHSEP .. "scripts/.market_tmp.json"
-      local cmd = {"python", bridge, arg, "--out-file", tmp_file}
+      local cmd = {py_bin, bridge, arg, "--out-file", tmp_file}
       if not self.show_installed_skills then
          self.market_page = self.market_page or 1
          table.insert(cmd, "--page")
@@ -3576,7 +3695,7 @@ function AGView:add_custom_source_repo(repo_str)
   if not repo_str or repo_str == "" then return end
   core.add_thread(function()
     local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
-    local p = process.start({"python", bridge, "--add-source-repo", repo_str})
+    local p = process.start({resolve_python_bin(), bridge, "--add-source-repo", repo_str})
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
@@ -3612,7 +3731,7 @@ function AGView:open_tool_config(tool_item)
   core.add_thread(function()
     local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
     local tmp_file = USERDIR .. PATHSEP .. "scripts/.cfg_tmp.json"
-    local p = process.start({"python", bridge, "--get-tool-config", tool_id, "--out-file", tmp_file})
+    local p = process.start({resolve_python_bin(), bridge, "--get-tool-config", tool_id, "--out-file", tmp_file})
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
@@ -3646,7 +3765,7 @@ function AGView:test_tool_health(tool_id, on_done)
     local ok_json, json = pcall(require, "plugins.lsp.json")
     local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
     local tmp_file = USERDIR .. PATHSEP .. "scripts/.test_tmp.json"
-    local p = process.start({"python", bridge, "--test-tool", tool_id, "--out-file", tmp_file})
+    local p = process.start({resolve_python_bin(), bridge, "--test-tool", tool_id, "--out-file", tmp_file})
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
@@ -3679,12 +3798,18 @@ function AGView:save_tool_config(tool_id, new_cfg, on_done)
       f:write(json.encode(new_cfg))
       f:close()
     end
-    local p = process.start({"python", bridge, "--save-tool-config", tool_id, "--config-data", "FILE:" .. tmp_file})
+    local p = process.start({resolve_python_bin(), bridge, "--save-tool-config", tool_id, "--config-data", "FILE:" .. tmp_file})
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
-    core.log("[Aether] Saved MCP configuration for " .. tool_id)
+    if self.tool_health_map then self.tool_health_map[tool_id] = nil end
+    self:reload_tools_and_skills(true)
+    core.log("[Aether] Saved MCP configuration for " .. tool_id .. " — verifying live connection...")
     self:test_tool_health(tool_id, function(res)
+      if res and res.status == "connected" then
+        self.enable_tools = true
+        core.log("[Aether] MCP Server '" .. tool_id .. "' active & ready (" .. tostring(res.tool_count or 0) .. " tools, no restart needed).")
+      end
       self:fetch_marketplace()
       if on_done then on_done(res) end
     end)
@@ -3694,7 +3819,7 @@ end
 function AGView:launch_tool_browser_auth(tool_id)
   core.add_thread(function()
     local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
-    local p = process.start({"python", bridge, "--open-tool-auth", tool_id})
+    local p = process.start({resolve_python_bin(), bridge, "--open-tool-auth", tool_id})
     if p then
       while p:running() do coroutine.yield(0.1) end
     end
@@ -3706,9 +3831,11 @@ function AGView:uninstall_skill(skill_id)
   core.add_thread(function()
       local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
       local flag = self.show_tools_tab and "--uninstall-tool" or "--uninstall-skill"
-      local p, err = process.start({"python", bridge, flag, skill_id})
+      local p, err = process.start({resolve_python_bin(), bridge, flag, skill_id})
       if p then
           while p:running() do coroutine.yield(0.1) end
+          if self.tool_health_map then self.tool_health_map[skill_id] = nil end
+          self:reload_tools_and_skills(true)
           core.log("Uninstalled: " .. skill_id)
           self:fetch_marketplace()
           core.redraw = true
@@ -3734,13 +3861,12 @@ function AGView:install_skill(skill_input)
     -- For MCP tools: immediately register and open the Pre-Flight Configuration Wizard!
     core.add_thread(function()
       local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
-      local p = process.start({"python", bridge, "--install-tool", skill_obj.id})
+      local p = process.start({resolve_python_bin(), bridge, "--install-tool", skill_obj.id})
       if p then
         while p:running() do coroutine.yield(0.1) end
       end
-      self.installed_tools_map = self.installed_tools_map or {}
-      self.installed_tools_map[skill_obj.id] = true
-      core.log("[Aether] Launching Setup Wizard for " .. (skill_obj.title or skill_obj.id) .. "...")
+      self:reload_tools_and_skills(true)
+      core.log("[Aether] Registered " .. (skill_obj.title or skill_obj.id) .. " — launching Setup Wizard (no restart needed)...")
       self:open_tool_config(skill_obj)
       self:fetch_marketplace()
       core.redraw = true
@@ -3756,9 +3882,10 @@ function AGView:install_skill(skill_input)
         f:write(json.encode(skill_obj))
         f:close()
       end
-      local p = process.start({"python", bridge, "--install-skill", "FILE:" .. tmp_file})
+      local p = process.start({resolve_python_bin(), bridge, "--install-skill", "FILE:" .. tmp_file})
       while p:running() do coroutine.yield(0.1) end
-      core.log("Installed AI Skill: " .. (skill_obj.title or "Custom Skill"))
+      self:reload_tools_and_skills(true)
+      core.log("Installed AI Skill: " .. (skill_obj.title or "Custom Skill") .. " — ready now via /" .. tostring(skill_obj.id or "") .. " (no restart needed).")
       self:fetch_marketplace()
     end)
   end
@@ -7839,9 +7966,14 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             if btn.action == "Delete" then
               local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
               core.add_thread(function()
-                local p = process.start({ "python", bridge, "--provider", btn.p, "--delete-key" })
+                local p = process.start({ resolve_python_bin(), bridge, "--provider", btn.p, "--delete-key" })
                 if p then
                   while p:running() do coroutine.yield(0.1) end
+                end
+                if btn.p and btn.p:match("^MCP::") then
+                  local srv_name = btn.p:match("^MCP::([^:]+)")
+                  if srv_name and self.tool_health_map then self.tool_health_map[srv_name] = nil end
+                  self:reload_tools_and_skills(true)
                 end
                 self:submit("/api")
               end)
@@ -8321,6 +8453,17 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
             if mx >= btn.x and mx <= btn.x + btn.w and my >= btn.y and my <= btn.y + btn.h then
               if btn.action == "config" then
                 self:open_tool_config(btn.item)
+                return true
+              elseif btn.action == "activate_skill" then
+                local cur_id = type(self.active_skill) == "table" and self.active_skill.id or self.active_skill
+                if cur_id == btn.item.id then
+                  self.active_skill = nil
+                  core.log("[Aether] Deactivated skill: " .. (btn.item.title or btn.item.id))
+                else
+                  self.active_skill = btn.item
+                  core.log("[Aether] Activated skill: " .. (btn.item.title or btn.item.id) .. " (ready immediately in chat)")
+                end
+                core.redraw = true
                 return true
               elseif btn.action == "install" then
                 self:install_skill(btn.item)
@@ -8819,9 +8962,14 @@ function AGView:on_mouse_released(button, mx, my)
             -- run delete command
             local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
             core.add_thread(function()
-              local p = process.start({ "python", bridge, "--provider", btn.p, "--delete-key" })
+              local p = process.start({ resolve_python_bin(), bridge, "--provider", btn.p, "--delete-key" })
               if p then
                 while p:running() do coroutine.yield(0.1) end
+              end
+              if btn.p and btn.p:match("^MCP::") then
+                local srv_name = btn.p:match("^MCP::([^:]+)")
+                if srv_name and self.tool_health_map then self.tool_health_map[srv_name] = nil end
+                self:reload_tools_and_skills(true)
               end
               self:submit("/api") -- refresh
             end)
@@ -8956,10 +9104,24 @@ function AGView:_prompt_for_api_key(provider)
       if text and #text > 0 then
         -- Run python script to save key
         local bridge = USERDIR .. PATHSEP .. "scripts/ai_api_bridge.py"
-        local p = process.start({ "python", bridge, "--provider", provider, "--set-key", text })
+        local p = process.start({ resolve_python_bin(), bridge, "--provider", provider, "--set-key", text })
         if p then
           core.add_thread(function()
             while p:running() do coroutine.yield(0.1) end
+            if provider and provider:match("^MCP::") then
+              local srv_name = provider:match("^MCP::([^:]+)")
+              self:reload_tools_and_skills(true)
+              if srv_name then
+                self:test_tool_health(srv_name, function(res)
+                  if res and res.status == "connected" then
+                    self.enable_tools = true
+                    core.log("[Aether] MCP Server '" .. srv_name .. "' ready (" .. tostring(res.tool_count or 0) .. " tools, no restart needed).")
+                  end
+                end)
+              end
+              if self.show_api_view then self:submit("/api") end
+              return
+            end
             self:fetch_models(true)
             local defaults = {
               groq      = "groq/qwen/qwen3.8-27b",
@@ -9632,7 +9794,7 @@ end
         f:close()
       end
       core.add_thread(function()
-        local p = process.start({"python", bridge, "--preview-skill", "FILE:" .. tmp_file})
+        local p = process.start({resolve_python_bin(), bridge, "--preview-skill", "FILE:" .. tmp_file})
         if p then
           local out = {}
           while true do
@@ -10346,6 +10508,15 @@ end
             
             -- Primary Action button
             if self.show_installed_skills then
+              local is_act_sk = ((type(self.active_skill) == "table" and self.active_skill.id or self.active_skill) == skill.id)
+              local use_txt = is_act_sk and "⚡ Active" or "Use"
+              local use_w = mf:get_width(use_txt) + 12 * SCALE
+              local use_x = det_x - 6 * SCALE - use_w
+              local is_hov_use = self.hover_market_action == ("activate_skill:" .. skill.id)
+              draw_market_box(use_x, footer_y, use_w, det_h, is_act_sk and {76, 175, 80, 40} or (is_hov_use and P.bg_btn_hl or P.bg_btn), is_act_sk and {76, 175, 80, 220} or P.border)
+              draw_text_emoji(mf, use_txt, use_x + 6 * SCALE, footer_y + math.floor((det_h - mf:get_height())/2), is_act_sk and {76, 175, 80, 255} or (is_hov_use and P.fg_accent or P.fg))
+              table.insert(self._market_action_btns, {key = "activate_skill:" .. skill.id, item = skill, action = "activate_skill", x = use_x, y = footer_y, w = use_w, h = det_h})
+
               local is_hov_un = self.hover_market_action == ("uninstall:" .. skill.id)
               draw_market_box(act_x, footer_y, act_w, act_h, is_hov_un and _COLOR_CACHE_5 or P.bg_btn, is_hov_un and _COLOR_CACHE_12 or P.border)
               local rm_txt = "Remove"
