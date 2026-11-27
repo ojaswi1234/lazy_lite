@@ -247,10 +247,36 @@ local function is_emoji_char(s, i)
   return true, next_i
 end
 
+local _cached_py_bin = nil
+local function resolve_python_bin()
+  if _cached_py_bin then return _cached_py_bin end
+  if PLATFORM == "Windows" then
+    local candidates = {
+      "C:\\Python314\\python.exe",
+      "C:\\Python313\\python.exe",
+      "C:\\Python312\\python.exe",
+      "C:\\Python311\\python.exe",
+      "C:\\Python310\\python.exe",
+    }
+    for _, p in ipairs(candidates) do
+      if system.get_file_info(p) then
+        _cached_py_bin = p
+        return p
+      end
+    end
+  end
+  _cached_py_bin = "python"
+  return _cached_py_bin
+end
+
 -- Draw text handling emoji segments with the emoji/symbol font.
 -- Returns the final x position (same interface as renderer.draw_text).
 local function draw_text_emoji(font, text, tx, ty, col)
   if not text or text == "" then return tx end
+  -- Fast path: pure ASCII needs no UTF-8 decoding, variation-selector stripping, or emoji font lookup
+  if not text:find("[\128-\255]") then
+    return renderer.draw_text(font, text, tx, ty, col)
+  end
   local sz = font and (font.get_size and font:get_size() or font:get_height()) or 14
   local ef = get_emoji_font(sz)
   if not ef then
@@ -1216,31 +1242,41 @@ local function parse_table_block(table_text, base_font, bold_font, code_font, ma
 
   local col_widths = {}
   local parsed_headers = {}
+  local hdr_widths = {}
   for c = 1, num_cols do
     local segs = parse_inline(headers[c])
     local w = 0
     for _, s in ipairs(segs) do
       local sf = (s.type == "code" or s.type == "code_link") and cfont or bfont
-      w = w + sf:get_width(s.text)
+      local sw = sf:get_width(s.text)
+      s._w = sw
+      w = w + sw
     end
     col_widths[c] = math.max(col_widths[c] or 0, w)
+    hdr_widths[c] = w
     parsed_headers[c] = segs
   end
 
   local parsed_rows = {}
+  local row_widths = {}
   for r_idx, r in ipairs(rows) do
     local row_segs = {}
+    local r_ws = {}
     for c = 1, num_cols do
       local segs = parse_inline(r[c])
       local w = 0
       for _, s in ipairs(segs) do
         local sf = (s.type == "code" or s.type == "code_link") and cfont or ((s.type == "bold") and bfont or font)
-        w = w + sf:get_width(s.text)
+        local sw = sf:get_width(s.text)
+        s._w = sw
+        w = w + sw
       end
       col_widths[c] = math.max(col_widths[c] or 0, w)
       row_segs[c] = segs
+      r_ws[c] = w
     end
     table.insert(parsed_rows, row_segs)
+    table.insert(row_widths, r_ws)
   end
 
   local pad_x = math.floor(10 * (SCALE or 1))
@@ -1288,9 +1324,11 @@ local function parse_table_block(table_text, base_font, bold_font, code_font, ma
     type = "table",
     headers = headers,
     parsed_headers = parsed_headers,
+    hdr_widths = hdr_widths,
     aligns = aligns,
     rows = rows,
     parsed_rows = parsed_rows,
+    row_widths = row_widths,
     col_widths = col_widths,
     total_w = total_w,
     total_h = tbl_h,
@@ -2379,6 +2417,10 @@ function AGView:submit(prompt, is_auto_continuation)
   self:state()._chat_start_time    = system.get_time()
   self:state().progress_status     = nil
   self:state().warned_slow         = false
+  self:state()._active_tool_id     = tool_id
+  self:state()._active_model_name  = self:_active_model()
+  self:state()._last_user_prompt   = prompt
+  self:state()._turn_recorded      = false
   self:_add_session("ai", "")
   self:state().scroll_to_bottom = true
 
@@ -2466,6 +2508,10 @@ function AGView:submit(prompt, is_auto_continuation)
     self:state().has_session = true
     self:state()._chat_started_at = os.time()
     self:state()._chat_start_time = system.get_time()
+    -- One-shot pointers used by resume/fork for this run; clear immediately so subsequent turns
+    -- continue sequentially from the new head instead of rewinding to the old checkpoint.
+    self:state().checkpoint_id = nil
+    self:state().parent_thread_id = nil
   else
     local tool_name = (tool and tool.name) or "agy"
     self:state().sessions[#self:state().sessions].text =
@@ -2699,9 +2745,60 @@ local function sanitize_ai_output(out, tab)
   return out
 end
 
+function AGView:_record_tab_turn(tab, user_prompt, ai_text, force)
+  if not tab then return end
+  if tab._turn_recorded and not force then return end
+  local tid = tab.cid or tab.thread_id
+  if not tid or tid == "" then return end
+  local up = (user_prompt or tab._last_user_prompt or ""):match("^%s*(.-)%s*$") or ""
+  local ai = (ai_text or tab._ai_buf or ""):match("^%s*(.-)%s*$") or ""
+  if up == "" and ai == "" then return end
+  tab._turn_recorded = true
+  self._history_stale = true
+
+  local ok_j, json = pcall(require, "plugins.lsp.json")
+  if not (ok_j and json and json.encode) then return end
+
+  local tmp_dir = USERDIR .. PATHSEP .. "tempfiles"
+  pcall(system.mkdir, tmp_dir)
+  local turn_file = tmp_dir .. PATHSEP .. "turn_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 99999)) .. ".json"
+  local f = io.open(turn_file, "w")
+  if not f then return end
+  local model_str = tab._active_model_name or ""
+  local tool_str = tab._active_tool_id or (config.ai_sidebar and config.ai_sidebar.active_tool) or "agy"
+  f:write(json.encode({
+    thread_id = tid,
+    parent_thread = tab.parent_thread_id,
+    user_prompt = up,
+    ai_response = ai,
+    provider = tool_str,
+    model = model_str,
+  }))
+  f:close()
+
+  local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
+  local py_bin = resolve_python_bin()
+  core.add_thread(function()
+    local proc = process.start({ py_bin, bridge, "--record-turn", "--turn-file", turn_file })
+    if proc then
+      while proc:running() do coroutine.yield(0.05) end
+    end
+    pcall(os.remove, turn_file)
+    if self.show_history_tree then
+      self._history_stale = false
+      self:fetch_history()
+    end
+  end)
+end
+
 function AGView:update()
   AGView.super.update(self)
   self.tick = (self.tick + 1) % 120
+
+  if self._pending_reparse_at and system.get_time() >= self._pending_reparse_at then
+    self._pending_reparse_at = nil
+    core.redraw = true
+  end
 
   -- Size animation (treeview pattern)
   local dest = self.visible and self.target_size or 0
@@ -2977,6 +3074,16 @@ function AGView:update()
           end
           dirty = true
           core.redraw = true
+          self._history_stale = true
+          -- Persist turn into Memory Tree for all CLI tools & interrupted cloud runs
+          local last_sess = tab.sessions[#tab.sessions]
+          local recorded_ai = (tab._ai_buf and tab._ai_buf ~= "") and tab._ai_buf or (last_sess and last_sess.role == "ai" and last_sess.text) or ""
+          if (tab._active_tool_id and tab._active_tool_id ~= "cloud_api") or rc ~= 0 or tab.stopped_by_user then
+            self:_record_tab_turn(tab, tab._last_user_prompt, recorded_ai)
+          elseif self.show_history_tree then
+            self._history_stale = false
+            self:fetch_history()
+          end
         end
 
         local elapsed = os.time() - (tab._chat_started_at or os.time())
@@ -3013,10 +3120,11 @@ function AGView:update()
       ai_len = tab._ai_buf and #tab._ai_buf or 0
       is_typing = tab._ai_displayed_chars and (tab._ai_displayed_chars < ai_len)
 
-      -- Typewriter effect logic
+      -- Typewriter effect logic (scales adaptively on large outputs so huge buffers don't peg CPU for seconds)
       if is_typing then
-        -- Reveal characters chunk by chunk (approx 60fps * 150 chars = 9000 chars/sec)
-        tab._ai_displayed_chars = math.min(ai_len, tab._ai_displayed_chars + 150)
+        local backlog = ai_len - tab._ai_displayed_chars
+        local step = (backlog > 1200) and math.max(150, math.floor(backlog / 8)) or 150
+        tab._ai_displayed_chars = math.min(ai_len, tab._ai_displayed_chars + step)
         dirty = true
       end
       
@@ -3024,6 +3132,7 @@ function AGView:update()
       if dirty and tab.sessions[#tab.sessions] and tab.sessions[#tab.sessions].role == "ai" then
         tab.sessions[#tab.sessions].text = utf8_safe_sub(tab._ai_buf, 1, tab._ai_displayed_chars or 0)
         tab.sessions[#tab.sessions].blocks = nil -- invalidate cache
+        tab.sessions[#tab.sessions]._stream_done = (not is_active_process and tab._ai_displayed_chars >= ai_len)
         tab.scroll_to_bottom = true
         core.redraw = true
       end
@@ -3655,6 +3764,66 @@ function AGView:install_skill(skill_input)
   end
 end
 
+local function get_tokenized_code_lines(blk)
+  local lines = blk.raw_lines
+  if not lines then return {} end
+  if blk._tokenized_lines and blk._tokenized_n == #lines then
+    return blk._tokenized_lines
+  end
+  local lang = blk.lang or "txt"
+  local synt = syntax.get("dummy." .. lang) or syntax.get(lang)
+  local out = {}
+  local state = nil
+  for i = 1, #lines do
+    local line = lines[i]
+    local tokens = { "normal", line }
+    if synt then
+      local ok, res1, res2 = pcall(tokenizer.tokenize, synt, line, state)
+      if ok and type(res1) == "table" then
+        tokens, state = res1, res2
+      end
+    end
+    out[i] = tokens
+  end
+  blk._tokenized_lines = out
+  blk._tokenized_n = #lines
+  return out
+end
+
+local function compute_session_raw_height(sess, msg_pad, lh_f, lh_c)
+  if sess._raw_content_h and sess._cached_lh_f == lh_f and sess._cached_lh_c == lh_c then
+    return sess._raw_content_h
+  end
+  local h = 2 * msg_pad
+  local q_lh = math.floor(style.font:get_height() * 1.25)
+  for _, blk in ipairs(sess.blocks) do
+    local bh = 0
+    if blk.type == "code" then
+      bh = #blk.raw_lines * lh_c + 8 * SCALE + 24 * SCALE
+    elseif blk.type == "table" then
+      bh = blk.total_h + 16 * SCALE
+    elseif blk.type == "divider" then
+      bh = 16 * SCALE
+    elseif blk.type == "quote" then
+      bh = #blk.wrapped_lines * q_lh + 8 * SCALE
+    elseif blk.type == "empty" then
+      bh = lh_f
+    elseif blk.type == "paragraph" then
+      local f = blk.font or ((blk.level > 0) and get_heading_font(blk.level) or style.font)
+      local lh = blk.lh or (f:get_height() + 2 * SCALE)
+      local top_m = (blk.level == 1 and 20 * SCALE) or (blk.level == 2 and 14 * SCALE) or (blk.level == 3 and 8 * SCALE) or 0
+      local bot_m = (blk.level == 1 and 10 * SCALE) or (blk.level == 2 and 8 * SCALE) or (blk.level == 3 and 4 * SCALE) or 0
+      bh = #blk.wrapped_lines * lh + top_m + bot_m
+    end
+    blk._h = bh
+    h = h + bh
+  end
+  sess._raw_content_h = h
+  sess._cached_lh_f = lh_f
+  sess._cached_lh_c = lh_c
+  return h
+end
+
 function AGView:draw()
   if self.size.x < 4 then return end
 
@@ -3663,6 +3832,13 @@ function AGView:draw()
 
   local x, y = self.position.x, self.position.y
   local w, h  = self.size.x, self.size.y
+
+  -- During toggle slide-in/slide-out sliver frames, skip full layout/chat rendering cleanly
+  if w < 24 * SCALE then
+    renderer.draw_rect(x, y, w, h, P.bg)
+    renderer.draw_rect(x, y, 1, h, P.border)
+    return
+  end
   local pad   = 10 * SCALE
   local cur_y = y
   self._hitl_rects = {}
@@ -4378,7 +4554,7 @@ function AGView:draw()
     -- Crucial animation optimization: always wrap text to the TARGET width (e.g. 350px) 
     -- rather than the current animating width (which changes on every frame). 
     -- This prevents O(N) word-wrap recalculations during slide-in/slide-out UI transitions!
-    local stable_w = self.target_size or w
+    local stable_w = (self.target_size and self.target_size > 40 * SCALE) and self.target_size or math.max(w, config.antigravity.target_width * SCALE)
     local msg_w   = stable_w - 2 * pad - 4 * SCALE
     
     local bg_col  = is_user and P.bg_user_msg or P.bg_ai_msg
@@ -4386,43 +4562,27 @@ function AGView:draw()
 
     -- Cache parsed blocks (invalidated when text or width changes)
     if not sess.blocks or sess._cached_text ~= sess.text or sess._cached_w ~= msg_w then
-      local now = os.clock()
-      -- Strictly throttle all re-parsing (from streaming OR UI width resizing animations) to ~20 FPS.
-      -- This absolutely prevents massive chat logs from pegging the CPU during smooth toggle animations!
-      if not sess.blocks or (now - (sess._last_parse_time or 0)) > 0.05 then
+      local now = system.get_time()
+      local text_len = #sess.text
+      -- Adaptive parse throttle prevents huge long outputs from pegging CPU on every stream chunk
+      local parse_interval = (text_len > 20000) and 0.20 or ((text_len > 6000) and 0.10 or 0.05)
+      if not sess.blocks or sess._stream_done or (now - (sess._last_parse_time or 0)) > parse_interval then
         sess.blocks = parse_blocks(sess.text, style.font, style.code_font, msg_w - 2 * msg_pad)
         sess._cached_text = sess.text
         sess._cached_w = msg_w
         sess._last_parse_time = now
+        sess._raw_content_h = nil
+        sess._cached_hitl_text = nil
+        sess._stream_done = nil
       else
-        -- Request another redraw later to ensure the final frame gets rendered cleanly after the animation or stream finishes
-        core.add_thread(function() coroutine.yield(0.05); core.redraw = true end)
+        if not self._pending_reparse_at then
+          self._pending_reparse_at = now + parse_interval
+        end
       end
     end
 
-    local msg_h = 2 * msg_pad
-    for _b, blk in ipairs(sess.blocks) do
-      if blk.type == "code" then
-        msg_h = msg_h + #blk.raw_lines * lh_c + 8 * SCALE + 24 * SCALE
-      elseif blk.type == "table" then
-        msg_h = msg_h + blk.total_h + 16 * SCALE
-      elseif blk.type == "divider" then
-        msg_h = msg_h + 16 * SCALE
-      elseif blk.type == "quote" then
-        local f = style.font
-        local lh = math.floor(f:get_height() * 1.25)
-        msg_h = msg_h + #blk.wrapped_lines * lh + 8 * SCALE
-      elseif blk.type == "empty" then
-        msg_h = msg_h + lh_f
-      elseif blk.type == "paragraph" then
-        local f = blk.font or ((blk.level > 0) and get_heading_font(blk.level) or style.font)
-        local lh = blk.lh or (f:get_height() + 2 * SCALE)
-        local top_m = (blk.level == 1 and 20 * SCALE) or (blk.level == 2 and 14 * SCALE) or (blk.level == 3 and 8 * SCALE) or 0
-        local bot_m = (blk.level == 1 and 10 * SCALE) or (blk.level == 2 and 8 * SCALE) or (blk.level == 3 and 4 * SCALE) or 0
-        msg_h = msg_h + #blk.wrapped_lines * lh + top_m + bot_m
-      end
-    end
-    msg_h = math.max(lh_f + 2 * msg_pad, msg_h)
+    local raw_content_h = compute_session_raw_height(sess, msg_pad, lh_f, lh_c)
+    local msg_h = math.max(lh_f + 2 * msg_pad, raw_content_h)
 
     local is_running_ai = (self:state().status == "running" and not is_user and sess == self:state().sessions[#self:state().sessions])
     local loader_h = style.code_font:get_height() + 8 * SCALE
@@ -4434,7 +4594,11 @@ function AGView:draw()
       end
     end
 
-    local has_hitl = not is_user and sess.text:find("[HITL_APPROVAL_REQUIRED]", 1, true)
+    if sess._cached_hitl_text ~= sess.text then
+      sess._has_hitl = (not is_user and sess.text:find("[HITL_APPROVAL_REQUIRED]", 1, true) ~= nil)
+      sess._cached_hitl_text = sess.text
+    end
+    local has_hitl = sess._has_hitl
     if has_hitl and is_running_ai then
       msg_h = msg_h + 36 * SCALE
     end
@@ -4458,8 +4622,9 @@ function AGView:draw()
     end
     ty = ty + style.font:get_height() + 6 * SCALE
 
-    -- Message card container
+    -- Outer Viewport Culling: skip all card background, blocks, tokenization, and hit rects when off-screen
     if ty + msg_h >= chat_top and ty <= chat_bot then
+      -- Message card container
       if is_user then
         -- User gets a clean distinct card
         renderer.draw_rect(x + pad, ty, msg_w, msg_h, P.bg_user_msg or P.bg_btn)
@@ -4470,100 +4635,105 @@ function AGView:draw()
         renderer.draw_rect(x + pad, ty, 3 * SCALE, msg_h, P.fg_accent)
         draw_rect_outline(x + pad, ty, msg_w, msg_h, { P.border[1], P.border[2], P.border[3], 50 })
       end
-    end
 
-    -- Blocks inside bubble
-    local line_y = ty + msg_pad
-    for _b, blk in ipairs(sess.blocks) do
-      if blk.type == "code" and #blk.raw_lines > 0 then
-        local b_h = #blk.raw_lines * lh_c + 8 * SCALE
-        local hdr_h = 24 * SCALE
-        local lang = blk.lang or "txt"
-        
-        if line_y + hdr_h >= chat_top and line_y <= chat_bot then
-          renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, hdr_h, P.bg_darker)
-          draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, hdr_h, P.border)
-          renderer.draw_text(style.font, lang, x + pad + 10 * SCALE, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_muted)
+      -- Blocks inside bubble
+      local line_y = ty + msg_pad
+      for _b, blk in ipairs(sess.blocks) do
+        local blk_h = blk._h or 0
+        if line_y > chat_bot then
+          if is_running_ai then
+            line_y = ty + raw_content_h - msg_pad
+          end
+          break
+        elseif line_y + blk_h < chat_top then
+          line_y = line_y + blk_h
+        elseif blk.type == "code" and #blk.raw_lines > 0 then
+          local b_h = #blk.raw_lines * lh_c + 8 * SCALE
+          local hdr_h = 24 * SCALE
+          local lang = blk.lang or "txt"
           
-          local c_id = tostring(_) .. "_code_" .. tostring(_b)
-          local is_copied = (self.copy_flash_idx == c_id)
-          local cw = is_copied and (style.font:get_width("Copied!") + 8 * SCALE) or 20 * SCALE
-          local c_x = x + pad + msg_w - 14 * SCALE - cw
+          if line_y + hdr_h >= chat_top and line_y <= chat_bot then
+            renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, hdr_h, P.bg_darker)
+            draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, hdr_h, P.border)
+            renderer.draw_text(style.font, lang, x + pad + 10 * SCALE, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_muted)
+            
+            local c_id = tostring(_) .. "_code_" .. tostring(_b)
+            local is_copied = (self.copy_flash_idx == c_id)
+            local cw = is_copied and (style.font:get_width("Copied!") + 8 * SCALE) or 20 * SCALE
+            local c_x = x + pad + msg_w - 14 * SCALE - cw
 
-          if is_copied then
-            renderer.draw_text(style.font, "Copied!", c_x, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_accent)
-          else
-            -- Custom drawn copy icon (overlapping squares)
-            local ix = c_x + math.floor((cw - 10 * SCALE) / 2)
-            local iy = line_y + math.floor((hdr_h - 10 * SCALE) / 2)
-            draw_rect_outline(ix + 3 * SCALE, iy, 7 * SCALE, 7 * SCALE, P.fg_muted)
-            renderer.draw_rect(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.bg_darker)
-            draw_rect_outline(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.fg_muted)
-          end
-
-          table.insert(self._copy_rects, {
-            x = c_x - 4 * SCALE, y = line_y, w = cw + 8 * SCALE, h = hdr_h,
-            text = table.concat(blk.raw_lines, "\n"), idx = c_id
-          })
-
-          -- Apply / Insert button directly into open editor
-          local ins_id = tostring(_) .. "_ins_" .. tostring(_b)
-          local is_inserted = (self.copy_flash_idx == ins_id)
-          local iw = is_inserted and (style.font:get_width("Applied!") + 10 * SCALE) or (style.font:get_width("Apply") + 10 * SCALE)
-          local i_x = c_x - iw - 8 * SCALE
-
-          if is_inserted then
-            renderer.draw_text(style.font, "Applied!", i_x, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_accent)
-          else
-            local is_hov_ins = (self.hover_insert_idx == ins_id)
-            if is_hov_ins then
-              renderer.draw_rect(i_x - 2 * SCALE, line_y + 2 * SCALE, iw, hdr_h - 4 * SCALE, P.bg_btn_hl)
-              draw_rect_outline(i_x - 2 * SCALE, line_y + 2 * SCALE, iw, hdr_h - 4 * SCALE, P.border)
+            if is_copied then
+              renderer.draw_text(style.font, "Copied!", c_x, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_accent)
+            else
+              -- Custom drawn copy icon (overlapping squares)
+              local ix = c_x + math.floor((cw - 10 * SCALE) / 2)
+              local iy = line_y + math.floor((hdr_h - 10 * SCALE) / 2)
+              draw_rect_outline(ix + 3 * SCALE, iy, 7 * SCALE, 7 * SCALE, P.fg_muted)
+              renderer.draw_rect(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.bg_darker)
+              draw_rect_outline(ix, iy + 3 * SCALE, 7 * SCALE, 7 * SCALE, P.fg_muted)
             end
-            renderer.draw_text(style.font, "Apply", i_x + 3 * SCALE, line_y + math.floor((hdr_h - style.font:get_height())/2), is_hov_ins and P.fg_accent or P.fg_muted)
-          end
 
-          table.insert(self._insert_rects, {
-            x = i_x - 4 * SCALE, y = line_y, w = iw + 8 * SCALE, h = hdr_h,
-            text = table.concat(blk.raw_lines, "\n"), idx = ins_id
-          })
-        end
-        line_y = line_y + hdr_h
-        
-        if line_y + b_h >= chat_top and line_y <= chat_bot then
-          renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.bg_darker)
-          draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.border)
-        end
-        line_y = line_y + 4 * SCALE
-        
-        local synt = syntax.get("dummy." .. lang) or syntax.get(lang)
-        local state = nil
-        
-        for _, line in ipairs(blk.raw_lines) do
-          if line_y + lh_c >= chat_top and line_y <= chat_bot then
-            local tokens = { "normal", line }
-            if synt then
-              local ok, res1, res2 = pcall(tokenizer.tokenize, synt, line, state)
-              if ok then tokens, state = res1, res2 end
+            table.insert(self._copy_rects, {
+              x = c_x - 4 * SCALE, y = line_y, w = cw + 8 * SCALE, h = hdr_h,
+              text = table.concat(blk.raw_lines, "\n"), idx = c_id
+            })
+
+            -- Apply / Insert button directly into open editor
+            local ins_id = tostring(_) .. "_ins_" .. tostring(_b)
+            local is_inserted = (self.copy_flash_idx == ins_id)
+            local iw = is_inserted and (style.font:get_width("Applied!") + 10 * SCALE) or (style.font:get_width("Apply") + 10 * SCALE)
+            local i_x = c_x - iw - 8 * SCALE
+
+            if is_inserted then
+              renderer.draw_text(style.font, "Applied!", i_x, line_y + math.floor((hdr_h - style.font:get_height())/2), P.fg_accent)
+            else
+              local is_hov_ins = (self.hover_insert_idx == ins_id)
+              if is_hov_ins then
+                renderer.draw_rect(i_x - 2 * SCALE, line_y + 2 * SCALE, iw, hdr_h - 4 * SCALE, P.bg_btn_hl)
+                draw_rect_outline(i_x - 2 * SCALE, line_y + 2 * SCALE, iw, hdr_h - 4 * SCALE, P.border)
+              end
+              renderer.draw_text(style.font, "Apply", i_x + 3 * SCALE, line_y + math.floor((hdr_h - style.font:get_height())/2), is_hov_ins and P.fg_accent or P.fg_muted)
             end
-            local lx = x + pad + msg_pad
+
+            table.insert(self._insert_rects, {
+              x = i_x - 4 * SCALE, y = line_y, w = iw + 8 * SCALE, h = hdr_h,
+              text = table.concat(blk.raw_lines, "\n"), idx = ins_id
+            })
+          end
+          line_y = line_y + hdr_h
+          
+          if line_y + b_h >= chat_top and line_y <= chat_bot then
+            renderer.draw_rect(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.bg_darker)
+            draw_rect_outline(x + pad + 4 * SCALE, line_y, msg_w - 8 * SCALE, b_h, P.border)
+          end
+          line_y = line_y + 4 * SCALE
+          
+          local num_lines = #blk.raw_lines
+          if line_y + num_lines * lh_c >= chat_top and line_y <= chat_bot then
+            local tok_lines = get_tokenized_code_lines(blk)
+            local first_vis = math.max(1, math.floor((chat_top - line_y) / lh_c) + 1)
+            local last_vis  = math.min(num_lines, math.ceil((chat_bot - line_y) / lh_c) + 1)
+            local code_x = x + pad + msg_pad
             local code_avail_w = math.max(10*SCALE, msg_w - 2 * msg_pad)
-            core.push_clip_rect(lx, line_y, code_avail_w, lh_c)
-            for i = 1, #tokens, 2 do
-              local type = tokens[i]
-              local text = tokens[i+1]
-              local col = style.syntax[type] or style.syntax["normal"] or P.fg_ai
-              lx = draw_text_emoji(style.code_font, text, lx, line_y, col)
+            for l_idx = first_vis, last_vis do
+              local draw_ly = line_y + (l_idx - 1) * lh_c
+              local tokens = tok_lines[l_idx]
+              if tokens then
+                local lx = code_x
+                core.push_clip_rect(lx, draw_ly, code_avail_w, lh_c)
+                for i = 1, #tokens, 2 do
+                  local type = tokens[i]
+                  local text = tokens[i+1]
+                  local col = style.syntax[type] or style.syntax["normal"] or P.fg_ai
+                  lx = draw_text_emoji(style.code_font, text, lx, draw_ly, col)
+                end
+                core.pop_clip_rect()
+              end
             end
-            core.pop_clip_rect()
-          else
-            if synt then pcall(function() _, state = tokenizer.tokenize(synt, line, state) end) end
           end
-          line_y = line_y + lh_c
-        end
-        line_y = line_y + 4 * SCALE
-        
-      elseif blk.type == "table" then
+          line_y = line_y + num_lines * lh_c + 4 * SCALE
+          
+        elseif blk.type == "table" then
         line_y = line_y + 8 * SCALE
         local tbl_x = x + pad + 4 * SCALE
         local tbl_w = math.min(msg_w - 8 * SCALE, blk.total_w)
@@ -4611,10 +4781,12 @@ function AGView:draw()
             local align = blk.aligns[c] or "left"
             local segs = blk.parsed_headers[c] or {}
             
-            local seg_w = 0
-            for _, s in ipairs(segs) do
-              local sf = (s.type == "code" or s.type == "code_link") and style.code_font or bfont
-              seg_w = seg_w + sf:get_width(s.text)
+            local seg_w = (blk.hdr_widths and blk.hdr_widths[c]) or 0
+            if not (blk.hdr_widths and blk.hdr_widths[c]) then
+              for _, s in ipairs(segs) do
+                local sf = (s.type == "code" or s.type == "code_link") and style.code_font or bfont
+                seg_w = seg_w + (s._w or sf:get_width(s.text))
+              end
             end
 
             local tx = cur_cx + pad_x
@@ -4660,10 +4832,12 @@ function AGView:draw()
                 local align = blk.aligns[c] or "left"
                 local segs = row_segs[c] or {}
 
-                local seg_w = 0
-                for _, s in ipairs(segs) do
-                  local sf = (s.type == "code" or s.type == "code_link") and style.code_font or ((s.type == "bold") and bfont or style.font)
-                  seg_w = seg_w + sf:get_width(s.text)
+                local seg_w = (blk.row_widths and blk.row_widths[r_idx] and blk.row_widths[r_idx][c]) or 0
+                if not (blk.row_widths and blk.row_widths[r_idx] and blk.row_widths[r_idx][c]) then
+                  for _, s in ipairs(segs) do
+                    local sf = (s.type == "code" or s.type == "code_link") and style.code_font or ((s.type == "bold") and bfont or style.font)
+                    seg_w = seg_w + (s._w or sf:get_width(s.text))
+                  end
                 end
 
                 local tx = cur_cx + pad_x
@@ -5104,6 +5278,7 @@ function AGView:draw()
       renderer.draw_text(style.code_font, time_str, tx, text_y, P.fg_muted)
       core.pop_clip_rect()
     end
+    end -- outer viewport card culling
 
     ty = ty + msg_h + 6 * SCALE
     total_h = total_h + style.font:get_height() + 6 * SCALE + msg_h + 6 * SCALE
@@ -5591,6 +5766,12 @@ function AGView:on_key_pressed(key, ...)
       self:state()._ai_buf = (self:state()._ai_buf or "") .. "\n\n*[Stopped by user]*"
       self:state()._ai_displayed_chars = #(self:state()._ai_buf)
       self:state().status = "idle"
+      if self:state().sessions[#self:state().sessions] and self:state().sessions[#self:state().sessions].role == "ai" then
+        self:state().sessions[#self:state().sessions].text = self:state()._ai_buf
+        self:state().sessions[#self:state().sessions].blocks = nil
+        self:state().sessions[#self:state().sessions]._stream_done = true
+      end
+      self:_record_tab_turn(self:state(), self:state()._last_user_prompt, self:state()._ai_buf)
       core.log("Chat generation stopped by user.")
       core.redraw = true
       return true
@@ -6450,9 +6631,8 @@ end
     core.log("[Memory Tree] ✂️ Pruning dead branches & compacting database...")
     core.redraw = true
     core.add_thread(function()
-      local config_dir = USERDIR .. PATHSEP .. "scripts"
-      local cmd = "python " .. config_dir .. PATHSEP .. "ai_api_bridge.py --prune"
-      local proc = process.start({ "cmd", "/c", cmd })
+      local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
+      local proc = process.start({ resolve_python_bin(), bridge, "--prune" })
       local out_tbl = {}
       while true do
         local chunk = proc:read_stdout(65536)
@@ -6496,17 +6676,23 @@ end
   function AGView:fetch_history()
     if self.history_state == "loading" then return end
     self.history_state = "loading"
+    self._history_stale = false
     core.redraw = true
     core.add_thread(function()
-      local config_dir = USERDIR .. PATHSEP .. "scripts"
-      local cmd = "python " .. config_dir .. PATHSEP .. "ai_api_bridge.py --get-history"
-      local proc = process.start({ "cmd", "/c", cmd })
+      local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
+      local proc, p_err = process.start({ resolve_python_bin(), bridge, "--get-history" })
+      if not proc then
+        core.log("[History] Failed to start python bridge: %s", tostring(p_err))
+        self.history_state = "error"
+        core.redraw = true
+        return
+      end
       local out_tbl = {}
       while true do
         local chunk = proc:read_stdout(65536)
         if chunk and #chunk > 0 then table.insert(out_tbl, chunk) end
         if not proc:running() then break end
-        coroutine.yield(0.1)
+        coroutine.yield(0.05)
       end
       
       -- Final drain loop to ensure we catch all remaining buffered bytes
@@ -6642,12 +6828,33 @@ end
       table.insert(buckets[g], root)
     end
 
+    -- Order non-testing groups by their newest session timestamp ascending
+    -- (so the group with the most recent conversation sits at the TOP under the canopy)
+    local group_max_id = {}
+    for _, g in ipairs(GROUP_ORDER) do
+      local max_id = ""
+      for _, r in ipairs(buckets[g]) do
+        if (r.id or "") > max_id then max_id = r.id or "" end
+        for _, lf in ipairs(r.leaves or {}) do
+          if (lf.id or "") > max_id then max_id = lf.id or "" end
+        end
+      end
+      group_max_id[g] = max_id
+    end
+    local sorted_groups = {}
+    for _, g in ipairs(GROUP_ORDER) do table.insert(sorted_groups, g) end
+    table.sort(sorted_groups, function(ga, gb)
+      if ga == "testing" and gb ~= "testing" then return true end
+      if gb == "testing" and ga ~= "testing" then return false end
+      return (group_max_id[ga] or "") < (group_max_id[gb] or "")
+    end)
+
     local nodes     = {}
     local node_map  = {}
     local row       = 0
     local bough_idx = 0
 
-    for _, g in ipairs(GROUP_ORDER) do
+    for _, g in ipairs(sorted_groups) do
       local grp_roots = buckets[g]
       if grp_roots and #grp_roots > 0 then
         bough_idx = bough_idx + 1
@@ -7421,7 +7628,7 @@ end
 
 function AGView:_rehydrate_thread_messages(thread_id, checkpoint_id, fork_info)
   core.add_thread(function()
-    local py_bin = "python"
+    local py_bin = resolve_python_bin()
     local bridge = USERDIR .. PATHSEP .. "scripts" .. PATHSEP .. "ai_api_bridge.py"
     local proc = process.start({py_bin, bridge, "--get-thread-messages", thread_id})
     if proc then
@@ -8412,8 +8619,10 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
         if c.tmpfile then pcall(os.remove, c.tmpfile); c.tmpfile = nil end
         if c.sessions[#c.sessions] and c.sessions[#c.sessions].role == "ai" then
           c.sessions[#c.sessions].text = (c.sessions[#c.sessions].text or "") .. "\n\n[Stopped by user]"
-          c.sessions[#c.sessions].lines = nil
+          c.sessions[#c.sessions].blocks = nil
+          c.sessions[#c.sessions]._stream_done = true
         end
+        self:_record_tab_turn(c, c._last_user_prompt, c.sessions[#c.sessions] and c.sessions[#c.sessions].text or c._ai_buf)
         core.redraw = true
         return true
       end
@@ -10493,6 +10702,14 @@ end
 
 function AGView:draw(...)
   if self.show_history_tree then
+    local x, y = self.position.x, self.position.y
+    local w, h = self.size.x, self.size.y
+    local P = get_palette()
+    if w < 24 * SCALE then
+      renderer.draw_rect(x, y, w, h, P.bg)
+      renderer.draw_rect(x, y, 1, h, P.border)
+      return
+    end
     self._auto_rect = nil
     self._ro_rect = nil
     self._voice_rect = nil
@@ -10501,10 +10718,7 @@ function AGView:draw(...)
     self._hitl_rects = nil
     self._insert_rects = nil
     self._starter_card_rects = nil
-    local x, y = self.position.x, self.position.y
-    local w, h = self.size.x, self.size.y
     local pad = 10 * SCALE
-    local P = get_palette()
     local sf = style.font
     local tf = style.big_font or style.font
 

@@ -3233,6 +3233,8 @@ def main():
     parser.add_argument("--parent-thread", type=str, help="Parent thread ID if this conversation was forked")
     parser.add_argument("--checkpoint-id", type=str, help="Resume from a specific checkpoint in the thread")
     parser.add_argument("--get-thread-messages", type=str, help="Extract conversation messages for a thread")
+    parser.add_argument("--record-turn", action="store_true", help="Record a chat turn (user/AI) into the Memory Tree SQLite store")
+    parser.add_argument("--turn-file", type=str, help="JSON file containing turn payload for --record-turn")
     parser.add_argument("--get-history", action="store_true")
     parser.add_argument("--prune", action="store_true", help="Prune dead branches, compact checkpoints, and optimize database")
     parser.add_argument("--max-threads", type=int, default=40, help="Maximum number of active threads to retain")
@@ -3370,6 +3372,101 @@ def main():
         print("}")
         sys.exit(0)
 
+    if args.record_turn:
+        db_path = get_db_path()
+        payload = {}
+        try:
+            if args.turn_file and os.path.exists(args.turn_file):
+                with open(args.turn_file, "r", encoding="utf-8") as tf:
+                    payload = json.load(tf)
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": f"Failed reading turn-file: {e}"}))
+            sys.exit(1)
+
+        tid = (payload.get("thread_id") or args.thread_id or "").strip()
+        user_prompt = clean_prompt_text(payload.get("user_prompt") or args.prompt or "")
+        ai_response = (payload.get("ai_response") or "").strip()
+        parent_tid = (payload.get("parent_thread") or args.parent_thread or "").strip() or None
+        parent_cp = (payload.get("checkpoint_id") or args.checkpoint_id or "").strip() or None
+        provider_name = (payload.get("provider") or "").strip()
+        model_id = (payload.get("model") or "").strip()
+        model_label = f"{provider_name}/{model_id}" if (provider_name and model_id and "/" not in model_id) else (model_id or provider_name)
+
+        if not tid or (not user_prompt and not ai_response):
+            print(json.dumps({"ok": False, "skipped": True, "reason": "empty"}))
+            sys.exit(0)
+
+        try:
+            import sqlite3
+            from typing import TypedDict, Annotated
+            from langgraph.graph import StateGraph, START, END
+            from langgraph.graph.message import add_messages
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            from langchain_core.messages import HumanMessage, AIMessage
+
+            db_dir = os.path.dirname(db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
+
+            conn = sqlite3.connect(db_path, timeout=5.0)
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS thread_lineage (thread_id TEXT PRIMARY KEY, parent_thread_id TEXT, parent_checkpoint_id TEXT, created_at TEXT)")
+            if parent_tid:
+                c.execute("INSERT OR REPLACE INTO thread_lineage (thread_id, parent_thread_id, parent_checkpoint_id, created_at) VALUES (?, ?, ?, datetime('now'))", (tid, parent_tid, parent_cp))
+            conn.commit()
+            conn.close()
+
+            with SqliteSaver.from_conn_string(db_path) as memory:
+                memory.setup()
+                cfg = {"configurable": {"thread_id": tid}}
+                existing_cp = memory.get(cfg)
+                existing_msgs = (existing_cp or {}).get("channel_values", {}).get("messages", []) if isinstance(existing_cp, dict) else []
+
+                last_human = ""
+                last_ai = ""
+                for m in existing_msgs:
+                    mt = getattr(m, "type", "")
+                    mc = getattr(m, "content", "")
+                    if isinstance(mc, list):
+                        mc = " ".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in mc)
+                    mc_s = str(mc or "").strip()
+                    if mt == "human":
+                        last_human = clean_prompt_text(mc_s)
+                        last_ai = ""
+                    elif mt == "ai" and mc_s:
+                        last_ai = mc_s
+
+                msgs_to_append = []
+                if user_prompt and last_human != user_prompt:
+                    msgs_to_append.append(HumanMessage(content=user_prompt))
+                if ai_response and (last_ai != ai_response):
+                    # Avoid duplicating when existing checkpoint already ends with a richer AI message for the same prompt
+                    if not (last_human == user_prompt and last_ai and len(last_ai) >= len(ai_response)):
+                        meta = {"model_name": model_label} if model_label else {}
+                        msgs_to_append.append(AIMessage(content=ai_response, response_metadata=meta))
+
+                if not msgs_to_append:
+                    print(json.dumps({"ok": True, "skipped": True, "thread_id": tid}))
+                    sys.exit(0)
+
+                class _RecState(TypedDict):
+                    messages: Annotated[list, add_messages]
+
+                def _noop_record(state: _RecState):
+                    return {}
+
+                gb = StateGraph(_RecState)
+                gb.add_node("record", _noop_record)
+                gb.add_edge(START, "record")
+                gb.add_edge("record", END)
+                g = gb.compile(checkpointer=memory)
+                g.invoke({"messages": msgs_to_append}, config=cfg)
+
+            print(json.dumps({"ok": True, "recorded": len(msgs_to_append), "thread_id": tid}))
+        except Exception as rec_e:
+            print(json.dumps({"ok": False, "error": str(rec_e)}))
+        sys.exit(0)
+
     if args.get_thread_messages:
         db_path = get_db_path()
         if not os.path.exists(db_path):
@@ -3494,11 +3591,19 @@ def main():
 
                 if not human_msgs: continue
 
+                _greetings = {"hi", "hello", "hey", "yo", "ping", "hu", "ok", "okay", "test", "testing", "hola"}
                 first_query = human_msgs[0].strip()
-                topic_title = first_query.split('\n')[0].strip()
+                rep_query = first_query
+                for hm in human_msgs:
+                    hm_clean = hm.strip()
+                    if hm_clean and hm_clean.lower().strip(".!? ") not in _greetings and len(hm_clean) > 3:
+                        rep_query = hm_clean
+                        break
+
+                topic_title = rep_query.split('\n')[0].strip()
                 if topic_title.startswith("/"):
                     cmd = topic_title.split()[0][1:].replace("-", " ").title()
-                    topic_title = f"{cmd}: {first_query[len(cmd)+2:].strip()[:40]}" if len(first_query) > len(cmd)+2 else cmd
+                    topic_title = f"{cmd}: {rep_query[len(cmd)+2:].strip()[:40]}" if len(rep_query) > len(cmd)+2 else cmd
                 if len(topic_title) > 42:
                     topic_title = topic_title[:40] + "..."
                 if not topic_title:
@@ -3531,9 +3636,9 @@ def main():
                     combined = (topic + " " + first_q).lower()
                     if (
                         tid_low.startswith("test")
+                        or tid_low.startswith("mcp_test")
                         or "test_" in tid_low
                         or any(k in combined for k in ["reply with only", "say hi in", "say hello in", "system_ok"])
-                        or (msg_turns <= 2 and fq_low in {"hi", "hello", "hey", "yo", "ping"})
                     ):
                         return "testing"
                     if any(k in combined for k in ["security", "auth", "permission", "audit", "guardrail", "token", "exploit", "vulnerab", "credential", "reverse engineer", "apk", "binary"]):
@@ -3544,7 +3649,7 @@ def main():
                         return "architecture"
                     if any(k in combined for k in ["devops", "docker", "deploy", "ci", "cd", "terraform", "kubernetes", "infra", "pipeline", "cloud", "aws", "gcp"]):
                         return "devops"
-                    if any(k in combined for k in ["research", "analyz", "study", "benchmark", "survey", "compare", "investigate", "explain", "what mcp", "mcp tools"]):
+                    if any(k in combined for k in ["research", "analyz", "study", "benchmark", "survey", "compare", "investigate", "explain", "what mcp", "mcp tools", "explore", "monitoring"]):
                         return "research"
                     if any(k in combined for k in ["fix", "bug", "error", "debug", "crash", "traceback", "exception", "issue", "broken", "fail", "patch"]):
                         return "debugging"
@@ -3552,13 +3657,13 @@ def main():
                         return "dev"
                     return "general"
 
-                group = classify_group(tid, topic_title, first_query[:120], turns) if not parent_thread else None
+                group = classify_group(tid, topic_title, rep_query[:120], turns) if not parent_thread else None
 
                 conversations.append({
                     "thread_id": tid,
                     "id": last_cp,
                     "topic": topic_title,
-                    "first_query": first_query[:80].replace('\n', ' '),
+                    "first_query": rep_query[:80].replace('\n', ' '),
                     "outcome": last_outcome.replace('\n', ' '),
                     "turns": turns,
                     "date": date,
