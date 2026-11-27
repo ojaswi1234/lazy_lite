@@ -1048,11 +1048,8 @@ local function parse_inline(text)
   return segments
 end
 
-local function wrap_segments(segments, base_font, bold_font, code_font, max_w)
-  local lines = {}
-  local cur_line = {}
-  local cur_w = 0
-  
+local function build_word_tokens(segments, base_font, bold_font, code_font)
+  local tokens = {}
   local function get_font(type)
     if type == "code" or type == "code_link" then
       return get_ui_font(code_font)
@@ -1061,14 +1058,49 @@ local function wrap_segments(segments, base_font, bold_font, code_font, max_w)
     end
     return get_ui_font(base_font)
   end
-  
-  local function push_word(word, type, url)
+
+  local extra_pad_const = math.floor(6 * (SCALE or 1))
+  local function add_word(word, type, url)
     local f = get_font(type)
-    local w = f:get_width(word)
     local is_code_type = (type == "code" or type == "code_link")
-    local extra_pad = is_code_type and math.floor(6 * (SCALE or 1)) or 0
-    local total_w = w + extra_pad
-    
+    local extra_pad = is_code_type and extra_pad_const or 0
+    local total_w = f:get_width(word) + extra_pad
+    table.insert(tokens, {
+      word = word,
+      type = type,
+      font = f,
+      w = total_w,
+      extra_pad = extra_pad,
+      is_ws = (word:match("^%s+$") ~= nil),
+      url = url,
+    })
+  end
+
+  for _, seg in ipairs(segments) do
+    if seg.type == "code" or seg.type == "code_link" then
+      add_word(seg.text, seg.type, seg.url)
+    else
+      local leading_space = seg.text:match("^(%s+)")
+      if leading_space then
+        add_word(leading_space, seg.type, seg.url)
+      end
+      for word in seg.text:gmatch("%S+%s*") do
+        add_word(word, seg.type, seg.url)
+      end
+    end
+  end
+  return tokens
+end
+
+local function wrap_word_tokens(tokens, max_w)
+  max_w = math.max(max_w or 100, 30)
+  local lines = {}
+  local cur_line = {}
+  local cur_w = 0
+
+  for _, tok in ipairs(tokens) do
+    local f = tok.font
+    local total_w = tok.w
     if total_w > max_w then
       if cur_w > 0 then
         table.insert(lines, cur_line)
@@ -1076,11 +1108,11 @@ local function wrap_segments(segments, base_font, bold_font, code_font, max_w)
         cur_w = 0
       end
       local chunk = ""
-      for char in word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-        local cw = f:get_width(chunk .. char) + extra_pad
+      for char in tok.word:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        local cw = f:get_width(chunk .. char) + tok.extra_pad
         if cw > max_w then
           if #chunk > 0 then
-            table.insert(lines, {{ text = chunk, type = type, font = f, width = f:get_width(chunk) + extra_pad, url = url }})
+            table.insert(lines, {{ text = chunk, type = tok.type, font = f, width = f:get_width(chunk) + tok.extra_pad, url = tok.url }})
           end
           chunk = char
         else
@@ -1088,41 +1120,31 @@ local function wrap_segments(segments, base_font, bold_font, code_font, max_w)
         end
       end
       if #chunk > 0 then
-        local cw = f:get_width(chunk) + extra_pad
-        table.insert(cur_line, { text = chunk, type = type, font = f, width = cw, url = url })
+        local cw = f:get_width(chunk) + tok.extra_pad
+        table.insert(cur_line, { text = chunk, type = tok.type, font = f, width = cw, url = tok.url })
         cur_w = cw
       end
-      return
-    end
-
-    if cur_w + total_w > max_w and cur_w > 0 then
-      table.insert(lines, cur_line)
-      cur_line = {}
-      cur_w = 0
-      -- drop leading space on new line if normal text
-      if word:match("^%s+$") then return end
-    end
-    if cur_w == 0 and #lines > 0 and word:match("^%s+$") then return end
-
-    table.insert(cur_line, { text = word, type = type, font = f, width = total_w, url = url })
-    cur_w = cur_w + total_w
-  end
-
-  for _, seg in ipairs(segments) do
-    if seg.type == "code" or seg.type == "code_link" then
-      push_word(seg.text, seg.type, seg.url)
     else
-      local leading_space = seg.text:match("^(%s+)")
-      if leading_space then
-        push_word(leading_space, seg.type, seg.url)
+      if cur_w + total_w > max_w and cur_w > 0 then
+        table.insert(lines, cur_line)
+        cur_line = {}
+        cur_w = 0
+        if tok.is_ws then goto next_tok end
       end
-      for word in seg.text:gmatch("%S+%s*") do
-        push_word(word, seg.type, seg.url)
+      if not (cur_w == 0 and #lines > 0 and tok.is_ws) then
+        table.insert(cur_line, { text = tok.word, type = tok.type, font = f, width = total_w, url = tok.url })
+        cur_w = cur_w + total_w
       end
     end
+    ::next_tok::
   end
   if #cur_line > 0 then table.insert(lines, cur_line) end
   return lines
+end
+
+local function wrap_segments(segments, base_font, bold_font, code_font, max_w)
+  local tokens = build_word_tokens(segments, base_font, bold_font, code_font)
+  return wrap_word_tokens(tokens, max_w), tokens
 end
 
 local function wrap_raw_text(font, text, max_w)
@@ -1280,23 +1302,49 @@ local function parse_table_block(table_text, base_font, bold_font, code_font, ma
   end
 
   local pad_x = math.floor(10 * (SCALE or 1))
-  local total_w = 0
+  local nat_col_widths = {}
+  local nat_total_w = 0
   for c = 1, num_cols do
-    col_widths[c] = col_widths[c] + 2 * pad_x
-    total_w = total_w + col_widths[c]
+    nat_col_widths[c] = col_widths[c] + 2 * pad_x
+    nat_total_w = nat_total_w + nat_col_widths[c]
   end
 
+  local hdr_h = math.floor(bfont:get_height() + 14 * (SCALE or 1))
+  local row_h = math.floor(font:get_height() + 12 * (SCALE or 1))
+  local tbl_h = hdr_h + #rows * row_h
+
+  local blk = {
+    type = "table",
+    headers = headers,
+    parsed_headers = parsed_headers,
+    hdr_widths = hdr_widths,
+    aligns = aligns,
+    rows = rows,
+    parsed_rows = parsed_rows,
+    row_widths = row_widths,
+    _nat_col_widths = nat_col_widths,
+    _nat_total_w = nat_total_w,
+    col_widths = {},
+    total_w = 0,
+    total_h = tbl_h,
+    hdr_h = hdr_h,
+    row_h = row_h,
+    pad_x = pad_x,
+    raw_text = table_text,
+  }
+  -- Scale column widths to max_w
   local avail_w = math.max(100, max_w - math.floor(16 * (SCALE or 1)))
+  local total_w = nat_total_w
+  for c = 1, num_cols do blk.col_widths[c] = nat_col_widths[c] end
   if total_w < avail_w and total_w > 0 then
     local diff = avail_w - total_w
     for c = 1, num_cols do
-      local add = math.floor(diff * (col_widths[c] / total_w))
-      col_widths[c] = col_widths[c] + add
+      blk.col_widths[c] = blk.col_widths[c] + math.floor(diff * (nat_col_widths[c] / total_w))
     end
     local sum = 0
-    for c = 1, num_cols do sum = sum + col_widths[c] end
+    for c = 1, num_cols do sum = sum + blk.col_widths[c] end
     if sum < avail_w and num_cols > 0 then
-      col_widths[num_cols] = col_widths[num_cols] + (avail_w - sum)
+      blk.col_widths[num_cols] = blk.col_widths[num_cols] + (avail_w - sum)
     end
     total_w = avail_w
   elseif total_w > avail_w and total_w > 0 then
@@ -1306,37 +1354,54 @@ local function parse_table_block(table_text, base_font, bold_font, code_font, ma
       local ratio = avail_w / total_w
       local sum = 0
       for c = 1, num_cols do
-        col_widths[c] = math.max(min_col_w, math.floor(col_widths[c] * ratio))
-        sum = sum + col_widths[c]
+        blk.col_widths[c] = math.max(min_col_w, math.floor(nat_col_widths[c] * ratio))
+        sum = sum + blk.col_widths[c]
       end
       if sum < avail_w and num_cols > 0 then
-        col_widths[num_cols] = col_widths[num_cols] + (avail_w - sum)
+        blk.col_widths[num_cols] = blk.col_widths[num_cols] + (avail_w - sum)
       end
       total_w = avail_w
     end
   end
+  blk.total_w = total_w
+  return blk
+end
 
-  local hdr_h = math.floor(bfont:get_height() + 14 * (SCALE or 1))
-  local row_h = math.floor(font:get_height() + 12 * (SCALE or 1))
-  local tbl_h = hdr_h + #rows * row_h
-
-  return {
-    type = "table",
-    headers = headers,
-    parsed_headers = parsed_headers,
-    hdr_widths = hdr_widths,
-    aligns = aligns,
-    rows = rows,
-    parsed_rows = parsed_rows,
-    row_widths = row_widths,
-    col_widths = col_widths,
-    total_w = total_w,
-    total_h = tbl_h,
-    hdr_h = hdr_h,
-    row_h = row_h,
-    pad_x = pad_x,
-    raw_text = table_text,
-  }
+local function rescale_table_block(blk, max_w)
+  local nat_cols = blk._nat_col_widths
+  if not nat_cols then return end
+  local num_cols = #nat_cols
+  local avail_w = math.max(100, max_w - math.floor(16 * (SCALE or 1)))
+  local total_w = blk._nat_total_w or 0
+  for c = 1, num_cols do blk.col_widths[c] = nat_cols[c] end
+  if total_w < avail_w and total_w > 0 then
+    local diff = avail_w - total_w
+    for c = 1, num_cols do
+      blk.col_widths[c] = blk.col_widths[c] + math.floor(diff * (nat_cols[c] / total_w))
+    end
+    local sum = 0
+    for c = 1, num_cols do sum = sum + blk.col_widths[c] end
+    if sum < avail_w and num_cols > 0 then
+      blk.col_widths[num_cols] = blk.col_widths[num_cols] + (avail_w - sum)
+    end
+    total_w = avail_w
+  elseif total_w > avail_w and total_w > 0 then
+    local min_col_w = math.floor(45 * (SCALE or 1))
+    local min_total = min_col_w * num_cols
+    if avail_w > min_total then
+      local ratio = avail_w / total_w
+      local sum = 0
+      for c = 1, num_cols do
+        blk.col_widths[c] = math.max(min_col_w, math.floor(nat_cols[c] * ratio))
+        sum = sum + blk.col_widths[c]
+      end
+      if sum < avail_w and num_cols > 0 then
+        blk.col_widths[num_cols] = blk.col_widths[num_cols] + (avail_w - sum)
+      end
+      total_w = avail_w
+    end
+  end
+  blk.total_w = total_w
 end
 
 local function parse_blocks(text, base_font, code_font, max_w)
@@ -1353,7 +1418,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
       if #cur_text > 0 then
         cur_text = cur_text:gsub("\n$", "")
         if is_code then
-          table.insert(blocks, { type = "code", lang = cur_lang, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
+          table.insert(blocks, { type = "code", lang = cur_lang, _raw_source = cur_text, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
         else
           table.insert(blocks, { type = "text", raw = cur_text })
         end
@@ -1369,7 +1434,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
   if #cur_text > 0 then
     cur_text = cur_text:gsub("\n$", "")
     if is_code then
-      table.insert(blocks, { type = "code", lang = cur_lang, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
+      table.insert(blocks, { type = "code", lang = cur_lang, _raw_source = cur_text, raw_lines = wrap_raw_text(code_font, cur_text, max_w) })
     else
       table.insert(blocks, { type = "text", raw = cur_text })
     end
@@ -1390,7 +1455,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
           if tbl_blk then
             table.insert(final_blocks, tbl_blk)
           else
-            table.insert(final_blocks, { type = "code", lang = "txt", raw_lines = wrap_raw_text(code_font, cur_table, max_w) })
+            table.insert(final_blocks, { type = "code", lang = "txt", _raw_source = cur_table, raw_lines = wrap_raw_text(code_font, cur_table, max_w) })
           end
           cur_table = ""
         end
@@ -1414,8 +1479,8 @@ local function parse_blocks(text, base_font, code_font, max_w)
               elseif line:match("^%s*>%s?(.*)") then
                 local q_text = line:match("^%s*>%s?(.*)")
                 local segments = parse_inline(q_text)
-                local wrapped = wrap_segments(segments, style.font, bold_font, style.code_font, max_w - 16 * (SCALE or 1))
-                table.insert(final_blocks, { type = "quote", wrapped_lines = wrapped })
+                local wrapped, wtoks = wrap_segments(segments, style.font, bold_font, style.code_font, max_w - 16 * (SCALE or 1))
+                table.insert(final_blocks, { type = "quote", wrapped_lines = wrapped, _word_tokens = wtoks })
               else
                 local header = line:match("^%s*(#+)%s")
                 local list_bullet = line:match("^%s*[%-%*]%s+(.*)")
@@ -1440,7 +1505,7 @@ local function parse_blocks(text, base_font, code_font, max_w)
                 local lh = (level > 0) and math.floor(f:get_height() * 1.3) or (f:get_height() + 2 * (SCALE or 1))
                 local prefix_w = list_prefix and f:get_width(list_prefix) or 0
                 local segments = parse_inline(clean_line)
-                local wrapped = wrap_segments(segments, f, bold_font, code_font, max_w - prefix_w)
+                local wrapped, wtoks = wrap_segments(segments, f, bold_font, code_font, max_w - prefix_w)
                 
                 table.insert(final_blocks, {
                   type = "paragraph",
@@ -1448,6 +1513,8 @@ local function parse_blocks(text, base_font, code_font, max_w)
                   font = f,
                   lh = lh,
                   list_prefix = list_prefix,
+                  _prefix_w = prefix_w,
+                  _word_tokens = wtoks,
                   wrapped_lines = wrapped,
                 })
               end
@@ -1461,6 +1528,65 @@ local function parse_blocks(text, base_font, code_font, max_w)
     end
   end
   return final_blocks
+end
+
+-- Fast width-only reflow reusing pre-parsed markdown tokens, pre-measured word widths,
+-- and natural table widths — preserves cached code syntax tokens for unchanged lines.
+local function rewrap_blocks(blocks, code_font, max_w)
+  if not blocks then return end
+  local q_pad = 16 * (SCALE or 1)
+  for _, blk in ipairs(blocks) do
+    if blk.type == "paragraph" and blk._word_tokens then
+      blk.wrapped_lines = wrap_word_tokens(blk._word_tokens, max_w - (blk._prefix_w or 0))
+      blk._h = nil
+    elseif blk.type == "quote" and blk._word_tokens then
+      blk.wrapped_lines = wrap_word_tokens(blk._word_tokens, max_w - q_pad)
+      blk._h = nil
+    elseif blk.type == "table" then
+      rescale_table_block(blk, max_w)
+      blk._h = nil
+    elseif blk.type == "code" and blk._raw_source then
+      -- Preserve existing line tokens in a lookup before re-wrapping code lines
+      if blk._tokenized_lines and blk.raw_lines then
+        blk._tok_by_text = blk._tok_by_text or {}
+        for i, rl in ipairs(blk.raw_lines) do
+          if blk._tokenized_lines[i] then
+            blk._tok_by_text[rl] = blk._tokenized_lines[i]
+          end
+        end
+      end
+      local new_lines = wrap_raw_text(code_font, blk._raw_source, max_w)
+      if blk.raw_lines and #new_lines == #blk.raw_lines then
+        local same = true
+        for i = 1, #new_lines do
+          if new_lines[i] ~= blk.raw_lines[i] then same = false; break end
+        end
+        if same then goto next_blk end
+      end
+      blk.raw_lines = new_lines
+      blk._h = nil
+      if blk._tok_by_text then
+        local mapped = {}
+        local all_hit = true
+        for i, rl in ipairs(new_lines) do
+          local cached = blk._tok_by_text[rl]
+          if not cached then all_hit = false; break end
+          mapped[i] = cached
+        end
+        if all_hit then
+          blk._tokenized_lines = mapped
+          blk._tokenized_n = #new_lines
+        else
+          blk._tokenized_lines = nil
+          blk._tokenized_n = nil
+        end
+      else
+        blk._tokenized_lines = nil
+        blk._tokenized_n = nil
+      end
+    end
+    ::next_blk::
+  end
 end
 
 -- ── View ──────────────────────────────────────────────────────────────────────
@@ -1660,7 +1786,11 @@ end
 -- Called by the node system when the user drags the resize divider
 function AGView:set_target_size(axis, value)
   if axis == "x" then
-    self.target_size = math.max(180 * SCALE, value)  -- minimum 180px
+    local clamped = math.max(180 * SCALE, value)  -- minimum 180px
+    if self.target_size and math.abs(clamped - self.target_size) >= 1 and (self.size.x or 0) >= 40 * SCALE then
+      self._drag_resize_deadline = system.get_time() + 0.14
+    end
+    self.target_size = clamped
     return true
   end
 end
@@ -2846,6 +2976,11 @@ function AGView:update()
 
   if self._pending_reparse_at and system.get_time() >= self._pending_reparse_at then
     self._pending_reparse_at = nil
+    core.redraw = true
+  end
+
+  if self._drag_resize_deadline and system.get_time() >= self._drag_resize_deadline then
+    self._drag_resize_deadline = nil
     core.redraw = true
   end
 
@@ -4596,6 +4731,7 @@ function AGView:draw()
   self._insert_rects = {}
   self._starter_card_rects = {}
   self._link_rects = {}
+  self._frame_reflow_start = nil
 
   if #self:state().sessions == 0 then
     local center_y = chat_top + math.max(16 * SCALE, math.floor(chat_h * 0.10)) - self:state().scroll_y
@@ -4680,18 +4816,20 @@ function AGView:draw()
     
     -- Crucial animation optimization: always wrap text to the TARGET width (e.g. 350px) 
     -- rather than the current animating width (which changes on every frame). 
-    -- This prevents O(N) word-wrap recalculations during slide-in/slide-out UI transitions!
+    -- During live divider drag resizing, skip re-wrap completely until mouse settles (~140ms)
+    -- and then run width-only rewrap_blocks() within a per-frame time budget.
     local stable_w = (self.target_size and self.target_size > 40 * SCALE) and self.target_size or math.max(w, config.antigravity.target_width * SCALE)
     local msg_w   = stable_w - 2 * pad - 4 * SCALE
     
     local bg_col  = is_user and P.bg_user_msg or P.bg_ai_msg
     local fg_col  = is_user and P.fg_user or P.fg_ai
 
+    local now = system.get_time()
+    local is_drag_resizing = (self._drag_resize_deadline and now < self._drag_resize_deadline)
+
     -- Cache parsed blocks (invalidated when text or width changes)
-    if not sess.blocks or sess._cached_text ~= sess.text or sess._cached_w ~= msg_w then
-      local now = system.get_time()
+    if not sess.blocks or sess._cached_text ~= sess.text then
       local text_len = #sess.text
-      -- Adaptive parse throttle prevents huge long outputs from pegging CPU on every stream chunk
       local parse_interval = (text_len > 20000) and 0.20 or ((text_len > 6000) and 0.10 or 0.05)
       if not sess.blocks or sess._stream_done or (now - (sess._last_parse_time or 0)) > parse_interval then
         sess.blocks = parse_blocks(sess.text, style.font, style.code_font, msg_w - 2 * msg_pad)
@@ -4704,6 +4842,19 @@ function AGView:draw()
       else
         if not self._pending_reparse_at then
           self._pending_reparse_at = now + parse_interval
+        end
+      end
+    elseif sess._cached_w ~= msg_w and not is_drag_resizing then
+      if not self._frame_reflow_start then
+        self._frame_reflow_start = now
+      end
+      if (system.get_time() - self._frame_reflow_start) <= 0.006 then
+        rewrap_blocks(sess.blocks, style.code_font, msg_w - 2 * msg_pad)
+        sess._cached_w = msg_w
+        sess._raw_content_h = nil
+      else
+        if not self._pending_reparse_at then
+          self._pending_reparse_at = now + 0.016
         end
       end
     end
