@@ -7953,6 +7953,41 @@ function AGView:_launch_team_builder()
   build_next_agent()
 end
 
+function AGView:_apply_restored_model(tool_id, provider, model_name)
+  local has_tool = tool_id and tool_id ~= "" and ((tool_id == "cloud_api") or (AI_TOOLS and AI_TOOLS.get(tool_id) ~= nil))
+  if not has_tool and not model_name and not provider then return nil end
+
+  local target_tool = has_tool and tool_id or (config.ai_sidebar.active_tool or "agy")
+  config.ai_sidebar.active_tool = target_tool
+  local tc = self:_tool_cfg(target_tool)
+
+  if target_tool == "cloud_api" then
+    local prov = (provider and provider ~= "") and provider or (model_name and model_name:match("^([^/]+)/"))
+    if prov and prov ~= "" then
+      tc.active_provider = prov
+    end
+    if model_name and model_name ~= "" then
+      tc.selected_model = model_name
+      config.antigravity.selected_model = model_name
+    end
+  else
+    if model_name and model_name ~= "" then
+      self:_set_active_model(model_name)
+    end
+  end
+
+  if self.tool_model_lists[target_tool] and #self.tool_model_lists[target_tool] > 0 then
+    self:_sync_model_list()
+  else
+    -- Populate dropdown list asynchronously without overwriting restored selected_model
+    self:fetch_models()
+  end
+
+  self:state()._active_tool_id = target_tool
+  self:state()._active_model_name = self:_active_model() or model_name
+  return self:state()._active_model_name
+end
+
 function AGView:_rehydrate_thread_messages(thread_id, checkpoint_id, fork_info)
   core.add_thread(function()
     local py_bin = resolve_python_bin()
@@ -7978,14 +8013,16 @@ function AGView:_rehydrate_thread_messages(thread_id, checkpoint_id, fork_info)
         if fn then
           local ok, msgs = pcall(fn)
           if ok and type(msgs) == "table" and #msgs > 0 then
+            local restored_model = self:_apply_restored_model(msgs.tool_id, msgs.provider, msgs.model)
+            local model_badge = restored_model and ("\nModel restored: `" .. restored_model .. "`") or ""
             self:state().sessions = {}
             for _, m in ipairs(msgs) do
               self:_add_session(m.role or "ai", m.text or "")
             end
             if fork_info and fork_info.is_fork then
-              self:_add_session("ai", "🌱 **Forked conversation branch from:** `" .. (fork_info.topic or thread_id) .. "`\nAll prior conversation context loaded into this new sub-branch session. Your next prompt will sprout a new branch path!")
+              self:_add_session("ai", "🌱 **Forked conversation branch from:** `" .. (fork_info.topic or thread_id) .. "`" .. model_badge .. "\nAll prior conversation context loaded into this new sub-branch session. Your next prompt will sprout a new branch path!")
             else
-              self:_add_session("ai", "⚡ Resumed conversation at checkpoint `" .. tostring(checkpoint_id or ""):sub(1, 16) .. "`.\nYou can continue asking questions from this memory branch.")
+              self:_add_session("ai", "⚡ Resumed conversation at checkpoint `" .. tostring(checkpoint_id or ""):sub(1, 16) .. "`." .. model_badge .. "\nYou can continue asking questions from this memory branch.")
             end
             self:state().scroll_to_bottom = true
             core.redraw = true

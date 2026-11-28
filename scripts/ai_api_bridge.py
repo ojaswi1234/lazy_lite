@@ -1766,6 +1766,162 @@ def get_db_path() -> str:
         return alt
     return p
 
+
+_CLOUD_API_PROVIDERS = {"gemini", "groq", "openai", "nvidia", "anthropic", "ollama", "omniroute"}
+_CLI_TOOL_IDS = {
+    "agy", "claude", "opencode", "codex", "gemini", "devin", "aider", "cline",
+    "goose", "gh_copilot", "amp", "cursor_agent", "crush", "codebuff", "openhands",
+    "hermes", "junie", "qodercli", "qwen_code", "kilo"
+}
+_NVIDIA_MODEL_PREFIXES = (
+    "nvidia/", "minimaxai/", "qwen/", "deepseek-ai/", "meta/", "mistralai/",
+    "google/", "microsoft/", "moonshotai/", "z-ai/", "stepfun-ai/", "thudm/",
+    "baichuan-inc/", "01-ai/"
+)
+
+
+def _ensure_lineage_schema(cursor) -> None:
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS thread_lineage "
+        "(thread_id TEXT PRIMARY KEY, parent_thread_id TEXT, parent_checkpoint_id TEXT, "
+        "created_at TEXT, tool_id TEXT, provider TEXT, model TEXT)"
+    )
+    for col in ("tool_id", "provider", "model"):
+        try:
+            cursor.execute(f"ALTER TABLE thread_lineage ADD COLUMN {col} TEXT")
+        except Exception:
+            pass
+
+
+def _upsert_thread_model(
+    db_path: str,
+    thread_id: str,
+    parent_thread: Optional[str] = None,
+    checkpoint_id: Optional[str] = None,
+    tool_id: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> None:
+    if not db_path or not thread_id:
+        return
+    try:
+        import sqlite3
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+        conn = sqlite3.connect(db_path, timeout=5.0)
+        c = conn.cursor()
+        _ensure_lineage_schema(c)
+        c.execute(
+            "SELECT parent_thread_id, parent_checkpoint_id, tool_id, provider, model "
+            "FROM thread_lineage WHERE thread_id = ? LIMIT 1",
+            (thread_id,)
+        )
+        existing = c.fetchone()
+        final_parent = parent_thread if parent_thread else (existing[0] if existing else None)
+        final_cp = checkpoint_id if checkpoint_id else (existing[1] if existing else None)
+        final_tool = tool_id if tool_id else (existing[2] if existing else None)
+        final_prov = provider if provider else (existing[3] if existing else None)
+        final_model = model if model else (existing[4] if existing else None)
+        c.execute(
+            "INSERT OR REPLACE INTO thread_lineage "
+            "(thread_id, parent_thread_id, parent_checkpoint_id, created_at, tool_id, provider, model) "
+            "VALUES (?, ?, ?, COALESCE((SELECT created_at FROM thread_lineage WHERE thread_id = ?), datetime('now')), ?, ?, ?)",
+            (thread_id, final_parent, final_cp, thread_id, final_tool, final_prov, final_model)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _infer_model_info(model_name: str, model_provider: str = "") -> dict:
+    mn = (model_name or "").strip()
+    mp = (model_provider or "").strip().lower()
+    if not mn:
+        return {}
+
+    # Explicit tool_id/model from --record-turn (e.g. "agy/Gemini 3.5 Flash" or "cloud_api/nvidia/...")
+    if "/" in mn:
+        first, rest = mn.split("/", 1)
+        if first == "cloud_api" and "/" in rest:
+            prov = rest.split("/", 1)[0]
+            return {"tool_id": "cloud_api", "provider": prov, "model": rest}
+        if first in _CLI_TOOL_IDS and not mp and first != "gemini":
+            return {"tool_id": first, "provider": first, "model": rest}
+        if first in _CLI_TOOL_IDS and first == "gemini" and mp != "google_genai" and "gemini-" not in rest.lower():
+            return {"tool_id": "gemini", "provider": "gemini", "model": rest}
+
+    # LangChain ChatModel response_metadata inference
+    if mp == "groq":
+        full = mn if mn.startswith("groq/") else f"groq/{mn}"
+        return {"tool_id": "cloud_api", "provider": "groq", "model": full}
+    if mp == "google_genai":
+        full = mn if mn.startswith("gemini/") else f"gemini/{mn}"
+        return {"tool_id": "cloud_api", "provider": "gemini", "model": full}
+    if mp == "anthropic":
+        full = mn if mn.startswith("anthropic/") else f"anthropic/{mn}"
+        return {"tool_id": "cloud_api", "provider": "anthropic", "model": full}
+    if mp == "openai":
+        if mn.startswith(_NVIDIA_MODEL_PREFIXES):
+            return {"tool_id": "cloud_api", "provider": "nvidia", "model": f"nvidia/{mn}"}
+        if "/" in mn and mn.split("/", 1)[0] in _CLOUD_API_PROVIDERS:
+            prov = mn.split("/", 1)[0]
+            return {"tool_id": "cloud_api", "provider": prov, "model": mn}
+        return {"tool_id": "cloud_api", "provider": "openai", "model": f"openai/{mn}"}
+
+    if "/" in mn and mn.split("/", 1)[0] in _CLOUD_API_PROVIDERS:
+        prov = mn.split("/", 1)[0]
+        return {"tool_id": "cloud_api", "provider": prov, "model": mn}
+
+    if mn.startswith(_NVIDIA_MODEL_PREFIXES):
+        return {"tool_id": "cloud_api", "provider": "nvidia", "model": f"nvidia/{mn}"}
+
+    return {"tool_id": "", "provider": mp, "model": mn}
+
+
+def _resolve_thread_model(conn, thread_id: str, msgs: Optional[list] = None) -> dict:
+    """Resolve the last active (tool_id, provider, model) for a thread or its parent lineage (read-only)."""
+    if not conn or not thread_id:
+        return {}
+    c = conn.cursor()
+    try:
+        cur = thread_id
+        seen = set()
+        while cur and cur not in seen:
+            seen.add(cur)
+            c.execute(
+                "SELECT tool_id, provider, model, parent_thread_id "
+                "FROM thread_lineage WHERE thread_id = ? LIMIT 1",
+                (cur,)
+            )
+            row = c.fetchone()
+            if not row:
+                break
+            t_id, prov, mod, parent = row
+            if t_id or prov or mod:
+                return {
+                    "tool_id": t_id or ("cloud_api" if prov in _CLOUD_API_PROVIDERS else (prov or "")),
+                    "provider": prov or "",
+                    "model": mod or "",
+                }
+            cur = parent
+    except Exception:
+        pass
+
+    # Legacy fallback: scan stored AIMessage response_metadata from newest to oldest
+    for m in reversed(msgs or []):
+        if getattr(m, "type", "") == "ai":
+            rm = getattr(m, "response_metadata", None) or {}
+            ak = getattr(m, "additional_kwargs", None) or {}
+            mn = rm.get("model_name") or rm.get("model") or ak.get("model_name") or ""
+            mp = rm.get("model_provider", "")
+            if mn:
+                info = _infer_model_info(str(mn), str(mp))
+                if info.get("model"):
+                    return info
+    return {}
+
 def clean_prompt_text(text: str) -> str:
     if not isinstance(text, str): return ""
     text = re.sub(r'\[IDE:[^\]]*\]\s*', '', text)
@@ -2817,13 +2973,31 @@ def run_agent(provider, model_name, api_key, prompt, autopilot, read_only, works
 
         ws_context = f"\nCURRENT WORKSPACE: {workspace}\n" if workspace else "\n"
         db_path = get_db_path()
+        full_sidebar_model = f"{provider}/{model_name}" if (provider and model_name and not model_name.startswith(f"{provider}/") or (provider == "nvidia" and model_name and not model_name.startswith("nvidia/nvidia/"))) else (model_name or provider or "")
+        # Normalize cloud_api sidebar model format: "<provider>/<model_arg>" (except when already prefixed once appropriately)
+        if provider and model_name:
+            if provider == "nvidia":
+                full_sidebar_model = f"nvidia/{clean_nvidia_model(model_name)}"
+            elif model_name.startswith(f"{provider}/"):
+                full_sidebar_model = model_name
+            else:
+                full_sidebar_model = f"{provider}/{model_name}"
+        if thread_id:
+            _upsert_thread_model(
+                db_path,
+                thread_id,
+                parent_thread=parent_thread,
+                checkpoint_id=checkpoint_id,
+                tool_id="cloud_api",
+                provider=provider,
+                model=full_sidebar_model,
+            )
         if parent_thread and thread_id:
             try:
                 import sqlite3
                 conn_lin = sqlite3.connect(db_path, timeout=5.0)
                 c_lin = conn_lin.cursor()
-                c_lin.execute("CREATE TABLE IF NOT EXISTS thread_lineage (thread_id TEXT PRIMARY KEY, parent_thread_id TEXT, parent_checkpoint_id TEXT, created_at TEXT)")
-                c_lin.execute("INSERT OR REPLACE INTO thread_lineage (thread_id, parent_thread_id, parent_checkpoint_id, created_at) VALUES (?, ?, ?, datetime('now'))", (thread_id, parent_thread, checkpoint_id))
+                _ensure_lineage_schema(c_lin)
                 c_lin.execute("SELECT count(*) FROM checkpoints WHERE thread_id = ?", (thread_id,))
                 c_cnt = c_lin.fetchone()[0]
                 if c_cnt == 0:
@@ -3838,13 +4012,20 @@ def main():
             if db_dir:
                 os.makedirs(db_dir, exist_ok=True)
 
-            conn = sqlite3.connect(db_path, timeout=5.0)
-            c = conn.cursor()
-            c.execute("CREATE TABLE IF NOT EXISTS thread_lineage (thread_id TEXT PRIMARY KEY, parent_thread_id TEXT, parent_checkpoint_id TEXT, created_at TEXT)")
-            if parent_tid:
-                c.execute("INSERT OR REPLACE INTO thread_lineage (thread_id, parent_thread_id, parent_checkpoint_id, created_at) VALUES (?, ?, ?, datetime('now'))", (tid, parent_tid, parent_cp))
-            conn.commit()
-            conn.close()
+            rec_tool = provider_name if provider_name else "cloud_api"
+            rec_prov = provider_name
+            rec_model = model_id
+            if rec_tool == "cloud_api" and "/" in model_id:
+                rec_prov = model_id.split("/", 1)[0]
+            _upsert_thread_model(
+                db_path,
+                tid,
+                parent_thread=parent_tid,
+                checkpoint_id=parent_cp,
+                tool_id=rec_tool,
+                provider=rec_prov,
+                model=rec_model,
+            )
 
             with SqliteSaver.from_conn_string(db_path) as memory:
                 memory.setup()
@@ -3926,7 +4107,6 @@ def main():
             conn.close()
             print("return {}")
             sys.exit(0)
-        conn.close()
 
         def to_lua_string(s):
             if not isinstance(s, str): return 'nil'
@@ -3935,7 +4115,16 @@ def main():
             return f'[{eq}[{s}]{eq}]'
 
         msgs = cp.get("channel_values", {}).get("messages", [])
+        model_meta = _resolve_thread_model(conn, args.get_thread_messages, msgs=msgs)
+        conn.close()
+
         lua_lines = ["return {"]
+        if model_meta.get("tool_id"):
+            lua_lines.append(f'  tool_id = {to_lua_string(model_meta["tool_id"])},')
+        if model_meta.get("provider"):
+            lua_lines.append(f'  provider = {to_lua_string(model_meta["provider"])},')
+        if model_meta.get("model"):
+            lua_lines.append(f'  model = {to_lua_string(model_meta["model"])},')
         for m in msgs:
             m_type = getattr(m, "type", "")
             content = getattr(m, "content", "")
@@ -4089,6 +4278,9 @@ def main():
 
                 group = classify_group(tid, topic_title, rep_query[:120], turns) if not parent_thread else None
 
+                resolved_meta = _resolve_thread_model(conn, tid, msgs=msgs)
+                prov_display = resolved_meta.get("model") or (providers[-1] if providers else "")
+
                 conversations.append({
                     "thread_id": tid,
                     "id": last_cp,
@@ -4097,7 +4289,7 @@ def main():
                     "outcome": last_outcome.replace('\n', ' '),
                     "turns": turns,
                     "date": date,
-                    "provider": providers[0] if providers else "",
+                    "provider": prov_display,
                     "parent_thread": parent_thread,
                     "group": group
                 })
