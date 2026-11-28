@@ -798,6 +798,7 @@ if not config.ai_sidebar then
     tool_state    = {},
     -- Custom tools added by user via + button
     custom_tools  = {},
+    no_editor_auto = false,   -- stop AI from automating Lite XL editor UI while keeping tools & MCP active
   }
 end
 
@@ -2527,30 +2528,43 @@ function AGView:submit(prompt, is_auto_continuation)
   if av and av.doc then fname = av.doc.filename end
 
   local full_prompt = expanded_prompt
-  -- Prepend ambient micro-awareness pulse & host capabilities from agent_meta_tools
+  local stop_editor_auto = config.ai_sidebar and config.ai_sidebar.no_editor_auto
+  -- Prepend ambient micro-awareness pulse & host capabilities from agent_meta_tools (unless Editor Automation is stopped)
   local host_guidance = ""
-  if core.agent_meta_tools then
+  if stop_editor_auto then
+    if tool_id ~= "cloud_api" then
+      host_guidance = "[EDITOR AUTOMATION DISABLED: Do NOT automate or control Lite XL editor UI, tabs, splits, panels, or emit [LITEXL:...] tags. Perform all work via your coding, shell, and MCP tools directly.]\n\n"
+    end
+  elseif core.agent_meta_tools then
     local pulse_line = core.agent_meta_tools.pulse and core.agent_meta_tools.pulse() or ""
-    host_guidance = pulse_line .. "\n" ..
-      "[LITE-XL AGENTIC HOST: You have direct control over this Lite XL editor and all its plugins!\n" ..
-      "CRITICAL: When the user asks to play music/videos, navigate presentations or PDFs, view git diffs, open terminal, solve LeetCode, preview web/markdown, manage MongoDB/Podman, or create/arrange project files:\n" ..
-      "NEVER tell the user to manually run bash echo/cat to create files, paste an HTML <iframe>, embed code, markdown cell, or open an external link! You MUST actuate the Lite XL host directly by emitting: [LITEXL:subsystem:action:{...}].\n" ..
-      "Available Actuation Subsystems:\n" ..
-      "• youtube: [LITEXL:youtube:play:{\"query\":\"song or artist name\"}] or [LITEXL:youtube:toggle]\n" ..
-      "• editor: [LITEXL:editor:create_file:{\"path\":\"filename\",\"content\":\"file content\"}], [LITEXL:editor:open_file:{\"path\":\"...\"}], [LITEXL:editor:open_split:{\"layout\":\"side_by_side\"}]\n" ..
-      "• markdown: [LITEXL:markdown:preview:{\"path\":\"file.md\"}] or [LITEXL:markdown:preview]\n" ..
-      "• visualizer: [LITEXL:visualizer:visualize_architecture], [LITEXL:visualizer:visualize_terraform]\n" ..
-      "• leetcode: [LITEXL:leetcode:fetch_problem:{\"slug\":\"two-sum\"}], [LITEXL:leetcode:run_test], [LITEXL:leetcode:submit]\n" ..
-      "• pptx: [LITEXL:pptx:next_slide], [LITEXL:pptx:prev_slide], [LITEXL:pptx:goto_slide:{\"slide\":2}], [LITEXL:pptx:start_slideshow]\n" ..
-      "• pdf: [LITEXL:pdf:next_page], [LITEXL:pdf:prev_page], [LITEXL:pdf:goto_page:{\"page\":5}], [LITEXL:pdf:zoom:{\"direction\":\"in\"}]\n" ..
-      "• web_preview: [LITEXL:web_preview:start], [LITEXL:web_preview:stop], [LITEXL:web_preview:restart]\n" ..
-      "• terminal: [LITEXL:terminal:toggle]\n" ..
-      "• git: [LITEXL:git:stage:{\"files\":[\"path1\",\"path2\"]}], [LITEXL:git:commit:{\"message\":\"...\"}], [LITEXL:git:push:{}], [LITEXL:git:open_diff], [LITEXL:git:open_timeline], [LITEXL:git:status]\n" ..
-      "When staging, committing, or pushing code: ALWAYS use git capabilities [LITEXL:git:stage], [LITEXL:git:commit], [LITEXL:git:push], or [LITEXL:git:open_diff]. NEVER dump raw shell scripts or hallucinated wrapper functions in chat.\n" ..
-      "• mongodb: [LITEXL:mongodb:toggle], [LITEXL:mongodb:start_server], [LITEXL:mongodb:new_scratchpad]\n" ..
-      "• podman: [LITEXL:podman:toggle]\n" ..
-      "• voice: [LITEXL:voice:toggle]\n" ..
-      "Emit the [LITEXL:...] tag directly inside your response text and confirm cleanly to the user.]\n\n"
+    if tool_id == "cloud_api" then
+      -- cloud_api already receives full host actuation instructions in its system prompt;
+      -- only prepend the compact ~25-token ambient pulse so conversation history is not bloated on every turn.
+      if pulse_line ~= "" then
+        host_guidance = pulse_line .. "\n\n"
+      end
+    else
+      host_guidance = pulse_line .. "\n" ..
+        "[LITE-XL AGENTIC HOST: You have direct control over this Lite XL editor and all its plugins!\n" ..
+        "CRITICAL: When the user asks to play music/videos, navigate presentations or PDFs, view git diffs, open terminal, solve LeetCode, preview web/markdown, manage MongoDB/Podman, or create/arrange project files:\n" ..
+        "NEVER tell the user to manually run bash echo/cat to create files, paste an HTML <iframe>, embed code, markdown cell, or open an external link! You MUST actuate the Lite XL host directly by emitting: [LITEXL:subsystem:action:{...}].\n" ..
+        "Available Actuation Subsystems:\n" ..
+        "• youtube: [LITEXL:youtube:play:{\"query\":\"song or artist name\"}] or [LITEXL:youtube:toggle]\n" ..
+        "• editor: [LITEXL:editor:create_file:{\"path\":\"filename\",\"content\":\"file content\"}], [LITEXL:editor:open_file:{\"path\":\"...\"}], [LITEXL:editor:open_split:{\"layout\":\"side_by_side\"}]\n" ..
+        "• markdown: [LITEXL:markdown:preview:{\"path\":\"file.md\"}] or [LITEXL:markdown:preview]\n" ..
+        "• visualizer: [LITEXL:visualizer:visualize_architecture], [LITEXL:visualizer:visualize_terraform]\n" ..
+        "• leetcode: [LITEXL:leetcode:fetch_problem:{\"slug\":\"two-sum\"}], [LITEXL:leetcode:run_test], [LITEXL:leetcode:submit]\n" ..
+        "• pptx: [LITEXL:pptx:next_slide], [LITEXL:pptx:prev_slide], [LITEXL:pptx:goto_slide:{\"slide\":2}], [LITEXL:pptx:start_slideshow]\n" ..
+        "• pdf: [LITEXL:pdf:next_page], [LITEXL:pdf:prev_page], [LITEXL:pdf:goto_page:{\"page\":5}], [LITEXL:pdf:zoom:{\"direction\":\"in\"}]\n" ..
+        "• web_preview: [LITEXL:web_preview:start], [LITEXL:web_preview:stop], [LITEXL:web_preview:restart]\n" ..
+        "• terminal: [LITEXL:terminal:toggle]\n" ..
+        "• git: [LITEXL:git:stage:{\"files\":[\"path1\",\"path2\"]}], [LITEXL:git:commit:{\"message\":\"...\"}], [LITEXL:git:push:{}], [LITEXL:git:open_diff], [LITEXL:git:open_timeline], [LITEXL:git:status]\n" ..
+        "When staging, committing, or pushing code: ALWAYS use git capabilities [LITEXL:git:stage], [LITEXL:git:commit], [LITEXL:git:push], or [LITEXL:git:open_diff]. NEVER dump raw shell scripts or hallucinated wrapper functions in chat.\n" ..
+        "• mongodb: [LITEXL:mongodb:toggle], [LITEXL:mongodb:start_server], [LITEXL:mongodb:new_scratchpad]\n" ..
+        "• podman: [LITEXL:podman:toggle]\n" ..
+        "• voice: [LITEXL:voice:toggle]\n" ..
+        "Emit the [LITEXL:...] tag directly inside your response text and confirm cleanly to the user.]\n\n"
+    end
   end
   full_prompt = host_guidance .. full_prompt
   if fname and tool_id == "agy" then
@@ -3148,75 +3162,82 @@ function AGView:update()
               self:fetch_history()
           end
           if tab._ai_buf then
-            -- Execute any in-band Lite XL action tags emitted by the AI
-            if not core.agent_meta_tools then
-              pcall(require, "plugins.agent_meta_tools")
-            end
-            if core.agent_meta_tools and core.agent_meta_tools.execute then
-              local ok_json, json = pcall(require, "plugins.lsp.json")
-              if ok_json and json and json.decode then
-                local function parse_and_exec(tag_body)
-                  if not tag_body or tag_body == "" then return "" end
-                  -- Strip any stray bracket or trailing whitespace
-                  tag_body = tag_body:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%]%s*$", "")
+            -- Execute any in-band Lite XL action tags emitted by the AI (unless Editor Automation is stopped)
+            if config.ai_sidebar and config.ai_sidebar.no_editor_auto then
+              tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([%s%S]-)%]", "")
+              if tab._ai_buf:find("%[LITEXL:") then
+                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([^\r\n]+)", "")
+              end
+            else
+              if not core.agent_meta_tools then
+                pcall(require, "plugins.agent_meta_tools")
+              end
+              if core.agent_meta_tools and core.agent_meta_tools.execute then
+                local ok_json, json = pcall(require, "plugins.lsp.json")
+                if ok_json and json and json.decode then
+                  local function parse_and_exec(tag_body)
+                    if not tag_body or tag_body == "" then return "" end
+                    -- Strip any stray bracket or trailing whitespace
+                    tag_body = tag_body:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%]%s*$", "")
 
-                  -- Case 1: Pure JSON object [LITEXL:{"subsystem":"...","action":"..."}]
-                  if tag_body:match("^%s*{") then
-                    local parse_ok, act = pcall(json.decode, tag_body)
-                    if not parse_ok and not tag_body:match("}%s*$") then
-                      parse_ok, act = pcall(json.decode, tag_body .. "}")
-                    end
-                    if parse_ok and act and act.subsystem and act.action then
-                      local exec_ok, res = core.agent_meta_tools.execute(act.subsystem, act.action, act.params or {})
-                      local badge_icon = exec_ok and "⚡" or "⚠️"
-                      return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, act.subsystem, act.action, tostring(res))
-                    end
-                  else
-                    -- Case 2: Colon delimited [LITEXL:subsystem:action:params_json] or [LITEXL:subsystem:action]
-                    local sub, act, raw_p = tag_body:match("^([%w_%-]+):([%w_%-]+):?([%s%S]*)$")
-                    if sub and act then
-                      local params = {}
-                      if raw_p and raw_p:match("%S") then
-                        raw_p = raw_p:gsub("%]%s*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                        local p_ok, parsed = pcall(json.decode, raw_p)
-                        if not p_ok and raw_p:match("^%s*{") and not raw_p:match("}%s*$") then
-                          p_ok, parsed = pcall(json.decode, raw_p .. "}")
-                        end
-                        if p_ok and type(parsed) == "table" then
-                          params = parsed
-                        else
-                          -- Robust parameter extraction if JSON decode failed or format is loose
-                          local clean_p = raw_p:gsub('^%s*["\'%{]*', ''):gsub('["\'%}]*%s*$', '')
-                          local q_val = raw_p:match('["\']?query["\']?%s*:%s*["\']([^"\']+)["\']') or
-                                        raw_p:match('["\']?query["\']?%s*:%s*([^%s,"\'%}]+)') or
-                                        raw_p:match('["\']?path["\']?%s*:%s*["\']([^"\']+)["\']') or
-                                        raw_p:match('["\']?title["\']?%s*:%s*["\']([^"\']+)["\']') or
-                                        raw_p:match('["\']?slug["\']?%s*:%s*["\']([^"\']+)["\']')
-                          if q_val then clean_p = q_val end
-                          params = {
-                            query = clean_p, title = clean_p, song = clean_p, slug = clean_p,
-                            path = clean_p, file = clean_p, filename = clean_p, target = clean_p,
-                            slide = clean_p, page = clean_p
-                          }
-                          -- Also extract any additional key-value pairs
-                          for k, v in raw_p:gmatch('["\']?([%w_%-]+)["\']?%s*:%s*["\']([^"\']+)["\']') do
-                            params[k] = v
+                    -- Case 1: Pure JSON object [LITEXL:{"subsystem":"...","action":"..."}]
+                    if tag_body:match("^%s*{") then
+                      local parse_ok, act = pcall(json.decode, tag_body)
+                      if not parse_ok and not tag_body:match("}%s*$") then
+                        parse_ok, act = pcall(json.decode, tag_body .. "}")
+                      end
+                      if parse_ok and act and act.subsystem and act.action then
+                        local exec_ok, res = core.agent_meta_tools.execute(act.subsystem, act.action, act.params or {})
+                        local badge_icon = exec_ok and "⚡" or "⚠️"
+                        return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, act.subsystem, act.action, tostring(res))
+                      end
+                    else
+                      -- Case 2: Colon delimited [LITEXL:subsystem:action:params_json] or [LITEXL:subsystem:action]
+                      local sub, act, raw_p = tag_body:match("^([%w_%-]+):([%w_%-]+):?([%s%S]*)$")
+                      if sub and act then
+                        local params = {}
+                        if raw_p and raw_p:match("%S") then
+                          raw_p = raw_p:gsub("%]%s*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          local p_ok, parsed = pcall(json.decode, raw_p)
+                          if not p_ok and raw_p:match("^%s*{") and not raw_p:match("}%s*$") then
+                            p_ok, parsed = pcall(json.decode, raw_p .. "}")
+                          end
+                          if p_ok and type(parsed) == "table" then
+                            params = parsed
+                          else
+                            -- Robust parameter extraction if JSON decode failed or format is loose
+                            local clean_p = raw_p:gsub('^%s*["\'%{]*', ''):gsub('["\'%}]*%s*$', '')
+                            local q_val = raw_p:match('["\']?query["\']?%s*:%s*["\']([^"\']+)["\']') or
+                                          raw_p:match('["\']?query["\']?%s*:%s*([^%s,"\'%}]+)') or
+                                          raw_p:match('["\']?path["\']?%s*:%s*["\']([^"\']+)["\']') or
+                                          raw_p:match('["\']?title["\']?%s*:%s*["\']([^"\']+)["\']') or
+                                          raw_p:match('["\']?slug["\']?%s*:%s*["\']([^"\']+)["\']')
+                            if q_val then clean_p = q_val end
+                            params = {
+                              query = clean_p, title = clean_p, song = clean_p, slug = clean_p,
+                              path = clean_p, file = clean_p, filename = clean_p, target = clean_p,
+                              slide = clean_p, page = clean_p
+                            }
+                            -- Also extract any additional key-value pairs
+                            for k, v in raw_p:gmatch('["\']?([%w_%-]+)["\']?%s*:%s*["\']([^"\']+)["\']') do
+                              params[k] = v
+                            end
                           end
                         end
+                        local exec_ok, res = core.agent_meta_tools.execute(sub, act, params)
+                        local badge_icon = exec_ok and "⚡" or "⚠️"
+                        return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, sub, act, tostring(res))
                       end
-                      local exec_ok, res = core.agent_meta_tools.execute(sub, act, params)
-                      local badge_icon = exec_ok and "⚡" or "⚠️"
-                      return string.format("\n\n> %s **Lite XL Action**: `%s:%s` → *%s*\n\n", badge_icon, sub, act, tostring(res))
                     end
+                    return ""
                   end
-                  return ""
-                end
 
-                -- Match closed tags [LITEXL:...:...] including multiline JSON
-                tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([%s%S]-)%]", parse_and_exec)
-                -- Match unclosed tags at the end of buffer [LITEXL:...
-                if tab._ai_buf:find("%[LITEXL:") then
-                  tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([^\r\n]+)", parse_and_exec)
+                  -- Match closed tags [LITEXL:...:...] including multiline JSON
+                  tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([%s%S]-)%]", parse_and_exec)
+                  -- Match unclosed tags at the end of buffer [LITEXL:...
+                  if tab._ai_buf:find("%[LITEXL:") then
+                    tab._ai_buf = tab._ai_buf:gsub("%[LITEXL:([^\r\n]+)", parse_and_exec)
+                  end
                 end
               end
             end
@@ -4488,6 +4509,12 @@ function AGView:draw()
   local auto_w = small_font:get_width(auto_lbl) + 16 * SCALE
   local auto_x = ro_x - 4 * SCALE - auto_w
 
+  -- Stop Editor Automation Toggle (Right aligned)
+  local no_ed = config.ai_sidebar.no_editor_auto
+  local ed_lbl = no_ed and "🚫 EdAuto" or "EdAuto"
+  local ed_w = small_font:get_width(ed_lbl) + 16 * SCALE
+  local ed_x = auto_x - 4 * SCALE - ed_w
+
   local mh = 20 * SCALE
   local my = act_y + math.floor((action_row_h - mh) / 2)
 
@@ -4495,7 +4522,7 @@ function AGView:draw()
   local sel_name  = self:_active_model() or "Default model"
   local chevron = " >"
   local model_lbl = sel_name
-  local max_model_w = math.max(40 * SCALE, (auto_x - 4 * SCALE) - (inp_x + c_pad + attach_w + 4 * SCALE))
+  local max_model_w = math.max(40 * SCALE, (ed_x - 4 * SCALE) - (inp_x + c_pad + attach_w + 4 * SCALE))
   -- Truncate logic
   while small_font:get_width(model_lbl .. chevron) > (max_model_w - 16 * SCALE) and #model_lbl > 4 do
     model_lbl = model_lbl:sub(1, -2)
@@ -4511,13 +4538,21 @@ function AGView:draw()
   local my = act_y + math.floor((action_row_h - mh) / 2)
 
   local m_bg = self.hover_model_btn and P.bg_btn_hl or _COLOR_CACHE_22
-  local m_clip_w = math.max(0, auto_x - 4 * SCALE - mx)
+  local m_clip_w = math.max(0, ed_x - 4 * SCALE - mx)
   core.push_clip_rect(mx, my, m_clip_w, mh)
   renderer.draw_rect(mx, my, mw, mh, m_bg)
   renderer.draw_text(small_font, model_lbl, mx + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2),
     self.hover_model_btn and P.fg_accent or P.fg_muted)
   core.pop_clip_rect()
   self._model_rect = { x = mx, y = my, w = math.min(mw, m_clip_w), h = mh }
+
+  -- Draw Stop Editor Automation Toggle
+  local ed_bg = no_ed and { common.color "#662828" } or (self.hover_ed_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
+  local ed_fg = no_ed and { common.color "#FB4934" } or P.fg_muted
+  renderer.draw_rect(ed_x, my, ed_w, mh, ed_bg)
+  draw_rect_outline(ed_x, my, ed_w, mh, no_ed and { common.color "#FB4934" } or P.border)
+  draw_text_emoji(small_font, ed_lbl, ed_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ed_fg)
+  self._ed_auto_rect = { x = ed_x, y = my, w = ed_w, h = mh }
 
   -- Draw Autopilot
   local auto_bg = config.ai_sidebar.autopilot and { common.color "#2D5A38" } or (self.hover_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
@@ -6795,17 +6830,25 @@ function AGView:on_mouse_moved(mx, my, ...)
   -- Model button hover
   self.hover_model_btn = false
   self.hover_model_idx = nil
+  self.hover_ed_auto_btn = false
   self.hover_auto_btn = false
   self.hover_ro_btn = false
   self.hover_voice_btn = false
 
+  if self._ed_auto_rect then
+    local r = self._ed_auto_rect
+    self.hover_ed_auto_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+    if self.hover_ed_auto_btn then system.set_cursor("hand") end
+  end
   if self._auto_rect then
     local r = self._auto_rect
     self.hover_auto_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+    if self.hover_auto_btn then system.set_cursor("hand") end
   end
   if self._ro_rect then
     local r = self._ro_rect
     self.hover_ro_btn = (mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h)
+    if self.hover_ro_btn then system.set_cursor("hand") end
   end
   if self._voice_rect then
     local r = self._voice_rect
@@ -8791,6 +8834,20 @@ function AGView:on_mouse_pressed(button, mx, my, clicks)
       self.show_model_picker = not self.show_model_picker
       if self.show_model_picker and #self.model_list == 0 then
         self:fetch_models()
+      end
+      core.redraw = true
+      return true
+    end
+  end
+
+  if self._ed_auto_rect then
+    local r = self._ed_auto_rect
+    if mx >= r.x and mx <= r.x + r.w and my >= r.y and my <= r.y + r.h then
+      config.ai_sidebar.no_editor_auto = not config.ai_sidebar.no_editor_auto
+      if config.ai_sidebar.no_editor_auto then
+        core.log("AI Sidebar: Editor Agentic Automation STOPPED (tools & MCP remain active).")
+      else
+        core.log("AI Sidebar: Editor Agentic Automation ENABLED.")
       end
       core.redraw = true
       return true

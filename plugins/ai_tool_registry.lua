@@ -254,6 +254,9 @@ M.REGISTRY = {
       if config.ai_sidebar and config.ai_sidebar.read_only then
         a[#a+1] = "--read-only"
       end
+      if config.ai_sidebar and config.ai_sidebar.no_editor_auto then
+        a[#a+1] = "--no-editor-automation"
+      end
 
       local pdir = (require "core").project_dir or (os.getenv("PWD") or os.getenv("CD") or "")
       if pdir ~= "" then

@@ -3,6 +3,7 @@
 -- Replaces 60+ individual tool schemas (~4,500 tokens) with 3 compact Meta-Tools (~120 tokens).
 
 local core = require "core"
+local config = require "core.config"
 local common = require "core.common"
 local system = require "system"
 local command = require "core.command"
@@ -84,6 +85,9 @@ end
 
 -- ── 2. Universal Actuator (`litexl_do`) ────────────────────────────────────────
 function MetaTools.execute(subsystem, action, params)
+  if config.ai_sidebar and config.ai_sidebar.no_editor_auto then
+    return false, "EDITOR_AUTOMATION_DISABLED: Editor agentic automation is stopped by user toggle. Use file, shell, or MCP tools instead."
+  end
   if not subsystem or not action then
     return false, "INVALID_ARGS: Both 'subsystem' and 'action' are required."
   end
