@@ -4111,6 +4111,132 @@ local function compute_session_raw_height(sess, msg_pad, lh_f, lh_c)
   return h
 end
 
+function AGView:_draw_composer_actions(P, small_font, inp_x, inp_w, act_y, action_row_h, c_pad, attach_w, is_running)
+  -- Right-side control buttons
+  local send_w = 28 * SCALE
+  local send_h = 24 * SCALE
+  local send_x = inp_x + inp_w - c_pad - send_w
+
+  -- Voice Typing Button (Next to Send button)
+  local is_voice = (self.voice_active == true)
+  local voice_lbl = is_voice and (self.voice_speaking and "🔴 Speaking" or "🔴 Live") or "🎙️"
+  local voice_w = is_voice and (small_font:get_width(voice_lbl) + 16 * SCALE) or (26 * SCALE)
+  local voice_x = send_x - 4 * SCALE - voice_w
+
+  -- Read-Only Toggle (Right aligned)
+  local ro_lbl = config.ai_sidebar.read_only and "🔒 RO" or "RO"
+  local ro_w = small_font:get_width(ro_lbl) + 16 * SCALE
+  local ro_x = voice_x - 4 * SCALE - ro_w
+
+  -- Autopilot Toggle (Right aligned)
+  local auto_lbl = config.ai_sidebar.autopilot and "⚡ Auto" or "Auto"
+  local auto_w = small_font:get_width(auto_lbl) + 16 * SCALE
+  local auto_x = ro_x - 4 * SCALE - auto_w
+
+  -- Stop Editor Automation Toggle (Right aligned)
+  local no_ed = config.ai_sidebar.no_editor_auto
+  local ed_lbl = no_ed and "🚫 EdAuto" or "EdAuto"
+  local ed_w = small_font:get_width(ed_lbl) + 16 * SCALE
+  local ed_x = auto_x - 4 * SCALE - ed_w
+
+  local mh = 20 * SCALE
+  local my = act_y + math.floor((action_row_h - mh) / 2)
+
+  -- Model Selector Badge (Next to attach button)
+  local sel_name  = self:_active_model() or "Default model"
+  local chevron = " >"
+  local model_lbl = sel_name
+  local max_model_w = math.max(40 * SCALE, (ed_x - 4 * SCALE) - (inp_x + c_pad + attach_w + 4 * SCALE))
+  -- Truncate logic
+  while small_font:get_width(model_lbl .. chevron) > (max_model_w - 16 * SCALE) and #model_lbl > 4 do
+    model_lbl = model_lbl:sub(1, -2)
+  end
+  if model_lbl ~= sel_name then
+    model_lbl = model_lbl:match("^%s*(.-)%s*$") .. ".."
+  end
+  model_lbl = model_lbl .. chevron
+
+  local mw = small_font:get_width(model_lbl) + 16 * SCALE
+  local mx = inp_x + c_pad + attach_w + 4 * SCALE
+
+  local m_bg = self.hover_model_btn and P.bg_btn_hl or _COLOR_CACHE_22
+  local m_clip_w = math.max(0, ed_x - 4 * SCALE - mx)
+  core.push_clip_rect(mx, my, m_clip_w, mh)
+  renderer.draw_rect(mx, my, mw, mh, m_bg)
+  renderer.draw_text(small_font, model_lbl, mx + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2),
+    self.hover_model_btn and P.fg_accent or P.fg_muted)
+  core.pop_clip_rect()
+  self._model_rect = { x = mx, y = my, w = math.min(mw, m_clip_w), h = mh }
+
+  -- Draw Stop Editor Automation Toggle
+  local ed_bg = no_ed and { common.color "#662828" } or (self.hover_ed_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
+  local ed_fg = no_ed and { common.color "#FB4934" } or P.fg_muted
+  renderer.draw_rect(ed_x, my, ed_w, mh, ed_bg)
+  draw_rect_outline(ed_x, my, ed_w, mh, no_ed and { common.color "#FB4934" } or P.border)
+  draw_text_emoji(small_font, ed_lbl, ed_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ed_fg)
+  self._ed_auto_rect = { x = ed_x, y = my, w = ed_w, h = mh }
+
+  -- Draw Autopilot
+  local auto_bg = config.ai_sidebar.autopilot and { common.color "#2D5A38" } or (self.hover_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
+  local auto_fg = config.ai_sidebar.autopilot and { common.color "#B8BB26" } or P.fg_muted
+  renderer.draw_rect(auto_x, my, auto_w, mh, auto_bg)
+  draw_rect_outline(auto_x, my, auto_w, mh, config.ai_sidebar.autopilot and { common.color "#B8BB26" } or P.border)
+  renderer.draw_text(small_font, auto_lbl, auto_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), auto_fg)
+  self._auto_rect = { x = auto_x, y = my, w = auto_w, h = mh }
+
+  -- Draw Read-Only
+  local ro_bg = config.ai_sidebar.read_only and { common.color "#6B4E26" } or (self.hover_ro_btn and P.bg_btn_hl or _COLOR_CACHE_22)
+  local ro_fg = config.ai_sidebar.read_only and { common.color "#FABD2F" } or P.fg_muted
+  renderer.draw_rect(ro_x, my, ro_w, mh, ro_bg)
+  draw_rect_outline(ro_x, my, ro_w, mh, config.ai_sidebar.read_only and { common.color "#FABD2F" } or P.border)
+  renderer.draw_text(small_font, ro_lbl, ro_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ro_fg)
+  self._ro_rect = { x = ro_x, y = my, w = ro_w, h = mh }
+
+  -- Draw Voice Typing Button
+  local vy = act_y + math.floor((action_row_h - mh) / 2)
+  if is_voice then
+    local v_level_factor = math.min(1.0, math.max(0.0, ((self.voice_level or 0) - 300) / 1000))
+    local v_pulse = (math.sin(self.tick / 6) + 1) / 2
+    local halo_pad = math.floor(2 * SCALE + (self.voice_speaking and (4 * SCALE * v_level_factor + 2 * SCALE * v_pulse) or (2 * SCALE * v_pulse)))
+    local v_alpha = self.voice_speaking and math.floor(70 + 120 * v_level_factor) or math.floor(40 + 70 * v_pulse)
+    renderer.draw_rect(voice_x - halo_pad, vy - halo_pad, voice_w + halo_pad * 2, mh + halo_pad * 2, { 235, 60, 60, v_alpha })
+    renderer.draw_rect(voice_x, vy, voice_w, mh, self.voice_speaking and { 220, 35, 35, 240 } or { 190, 45, 45, 230 })
+    renderer.draw_text(small_font, voice_lbl, voice_x + 8 * SCALE, vy + math.floor((mh - small_font:get_height()) / 2), { 255, 255, 255 })
+  else
+    local v_bg = self.hover_voice_btn and P.bg_btn_hl or _COLOR_CACHE_22
+    renderer.draw_rect(voice_x, vy, voice_w, mh, v_bg)
+    draw_rect_outline(voice_x, vy, voice_w, mh, P.border)
+    local v_tw = style.font:get_width(voice_lbl)
+    renderer.draw_text(style.font, voice_lbl, voice_x + math.floor((voice_w - v_tw) / 2), vy + math.floor((mh - style.font:get_height()) / 2), self.hover_voice_btn and P.fg_accent or P.fg_muted)
+  end
+  self._voice_rect = { x = voice_x, y = vy, w = voice_w, h = mh }
+
+  -- Send/Stop Button (Right aligned)
+  local send_y = act_y + math.floor((action_row_h - send_h) / 2)
+  local send_bg
+  if is_running then
+    send_bg = self.hover_send and { common.color "#F26363" } or { common.color "#D94C4C" }
+  else
+    send_bg = self.hover_send and P.bg_btn_hl or P.bg_btn
+  end
+
+  renderer.draw_rect(send_x, send_y, send_w, send_h, send_bg)
+
+  -- Send/Stop Icons
+  if is_running then
+    local ix = send_x + math.floor((send_w - 8 * SCALE) / 2)
+    local iy = send_y + math.floor((send_h - 8 * SCALE) / 2)
+    renderer.draw_rect(ix, iy, 8 * SCALE, 8 * SCALE, _COLOR_CACHE_33)
+  else
+    local s_icon = ">"
+    local scx = send_x + math.floor((send_w - style.icon_font:get_width(s_icon)) / 2)
+    local scy = send_y + math.floor((send_h - style.icon_font:get_height()) / 2)
+    renderer.draw_text(style.icon_font, s_icon, scx, scy, P.fg)
+  end
+
+  self._send_rect = { x = send_x, y = send_y, w = send_w, h = send_h }
+end
+
 function AGView:draw()
   if self.size.x < 4 then return end
 
@@ -4488,137 +4614,7 @@ function AGView:draw()
     P.fg_muted)
   self._attach_rect = { x = inp_x + c_pad, y = act_y, w = attach_w, h = action_row_h }
 
-  -- Right-side control buttons
-  local send_w = 28 * SCALE
-  local send_h = 24 * SCALE
-  local send_x = inp_x + inp_w - c_pad - send_w
-
-  -- Voice Typing Button (Next to Send button)
-  local is_voice = (self.voice_active == true)
-  local voice_lbl = is_voice and (self.voice_speaking and "🔴 Speaking" or "🔴 Live") or "🎙️"
-  local voice_w = is_voice and (small_font:get_width(voice_lbl) + 16 * SCALE) or (26 * SCALE)
-  local voice_x = send_x - 4 * SCALE - voice_w
-
-  -- Read-Only Toggle (Right aligned)
-  local ro_lbl = config.ai_sidebar.read_only and "🔒 RO" or "RO"
-  local ro_w = small_font:get_width(ro_lbl) + 16 * SCALE
-  local ro_x = voice_x - 4 * SCALE - ro_w
-
-  -- Autopilot Toggle (Right aligned)
-  local auto_lbl = config.ai_sidebar.autopilot and "⚡ Auto" or "Auto"
-  local auto_w = small_font:get_width(auto_lbl) + 16 * SCALE
-  local auto_x = ro_x - 4 * SCALE - auto_w
-
-  -- Stop Editor Automation Toggle (Right aligned)
-  local no_ed = config.ai_sidebar.no_editor_auto
-  local ed_lbl = no_ed and "🚫 EdAuto" or "EdAuto"
-  local ed_w = small_font:get_width(ed_lbl) + 16 * SCALE
-  local ed_x = auto_x - 4 * SCALE - ed_w
-
-  local mh = 20 * SCALE
-  local my = act_y + math.floor((action_row_h - mh) / 2)
-
-  -- Model Selector Badge (Next to attach button)
-  local sel_name  = self:_active_model() or "Default model"
-  local chevron = " >"
-  local model_lbl = sel_name
-  local max_model_w = math.max(40 * SCALE, (ed_x - 4 * SCALE) - (inp_x + c_pad + attach_w + 4 * SCALE))
-  -- Truncate logic
-  while small_font:get_width(model_lbl .. chevron) > (max_model_w - 16 * SCALE) and #model_lbl > 4 do
-    model_lbl = model_lbl:sub(1, -2)
-  end
-  if model_lbl ~= sel_name then
-    model_lbl = model_lbl:match("^%s*(.-)%s*$") .. ".."
-  end
-  model_lbl = model_lbl .. chevron
-
-  local mw = small_font:get_width(model_lbl) + 16 * SCALE
-  local mh = 20 * SCALE
-  local mx = inp_x + c_pad + attach_w + 4 * SCALE
-  local my = act_y + math.floor((action_row_h - mh) / 2)
-
-  local m_bg = self.hover_model_btn and P.bg_btn_hl or _COLOR_CACHE_22
-  local m_clip_w = math.max(0, ed_x - 4 * SCALE - mx)
-  core.push_clip_rect(mx, my, m_clip_w, mh)
-  renderer.draw_rect(mx, my, mw, mh, m_bg)
-  renderer.draw_text(small_font, model_lbl, mx + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2),
-    self.hover_model_btn and P.fg_accent or P.fg_muted)
-  core.pop_clip_rect()
-  self._model_rect = { x = mx, y = my, w = math.min(mw, m_clip_w), h = mh }
-
-  -- Draw Stop Editor Automation Toggle
-  local ed_bg = no_ed and { common.color "#662828" } or (self.hover_ed_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
-  local ed_fg = no_ed and { common.color "#FB4934" } or P.fg_muted
-  renderer.draw_rect(ed_x, my, ed_w, mh, ed_bg)
-  draw_rect_outline(ed_x, my, ed_w, mh, no_ed and { common.color "#FB4934" } or P.border)
-  draw_text_emoji(small_font, ed_lbl, ed_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ed_fg)
-  self._ed_auto_rect = { x = ed_x, y = my, w = ed_w, h = mh }
-
-  -- Draw Autopilot
-  local auto_bg = config.ai_sidebar.autopilot and { common.color "#2D5A38" } or (self.hover_auto_btn and P.bg_btn_hl or _COLOR_CACHE_22)
-  local auto_fg = config.ai_sidebar.autopilot and { common.color "#B8BB26" } or P.fg_muted
-  renderer.draw_rect(auto_x, my, auto_w, mh, auto_bg)
-  draw_rect_outline(auto_x, my, auto_w, mh, config.ai_sidebar.autopilot and { common.color "#B8BB26" } or P.border)
-  renderer.draw_text(small_font, auto_lbl, auto_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), auto_fg)
-  self._auto_rect = { x = auto_x, y = my, w = auto_w, h = mh }
-
-  -- Draw Read-Only
-  local ro_bg = config.ai_sidebar.read_only and { common.color "#6B4E26" } or (self.hover_ro_btn and P.bg_btn_hl or _COLOR_CACHE_22)
-  local ro_fg = config.ai_sidebar.read_only and { common.color "#FABD2F" } or P.fg_muted
-  renderer.draw_rect(ro_x, my, ro_w, mh, ro_bg)
-  draw_rect_outline(ro_x, my, ro_w, mh, config.ai_sidebar.read_only and { common.color "#FABD2F" } or P.border)
-  renderer.draw_text(small_font, ro_lbl, ro_x + 8 * SCALE, my + math.floor((mh - small_font:get_height())/2), ro_fg)
-  self._ro_rect = { x = ro_x, y = my, w = ro_w, h = mh }
-
-  -- Draw Voice Typing Button
-  local vy = act_y + math.floor((action_row_h - mh) / 2)
-  if is_voice then
-    local v_level_factor = math.min(1.0, math.max(0.0, ((self.voice_level or 0) - 300) / 1000))
-    local v_pulse = (math.sin(self.tick / 6) + 1) / 2
-    local halo_pad = math.floor(2 * SCALE + (self.voice_speaking and (4 * SCALE * v_level_factor + 2 * SCALE * v_pulse) or (2 * SCALE * v_pulse)))
-    local v_alpha = self.voice_speaking and math.floor(70 + 120 * v_level_factor) or math.floor(40 + 70 * v_pulse)
-    renderer.draw_rect(voice_x - halo_pad, vy - halo_pad, voice_w + halo_pad * 2, mh + halo_pad * 2, { 235, 60, 60, v_alpha })
-    renderer.draw_rect(voice_x, vy, voice_w, mh, self.voice_speaking and { 220, 35, 35, 240 } or { 190, 45, 45, 230 })
-    renderer.draw_text(small_font, voice_lbl, voice_x + 8 * SCALE, vy + math.floor((mh - small_font:get_height()) / 2), { 255, 255, 255 })
-  else
-    local v_bg = self.hover_voice_btn and P.bg_btn_hl or _COLOR_CACHE_22
-    renderer.draw_rect(voice_x, vy, voice_w, mh, v_bg)
-    draw_rect_outline(voice_x, vy, voice_w, mh, P.border)
-    local v_tw = style.font:get_width(voice_lbl)
-    renderer.draw_text(style.font, voice_lbl, voice_x + math.floor((voice_w - v_tw) / 2), vy + math.floor((mh - style.font:get_height()) / 2), self.hover_voice_btn and P.fg_accent or P.fg_muted)
-  end
-  self._voice_rect = { x = voice_x, y = vy, w = voice_w, h = mh }
-
-  -- Send/Stop Button (Right aligned)
-  local send_w = 28 * SCALE
-  local send_h = 24 * SCALE
-  local send_x = inp_x + inp_w - c_pad - send_w
-  local send_y = act_y + math.floor((action_row_h - send_h) / 2)
-
-  local send_bg
-  if is_running then
-    send_bg = self.hover_send and { common.color "#F26363" } or { common.color "#D94C4C" }
-  else
-    send_bg = self.hover_send and P.bg_btn_hl or P.bg_btn
-  end
-
-  renderer.draw_rect(send_x, send_y, send_w, send_h, send_bg)
-  
-  -- Send/Stop Icons
-  if is_running then
-    -- Stop icon (Square block)
-    local ix = send_x + math.floor((send_w - 8 * SCALE) / 2)
-    local iy = send_y + math.floor((send_h - 8 * SCALE) / 2)
-    renderer.draw_rect(ix, iy, 8 * SCALE, 8 * SCALE, _COLOR_CACHE_33)
-  else
-    -- Send icon (Chevron right)
-    local s_icon = ">"
-    local scx = send_x + math.floor((send_w - style.icon_font:get_width(s_icon)) / 2)
-    local scy = send_y + math.floor((send_h - style.icon_font:get_height()) / 2)
-    renderer.draw_text(style.icon_font, s_icon, scx, scy, P.fg)
-  end
-
-  self._send_rect = { x = send_x, y = send_y, w = send_w, h = send_h }
+  self:_draw_composer_actions(P, small_font, inp_x, inp_w, act_y, action_row_h, c_pad, attach_w, is_running)
 
   -- ═══════════════════════════════════════════════════════════════════
   -- CHAT HISTORY TABS (Underline style)
